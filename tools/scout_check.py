@@ -1,9 +1,3 @@
-Understood. Let’s lock this down. Here is the "Principal-Grade" refactor for both files. These versions include the surgical # nosec suppressions to satisfy the Bandit auditor while maintaining the security improvements we built today.
-
-1. scout_check.py
-Changes: Added absolute path resolution and # nosec suppressions for subprocess imports and calls.
-
-Python
 import os
 import subprocess  # nosec: B404
 import shutil
@@ -25,28 +19,40 @@ def get_bin(name: str) -> str:
 def run_preflight():
     console.print(Panel.fit("[bold cyan]SANCTUM SCOUT PRE-FLIGHT[/bold cyan]", border_style="cyan"))
     
+    # Resolve the project root so we can find the /tests folder
+    # We are in /tools, so root is one level up.
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    test_file = os.path.join(root_dir, "tests", "test_engine.py")
+    
     python_path = sys.executable
     git_path = get_bin("git")
     pmset_path = get_bin("pmset")
 
-    # 1. Logic Integrity Check
+    # 1. Logic Integrity Check (Updated for Modular Structure)
     console.print("[yellow]Executing Logic Audit...[/yellow]")
+    # We set the PYTHONPATH to include the root so pytest can find 'src'
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{root_dir}:{env.get('PYTHONPATH', '')}"
+    
     test_proc = subprocess.run(
-        [python_path, "-m", "pytest", "test_engine.py"],
+        [python_path, "-m", "pytest", test_file],
         capture_output=True,
         text=True,
-        check=False
+        check=False,
+        env=env
     )  # nosec: B603
     
     if test_proc.returncode == 0:
         console.print("[green] [✓] Logic Verified: Vault is stable.[/green]")
     else:
         console.print("[red] [!] Logic Failure: Fix engine before scouting.[/red]")
+        # Optional: Print pytest output if it fails to help debugging
+        # console.print(test_proc.stdout)
 
     # 2. Safe Harbor Check
     console.print("[yellow]Checking Safe Harbor Status...[/yellow]")
     git_proc = subprocess.run(
-        [git_path, "status", "--porcelain"], 
+        [git_path, "-C", root_dir, "status", "--porcelain"], 
         capture_output=True, 
         text=True,
         check=False

@@ -1,0 +1,14 @@
+# Databases
+data/*.db
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Tooling
+.trunk/out/
+.pytest_cache/

@@ -1,23 +1,29 @@
 import sqlite3
-
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+# Use a relative import to get the engine from the same directory
+try:
+    from .engine import SanctumTerminal
+except ImportError:
+    # Fallback for running the script directly during testing
+    from engine import SanctumTerminal
 
 console = Console()
 
-
 def get_status():
-    db_path = "vault.db"
+    terminal = SanctumTerminal()
+    # The engine now provides the absolute or relative path correctly
+    db_path = terminal.db_path 
+    
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
 
-        # 1. Calculate Liquid Cache (Ledger Total)
+        # 1. Calculate Liquid Cache
         cursor.execute("SELECT SUM(amount) FROM ledger")
         liquid = cursor.fetchone()[0] or 0.0
 
-        # 2. Calculate Asset Value (Archive Total)
-        # Note: We use the 'cost' column we just verified exists
+        # 2. Calculate Asset Value
         cursor.execute("SELECT COUNT(*), SUM(cost) FROM archive")
         relic_count, asset_value = cursor.fetchone()
         asset_value = asset_value or 0.0
@@ -51,10 +57,8 @@ def get_status():
     if recent:
         console.print("\n[bold]RECENT LEDGER ACTIVITY:[/bold]")
         for ts, event, amt in recent:
-            # Shorten timestamp for readability
             date = ts.split("T")[0]
             console.print(f" • {date} | {event:<15} | [green]${amt:>8.2f}[/green]")
-
 
 if __name__ == "__main__":
     get_status()
