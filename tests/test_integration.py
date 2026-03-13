@@ -83,3 +83,55 @@ def test_asset_valuation(mock_env):
 
     print(f"[VERIFY] Expected: 55.0, Received: {valuation}")
     assert valuation == 55.0
+
+def test_financial_snapshot(mock_env):
+    """
+    TDD REQUIREMENT:
+    The engine must provide a unified dictionary containing
+    both liquid balance and asset valuation for the UI layer.
+    """
+    terminal = mock_env["terminal"]
+
+    print("\n[TDD] Testing Financial Snapshot...")
+    # Seed data: $1000 in, $40 out for a relic
+    terminal.log_event(1000.00, "INITIAL_STABILITY", "Vault Seed")
+    terminal.acquire_relic("Ghost in the Shell", "Anime", 40.00)
+
+    # Logic:
+    # Liquid = 1000 - 40 = 960.0
+    # Assets = 40.0
+    # Aegis (Total) = 1000.0
+
+    snapshot = terminal.get_financial_snapshot()
+
+    print(f"[VERIFY] Snapshot Payload: {snapshot}")
+    assert snapshot["liquid"] == 960.0
+    assert snapshot["assets"] == 40.0
+    assert snapshot["aegis"] == 1000.0
+
+def test_complex_transaction_integrity(mock_env):
+    """
+    STRESS TEST:
+    Verifies that a relic acquisition correctly:
+    1. Subtracts from Liquid
+    2. Adds to Assets
+    3. Keeps Total Aegis constant
+    """
+    terminal = mock_env["terminal"]
+
+    # 1. Establish Baseline
+    terminal.log_event(500.00, "INITIAL_STABILITY", "Hardening Test Seed")
+
+    # 2. Execute High-Value Conversion
+    # This should trigger the BEGIN TRANSACTION / COMMIT panels in telemetry
+    terminal.acquire_relic("Criterion: Stalker (4K)", "Sci-Fi", 50.00)
+
+    # 3. Pull Snapshot
+    snapshot = terminal.get_financial_snapshot()
+
+    # 4. Verify Math Integrity
+    # Liquid (500-50=450) + Assets (50) must equal 500
+    print(f"[VERIFY] Snapshot Audit: {snapshot}")
+    assert snapshot["liquid"] == 450.0
+    assert snapshot["assets"] == 50.0
+    assert snapshot["aegis"] == 500.0
