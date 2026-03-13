@@ -87,3 +87,13 @@ class SanctumTerminal:
         result = self._execute(query)
         # Handle cases where the ledger might be empty (returning 0.0)
         return result[0][0] if result[0][0] is not None else 0.0
+    
+    def get_total_valuation(self) -> float:
+        """
+        Calculates the total value of the Physical Archive.
+        Summation of the 'cost' column in the archive table.
+        """
+        query = "SELECT SUM(cost) FROM archive"
+        result = self._execute(query)
+        # Standard safety check for empty tables
+        return result[0][0] if result[0][0] is not None else 0.0

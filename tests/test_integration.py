@@ -64,3 +64,22 @@ def test_balance_calculation(mock_env):
 
     print(f"[VERIFY] Expected: 60.0, Received: {balance}")
     assert balance == 60.0
+
+def test_asset_valuation(mock_env):
+    """
+    TDD REQUIREMENT:
+    The engine must sum the 'cost' column of the archive 
+    to return the total value of all physical relics.
+    """
+    terminal = mock_env["terminal"]
+    print("\n[TDD] Testing Asset Valuation...")
+    
+    # Seed the archive with two relics
+    terminal.acquire_relic("Akira (4K)", "Anime", 30.00)
+    terminal.acquire_relic("The Thing (4K)", "Horror", 25.00)
+
+    # This call will trigger the 'AttributeError' we're looking for
+    valuation = terminal.get_total_valuation()
+
+    print(f"[VERIFY] Expected: 55.0, Received: {valuation}")
+    assert valuation == 55.0
