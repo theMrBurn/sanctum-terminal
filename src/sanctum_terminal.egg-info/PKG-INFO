@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: sanctum-terminal
+Version: 0.1.0
+Summary: Sovereign Reality Engine
+Requires-Dist: rich
+Requires-Dist: requests
+Requires-Dist: pytest
