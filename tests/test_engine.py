@@ -37,3 +37,18 @@ def test_atomic_acquisition(temp_vault):
     # Bonus: Verify the 'Core' system gained XP from the acquisition
     specs = temp_vault.get_system_specs()
     assert specs["core"]["xp"] > 0
+
+
+def test_hardware_integrity_persistence(temp_vault):
+    """RED: Verify that we can store and retrieve hardware damage status."""
+    # 1. Set damage to True in the isolated test DB
+    temp_vault.cursor.execute(
+        "INSERT OR REPLACE INTO system_state (key, value) VALUES ('sensor_array_damaged', 'True')"
+    )
+    temp_vault.conn.commit()
+
+    # 2. Retrieve it through the new helper method (currently non-existent)
+    # This will trigger the AttributeError we want for the Green phase.
+    is_damaged = temp_vault.get_hardware_status("sensor_array")
+
+    assert is_damaged is True

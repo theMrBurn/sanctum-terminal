@@ -49,7 +49,7 @@ class SanctumTerminal:
             )
         """)
 
-        # System State (Cooldowns, Heat, etc)
+        # System State (Cooldowns, Heat, Hardware Flags)
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_state (
                 key TEXT PRIMARY KEY,
@@ -70,6 +70,11 @@ class SanctumTerminal:
             "INSERT OR IGNORE INTO system_state (key, value) VALUES (?, ?)",
             ("heat", "0"),
         )
+        # Initial Hardware State: Nominal
+        self.cursor.execute(
+            "INSERT OR IGNORE INTO system_state (key, value) VALUES (?, ?)",
+            ("sensor_array_damaged", "False"),
+        )
 
         # Initial Systems: Start at Level 0 for Fidelity to trigger 'BIOS' mode
         systems = [("uplink", 1, 0, 100), ("fidelity", 0, 0, 50), ("core", 1, 0, 500)]
@@ -77,6 +82,33 @@ class SanctumTerminal:
             "INSERT OR IGNORE INTO system_specs (name, level, xp, next_level_xp) VALUES (?, ?, ?, ?)",
             systems,
         )
+
+    # --- HARDWARE INTEGRITY API ---
+
+    def get_hardware_status(self, component_name: str) -> bool:
+        """
+        GREEN: Retrieves the damage status of a specific hardware component.
+        Returns True if damaged, False if nominal.
+        """
+        key = f"{component_name}_damaged"
+        res = self._execute("SELECT value FROM system_state WHERE key=?", (key,))
+
+        # SQLite stores everything as strings; we check for "True"
+        if res and res[0][0] == "True":
+            return True
+        return False
+
+    def apply_hardware_damage(self, component_name: str, damaged: bool = True):
+        """
+        GREEN: Persists hardware damage state to the database.
+        Used when high heat causes system degradation.
+        """
+        key = f"{component_name}_damaged"
+        val = str(damaged)
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO system_state (key, value) VALUES (?, ?)", (key, val)
+        )
+        self.conn.commit()
 
     # --- PROGRESSION API ---
 
