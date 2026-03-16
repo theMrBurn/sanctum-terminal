@@ -31,7 +31,6 @@ class EnvironmentalSensor:
         if not self.api_key:
             return self._get_offline_defaults(clean_city_name)
 
-        # 1. DEFINE PARAMS HERE (So the try block can see them)
         params = {
             "lat": coords["lat"],
             "lon": coords["lon"],
@@ -40,7 +39,6 @@ class EnvironmentalSensor:
         }
 
         try:
-            # 2. params is now defined and safe to use
             response = requests.get(self.base_url, params=params, timeout=5)
             data = response.json()
 
@@ -56,26 +54,11 @@ class EnvironmentalSensor:
         except Exception as e:
             print(f"[SENSOR ERROR] Falling back to offline defaults: {e}")
             return self._get_offline_defaults(clean_city_name)
-        try:
-            response = requests.get(self.base_url, params=params, timeout=5)
-            data = response.json()
-
-            return {
-                "city": clean_city_name,  # <-- Use it here
-                "temp": data["main"]["temp"],
-                "condition": data["weather"][0]["main"],
-                "wind_speed": data["wind"]["speed"],
-                "humidity": data["main"]["humidity"],
-                "timestamp": datetime.now().isoformat(),
-                "is_live": True,
-            }
-        except Exception:
-            return self._get_offline_defaults(clean_city_name)  # <-- And here
 
     def _get_offline_defaults(self, display_name: str) -> dict:
         """Fallback for when you're working without an internet connection."""
         return {
-            "city": display_name,  # <-- Use the passed display_name
+            "city": display_name,
             "temp": 50.0,
             "condition": "Overcast",
             "wind_speed": 5.0,
@@ -83,9 +66,3 @@ class EnvironmentalSensor:
             "timestamp": datetime.now().isoformat(),
             "is_live": False,
         }
-
-
-if __name__ == "__main__":
-    # Quick tire-kick
-    sensor = EnvironmentalSensor()
-    print(sensor.fetch_passive_data("portland"))
