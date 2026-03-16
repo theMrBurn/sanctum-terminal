@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.live import Live
 
 from src.engine import SanctumTerminal
-from src.scout import ScoutEngine
+from src.scout import ScoutEngine, ThermalError
 from src.sensors import EnvironmentalSensor
 from src.status import render_dashboard
 
@@ -20,18 +20,15 @@ def main():
     parser = argparse.ArgumentParser(description="Sanctum Terminal")
     subparsers = parser.add_subparsers(dest="command")
 
-    # Status Command
     status_p = subparsers.add_parser("status")
     status_p.add_argument("city", nargs="?", default="portland")
     status_p.add_argument(
         "--watch", action="store_true", help="Live refresh every 5 seconds"
     )
 
-    # Scout Command
     scout_p = subparsers.add_parser("scout")
     scout_p.add_argument("city", nargs="?", default="portland")
 
-    # Flush Command
     subparsers.add_parser("flush", help="Vent thermal load (Costs 100 Aegis)")
 
     args = parser.parse_args()
@@ -66,7 +63,7 @@ def main():
             )
             return
 
-        # 2. Fetch Context (ADDED: Heat retrieval)
+        # 2. Fetch Context
         heat_data = terminal._execute("SELECT value FROM system_state WHERE key='heat'")
         current_heat = int(heat_data[0][0]) if heat_data else 0
 
@@ -74,17 +71,29 @@ def main():
         env = sensor.fetch_passive_data(args.city)
         player = terminal.get_financial_snapshot()
 
-        # 3. Resolve Mission (ADDED: Pass current_heat to Engine)
-        engine = ScoutEngine(env, player, heat=current_heat)
-        result = engine.resolve()
+        # 3. Resolve Mission with Thermal Guard
+        try:
+            engine = ScoutEngine(env, player, heat=current_heat)
+            result = engine.resolve()
+        except ThermalError as e:
+            console.print("\n[bold red]─── THERMAL CRITICAL LOCKOUT ───[/bold red]")
+            console.print(f"[red]{str(e)}[/red]")
+            console.print(
+                "[yellow]Recommendation: Run 'python3 sanctum.py flush' or wait for background cooling.[/yellow]\n"
+            )
+            return
 
-        # 4. Update the Vault, Progression, and HEAT (ADDED: Heat update)
+        # 4. Update the Vault, Progression, and HEAT
         terminal.update_vault(
             liquid_delta=result.aegis_delta, note=result.description, is_mission=True
         )
 
         terminal.add_system_xp("uplink", result.xp_gain)
         terminal.add_system_xp("fidelity", int(result.xp_gain / 2))
+
+        # --- NEW: PERSIST HARDWARE DAMAGE ---
+        if result.system_damage:
+            terminal.apply_hardware_damage("sensor_array", damaged=True)
 
         # Save new heat state
         new_heat = min(100, current_heat + result.heat_gain)
@@ -95,8 +104,14 @@ def main():
 
         # 5. Feedback
         console.print(f"\n[bold white]MISSION LOG:[/bold white] {result.description}")
-        color = "green" if result.success else "red"
 
+        # UI alert if damage occurred
+        if result.system_damage:
+            console.print(
+                "[bold blink red]!!! HARDWARE CRITICAL: SENSOR ARRAY DESOLDERED !!![/bold blink red]"
+            )
+
+        color = "green" if result.success else "red"
         console.print(
             f"STATUS: [{color}]{'SUCCESS' if result.success else 'FAILURE'}[/{color}]"
         )
@@ -110,18 +125,15 @@ def main():
 
     elif args.command == "flush":
         terminal = SanctumTerminal()
-
         if terminal.get_total_balance() < 100:
             console.print(
                 "\n[bold red]ERR:[/bold red] Insufficient Aegis for thermal vent.\n"
             )
             return
-
         new_heat = terminal.flush_heat()
         console.print(
             f"\n[bold cyan]STABILITY RESTORED:[/bold cyan] Heat sinks stabilized at {new_heat}%.\n"
         )
-
     else:
         parser.print_help()
 
