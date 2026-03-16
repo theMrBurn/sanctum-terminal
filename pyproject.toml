@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sanctum-terminal"
+version = "0.1.0"
+description = "Sovereign Reality Engine"
+dependencies = [
+    "rich",
+    "requests",
+    "pytest"
+]
+
+[project.scripts]
+sanctum = "sanctum:main"

@@ -1,6 +1,7 @@
 import os
 import pytest
 import sqlite3
+from src.scout import ScoutEngine
 from src.engine import SanctumTerminal
 from rich.console import Console
 from rich.table import Table
@@ -8,36 +9,39 @@ from rich import box
 
 console = Console()
 
+
 @pytest.fixture
 def mock_env(tmp_path):
     """Isolated sandbox for testing."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     db_file = data_dir / "vault_test.db"
-    
+
     # Initialize with debug=True so we see the telemetry during tests
     print(f"\n[INTEGRATION] Initializing Mock Vault at: {db_file}")
     terminal = SanctumTerminal(db_path=str(db_file), debug=True)
     return {"terminal": terminal, "db_path": str(db_file)}
 
+
 def test_full_acquisition_cycle(mock_env):
     """Verifies that acquiring a relic correctly updates Ledger and Archive."""
     terminal = mock_env["terminal"]
-    
+
     test_relic = "Metropolis (4K)"
     test_cost = 45.00
     terminal.acquire_relic(test_relic, "Sci-Fi", test_cost)
-    
+
     table = Table(title="POST-ACQUISITION DB SNAPSHOT", box=box.ROUNDED)
     table.add_column("Table", style="cyan")
     table.add_column("Entry", style="white")
-    
+
     ledger_data = terminal._execute("SELECT * FROM ledger ORDER BY id DESC LIMIT 1")
     archive_data = terminal._execute("SELECT * FROM archive ORDER BY id DESC LIMIT 1")
-    
+
     table.add_row("LEDGER", str(ledger_data[0]))
     table.add_row("ARCHIVE", str(archive_data[0]))
     console.print(table)
+
 
 def test_directory_resolution():
     """Ensures the engine finds the production /data folder correctly."""
@@ -45,6 +49,7 @@ def test_directory_resolution():
     print(f"[PATH] Engine resolved Vault location to: {terminal.db_path}")
     assert "data/vault.db" in terminal.db_path
     assert os.path.isabs(terminal.db_path)
+
 
 def test_balance_calculation(mock_env):
     """
@@ -65,15 +70,16 @@ def test_balance_calculation(mock_env):
     print(f"[VERIFY] Expected: 60.0, Received: {balance}")
     assert balance == 60.0
 
+
 def test_asset_valuation(mock_env):
     """
     TDD REQUIREMENT:
-    The engine must sum the 'cost' column of the archive 
+    The engine must sum the 'cost' column of the archive
     to return the total value of all physical relics.
     """
     terminal = mock_env["terminal"]
     print("\n[TDD] Testing Asset Valuation...")
-    
+
     # Seed the archive with two relics
     terminal.acquire_relic("Akira (4K)", "Anime", 30.00)
     terminal.acquire_relic("The Thing (4K)", "Horror", 25.00)
@@ -83,6 +89,7 @@ def test_asset_valuation(mock_env):
 
     print(f"[VERIFY] Expected: 55.0, Received: {valuation}")
     assert valuation == 55.0
+
 
 def test_financial_snapshot(mock_env):
     """
@@ -108,6 +115,7 @@ def test_financial_snapshot(mock_env):
     assert snapshot["liquid"] == 960.0
     assert snapshot["assets"] == 40.0
     assert snapshot["aegis"] == 1000.0
+
 
 def test_complex_transaction_integrity(mock_env):
     """
@@ -136,6 +144,7 @@ def test_complex_transaction_integrity(mock_env):
     assert snapshot["assets"] == 50.0
     assert snapshot["aegis"] == 500.0
 
+
 def test_scout_generation_logic():
     # 1. Setup Passive (Rainy Night in Portland)
     weather = {"condition": "Rain", "visibility": "Low"}
@@ -147,5 +156,5 @@ def test_scout_generation_logic():
     mission = ScoutEngine.create(weather, player)
 
     # 4. Assert
-    assert mission.difficulty == "Hard" # Because of Rain
-    assert "Resilience" in mission.buffs # Because of Horror bias
+    assert mission.difficulty == "Hard"  # Because of Rain
+    assert "Resilience" in mission.buffs  # Because of Horror bias
