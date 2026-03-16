@@ -173,3 +173,19 @@ class SanctumTerminal:
         self.cursor.execute("SELECT SUM(cost) FROM archive")
         res = self.cursor.fetchone()[0]
         return res if res else 0.0
+
+    def flush_heat(self, amount: int = 25, cost: float = 100.0):
+        """Vents thermal load in exchange for liquid Aegis."""
+        heat_data = self._execute("SELECT value FROM system_state WHERE key='heat'")
+        current_heat = int(heat_data[0][0]) if heat_data else 0
+        new_heat = max(0, current_heat - amount)
+
+        # 1. Deduct Cost
+        self.update_vault(-cost, f"Thermal Flush: -{amount}% Heat")
+
+        # 2. Update Heat
+        self.cursor.execute(
+            "UPDATE system_state SET value = ? WHERE key = 'heat'", (str(new_heat),)
+        )
+        self.conn.commit()
+        return new_heat
