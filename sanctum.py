@@ -12,24 +12,29 @@ from src.status import render_dashboard
 
 console = Console()
 
-# Configuration: How many hours between scouts
+# Configuration
 COOLDOWN_HOURS = 1
+REPAIR_COST = 250.0
 
 
 def main():
     parser = argparse.ArgumentParser(description="Sanctum Terminal")
     subparsers = parser.add_subparsers(dest="command")
 
+    # Status Command
     status_p = subparsers.add_parser("status")
     status_p.add_argument("city", nargs="?", default="portland")
     status_p.add_argument(
         "--watch", action="store_true", help="Live refresh every 5 seconds"
     )
 
+    # Scout Command
     scout_p = subparsers.add_parser("scout")
     scout_p.add_argument("city", nargs="?", default="portland")
 
+    # Maintenance Commands
     subparsers.add_parser("flush", help="Vent thermal load (Costs 100 Aegis)")
+    subparsers.add_parser("repair", help=f"Repair desoldered hardware (Costs {REPAIR_COST} Aegis)")
 
     args = parser.parse_args()
 
@@ -91,7 +96,7 @@ def main():
         terminal.add_system_xp("uplink", result.xp_gain)
         terminal.add_system_xp("fidelity", int(result.xp_gain / 2))
 
-        # --- NEW: PERSIST HARDWARE DAMAGE ---
+        # --- PERSIST HARDWARE DAMAGE ---
         if result.system_damage:
             terminal.apply_hardware_damage("sensor_array", damaged=True)
 
@@ -105,7 +110,6 @@ def main():
         # 5. Feedback
         console.print(f"\n[bold white]MISSION LOG:[/bold white] {result.description}")
 
-        # UI alert if damage occurred
         if result.system_damage:
             console.print(
                 "[bold blink red]!!! HARDWARE CRITICAL: SENSOR ARRAY DESOLDERED !!![/bold blink red]"
@@ -134,6 +138,28 @@ def main():
         console.print(
             f"\n[bold cyan]STABILITY RESTORED:[/bold cyan] Heat sinks stabilized at {new_heat}%.\n"
         )
+
+    elif args.command == "repair":
+        terminal = SanctumTerminal()
+        
+        # Check if repair is needed
+        if not terminal.get_hardware_status("sensor_array"):
+            console.print("\n[bold green]SENSORS NOMINAL:[/bold green] No hardware degradation detected.\n")
+            return
+
+        # Check funds
+        if terminal.get_total_balance() < REPAIR_COST:
+            console.print(f"\n[bold red]ERR:[/bold red] Insufficient Aegis. Repair requires [white]{REPAIR_COST}[/white] Aegis.\n")
+            return
+
+        # Execute
+        try:
+            terminal.repair_hardware("sensor_array", cost=REPAIR_COST)
+            console.print(f"\n[bold green]REPAIR COMPLETE:[/bold green] Sensor Array realigned and secured.")
+            console.print(f"[dim]Maintenance cost: {REPAIR_COST} Aegis deducted from stability pool.[/dim]\n")
+        except Exception as e:
+            console.print(f"\n[bold red]FATAL:[/bold red] {str(e)}\n")
+
     else:
         parser.print_help()
 
