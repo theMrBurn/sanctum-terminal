@@ -74,3 +74,23 @@ def test_critical_failure_triggers_damage_flag():
 
     # Verified: The result must at least have the attribute (Green Phase)
     assert hasattr(result, "system_damage")
+
+
+def test_scout_tactic_scaling():
+    """RED: Verify that 'Aggressive' tactics increase both heat and potential reward."""
+    env = {"condition": "Clear"}
+    player = {"aegis": 1000}
+
+    # Testing the new 'tactic' parameter
+    engine_stealth = ScoutEngine(env, player, tactic="stealth")
+    engine_aggressive = ScoutEngine(env, player, tactic="aggressive")
+
+    res_stealth = engine_stealth.resolve()
+    res_aggressive = engine_aggressive.resolve()
+
+    # 1. Aggressive should generate more heat than stealth
+    assert res_aggressive.heat_gain > res_stealth.heat_gain
+
+    # 2. If both succeed, aggressive should yield more Aegis
+    if res_stealth.success and res_aggressive.success:
+        assert res_aggressive.aegis_delta > res_stealth.aegis_delta
