@@ -1,7 +1,9 @@
 import argparse
+import time
 from datetime import datetime, timedelta
 
 from rich.console import Console
+from rich.live import Live
 
 from src.engine import SanctumTerminal
 from src.scout import ScoutEngine
@@ -21,6 +23,9 @@ def main():
     # Status Command
     status_p = subparsers.add_parser("status")
     status_p.add_argument("city", nargs="?", default="portland")
+    status_p.add_argument(
+        "--watch", action="store_true", help="Live refresh every 5 seconds"
+    )
 
     # Scout Command
     scout_p = subparsers.add_parser("scout")
@@ -29,7 +34,18 @@ def main():
     args = parser.parse_args()
 
     if args.command == "status":
-        render_dashboard(args.city)
+        if args.watch:
+            # The Watcher Loop: Self-contained persistence
+            try:
+                with Live(refresh_per_second=1):
+                    while True:
+                        console.clear()
+                        render_dashboard(args.city)
+                        time.sleep(5)
+            except KeyboardInterrupt:
+                console.print("\n[bold cyan]Monitoring suspended.[/bold cyan]")
+        else:
+            render_dashboard(args.city)
 
     elif args.command == "scout":
         terminal = SanctumTerminal()
@@ -58,7 +74,6 @@ def main():
         result = engine.resolve()
 
         # 4. Update the Vault (Persistence)
-        # We pass note and is_mission=True to lock the timestamp
         terminal.update_vault(
             liquid_delta=result.aegis_delta, note=result.description, is_mission=True
         )
@@ -67,7 +82,7 @@ def main():
         console.print(f"\n[bold white]MISSION LOG:[/bold white] {result.description}")
         color = "green" if result.success else "red"
         console.print(f"RESULT: [{color}]{result.aegis_delta:+.2f} Aegis[/{color}]")
-        console.print(f"XP GAINED: {result.xp_gain}\n")
+        print(f"XP GAINED: {result.xp_gain}\n")
 
     else:
         parser.print_help()
