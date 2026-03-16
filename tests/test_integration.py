@@ -135,3 +135,17 @@ def test_complex_transaction_integrity(mock_env):
     assert snapshot["liquid"] == 450.0
     assert snapshot["assets"] == 50.0
     assert snapshot["aegis"] == 500.0
+
+def test_scout_generation_logic():
+    # 1. Setup Passive (Rainy Night in Portland)
+    weather = {"condition": "Rain", "visibility": "Low"}
+
+    # 2. Setup Active (High Aegis, Horror Bias)
+    player = {"aegis": 15880, "bias": "Horror"}
+
+    # 3. Generate Mission
+    mission = ScoutEngine.create(weather, player)
+
+    # 4. Assert
+    assert mission.difficulty == "Hard" # Because of Rain
+    assert "Resilience" in mission.buffs # Because of Horror bias
