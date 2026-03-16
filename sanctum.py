@@ -35,7 +35,6 @@ def main():
 
     if args.command == "status":
         if args.watch:
-            # The Watcher Loop: Self-contained persistence
             try:
                 with Live(refresh_per_second=1):
                     while True:
@@ -50,7 +49,7 @@ def main():
     elif args.command == "scout":
         terminal = SanctumTerminal()
 
-        # 1. Check Cooldown (The Temporal Gate)
+        # 1. Check Cooldown
         last_scout = terminal.get_last_scout_time()
         time_since = datetime.now() - last_scout
         cooldown_delta = timedelta(hours=COOLDOWN_HOURS)
@@ -73,16 +72,27 @@ def main():
         engine = ScoutEngine(env, player)
         result = engine.resolve()
 
-        # 4. Update the Vault (Persistence)
+        # 4. Update the Vault & Progression (The "Earnest" Change)
         terminal.update_vault(
             liquid_delta=result.aegis_delta, note=result.description, is_mission=True
         )
 
+        # We split the XP between the Uplink (active scouting) and Fidelity (UI/Terminal growth)
+        terminal.add_system_xp("uplink", result.xp_gain)
+        terminal.add_system_xp("fidelity", int(result.xp_gain / 2))
+
         # 5. Feedback
         console.print(f"\n[bold white]MISSION LOG:[/bold white] {result.description}")
         color = "green" if result.success else "red"
-        console.print(f"RESULT: [{color}]{result.aegis_delta:+.2f} Aegis[/{color}]")
-        print(f"XP GAINED: {result.xp_gain}\n")
+
+        # Displaying the delta and the new XP gains
+        console.print(
+            f"STATUS: [{color}]{'SUCCESS' if result.success else 'FAILURE'}[/{color}]"
+        )
+        console.print(f"STABILITY: [{color}]{result.aegis_delta:+.2f} Aegis[/{color}]")
+        console.print(
+            f"[dim]XP GAINED: +{result.xp_gain} Uplink | +{int(result.xp_gain/2)} Fidelity[/dim]\n"
+        )
 
     else:
         parser.print_help()

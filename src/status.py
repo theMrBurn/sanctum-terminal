@@ -1,54 +1,31 @@
-from src.engine import SanctumTerminal
-from src.sensors import EnvironmentalSensor  # <-- ADD THIS
 from rich.console import Console
-from rich.panel import Panel
-from rich.columns import Columns
-from rich import box
+from src.engine import SanctumTerminal
 
 console = Console()
 
 
-def render_dashboard(city="portland"):
+def render_status(city_data: dict):
     terminal = SanctumTerminal()
-    sensor = EnvironmentalSensor()  # <-- INITIALIZE SENSOR
+    specs = terminal.get_system_specs()
+    fidelity = specs.get("fidelity", {}).get("level", 0)
 
-    # Grab both layers of reality
-    snapshot = terminal.get_financial_snapshot()
-    env = sensor.fetch_passive_data(city)  # <-- USE THE CITY ARGUMENT
+    if fidelity == 0:
+        # TIER 0: BIOS MODE
+        # Subtle immersion: No colors, no boxes, raw telemetry.
+        console.print("-" * 40)
+        console.print(f"TERMINAL_CORE_v0.1 // {city_data['city'].upper()}")
+        console.print(f"ENV_DATA: {city_data['temp']}F | {city_data['condition']}")
+        console.print(f"STABILITY_POOL: {terminal.get_total_balance():.2f}")
+        console.print("-" * 40)
+        console.print("[dim]LOG: GFX_DRIVER_NOT_FOUND. SYSTEM_UPGRADE_REQUIRED.[/dim]")
 
-    # NEW: Passive Environment Panel (Blue Layer)
-    env_text = (
-        f"[bold white]{env['city']}[/bold white]\n"
-        f"[cyan]{env['temp']}°F[/cyan] | [blue]{env['condition']}[/blue]\n"
-        f"[dim]Wind: {env['wind_speed']}mph[/dim]"
-    )
-    env_panel = Panel(
-        env_text, title="PASSIVE ENV", border_style="blue", box=box.ROUNDED
-    )
-
-    # Economy Panels (Active Layer)
-    liquid_panel = Panel(
-        f"[bold green]${snapshot['liquid']:,.2f}[/bold green]",
-        title="LIQUID CAPITAL",
-        border_style="green",
-        box=box.DOUBLE,
-    )
-
-    aegis_panel = Panel(
-        f"[bold magenta]${snapshot['aegis']:,.2f}[/bold magenta]",
-        title="TOTAL AEGIS",
-        border_style="magenta",
-        box=box.HEAVY,
-    )
-
-    # Render the Merged State
-    console.print("\n[bold white]SANCTUM-TERMINAL // SYSTEM STATUS[/bold white]")
-    # Added env_panel to the columns list
-    console.print(Columns([env_panel, liquid_panel, aegis_panel]))
-
-    if not env["is_live"]:
-        console.print("[yellow]![/yellow] [dim]Running on Offline Defaults[/dim]")
+    else:
+        # TIER 1+: THE SANCTUM UI
+        # This is the beautiful Rich layout we already built.
+        render_high_fidelity_dashboard(city_data, terminal, specs)
 
 
-if __name__ == "__main__":
-    render_dashboard()
+def render_high_fidelity_dashboard(city_data, terminal, specs):
+    # (Your existing code with Panels and Colors goes here)
+    # Plus, we can now add a progress bar for the next level!
+    pass
