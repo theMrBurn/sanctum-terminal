@@ -110,6 +110,27 @@ class SanctumTerminal:
         )
         self.conn.commit()
 
+    def repair_hardware(self, component_name: str, cost: float):
+        """
+        GREEN: Repairs a component, deducts cost, and resets the damage flag.
+        Raises ValueError if funds are insufficient.
+        """
+        current_balance = self.get_total_balance()
+
+        if current_balance < cost:
+            raise ValueError(
+                f"Insufficient Aegis for repair. Required: {cost}, Available: {current_balance}"
+            )
+
+        # 1. Deduct the cost from the ledger
+        self.update_vault(-cost, f"Hardware Repair: {component_name}")
+
+        # 2. Reset the damage flag to False
+        self.apply_hardware_damage(component_name, damaged=False)
+
+        if self.debug:
+            print(f"[REPAIR] {component_name.upper()} restored to nominal state.")
+
     # --- PROGRESSION API ---
 
     def get_system_specs(self) -> dict:

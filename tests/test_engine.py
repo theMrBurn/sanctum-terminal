@@ -40,15 +40,28 @@ def test_atomic_acquisition(temp_vault):
 
 
 def test_hardware_integrity_persistence(temp_vault):
-    """RED: Verify that we can store and retrieve hardware damage status."""
+    """Verify that we can store and retrieve hardware damage status."""
     # 1. Set damage to True in the isolated test DB
-    temp_vault.cursor.execute(
-        "INSERT OR REPLACE INTO system_state (key, value) VALUES ('sensor_array_damaged', 'True')"
-    )
-    temp_vault.conn.commit()
+    temp_vault.apply_hardware_damage("sensor_array", damaged=True)
 
-    # 2. Retrieve it through the new helper method (currently non-existent)
-    # This will trigger the AttributeError we want for the Green phase.
+    # 2. Retrieve it
     is_damaged = temp_vault.get_hardware_status("sensor_array")
 
     assert is_damaged is True
+
+
+def test_hardware_repair_restores_integrity(temp_vault):
+    """RED: Verify that repairing a component resets its damage flag and costs Aegis."""
+    # 1. Force a damaged state
+    temp_vault.apply_hardware_damage("sensor_array", damaged=True)
+
+    # 2. Add some funds to cover the repair cost
+    temp_vault.log_event(500.0, "DEPOSIT", "Repair Fund")
+
+    # 3. Call the repair method
+    # This will trigger the AttributeError because the method doesn't exist yet
+    temp_vault.repair_hardware("sensor_array", cost=200.0)
+
+    # 4. Assertions
+    assert temp_vault.get_hardware_status("sensor_array") is False
+    assert temp_vault.get_total_balance() == 300.0
