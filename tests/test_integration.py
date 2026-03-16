@@ -1,6 +1,5 @@
 import os
 import pytest
-import sqlite3
 from src.scout import ScoutEngine
 from src.engine import SanctumTerminal
 from rich.console import Console
@@ -152,8 +151,12 @@ def test_scout_generation_logic():
     # 2. Setup Active (High Aegis, Horror Bias)
     player = {"aegis": 15880, "bias": "Horror"}
 
-    # 3. Generate Mission
-    mission = ScoutEngine.create(weather, player)
+    # 3. Generate Mission (Synchronized with hardened engine signature)
+    engine = ScoutEngine(weather, player)
+    mission = engine.resolve()
+
+    assert mission.success is not None
+    assert mission.aegis_delta != 0
 
     # 4. Assert
     assert mission.difficulty == "Hard"  # Because of Rain

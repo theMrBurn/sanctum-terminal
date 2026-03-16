@@ -22,17 +22,40 @@ class EnvironmentalSensor:
         """
         Gathers the raw 'Passive' environmental data from the real world.
         """
-        city = city.lower().replace(" ", "_")
-        coords = self.registry.get(city, self.registry["portland"])
+        city_key = city.lower().replace(" ", "_")
+        coords = self.registry.get(city_key, self.registry["portland"])
 
-        # This is our purified display string for UI and Tests
-        clean_city_name = city.replace("_", " ").title()
+        # Purify name for UI and Tests
+        clean_city_name = city_key.replace("_", " ").title()
 
         if not self.api_key:
-            return self._get_offline_defaults(clean_city_name)  # <-- Pass it here
+            return self._get_offline_defaults(clean_city_name)
 
-        # ... (params and request logic) ...
+        # 1. DEFINE PARAMS HERE (So the try block can see them)
+        params = {
+            "lat": coords["lat"],
+            "lon": coords["lon"],
+            "appid": self.api_key,
+            "units": "imperial",
+        }
 
+        try:
+            # 2. params is now defined and safe to use
+            response = requests.get(self.base_url, params=params, timeout=5)
+            data = response.json()
+
+            return {
+                "city": clean_city_name,
+                "temp": data["main"]["temp"],
+                "condition": data["weather"][0]["main"],
+                "wind_speed": data["wind"]["speed"],
+                "humidity": data["main"]["humidity"],
+                "timestamp": datetime.now().isoformat(),
+                "is_live": True,
+            }
+        except Exception as e:
+            print(f"[SENSOR ERROR] Falling back to offline defaults: {e}")
+            return self._get_offline_defaults(clean_city_name)
         try:
             response = requests.get(self.base_url, params=params, timeout=5)
             data = response.json()
@@ -46,7 +69,7 @@ class EnvironmentalSensor:
                 "timestamp": datetime.now().isoformat(),
                 "is_live": True,
             }
-        except Exception as e:
+        except Exception:
             return self._get_offline_defaults(clean_city_name)  # <-- And here
 
     def _get_offline_defaults(self, display_name: str) -> dict:
