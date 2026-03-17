@@ -1,4 +1,4 @@
-from src.engine import SanctumTerminal
+from engine import SanctumTerminal
 
 
 def test_system_initialization(tmp_path):

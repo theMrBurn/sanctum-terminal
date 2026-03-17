@@ -1,5 +1,5 @@
-from src.engine import SanctumTerminal
-from src.daemon import cooling_tick
+from engine import SanctumTerminal
+from daemon import cooling_tick
 
 
 def test_daemon_ledger_interaction(tmp_path):
