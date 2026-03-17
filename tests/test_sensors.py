@@ -1,4 +1,4 @@
-from src.sensors import EnvironmentalSensor
+from sensors import EnvironmentalSensor
 
 
 def test_sensor_registry_coverage():

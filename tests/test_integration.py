@@ -1,5 +1,5 @@
 import pytest
-from src.engine import SanctumTerminal
+from engine import SanctumTerminal
 
 
 @pytest.fixture

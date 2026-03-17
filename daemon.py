@@ -5,8 +5,8 @@ from rich.console import Console
 from rich.live import Live
 from rich.table import Table
 
-from src.engine import SanctumTerminal
-from src.sensors import EnvironmentalSensor
+from engine import SanctumTerminal
+from sensors import EnvironmentalSensor
 
 console = Console()
 
