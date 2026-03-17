@@ -1,12 +1,9 @@
 import random
 from dataclasses import dataclass
 
-
 class ThermalError(Exception):
     """Custom exception raised when heat exceeds the safety threshold."""
-
     pass
-
 
 @dataclass
 class ScoutResult:
@@ -16,7 +13,6 @@ class ScoutResult:
     xp_gain: int
     heat_gain: int
     system_damage: bool = False
-
 
 class ScoutEngine:
     def __init__(
@@ -43,6 +39,7 @@ class ScoutEngine:
         sensors_nominal = self.hardware.get("sensor_array", True)
         hazard_rating = 40.0
         condition = self.env.get("condition", "Clear")
+        city = self.env.get("city", "Unknown")
 
         if not sensors_nominal:
             hazard_rating += 20.0
@@ -79,14 +76,14 @@ class ScoutEngine:
             delta = 100.0 * mod["reward"]
             xp_reward = int((10 + (final_hazard / 5)) * mod["reward"])
             heat_generated = int(random.randint(5, 12) * mod["heat"])
-            msg = f"{prefix} Uplink stable in {self.env.get('city', 'Unknown')}. Fragments secured."
+            msg = f"{prefix} Uplink stable in {city}. Fragments secured."
         else:
             delta = -50.0
             xp_reward = 2
             heat_generated = int(random.randint(15, 25) * mod["heat"])
-            msg = f"{prefix} Signal lost. Thermal surge detected: {condition} interference."
+            # UPDATED: Added city name to the failure message
+            msg = f"{prefix} Signal lost in {city}. Thermal surge detected: {condition} interference."
 
-            # Damage check: Broken sensors can't be "more broken," but heat still bites
             if self.heat > 80 and random.random() < 0.25:
                 system_damage = True
                 msg += " CRITICAL: Hardware component desoldered."
