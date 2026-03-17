@@ -4,7 +4,7 @@ from rich.panel import Panel
 from rich.columns import Columns
 from rich.text import Text
 from rich.progress import ProgressBar
-from src.engine import SanctumTerminal
+from engine import SanctumTerminal
 
 console = Console()
 
