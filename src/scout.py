@@ -25,11 +25,13 @@ class ScoutEngine:
         player_snapshot: dict,
         heat: int = 0,
         tactic: str = "standard",
+        hardware_status: dict = None,
     ):
         self.env = environmental_data
         self.player = player_snapshot
         self.heat = heat
         self.tactic = tactic
+        self.hardware = hardware_status or {"sensor_array": True}
 
     def resolve(self) -> ScoutResult:
         if self.heat >= 100:
@@ -37,15 +39,18 @@ class ScoutEngine:
                 "CRITICAL OVERHEAT: System lockout active. Vent thermal load."
             )
 
-        # 1. Base Hazard Rating
+        # 1. Hardware & Base Hazard
+        sensors_nominal = self.hardware.get("sensor_array", True)
         hazard_rating = 40.0
         condition = self.env.get("condition", "Clear")
-        if condition in ["Rain", "Snow", "Extreme", "Overcast"]:
+
+        if not sensors_nominal:
+            hazard_rating += 20.0
+            condition = "SENSOR FAILURE"
+        elif condition in ["Rain", "Snow", "Extreme", "Overcast"]:
             hazard_rating += 15.0
 
         # 2. Tactical Adjustments
-        # Stealth: -10% Hazard, 0.7x Reward, 0.5x Heat
-        # Aggressive: +15% Hazard, 1.5x Reward, 2.0x Heat
         modifiers = {
             "stealth": {"hazard": -10.0, "reward": 0.7, "heat": 0.5},
             "standard": {"hazard": 0.0, "reward": 1.0, "heat": 1.0},
@@ -60,25 +65,28 @@ class ScoutEngine:
         # 4. Player Power
         power_score = min(self.player.get("aegis", 0) / 1000, 30.0)
 
-        # 5. The Resolution Roll
+        # 5. Resolution Roll
         roll = random.randint(1, 100) + power_score
         success = roll >= final_hazard
-
         system_damage = False
 
         # 6. Outcome Calculation
+        prefix = f"[{self.tactic.upper()}]"
+        if not sensors_nominal:
+            prefix += " [BLIND SCAN]"
+
         if success:
             delta = 100.0 * mod["reward"]
             xp_reward = int((10 + (final_hazard / 5)) * mod["reward"])
             heat_generated = int(random.randint(5, 12) * mod["heat"])
-            msg = f"[{self.tactic.upper()}] Uplink stable in {self.env.get('city', 'Unknown')}. Fragments secured."
+            msg = f"{prefix} Uplink stable in {self.env.get('city', 'Unknown')}. Fragments secured."
         else:
             delta = -50.0
             xp_reward = 2
             heat_generated = int(random.randint(15, 25) * mod["heat"])
-            msg = f"[{self.tactic.upper()}] Signal lost. Thermal surge detected: {condition} interference."
+            msg = f"{prefix} Signal lost. Thermal surge detected: {condition} interference."
 
-            # High-Heat Damage Check
+            # Damage check: Broken sensors can't be "more broken," but heat still bites
             if self.heat > 80 and random.random() < 0.25:
                 system_damage = True
                 msg += " CRITICAL: Hardware component desoldered."

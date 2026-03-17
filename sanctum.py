@@ -1,15 +1,10 @@
 import argparse
 import time
 from datetime import datetime, timedelta
-
 from rich.console import Console
 from rich.live import Live
 
-from src.engine import SanctumTerminal
-from src.scout import ScoutEngine, ThermalError
-from src.sensors import EnvironmentalSensor
-from src.status import render_dashboard
-
+# Global console instance
 console = Console()
 
 # Configuration
@@ -18,6 +13,13 @@ REPAIR_COST = 250.0
 
 
 def main():
+    # Defensive imports to prevent linter auto-deletion
+    from rich.prompt import Prompt
+    from src.engine import SanctumTerminal
+    from src.scout import ScoutEngine, ThermalError
+    from src.sensors import EnvironmentalSensor
+    from src.status import render_dashboard
+
     parser = argparse.ArgumentParser(description="Sanctum Terminal")
     subparsers = parser.add_subparsers(dest="command")
 
@@ -34,7 +36,9 @@ def main():
 
     # Maintenance Commands
     subparsers.add_parser("flush", help="Vent thermal load (Costs 100 Aegis)")
-    subparsers.add_parser("repair", help=f"Repair desoldered hardware (Costs {REPAIR_COST} Aegis)")
+    subparsers.add_parser(
+        "repair", help=f"Repair desoldered hardware (Costs {REPAIR_COST} Aegis)"
+    )
 
     args = parser.parse_args()
 
@@ -53,8 +57,6 @@ def main():
 
     elif args.command == "scout":
         terminal = SanctumTerminal()
-
-        # 1. Check Cooldown
         last_scout = terminal.get_last_scout_time()
         time_since = datetime.now() - last_scout
         cooldown_delta = timedelta(hours=COOLDOWN_HOURS)
@@ -63,53 +65,56 @@ def main():
             remaining = cooldown_delta - time_since
             minutes = int(remaining.total_seconds() // 60)
             console.print(
-                f"\n[bold red]ERR:[/bold red] Scout Engine Cooling. "
-                f"Recalibration complete in [bold white]{minutes} minutes.[/bold white]\n"
+                f"\n[bold red]ERR:[/bold red] Scout Engine Cooling. Complete in {minutes}m.\n"
             )
             return
 
-        # 2. Fetch Context
         heat_data = terminal._execute("SELECT value FROM system_state WHERE key='heat'")
         current_heat = int(heat_data[0][0]) if heat_data else 0
-
         sensor = EnvironmentalSensor()
         env = sensor.fetch_passive_data(args.city)
         player = terminal.get_financial_snapshot()
 
-        # 3. Resolve Mission with Thermal Guard
+        console.print(
+            f"\n[bold cyan]─── MISSION BRIEFING: {args.city.upper()} ───[/bold cyan]"
+        )
+        console.print(
+            f"Environment: [yellow]{env['condition']}[/yellow] | Current Heat: [orange1]{current_heat}%[/orange1]"
+        )
+        console.print("\nSelect Scouting Profile:")
+        console.print(" [1] [green]STEALTH[/green]    (0.5x Heat, 0.7x Reward)")
+        console.print(" [2] [white]STANDARD[/white]   (1.0x Heat, 1.0x Reward)")
+        console.print(" [3] [red]AGGRESSIVE[/red] (2.0x Heat, 1.5x Reward)")
+
+        choice = Prompt.ask(
+            "\nExecute via profile", choices=["1", "2", "3"], default="2"
+        )
+        tactic_map = {"1": "stealth", "2": "standard", "3": "aggressive"}
+        selected_tactic = tactic_map[choice]
+
         try:
-            engine = ScoutEngine(env, player, heat=current_heat)
+            engine = ScoutEngine(env, player, heat=current_heat, tactic=selected_tactic)
             result = engine.resolve()
         except ThermalError as e:
-            console.print("\n[bold red]─── THERMAL CRITICAL LOCKOUT ───[/bold red]")
-            console.print(f"[red]{str(e)}[/red]")
             console.print(
-                "[yellow]Recommendation: Run 'python3 sanctum.py flush' or wait for background cooling.[/yellow]\n"
+                f"\n[bold red]─── THERMAL CRITICAL LOCKOUT ───[/bold red]\n[red]{str(e)}[/red]\n"
             )
             return
 
-        # 4. Update the Vault, Progression, and HEAT
-        terminal.update_vault(
-            liquid_delta=result.aegis_delta, note=result.description, is_mission=True
-        )
-
+        terminal.update_vault(result.aegis_delta, result.description, is_mission=True)
         terminal.add_system_xp("uplink", result.xp_gain)
         terminal.add_system_xp("fidelity", int(result.xp_gain / 2))
 
-        # --- PERSIST HARDWARE DAMAGE ---
         if result.system_damage:
             terminal.apply_hardware_damage("sensor_array", damaged=True)
 
-        # Save new heat state
         new_heat = min(100, current_heat + result.heat_gain)
         terminal.cursor.execute(
             "UPDATE system_state SET value = ? WHERE key = 'heat'", (str(new_heat),)
         )
         terminal.conn.commit()
 
-        # 5. Feedback
         console.print(f"\n[bold white]MISSION LOG:[/bold white] {result.description}")
-
         if result.system_damage:
             console.print(
                 "[bold blink red]!!! HARDWARE CRITICAL: SENSOR ARRAY DESOLDERED !!![/bold blink red]"
@@ -123,43 +128,28 @@ def main():
         console.print(
             f"THERMAL SURGE: [bold red]+{result.heat_gain}%[/bold red] (Total: {new_heat}%)"
         )
-        console.print(
-            f"[dim]XP GAINED: +{result.xp_gain} Uplink | +{int(result.xp_gain/2)} Fidelity[/dim]\n"
-        )
+        console.print(f"[dim]XP GAINED: +{result.xp_gain} Uplink[/dim]\n")
 
     elif args.command == "flush":
         terminal = SanctumTerminal()
         if terminal.get_total_balance() < 100:
-            console.print(
-                "\n[bold red]ERR:[/bold red] Insufficient Aegis for thermal vent.\n"
-            )
+            console.print("\n[bold red]ERR:[/bold red] Insufficient Aegis.\n")
             return
         new_heat = terminal.flush_heat()
         console.print(
-            f"\n[bold cyan]STABILITY RESTORED:[/bold cyan] Heat sinks stabilized at {new_heat}%.\n"
+            f"\n[bold cyan]STABILITY RESTORED:[/bold cyan] Heat sinks at {new_heat}%.\n"
         )
 
     elif args.command == "repair":
         terminal = SanctumTerminal()
-        
-        # Check if repair is needed
         if not terminal.get_hardware_status("sensor_array"):
-            console.print("\n[bold green]SENSORS NOMINAL:[/bold green] No hardware degradation detected.\n")
+            console.print("\n[bold green]SENSORS NOMINAL.[/bold green]\n")
             return
-
-        # Check funds
         if terminal.get_total_balance() < REPAIR_COST:
-            console.print(f"\n[bold red]ERR:[/bold red] Insufficient Aegis. Repair requires [white]{REPAIR_COST}[/white] Aegis.\n")
+            console.print(f"\n[bold red]ERR:[/bold red] Need {REPAIR_COST} Aegis.\n")
             return
-
-        # Execute
-        try:
-            terminal.repair_hardware("sensor_array", cost=REPAIR_COST)
-            console.print(f"\n[bold green]REPAIR COMPLETE:[/bold green] Sensor Array realigned and secured.")
-            console.print(f"[dim]Maintenance cost: {REPAIR_COST} Aegis deducted from stability pool.[/dim]\n")
-        except Exception as e:
-            console.print(f"\n[bold red]FATAL:[/bold red] {str(e)}\n")
-
+        terminal.repair_hardware("sensor_array", cost=REPAIR_COST)
+        console.print(f"\n[bold green]REPAIR COMPLETE.[/bold green]\n")
     else:
         parser.print_help()
 

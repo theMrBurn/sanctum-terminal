@@ -77,11 +77,10 @@ def test_critical_failure_triggers_damage_flag():
 
 
 def test_scout_tactic_scaling():
-    """RED: Verify that 'Aggressive' tactics increase both heat and potential reward."""
+    """Verify that 'Aggressive' tactics increase both heat and potential reward."""
     env = {"condition": "Clear"}
     player = {"aegis": 1000}
 
-    # Testing the new 'tactic' parameter
     engine_stealth = ScoutEngine(env, player, tactic="stealth")
     engine_aggressive = ScoutEngine(env, player, tactic="aggressive")
 
@@ -94,3 +93,19 @@ def test_scout_tactic_scaling():
     # 2. If both succeed, aggressive should yield more Aegis
     if res_stealth.success and res_aggressive.success:
         assert res_aggressive.aegis_delta > res_stealth.aegis_delta
+
+
+def test_damaged_sensor_penalty():
+    """GREEN: Verify that damaged sensors force a [BLIND SCAN] and spike hazard."""
+    env = {"condition": "Clear"}
+    player = {"aegis": 1000}
+    status = {"sensor_array": False}  # Hardware is desoldered/damaged
+
+    engine = ScoutEngine(env, player, hardware_status=status)
+    result = engine.resolve()
+
+    # Verify narrative reflects the hardware state
+    assert "BLIND SCAN" in result.description
+    # Verify the condition is logged as a failure of the sensor itself
+    if not result.success:
+        assert "SENSOR FAILURE" in result.description

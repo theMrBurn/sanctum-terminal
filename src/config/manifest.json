@@ -1,0 +1,15 @@
+{
+  "city_map": {
+    "pdx": "portland",
+    "sea": "seattle",
+    "nyc": "new york",
+    "lax": "los angeles"
+  },
+  "tactics": {
+    "1": "stealth",
+    "2": "standard",
+    "3": "aggressive",
+    "s": "stealth",
+    "a": "aggressive"
+  }
+}

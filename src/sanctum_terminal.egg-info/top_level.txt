@@ -1,7 +1,12 @@
 __init__
+config
+configmanager
+daemon
 engine
 ingest_relics
+logic
 relic
 runaway
+scout
 sensors
 status
