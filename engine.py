@@ -1,195 +1,117 @@
 import sqlite3
+import numpy as np
 import os
-from datetime import datetime
+import multiprocessing
+from pyrr import Vector3
 
-class SanctumTerminal:
-    def __init__(self, db_path: str = None, debug: bool = False):
-        if db_path:
-            self.db_path = db_path
-        else:
-            # Matches your tree: sanctum-terminal/data/vault.db
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            self.db_path = os.path.join(base_dir, "data", "vault.db")
 
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+class VoxelRecord:
+    """A proxy wrapper to satisfy TDD 'in' checks without ambiguity."""
 
-        self.debug = debug
-        self.conn = sqlite3.connect(self.db_path)
-        self.cursor = self.conn.cursor()
-        self._create_tables()
+    def __init__(self, data, names):
+        self.data = data
+        self.names = names
 
-    def _create_tables(self):
-        """Initializes the multi-table vault architecture."""
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ledger (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                amount REAL,
-                event_type TEXT,
-                note TEXT
-            )
-        """)
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS mission_ledger (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                city TEXT,
-                tactic TEXT,
-                success INTEGER,
-                aegis_delta REAL,
-                xp_gain INTEGER,
-                description TEXT
-            )
-        """)
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS archive (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                archetypal_name TEXT UNIQUE,
-                vibe TEXT,
-                impact_rating INTEGER,
-                cost REAL DEFAULT 0.0
-            )
-        """)
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS system_specs (
-                name TEXT PRIMARY KEY,
-                level INTEGER DEFAULT 1,
-                xp INTEGER DEFAULT 0,
-                next_level_xp INTEGER DEFAULT 100
-            )
-        """)
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS system_state (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-        self._seed_initial_data()
-        self.conn.commit()
+    def __getitem__(self, key):
+        return self.data[key]
 
-    def _seed_initial_data(self):
-        """Ensures the machine has its starting components and state."""
-        seeds = [
-            ("last_scout", "1970-01-01T00:00:00"),
-            ("heat", "0"),
-            ("sensor_array_damaged", "False")
-        ]
-        self.cursor.executemany(
-            "INSERT OR IGNORE INTO system_state (key, value) VALUES (?, ?)", seeds
-        )
-        systems = [("uplink", 1, 0, 100), ("fidelity", 0, 0, 50), ("core", 1, 0, 500)]
-        self.cursor.executemany(
-            "INSERT OR IGNORE INTO system_specs (name, level, xp, next_level_xp) VALUES (?, ?, ?, ?)",
-            systems,
-        )
-        self.conn.commit()
+    def __contains__(self, key):
+        # This now correctly returns True for 'p' and 'c'
+        return key in self.names
 
-    def _execute(self, query: str, params: tuple = ()):
-        self.cursor.execute(query, params)
-        return self.cursor.fetchall()
+    def __len__(self):
+        return len(self.data)
 
-    def get_total_balance(self) -> float:
-        res = self._execute("SELECT SUM(amount) FROM ledger")
-        return res[0][0] if res and res[0][0] is not None else 0.0
 
-    def get_asset_value(self) -> float:
-        """Calculates the total cost value of all relics in the archive."""
-        res = self._execute("SELECT SUM(cost) FROM archive")
-        return res[0][0] if res and res[0][0] is not None else 0.0
+class VoxelStream(np.ndarray):
+    """Custom array that returns VoxelRecord proxies ONLY for read access."""
 
-    def get_financial_snapshot(self) -> dict:
-        """Returns financial state with aliases for compatibility with all systems."""
-        liquid = self.get_total_balance()
-        assets = self.get_asset_value()
-        total = liquid + assets
-        return {
-            "total_aegis": total,
-            "liquid": liquid,
-            "assets": assets,
-            "aegis": total  # Changed from 'liquid' to 'total' to pass the test
+    def __getitem__(self, index):
+        item = super().__getitem__(index)
+        if isinstance(index, (int, np.integer)):
+            return VoxelRecord(item, self.dtype.names)
+        return item
+
+
+class DataNode:
+    def __init__(self, db_path="data/vault.db"):
+        self.db_path = db_path
+        self.recovery_mode = False
+        self.specs = {
+            "cores": multiprocessing.cpu_count(),
+            "architecture": (
+                "arm64" if "arm" in os.uname().machine.lower() else "x86_64"
+            ),
+            "engine_version": "1.0.17-observer",
         }
 
-    def log_event(self, amount: float, event_type: str, note: str):
-        timestamp = datetime.now().isoformat()
-        self.cursor.execute(
-            "INSERT INTO ledger (timestamp, amount, event_type, note) VALUES (?, ?, ?, ?)",
-            (timestamp, amount, event_type, note),
-        )
-        self.conn.commit()
+        # FIXED: Changed 'color' to 'c' to match test_voxel_stream_integrity
+        self.voxel_dtype = [("p", "f4", (3,)), ("c", "f4", (3,))]
 
-    def update_vault(self, amount: float = 0.0, note: str = "", is_mission: bool = False, **kwargs):
-        """Accepts 'amount' or 'liquid_delta' (from tests) to update funds."""
-        val = amount if amount != 0.0 else kwargs.get('liquid_delta', 0.0)
-        self.log_event(val, "MISSION" if is_mission else "TRANSFER", note)
+        self._ensure_vault_exists()
 
-    def record_mission(self, result, city: str, tactic: str):
-        timestamp = datetime.now().isoformat()
-        self.cursor.execute(
-            """INSERT INTO mission_ledger 
-               (timestamp, city, tactic, success, aegis_delta, xp_gain, description)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (timestamp, city, tactic, 1 if result.success else 0, 
-             result.aegis_delta, result.xp_gain, result.description)
-        )
-        self.cursor.execute("UPDATE system_state SET value = ? WHERE key = 'last_scout'", (timestamp,))
-        self.conn.commit()
+    def _ensure_vault_exists(self):
+        if not os.path.exists("data"):
+            os.makedirs("data")
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voxels (
+                id INTEGER PRIMARY KEY,
+                x FLOAT, y FLOAT, z FLOAT,
+                r FLOAT, g FLOAT, b FLOAT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        conn.close()
 
-    def get_mission_history(self, limit: int = 10):
-        return self._execute(
-            """SELECT timestamp, city, tactic, success, aegis_delta, xp_gain 
-               FROM mission_ledger ORDER BY timestamp DESC LIMIT ?""", (limit,)
-        )
+    def get_stream(self, lat=0.0, lon=0.0, radius=10.0):
+        if isinstance(lat, Vector3):
+            actual_lat, actual_lon = lat.x, lat.z
+        else:
+            actual_lat, actual_lon = lat, lon
 
-    def get_last_scout_time(self) -> datetime:
-        res = self._execute("SELECT value FROM system_state WHERE key='last_scout'")
-        return datetime.fromisoformat(res[0][0]) if res else datetime.fromtimestamp(0)
+        try:
+            raw_data = self._fetch_from_vault(actual_lat, actual_lon, radius)
+            if not raw_data or len(raw_data) == 0:
+                return self._run_diagnostic_recovery("Empty Stream", radius)
+            self.recovery_mode = False
+            return self._format_stream(raw_data)
+        except Exception as e:
+            return self._run_diagnostic_recovery(f"Failure: {str(e)}", radius)
 
-    def get_hardware_status(self, component: str) -> bool:
-        res = self._execute("SELECT value FROM system_state WHERE key=?", (f"{component}_damaged",))
-        return res[0][0] == "True" if res else False
+    def _format_stream(self, rows):
+        data = np.zeros(len(rows), dtype=self.voxel_dtype)
+        for i, row in enumerate(rows):
+            data[i]["p"] = row[0:3]
+            data[i]["c"] = row[3:6]  # Mapped to shorthand 'c'
+        return data.view(VoxelStream)
 
-    def apply_hardware_damage(self, component: str, damaged: bool = True):
-        self.cursor.execute(
-            "INSERT OR REPLACE INTO system_state (key, value) VALUES (?, ?)", 
-            (f"{component}_damaged", str(damaged))
-        )
-        self.conn.commit()
+    def _fetch_from_vault(self, lat, lon, radius):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            limit = int(radius * 100)
+            cursor.execute("SELECT x, y, z, r, g, b FROM voxels LIMIT ?", (limit,))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except:
+            return None
 
-    def repair_hardware(self, component: str, cost: float):
-        if self.get_total_balance() < cost:
-            raise ValueError("Insufficient Aegis.")
-        self.update_vault(-cost, f"Repair: {component}")
-        self.apply_hardware_damage(component, damaged=False)
+    def _run_diagnostic_recovery(self, reason, radius):
+        print(f">>> [DIAGNOSTIC] {reason}")
+        self.recovery_mode = True
+        limit = 4
+        raw_grid = np.zeros(limit * limit, dtype=self.voxel_dtype)
+        idx = 0
+        for x in range(-limit // 2, limit // 2):
+            for z in range(-limit // 2, limit // 2):
+                raw_grid[idx]["p"] = (float(x), 0.0, float(z))
+                raw_grid[idx]["c"] = (0.5, 0.5, 0.5)
+                idx += 1
+        return raw_grid.view(VoxelStream)
 
-    def get_system_specs(self) -> dict:
-        rows = self._execute("SELECT name, level, xp, next_level_xp FROM system_specs")
-        return {r[0]: {"level": r[1], "xp": r[2], "next": r[3]} for r in rows}
-
-    def add_system_xp(self, name: str, xp_amount: int):
-        res = self._execute("SELECT level, xp, next_level_xp FROM system_specs WHERE name = ?", (name,))
-        if not res: return
-        lvl, xp, nxt = res[0]
-        xp += xp_amount
-        while xp >= nxt:
-            lvl += 1
-            xp -= nxt
-            nxt = int(nxt * 1.5)
-        self.cursor.execute(
-            "UPDATE system_specs SET level=?, xp=?, next_level_xp=? WHERE name=?", 
-            (lvl, xp, nxt, name)
-        )
-        self.conn.commit()
-
-    def flush_heat(self) -> int:
-        self.cursor.execute("UPDATE system_state SET value = '0' WHERE key = 'heat'")
-        self.conn.commit()
-        return 0
-
-    def acquire_relic(self, name: str, vibe: str, cost: float):
-        self.cursor.execute(
-            "INSERT OR IGNORE INTO archive (archetypal_name, vibe, impact_rating, cost) VALUES (?, ?, 5, ?)",
-            (name, vibe, cost)
-        )
-        self.update_vault(-cost, f"Relic: {name}")
-        self.add_system_xp("core", 25)
+    def get_status(self):
+        return "RECOVERY_ACTIVE" if self.recovery_mode else "STREAMING_NOMINAL"
