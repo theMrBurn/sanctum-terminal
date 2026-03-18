@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from pyrr import Vector3
-from engine import DataNode
+from vault_engine import DataNode  # RENAME FIX
 
 
 def test_voxel_stream_integrity():

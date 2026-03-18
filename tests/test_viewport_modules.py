@@ -5,7 +5,7 @@ from unittest.mock import patch
 from pyrr import Vector3, Matrix44
 from avatar import Avatar
 from input_handler import InputHandler
-from engine import DataNode
+from vault_engine import DataNode  # RENAME FIX
 
 
 def test_avatar_scaling_integrity():
@@ -18,10 +18,15 @@ def test_avatar_scaling_integrity():
 def test_view_mode_toggle():
     pygame.init()
     # Mocking the heavy OpenGL stuff so the test is "headless"
-    with patch("moderngl.create_context"), patch("renderer_handler.RenderHandler"):
+    # We also mock PerceptionController since it's now a dependency of SanctumViewport
+    with patch("moderngl.create_context"), patch(
+        "renderer_handler.RenderHandler"
+    ), patch("perception.PerceptionController"):
+
         from sanctum import SanctumViewport
 
         viewport = SanctumViewport()
+        viewport.view_mode = "FPS"  # Ensure baseline
 
         mock_actions = {"toggle_view": True}
         with patch.object(InputHandler, "get_actions", return_value=mock_actions):
@@ -40,7 +45,7 @@ def test_avatar_recoil_reactivity():
     # State B: Clicking
     active_hands = avatar.get_view_model(speed=0, dt=0.016, is_clicking=True)
 
-    # The right hand is at index 0. Check the Z-coordinate (index 2 of the tuple 'p')
+    # Check the Z-coordinate (index 2 of the 'p' array)
     idle_z = idle_hands[0]["p"][2]
     active_z = active_hands[0]["p"][2]
 

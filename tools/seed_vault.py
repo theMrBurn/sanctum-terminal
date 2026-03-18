@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import numpy as np
+from vault_engine import DataNode  # Consistency Fix
 
 
 def seed():
@@ -24,6 +25,7 @@ def seed():
     # Stepping by 2 to cover a 1200x1200m area without crashing VRAM
     for x in range(-600, 600, 2):
         for z in range(-600, 600, 2):
+            # Procedural floor wave
             y = np.sin(x * 0.1) * np.cos(z * 0.1) * 2.0
             voxels.append((float(x), float(y), float(z), 0.1, 0.8, 0.2))
 
