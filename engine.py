@@ -92,11 +92,23 @@ class DataNode:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            limit = int(radius * 100)
-            cursor.execute("SELECT x, y, z, r, g, b FROM voxels LIMIT ?", (limit,))
+
+            # Broad square fetch
+            x_min, x_max = lat - radius, lat + radius
+            z_min, z_max = lon - radius, lon + radius
+
+            cursor.execute(
+                "SELECT x, y, z, r, g, b FROM voxels WHERE x BETWEEN ? AND ? AND z BETWEEN ? AND ?",
+                (x_min, x_max, z_min, z_max),
+            )
             rows = cursor.fetchall()
             conn.close()
-            return rows
+
+            # Circular trim for test consistency
+            radius_sq = radius**2
+            return [
+                r for r in rows if (r[0] - lat) ** 2 + (r[2] - lon) ** 2 <= radius_sq
+            ]
         except:
             return None
 
