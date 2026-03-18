@@ -9,11 +9,19 @@ description = "Sovereign Reality Engine"
 dependencies = [
     "rich",
     "requests",
-    "pytest"
+    "pytest",
+    "pygame",
+    "moderngl",
+    "pyrr",
+    "numpy"
 ]
 
 [project.scripts]
 sanctum = "sanctum:main"
 
 [tool.setuptools]
-py-modules = ["sanctum", "config_manager", "engine", "scout", "sensors", "status"]
+py-modules = ["sanctum", "config_manager", "engine", "scout", "sensors", "status", "viewport", "input_handler", "renderer_handler"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["legacy_v1", ".venv"]

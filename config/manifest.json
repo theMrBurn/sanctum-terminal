@@ -3,7 +3,9 @@
     "pdx": "portland",
     "sea": "seattle",
     "portland": "portland",
-    "seattle": "seattle"
+    "seattle": "seattle",
+    "mia": "miami",
+    "miami": "miami"
   },
   "tactics": {
     "1": "stealth",
@@ -12,5 +14,32 @@
     "stealth": "stealth",
     "standard": "standard",
     "aggressive": "aggressive"
+  },
+  "environment": {
+    "default_city": "portland",
+    "update_rate": 120,
+    "registry": {
+      "portland": {
+        "lat": 45.5152,
+        "lon": -122.6784,
+        "temp_threshold": 25
+      },
+      "seattle": {
+        "lat": 47.6062,
+        "lon": -122.3321,
+        "temp_threshold": 30
+      },
+      "miami": {
+        "lat": 25.7617,
+        "lon": -80.1918,
+        "temp_threshold": 80
+      }
+    }
+  },
+  "avatar": {
+    "height": 1.8,
+    "color": [0.2, 0.8, 1.0],
+    "gravity": 20.0,
+    "friction": 0.85
   }
 }

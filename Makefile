@@ -1,45 +1,32 @@
-# --- Configuration ---
-PYTHON = /opt/homebrew/bin/python3.12
-APP = sanctum.py
-# Ensures src/ is in the path for all targets
-ENV = export PYTHONPATH=.:src
-# Default city if none is provided via 'city=name'
-CITY ?= portland
+# --- [SANCTUM TERMINAL MASTER CONTROL] ---
+PYTHON = ./.venv/bin/python
+export PYTHONPATH := .:src
 
-.PHONY: install test status clean scout flush repair s q
+.PHONY: test seed ignite clean flush scout
 
-# --- System ---
-install:
-	$(PYTHON) -m pip install -e . --break-system-packages
+# 1. TDD Lifecycle (The "Clean Room" Approach)
+test:
+	@echo ">>> [TDD] Initializing Sandboxed Vault..."
+	$(PYTHON) tools/seed_vault.py
+	$(PYTHON) -m pytest -vs tests/
+	@echo ">>> [TDD] Tearing down Sandbox..."
+	rm -f data/vault.db
 
+# 2. Production Seeding (For manual flight)
+seed:
+	$(PYTHON) tools/seed_vault.py
+
+# 3. Ignition
+ignite:
+	./ignite.sh
+
+# 4. Deep Workspace Purge
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
+	rm -f sanctum.db
 	rm -rf *.egg-info .pytest_cache
+	@echo ">>> [CLEAN] Internal scaffolds cleared."
 
-test:
-	$(ENV) && $(PYTHON) -m pytest -vs tests/
-
-# --- Core Commands ---
-# Usage: make status city=pdx
-status:
-	$(ENV) && $(PYTHON) $(APP) status $(CITY)
-
-# Usage: make scout city=pdx
+# 5. Diagnostic
 scout:
-	$(ENV) && $(PYTHON) $(APP) scout $(CITY)
-
-# --- Maintenance ---
-flush:
-	$(ENV) && $(PYTHON) $(APP) flush
-
-repair:
-	$(ENV) && $(PYTHON) $(APP) repair
-
-# --- Tactical Shorthands (Aliases) ---
-# High-speed status check
-s:
-	@$(ENV) && $(PYTHON) $(APP) status $(CITY)
-
-# High-speed scout
-q:
-	@$(ENV) && $(PYTHON) $(APP) scout $(CITY)
+	$(PYTHON) tools/scout_check.py
