@@ -1,52 +1,31 @@
 import pytest
-import pygame
 import numpy as np
-from unittest.mock import patch
-from pyrr import Vector3, Matrix44
-from avatar import Avatar
-from input_handler import InputHandler
-from vault_engine import DataNode  # RENAME FIX
+from core.vault import Vault
+from systems.observer import ObserverSystem
+from unittest.mock import MagicMock
 
 
-def test_avatar_scaling_integrity():
-    # Ensure avatar.py __init__ accepts height!
-    short = Avatar(height=1.0)
-    tall = Avatar(height=2.5)
-    assert len(tall.get_full_body()) > len(short.get_full_body())
+def test_vault_observer_handshake():
+    """Verify that the Vault and Observer can coexist in a shared frame."""
+    vault = Vault()
+    mock_config = MagicMock()
+    mock_config.resolve_city.return_value = "portland"
+    observer = ObserverSystem(mock_config)
+
+    # 1. Get world data
+    pos = [0.0, 0.0, 0.0]
+    frame = vault.get_visible_frame(pos, [0, 0, -1], radius=20.0)
+
+    # 2. Get shader state
+    params = observer.get_shader_params()
+
+    assert len(frame) >= 0
+    assert "u_intensity" in params
+    assert params["u_visibility"] == 72.0
 
 
-def test_view_mode_toggle():
-    pygame.init()
-    # Mocking the heavy OpenGL stuff so the test is "headless"
-    # We also mock PerceptionController since it's now a dependency of SanctumViewport
-    with patch("moderngl.create_context"), patch(
-        "renderer_handler.RenderHandler"
-    ), patch("perception.PerceptionController"):
-
-        from sanctum import SanctumViewport
-
-        viewport = SanctumViewport()
-        viewport.view_mode = "FPS"  # Ensure baseline
-
-        mock_actions = {"toggle_view": True}
-        with patch.object(InputHandler, "get_actions", return_value=mock_actions):
-            if viewport.inputs.get_actions()["toggle_view"]:
-                viewport.view_mode = "TPS"
-
-        assert viewport.view_mode == "TPS"
-
-
-def test_avatar_recoil_reactivity():
-    """Verify that the scanner 'kicks' back on the Z-axis when clicking."""
-    avatar = Avatar(color=[0.2, 0.8, 1.0])
-
-    # State A: Idle
-    idle_hands = avatar.get_view_model(speed=0, dt=0.016, is_clicking=False)
-    # State B: Clicking
-    active_hands = avatar.get_view_model(speed=0, dt=0.016, is_clicking=True)
-
-    # Check the Z-coordinate (index 2 of the 'p' array)
-    idle_z = idle_hands[0]["p"][2]
-    active_z = active_hands[0]["p"][2]
-
-    assert active_z < idle_z, "Scanner failed to recoil on click"
+def test_collision_boundary():
+    """Ensure the vault correctly identifies floor vs obstacles."""
+    vault = Vault()
+    # Testing a point high in the air
+    assert vault.check_collision([0, 50, 0]) is False

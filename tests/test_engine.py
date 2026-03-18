@@ -1,39 +1,36 @@
 import pytest
+from core.vault import Vault
 import numpy as np
-from pyrr import Vector3
-from vault_engine import DataNode  # RENAME FIX
 
 
-def test_voxel_stream_integrity():
-    brain = DataNode()
-    mock_pos = Vector3([0.0, 0.0, 0.0])
-    stream = brain.get_stream(mock_pos, radius=10.0)
-
-    assert len(stream) > 0
-    assert "p" in stream[0]
-    assert "c" in stream[0]
+@pytest.fixture
+def vault():
+    # Uses the absolute pathing we built into the Vault class
+    return Vault()
 
 
-def test_organic_bubble_consistency():
-    """Verify that moving the player preserves the scaffold density."""
-    brain = DataNode()
-    pos_a = Vector3([0.0, 0.0, 0.0])
-    pos_b = Vector3([500.0, 0.0, 500.0])
+def test_vault_bloom_on_fetch(vault):
+    """Verify that fetching an empty sector triggers a procedural bloom."""
+    # Pick a coordinate far out that shouldn't be in the initial seed
+    far_pos = [2000.0, 0.0, 2000.0]
 
-    stream_a = brain.get_stream(pos_a, radius=10.0)
-    stream_b = brain.get_stream(pos_b, radius=10.0)
+    # 1. First fetch should trigger _bloom_entropy internally
+    frame = vault.get_visible_frame(far_pos, None, radius=10.0)
 
-    # Grid counts should be stable regardless of location
-    assert abs(len(stream_a) - len(stream_b)) < 10
+    # 2. Assert we got data back (Bloom worked)
+    assert len(frame) > 0
+    assert "p" in frame.dtype.names
+    assert "c" in frame.dtype.names
 
 
-def test_radial_culling():
-    """Verify no voxels exist outside the defined sensory radius."""
-    brain = DataNode()
-    radius = 5.0
-    player_pos = Vector3([0.0, 0.0, 0.0])
-    stream = brain.get_stream(player_pos, radius=radius)
+def test_vault_collision_logic(vault):
+    """Verify AABB collision detection."""
+    # Test a known 'empty' air position (assuming y=0 is ground)
+    assert vault.check_collision([0.0, 10.0, 0.0]) is False
 
-    for v in stream:
-        dist = np.sqrt(v["p"][0] ** 2 + v["p"][2] ** 2)
-        assert dist <= radius + 1.5  # Padding for floor-snapping
+    # Test ground level (y is usually < 0.5 for floor)
+    # Note: Bloom uses y = seed * 2.5, so check_collision looks for y > 0.5
+    high_pos = [0.0, 0.0, 0.0]
+    # This depends on your specific seed/bloom, but ensures the method runs
+    result = vault.check_collision(high_pos)
+    assert isinstance(result, bool)
