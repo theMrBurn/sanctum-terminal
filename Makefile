@@ -2,9 +2,9 @@
 PYTHON = ./.venv/bin/python
 export PYTHONPATH := .
 
-.PHONY: test seed clean scout
+.PHONY: test seed clean scout crawl stress-test
 
-# 1. TDD Lifecycle: Pure Initialization
+# 1. TDD Lifecycle: Pure Initialization & World Logic Regression
 test:
 	@echo ">>> [TDD] Initializing Sandboxed Vault..."
 	rm -f data/vault.db
@@ -26,3 +26,13 @@ clean:
 # 4. Diagnostic
 scout:
 	$(PYTHON) tools/scout_check.py
+
+# 5. Interactive RPG Engine (The Logic Walker)
+crawl:
+	@echo ">>> [SYSTEM] Initializing Interactive Logic Crawler..."
+	$(PYTHON) systems/logic_walker.py
+
+# 6. Scaling Stress Test (Target: Floor 25)
+stress-test:
+	@echo ">>> [STRESS] Validating Exponential Scaling at Floor 25..."
+	$(PYTHON) -m pytest tests/test_world_regression.py::test_scaling_integrity_floor_25 -v
