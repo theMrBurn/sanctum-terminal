@@ -1,113 +1,157 @@
-import pygame
-import moderngl
+import pygame, moderngl, time, argparse, sys, zlib
 import numpy as np
 from spatial_utils import RelativityCamera
 from core.vault import Vault
-from systems.observer import ObserverSystem
+from systems.volume import Volume
 from input_handler import InputHandler
 from renderer_handler import RenderHandler
-from config_manager import ConfigManager
 
 
 class SanctumViewport:
-    def __init__(self):
+    def __init__(self, max_voxels_m=11):
+        print(">>> [SYSTEM] Initializing Pygame...")
         pygame.display.init()
         pygame.font.init()
-        self.win_size = (1280, 720)
 
-        # OpenGL Setup
         pygame.display.gl_set_attribute(pygame.GL_CONTEXT_MAJOR_VERSION, 3)
         pygame.display.gl_set_attribute(pygame.GL_CONTEXT_MINOR_VERSION, 3)
         pygame.display.gl_set_attribute(
             pygame.GL_CONTEXT_PROFILE_MASK, pygame.GL_CONTEXT_PROFILE_CORE
         )
 
+        self.win_size = (1280, 720)
+        print(">>> [SYSTEM] Creating Window...")
         self.screen = pygame.display.set_mode(
             self.win_size, pygame.OPENGL | pygame.DOUBLEBUF
         )
+
+        print(">>> [SYSTEM] Creating ModernGL Context...")
         self.ctx = moderngl.create_context()
 
-        # Modular Systems
-        self.config = ConfigManager()
-        self.camera = RelativityCamera([0.0, 2.0, 20.0])
-        self.vault = Vault()  # Core: Storage + Bloom + Culling
-        self.observer = ObserverSystem(self.config)  # Systems: Sensors + Perception
+        print(">>> [SYSTEM] Initializing Vault & Renderer...")
         self.render = RenderHandler(self.ctx)
-        self.inputs = InputHandler()
+        self.vault = Vault(ctx=self.ctx, max_reserve=int(max_voxels_m * 1_000_000))
 
-        # State
+        # Start 2m high to see the floor grid immediately
+        self.world_offset = np.array([0.0, 0.0, 0.0], dtype="f4")
+        self.current_loc_key = None
+        self.fullscreen = False
+
+        self.camera = RelativityCamera([0, 2, 0])
+        self.inputs = InputHandler()
         self.font = pygame.font.SysFont("Monaco", 22)
         self.hud_vao = self.render.build_hud_vao()
-        self.vao = None
-        self.current_frame_data = None
-        self.last_sync_pos = self.camera.pos.copy()
-        self.roll, self.step_cycle = 0.0, 0.0
+        self.clock = pygame.time.Clock()
+        self.start_time = time.time()
 
-        pygame.mouse.set_visible(False)
-        pygame.event.set_grab(True)
-        self._sync_vault()
+        pygame.mouse.set_visible(True)
 
-    def _sync_vault(self):
-        """
-        One-stop shop for world data.
-        The Vault now handles the DB query AND the camera culling internally.
-        """
-        self.current_frame_data = self.vault.get_visible_frame(
-            self.camera.pos, self.camera.front, 80.0
-        )
-        self.vao = self.render.build_vao(self.current_frame_data)
-        self.last_sync_pos = self.camera.pos.copy()
+    def update_location_exchange(self, current_time):
+        center_x = (self.world_offset[0] // 64.0) * 64.0
+        center_z = (self.world_offset[2] // 64.0) * 64.0
 
-    def update(self, dt):
+        combined_key = zlib.adler32(np.array([center_x, center_z]).tobytes())
+
+        if combined_key != self.current_loc_key:
+            self.current_loc_key = combined_key
+            all_voxels = []
+
+            # RADIUS SCAN: Fetch 3x3 set of 64m volumes
+            for dx in [-64.0, 0.0, 64.0]:
+                for dz in [-64.0, 0.0, 64.0]:
+                    origin = [center_x + dx, 0.0, center_z + dz]
+                    vol = Volume(origin)
+
+                    vel_mag = np.linalg.norm(self.inputs.velocity)
+                    seed_mod = 666 if vel_mag > 15.0 else 0
+
+                    vdata = vol.hydrate(current_time, biome_seed=seed_mod)
+                    all_voxels.append(vdata)
+
+            final_payload = np.vstack(all_voxels).astype("f4")
+            # Push straight to the GPU bridge
+            self.vault.update_vbo(final_payload, self.render.prog)
+
+    def update(self, dt, current_time):
+        dt = min(dt, 0.033)
         v, l = self.inputs.get_movement(dt), self.inputs.get_look(dt)
         self.camera.update_orientation(l[0], l[1])
 
-        # Locomotion with integrated Collision check
-        move_vec = (self.camera.front * v[0]) + (self.camera.right * v[1])
-        if move_vec.length > 0.01:
-            self.step_cycle += dt * 10.0
-            self.roll = np.sin(self.step_cycle * 0.5) * 1.2
-            if not self.vault.check_collision(self.camera.pos + move_vec, 1.0):
-                self.camera.pos += move_vec
-        else:
-            self.roll *= 0.9
+        fwd = np.array([self.camera.front.x, 0, self.camera.front.z], dtype="f4")
+        mag = np.linalg.norm(fwd)
+        if mag > 1e-5:
+            fwd /= mag
+        right = np.array([fwd[2], 0, -fwd[0]], dtype="f4")
 
-        # Refresh if moved past 1.5m threshold
-        if (self.camera.pos - self.last_sync_pos).length > 1.5:
-            self._sync_vault()
+        self.world_offset += (fwd * v[0] + right * v[1]) * dt
+        self.update_location_exchange(current_time)
 
     def run(self):
-        clock = pygame.time.Clock()
+        print(">>> [SYSTEM] Handshake Complete. Entering Run Loop.")
+        # Force a pump to help macOS window focus
+        pygame.event.pump()
+
         while True:
-            dt = clock.tick(120) / 1000.0
+            current_time = time.time() - self.start_time
+            dt = self.clock.tick(144) / 1000.0
+
             for e in pygame.event.get():
                 if e.type == pygame.QUIT:
                     return
-                if e.type == pygame.MOUSEBUTTONDOWN:
-                    self.observer.trigger_pulse(self.camera.pos)
 
-            self.update(dt)
+                if e.type == pygame.KEYDOWN:
+                    if e.key == pygame.K_RIGHTBRACKET or e.key == pygame.K_BACKSLASH:
+                        self.fullscreen = not self.fullscreen
+                        if self.fullscreen:
+                            pygame.display.set_mode(
+                                (0, 0),
+                                pygame.OPENGL | pygame.DOUBLEBUF | pygame.FULLSCREEN,
+                            )
+                        else:
+                            pygame.display.set_mode(
+                                self.win_size, pygame.OPENGL | pygame.DOUBLEBUF
+                            )
 
-            # Unified Render Pipeline
-            mvp = self.camera.get_projection() * self.camera.get_view_matrix(self.roll)
-            hud_tex = self.create_hud()  # (Kept as simple placeholder)
+            self.update(dt, current_time)
+
+            # Frame math
+            mvp = self.camera.get_projection() * self.camera.get_view_matrix()
+            view_origin = self.world_offset + np.array([0.0, 2.0, 0.0], dtype="f4")
+            vel_mag = np.linalg.norm(self.inputs.velocity)
+            hud_tex = self.create_hud()
 
             self.render.render_frame(
-                self.vao,
+                self.vault,
                 mvp,
-                self.camera.pos,
-                self.observer.get_shader_params(),  # Unified perception data
+                view_origin,
+                current_time,
+                vel_mag,
                 hud_tex,
                 self.hud_vao,
             )
+
             pygame.display.flip()
             hud_tex.release()
 
     def create_hud(self):
-        # Placeholder for visual stability - identical to your current code
-        surf = pygame.Surface(self.win_size, pygame.SRCALPHA)
-        label = f"LOC: {self.camera.pos.x:0.0f}, {self.camera.pos.z:0.0f}"
-        surf.blit(self.font.render(label, True, (0, 255, 180)), (30, 30))
+        cur_w, cur_h = self.screen.get_size()
+        surf = pygame.Surface((cur_w, cur_h), pygame.SRCALPHA)
+        telemetry = [
+            f"SANCTUM PROTOCOL | ACTIVE",
+            f"LOCATION KEY: {self.current_loc_key}",
+            f"COORDS: {self.world_offset[0]:.1f}, {self.world_offset[2]:.1f}",
+            f"VELOCITY: {np.linalg.norm(self.inputs.velocity):.2f} m/s",
+        ]
+        for i, text in enumerate(telemetry):
+            surf.blit(self.font.render(text, True, (0, 255, 180)), (40, 40 + (i * 25)))
         return self.ctx.texture(
-            self.win_size, 4, pygame.image.tobytes(surf, "RGBA", False)
+            (cur_w, cur_h), 4, pygame.image.tobytes(surf, "RGBA", False)
         )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--voxels", type=float, default=11)
+    args = parser.parse_args()
+    app = SanctumViewport(max_voxels_m=args.voxels)
+    app.run()
