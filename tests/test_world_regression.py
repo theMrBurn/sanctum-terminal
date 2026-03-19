@@ -1,5 +1,3 @@
-import pytest
-import math
 from systems.game_state import GameState
 from systems.rosetta_stone import VOXEL_REGISTRY
 

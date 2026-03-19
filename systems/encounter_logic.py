@@ -1,6 +1,7 @@
 # systems/encounter_logic.py
 import random
 
+
 class EncounterEngine:
     def __init__(self, player_lv, floor):
         self.lv = player_lv
@@ -31,7 +32,7 @@ class EncounterEngine:
                 {"name": "Grid-Watcher", "hp": 35, "atk": 8, "sym": "G"},
             ]
             group = []
-            
+
             # 1. Select raw templates
             if self.floor == 1:
                 group.append(pool[0].copy())
@@ -42,7 +43,7 @@ class EncounterEngine:
                     m = random.choice(pool).copy()
                     m["hp"] = int(m["hp"] * (1.10**self.floor))
                     m["atk"] = int(m["atk"] * (1.08**self.floor))
-                    
+
                     current_atk = sum(e["atk"] for e in group)
                     if current_atk + m["atk"] > max_atk_allowance and len(group) > 0:
                         continue
@@ -51,11 +52,12 @@ class EncounterEngine:
             # 2. MANDATORY DATA STAMP: Viewport requires max_hp to render health bars
             for e in group:
                 e["max_hp"] = e["hp"]
-                
+
             return group
 
         def player_attack(self, player_lv):
-            if not self.enemies: return 0, "NO TARGETS."
+            if not self.enemies:
+                return 0, "NO TARGETS."
             target = self.enemies[0]
             dmg = random.randint(player_lv + 6, player_lv + 14)
             target["hp"] -= dmg
@@ -70,7 +72,9 @@ class EncounterEngine:
 
     class TrapChallenge:
         def __init__(self, lv):
-            self.name = random.choice(["LOGIC BOMB", "DATA SYNC LOCK", "VOXEL COLLAPSE"])
+            self.name = random.choice(
+                ["LOGIC BOMB", "DATA SYNC LOCK", "VOXEL COLLAPSE"]
+            )
             self.is_active = True
 
         def attempt(self, grit_meter):

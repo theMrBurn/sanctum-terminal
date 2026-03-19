@@ -1,6 +1,4 @@
-import pytest
 import pygame
-import numpy as np
 from unittest.mock import patch
 from input_handler import InputHandler
 

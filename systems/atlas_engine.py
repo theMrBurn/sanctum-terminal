@@ -1,5 +1,4 @@
 import numpy as np
-import os, time
 
 
 class Cartographer:
@@ -51,7 +50,7 @@ class AtlasEngine:
 
             # 1. Determine Biome (Horizontal Gradient)
             for x in range(self.cart.tile_res):
-                global_x = (tx * self.cart.tile_res) + x
+                (tx * self.cart.tile_res) + x
                 b_idx = self.cart.get_biome_at(tx, tz)  # Simplified to tile-level
                 grid[z, x] = self.cart.biomes[b_idx]
 
