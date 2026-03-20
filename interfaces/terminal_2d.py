@@ -7,57 +7,41 @@ from engines.world import WorldEngine
 class Terminal2D:
     def __init__(self, session):
         pygame.init()
-        self.res = (1024, 768)
+        pygame.joystick.init()
+        self.res = (1280, 720)
         self.screen = pygame.display.set_mode(self.res, pygame.DOUBLEBUF)
-        self.is_fullscreen = False
         self.font = pygame.font.SysFont("Monospace", 18)
         self.session = session
-        self.world = WorldEngine(self.session.floor, [])
+        self.world = WorldEngine(self.session.seed)
         self.clock = pygame.time.Clock()
-
-    def toggle_fullscreen(self):
-        self.is_fullscreen = not self.is_fullscreen
-        flags = pygame.FULLSCREEN if self.is_fullscreen else 0
-        self.screen = pygame.display.set_mode(self.res, flags | pygame.DOUBLEBUF)
+        self.joystick = None
+        if pygame.joystick.get_count() > 0:
+            self.joystick = pygame.joystick.Joystick(0)
+            self.joystick.init()
 
     def handle_input(self):
+        s = self.session
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                self.session.is_alive = False
+                s.is_alive = False
+            if event.type == pygame.JOYBUTTONDOWN:
+                if event.button == 0:
+                    s.interact(int(s.pos[0]), int(s.pos[2]), self.world)
+                if event.button == 1:
+                    s.is_scouting = not s.is_scouting
+
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RIGHTBRACKET:
-                    self.toggle_fullscreen()
-
-                if self.session.active_container == "RECOVERY_STUN":
-                    self.session.active_container = None
-                    return
-
-                if self.session.active_container == "CALIBRATION":
+                if s.active_container == "BOOT_SEQUENCE":
                     if event.key == pygame.K_RETURN:
-                        self.session.calibrate(self.session.input_buffer)
-                        self.world = WorldEngine(
-                            self.session.floor, self.session.modifiers
-                        )
+                        s.calibrate(s.input_buffer)
                     elif event.key == pygame.K_BACKSPACE:
-                        self.session.input_buffer = self.session.input_buffer[:-1]
+                        s.input_buffer = s.input_buffer[:-1]
                     else:
-                        if len(self.session.input_buffer) < 150:
-                            self.session.input_buffer += event.unicode
-                    return
-
-                if self.session.active_container == "COMBAT":
-                    if event.key == pygame.K_1:
-                        self.session.combat_tick("ATTACK")
-                    return
-
-                if event.key == pygame.K_e:
-                    px, pz = int(self.session.pos[0]), int(self.session.pos[2])
-                    for dz in [-1, 0, 1]:
-                        for dx in [-1, 0, 1]:
-                            if self.world.get_tile(px + dx, pz + dz) == "$":
-                                if self.session.decrypt_object("$"):
-                                    self.world.set_tile(px + dx, pz + dz, "s")
-                                    return
+                        s.input_buffer += event.unicode
+                elif s.active_container == "TRANSITION":
+                    s.active_container = None
+                elif event.key == pygame.K_e:
+                    s.interact(int(s.pos[0]), int(s.pos[2]), self.world)
 
                 key_map = {
                     pygame.K_w: (0, -1),
@@ -67,116 +51,93 @@ class Terminal2D:
                 }
                 move = key_map.get(event.key)
                 if move:
-                    nx, nz = int(self.session.pos[0] + move[0]), int(
-                        self.session.pos[2] + move[1]
+                    s.process_step(
+                        int(s.pos[0] + move[0]), int(s.pos[2] + move[1]), self.world
                     )
-                    tile = self.world.get_tile(nx, nz, self.session)
-                    if tile == "R":
-                        self.session.recover_data()
-                    res = self.session.process_step(tile)
-                    if res != "BLOCK":
-                        self.session.pos[0], self.session.pos[2] = float(nx), float(nz)
 
-    def draw(self):
-        self.screen.fill((5, 5, 10))
-        s = self.session
-        if s.active_container == "CALIBRATION":
-            self.draw_calibration()
-        elif s.active_container == "RECOVERY_STUN":
-            self.draw_recovery_msg()
-        else:
-            self.draw_world()
-            if s.active_container == "COMBAT":
-                self.draw_combat()
-        pygame.display.flip()
-        self.clock.tick(30)
-
-    def draw_recovery_msg(self):
-        msg = "SYSTEM REBOOTED. SIGNAL TRACER ACTIVE at 'R'. PRESS ANY KEY."
-        self.screen.blit(self.font.render(msg, True, (255, 50, 50)), (150, 350))
-
-    def draw_calibration(self):
-        lines = [
-            "--- NEURAL LINK CALIBRATION ---",
-            f"> {self.session.input_buffer}_",
-            "[RETURN] TO INJECT | [ ] ] FULLSCREEN",
-        ]
-        for i, line in enumerate(lines):
-            self.screen.blit(
-                self.font.render(line, True, (0, 255, 100)), (100, 100 + i * 30)
-            )
+        if self.joystick and not s.active_container:
+            hat = self.joystick.get_hat(0)
+            if hat != (0, 0):
+                s.process_step(
+                    int(s.pos[0] + hat[0]), int(s.pos[2] - hat[1]), self.world
+                )
 
     def draw_world(self):
         s, px, pz = self.session, int(self.session.pos[0]), int(self.session.pos[2])
-        tx, tz = self.world.poi_coords
-        dist = int(math.sqrt((tx - px) ** 2 + (tz - pz) ** 2))
+        self.screen.fill((2, 2, 8))
 
-        # HUD
-        pygame.draw.rect(self.screen, (15, 15, 25), (0, 0, 1024, 65))
+        # 1. ANALOG SIGNALS (Haptics/RGB)
+        rgb_hex = s.get_rgb_handshake()
+        low, high = s.get_haptic_signal()
+        if self.joystick:
+            self.joystick.rumble(low, high, 100)
+
+        # 2. TOP HUD (The Integrated Dashboard)
+        pygame.draw.rect(self.screen, (10, 10, 15), (0, 0, 1280, 60))
+
+        # HP Bar (Left)
+        hp_color = (255, 50, 50) if s.hp < 30 else (0, 255, 100)
+        pygame.draw.rect(self.screen, (40, 20, 20), (20, 20, 200, 15))
+        pygame.draw.rect(self.screen, hp_color, (20, 20, int(s.hp * 2), 15))
         self.screen.blit(
-            self.font.render(
-                f"POS: [{px},{pz}] | HP: {s.hp}% | XP: {s.xp}", True, (0, 255, 100)
-            ),
-            (20, 20),
+            self.font.render(f"HP: {int(s.hp)}%", True, (255, 255, 255)), (225, 18)
         )
 
-        # Status Text (Stealth vs Range)
-        status_text = f"NODE_RANGE: {dist}m"
-        status_color = (255, 255, 0)
-        if s.recovery_grace > 0:
-            status_text = f"SIGNAL_STABILIZED: {s.recovery_grace} cycles remaining"
-            status_color = (0, 200, 255)
-        self.screen.blit(self.font.render(status_text, True, status_color), (600, 20))
+        # Tension Bar (Center)
+        bar_color = (0, 255, 255) if s.tension < 75 else (255, 100, 0)
+        pygame.draw.rect(self.screen, (30, 30, 40), (480, 20, 200, 15))
+        pygame.draw.rect(self.screen, bar_color, (480, 20, int(s.tension * 2), 15))
+        self.screen.blit(
+            self.font.render(f"STRAIN: {int(s.tension)}%", True, bar_color), (690, 18)
+        )
 
-        # Viewport
+        # Compass & XP (Right)
+        heading = s.get_compass_heading(self.world.poi_coords)
+        diag = f"XP: {s.xp} | COMPASS: {heading} | RGB: {rgb_hex}"
+        self.screen.blit(self.font.render(diag, True, (255, 255, 0)), (920, 18))
+
+        # 3. TOPOGRAPHY RENDER
+        raster_warp = int(s.tension / 15.0)
         for z_off, z in enumerate(range(pz - 15, pz + 16)):
-            for x_off, x in enumerate(range(px - 15, px + 16)):
-                char = self.world.get_tile(x, z, s)
-                color = (60, 60, 70)
+            line_shift = math.sin(z * 0.4) * raster_warp
+            for x_off, x in enumerate(range(px - 25, px + 26)):
+                node = self.world.get_node(x, z, s)
+                proj_x, proj_y = 180 + (x_off * 18) + int(line_shift), (
+                    120 + z_off * 16
+                ) - int(node["pos"][1] * 9)
+                lum = node["rel"]["intensity"]
+                color = (int(80 * lum), int(200 * lum), int(255 * lum))
+                if s.is_glitched and node["rel"]["noise"] > 0.7:
+                    color = (255, 50, 50)
+                char = node["char"]
                 if x == px and z == pz:
-                    char, color = "@", (
-                        (0, 255, 255) if s.recovery_grace > 0 else (255, 255, 255)
-                    )
-                elif char == "R":
-                    color = (0, 255, 255)
-                elif char == "~":
-                    color = (40, 100, 255)
-                elif char == "s":
-                    color = (130, 110, 80)
-                elif char == "$":
-                    color = (255, 255, 0)
-                elif char == "X":
-                    color = (200, 200, 200)
-                elif char == "&":
-                    color = (255, 0, 150)
-                elif char in ["#", "O", "."]:
-                    color = (220, 220, 220)
+                    char, color = "@", (255, 255, 255)
+                self.screen.blit(self.font.render(char, True, color), (proj_x, proj_y))
 
-                d = math.sqrt((x - px) ** 2 + (z - pz) ** 2)
-                alpha = max(0.15, 1.0 - (d / 18))
-                f_color = tuple(int(c * alpha) for c in color)
-                self.screen.blit(
-                    self.font.render(char, True, f_color),
-                    (230 + x_off * 18, 90 + z_off * 18),
-                )
-
-        for i, m in enumerate(s.log[-4:]):
+        # 4. LOG (Bottom)
+        for i, m in enumerate(s.log[-3:]):
             self.screen.blit(
-                self.font.render(f"> {m}", True, (0, 150, 255)), (20, 660 + i * 22)
+                self.font.render(f">> {m}", True, (0, 255, 100)), (40, 640 + i * 20)
             )
 
-    def draw_combat(self):
-        s = self.session
-        overlay = pygame.Surface((1024, 768), pygame.SRCALPHA)
-        overlay.fill((40, 0, 0, 180))
-        self.screen.blit(overlay, (0, 0))
-        pygame.draw.rect(self.screen, (255, 0, 50), (312, 284, 400, 220), 2)
-        hp_pct = max(0, s.target_hp / s.target_max_hp)
-        pygame.draw.rect(self.screen, (255, 0, 50), (330, 345, int(360 * hp_pct), 15))
-        self.screen.blit(
-            self.font.render(f"HOSTILE: {s.target_name}", True, (255, 255, 255)),
-            (330, 310),
-        )
+    def draw(self):
+        self.session.update()
+        if self.session.active_container == "BOOT_SEQUENCE":
+            self.screen.fill((0, 0, 0))
+            for i, line in enumerate(self.session.process_boot()):
+                self.screen.blit(
+                    self.font.render(line, True, (0, 255, 100)), (100, 100 + i * 30)
+                )
+        elif self.session.active_container == "TRANSITION":
+            self.screen.fill((0, 0, 0))
+            txt = self.font.render(
+                "CALIBRATING NEURAL TOPOGRAPHY...", True, (0, 255, 255)
+            )
+            self.screen.blit(txt, (640 - txt.get_width() // 2, 350))
+        else:
+            self.draw_world()
+        pygame.display.flip()
+        self.clock.tick(30)
 
     def run(self):
         while self.session.is_alive:

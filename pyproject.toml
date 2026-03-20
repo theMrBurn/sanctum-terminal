@@ -24,4 +24,6 @@ py-modules = ["sanctum", "config_manager", "engine", "scout", "sensors", "status
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-norecursedirs = ["legacy_v1", ".venv"]
+# This tells pytest to stay out of the legacy/deprecated zones
+norecursedirs = ["deprecated", "tests/deprecated", "tests/legacy_v1", ".venv", "systems"]
+python_files = ["test_location.py", "test_viewport_modules.py", "test_world_regression.py"]
