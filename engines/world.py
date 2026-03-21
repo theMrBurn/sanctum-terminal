@@ -1,56 +1,26 @@
-# engines/world.py
-import zlib
 import math
-from core.atlas import VOXEL_REGISTRY
 
 
 class WorldEngine:
-    def __init__(self, seed):
+    def __init__(self, seed=42):
         self.seed = seed
-        self.poi_coords = (100, 100)  # THE ALPHA NODE ANCHOR
-        self.modifications = {}
 
-    def get_elevation(self, x, z):
-        """Calculates 3D Y-axis passively."""
-        return round(abs(math.sin(x * 0.12) * math.cos(z * 0.12) * 3.8), 2)
+    def get_object_at(self, x, y):
+        """
+        001: Substrate (Ground)
+        101: Data Vault (Entity)
+        301: Void Wall (Barrier)
+        """
+        # Deterministic seed for spatial consistency
+        h = (int(x) * 73856093 ^ int(y) * 19349663 ^ self.seed) % 100
 
-    def get_node(self, x, z, session):
-        # 1. Identity Hash
-        h = zlib.adler32(f"{self.seed}-{x}-{z}".encode())
+        # Buffer around spawn
+        if abs(x) < 3 and abs(y) < 3:
+            return None
 
-        # 2. Wave-Form Topography (Y-Axis)
-        elev = self.get_elevation(x, z)
+        if h > 92:
+            return "101"  # Data Vault
+        if h > 75:
+            return "301"  # Void Wall
 
-        # 3. Raster Jitter (Vertex Snapping Simulation)
-        jitter = ((h % 3) - 1) * (session.tension / 250.0)
-
-        # 4. Object Scatter
-        char = self.modifications.get((x, z))
-        if not char:
-            v = h % 100
-            if v < 1:
-                char = "$"
-            elif v < 7:
-                char = "f"
-            elif v > 96:
-                char = "X"
-            elif x < 12 + int(4 * math.sin(z * 0.4)):
-                char = "~"
-            else:
-                char = "." if (h % 2 == 0) else "s"
-
-        # 5. Relativity Math
-        px, pz = session.pos[0], session.pos[2]
-        dist = math.sqrt((x - px) ** 2 + (z - pz) ** 2)
-
-        return {
-            "char": char,
-            "pos": (x, elev + jitter, z),
-            "rel": {
-                "intensity": max(0.05, 1.0 - (dist / 22.0)),
-                "noise": (h % 10) / 10.0,
-                "is_active": (char == "f" and dist < 2.5),
-            },
-            "meta": VOXEL_REGISTRY.get(char, {"material": 0}),
-            "passable": char not in ["X", "~"],
-        }
+        return None

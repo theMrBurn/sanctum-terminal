@@ -1,9 +1,17 @@
-# core/registry.py
-VOXEL_REGISTRY = {
-    ".": {"type": "floor", "color": (50, 50, 50), "walkable": True},
-    "#": {"type": "wall", "color": (200, 180, 50), "walkable": False},
-    "^": {"type": "trap", "color": (255, 50, 50), "walkable": True},
-    "&": {"type": "challenge", "color": (0, 255, 200), "walkable": True},
-    "$": {"type": "trigger", "color": (255, 255, 0), "walkable": True},
-    "X": {"type": "exit", "color": (0, 255, 0), "walkable": True},
+OBJECT_REGISTRY = {
+    "0001": {
+        "name": "Neon_Substrate",
+        "tags": ["substrate"],
+        "texture": "textures/checkerboard_transparent.png",
+        "color_base": (0.02, 0.02, 0.1, 1),
+        "color_neon": (0, 1, 0.9, 1)
+    },
+    "4004": {
+        "name": "Cosmic_Seraph",
+        "type": "sprite",
+        "texture": "textures/noise.png",
+        "scale": 18.0,
+        "color": (1.0, 0, 0.4, 0.8), 
+        "tags": ["entity", "dynamic_sprite"]
+    }
 }

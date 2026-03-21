@@ -80,7 +80,7 @@ class Quad(Mesh):
 
             for j in range(4):
                 Quad._corner_maker.position = self.vertices[j] + corrections[j]
-                for i in range(_segments):
+                for _i in range(_segments):
                     new_verts.append(Quad._point_placer.world_position)
                     Quad._corner_maker.rotation_z -= 90 / _segments
 
@@ -124,7 +124,7 @@ if __name__ == "__main__":
 
     t = perf_counter()
     # m =
-    for i in range(100):
+    for _i in range(100):
         Entity(
             model=Quad(scale=(3, 1), thickness=3, segments=3, mode="line"),
             color=color.hsv(0, 1, 1, 0.7),
