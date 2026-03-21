@@ -3,8 +3,8 @@ OBJECT_REGISTRY = {
         "name": "Neon_Substrate",
         "tags": ["substrate"],
         "texture": "textures/checkerboard_transparent.png",
-        "color_base": (0.02, 0.02, 0.1, 1),
-        "color_neon": (0, 1, 0.9, 1)
+        "color_base": (0.01, 0.01, 0.05, 1),
+        "color_neon": (0, 0.8, 1, 1)
     },
     "4004": {
         "name": "Cosmic_Seraph",
