@@ -2,7 +2,7 @@
 PYTHON = ./.venv/bin/python
 export PYTHONPATH := .
 
-.PHONY: test seed clean scout crawl stress-test run
+.PHONY: test seed clean scout crawl stress-test run lab
 
 # 1. TDD Lifecycle: Pure Initialization & World Logic Regression
 test:
@@ -41,3 +41,8 @@ stress-test:
 run:
 	@echo ">>> [SYSTEM] Booting Sanctum OS Engine..."
 	$(PYTHON) main.py
+
+# 8. Cleanroom Diagnostic Environment
+lab:
+	@echo ">>> [SYSTEM] Booting Dedicated Cleanroom Stage..."
+	$(PYTHON) main.py --lab

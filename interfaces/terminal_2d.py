@@ -19,6 +19,15 @@ class Terminal2D:
             self.joystick = pygame.joystick.Joystick(0)
             self.joystick.init()
 
+        # Kinetic Upgrade State
+        self.action_state = "IDLE"
+        self.action_timer = 0
+        self.creature_pos = [5, 5]
+
+    def run_action(self, entity_id=None):
+        self.action_state = "PROCESSING"
+        self.action_timer = 30
+
     def handle_input(self):
         s = self.session
         for event in pygame.event.get():
@@ -50,10 +59,16 @@ class Terminal2D:
                     pygame.K_d: (1, 0),
                 }
                 move = key_map.get(event.key)
-                if move:
+                if move and self.action_state == "IDLE":
                     s.process_step(
                         int(s.pos[0] + move[0]), int(s.pos[2] + move[1]), self.world
                     )
+
+                if event.key == pygame.K_SPACE and self.action_state == "IDLE":
+                    node = self.world.get_node(int(s.pos[0]), int(s.pos[2]), s)
+                    if node["char"] == "$" or getattr(s, "is_lab_mode", False):
+                        # Use new state handler function
+                        self.run_action(node.get("id"))
 
         if self.joystick and not s.active_container:
             hat = self.joystick.get_hat(0)
@@ -65,6 +80,40 @@ class Terminal2D:
     def draw_world(self):
         s, px, pz = self.session, int(self.session.pos[0]), int(self.session.pos[2])
         self.screen.fill((2, 2, 8))
+
+        # Kinetic Upgrades: Logic updates
+        if self.action_state == "PROCESSING":
+            self.action_timer -= 1
+            if self.action_timer <= 0:
+                # Based on session XP vs standard difficulty
+                difficulty = 50
+                if s.xp >= difficulty:
+                    self.action_state = "SUCCESS"
+                    self.action_timer = 30
+                    s.add_log("VAULT OPENED.")
+                else:
+                    self.action_state = "FAILURE"
+                    self.action_timer = 30
+                    s.add_log("MECHANISM JAMMED.")
+        elif self.action_state in ["SUCCESS", "FAILURE"]:
+            self.action_timer -= 1
+            if self.action_timer <= 0:
+                self.action_state = "IDLE"
+
+        # Creature Movement Logic (Every 60 frames roughly, we use ticks)
+        # Using a simple frame counter attached to time or a separate tick counter
+        if pygame.time.get_ticks() % 2000 < 30:  # roughly every 60 frames @ 30fps
+            # Move towards player
+            cx, cz = self.creature_pos
+            if cx < px:
+                cx += 1
+            elif cx > px:
+                cx -= 1
+            if cz < pz:
+                cz += 1
+            elif cz > pz:
+                cz -= 1
+            self.creature_pos = [cx, cz]
 
         # 1. ANALOG SIGNALS (Haptics/RGB)
         rgb_hex = s.get_rgb_handshake()
@@ -92,27 +141,95 @@ class Terminal2D:
         )
 
         # Compass & XP (Right)
-        heading = s.get_compass_heading(self.world.poi_coords)
-        diag = f"XP: {s.xp} | COMPASS: {heading} | RGB: {rgb_hex}"
+        if getattr(s, "is_lab_mode", False):
+            diag = f"XP: {s.xp} | COMPASS: LAB-MODE | RGB: {rgb_hex}"
+        else:
+            try:
+                heading = s.get_compass_heading(self.world.poi_coords)
+            except AttributeError:
+                heading = "ERR_NO_POI"
+            diag = f"XP: {s.xp} | COMPASS: {heading} | RGB: {rgb_hex}"
         self.screen.blit(self.font.render(diag, True, (255, 255, 0)), (920, 18))
 
         # 3. TOPOGRAPHY RENDER
-        raster_warp = int(s.tension / 15.0)
-        for z_off, z in enumerate(range(pz - 15, pz + 16)):
-            line_shift = math.sin(z * 0.4) * raster_warp
-            for x_off, x in enumerate(range(px - 25, px + 26)):
-                node = self.world.get_node(x, z, s)
-                proj_x, proj_y = 180 + (x_off * 18) + int(line_shift), (
-                    120 + z_off * 16
-                ) - int(node["pos"][1] * 9)
-                lum = node["rel"]["intensity"]
-                color = (int(80 * lum), int(200 * lum), int(255 * lum))
-                if s.is_glitched and node["rel"]["noise"] > 0.7:
-                    color = (255, 50, 50)
-                char = node["char"]
-                if x == px and z == pz:
-                    char, color = "@", (255, 255, 255)
-                self.screen.blit(self.font.render(char, True, color), (proj_x, proj_y))
+        if getattr(s, "is_lab_mode", False):
+            # In Lab Mode, we draw a flat 2D viewport, bypassing topography warping and scaling logic
+            # Calculate global pulse for Lab objects
+            ticks = pygame.time.get_ticks() / 1000.0  # Ticks in seconds
+
+            for z_off, z in enumerate(range(pz - 10, pz + 11)):
+                for x_off, x in enumerate(range(px - 10, px + 11)):
+                    node = self.world.get_node(x, z, s)
+                    proj_x, proj_y = 400 + (x_off * 20), 150 + (z_off * 20)
+                    color = node["color"]
+                    char = node["char"]
+
+                    # Apply specific visual sine-wave flicker to lab diagnostic objects
+                    if char == "L" and "flicker_hz" in node["meta"]:
+                        hz = node["meta"]["flicker_hz"]
+                        pulse = (
+                            math.sin(ticks * math.pi * hz) + 1.0
+                        ) / 2.0  # 0.0 to 1.0
+                        # Modulate intensity between 20% and 100%
+                        intensity = 0.2 + (0.8 * pulse)
+                        color = (
+                            int(color[0] * intensity),
+                            int(color[1] * intensity),
+                            int(color[2] * intensity),
+                        )
+
+                    if x == px and z == pz:
+                        char, color = "@", (255, 255, 255)
+                        # Animation Overrides
+                        if self.action_state == "PROCESSING":
+                            char, color = "?", (255, 255, 0)  # Yellow
+                        elif self.action_state == "SUCCESS":
+                            char, color = "O", (0, 255, 0)  # Green
+                        elif self.action_state == "FAILURE":
+                            char, color = "!", (255, 0, 0)  # Red
+
+                    # Creature override
+                    if x == self.creature_pos[0] and z == self.creature_pos[1]:
+                        char, color = "C", (255, 100, 100)
+
+                    self.screen.blit(
+                        self.font.render(char, True, color), (proj_x, proj_y)
+                    )
+        else:
+            raster_warp = int(s.tension / 15.0)
+            for z_off, z in enumerate(range(pz - 15, pz + 16)):
+                line_shift = math.sin(z * 0.4) * raster_warp
+                for x_off, x in enumerate(range(px - 25, px + 26)):
+                    node = self.world.get_node(x, z, s)
+                    proj_x, proj_y = 180 + (x_off * 18) + int(line_shift), (
+                        120 + z_off * 16
+                    ) - int(node["pos"][1] * 9)
+                    # Simplified coloring fallback if 'rel' intensity missing (e.g. in lab mode or standard grid)
+                    if "rel" in node and "intensity" in node["rel"]:
+                        lum = node["rel"]["intensity"]
+                        color = (int(80 * lum), int(200 * lum), int(255 * lum))
+                        if s.is_glitched and node["rel"]["noise"] > 0.7:
+                            color = (255, 50, 50)
+                    else:
+                        color = node["color"]
+                    char = node["char"]
+                    if x == px and z == pz:
+                        char, color = "@", (255, 255, 255)
+                        # Animation Overrides
+                        if self.action_state == "PROCESSING":
+                            char, color = "?", (255, 255, 0)  # Yellow
+                        elif self.action_state == "SUCCESS":
+                            char, color = "O", (0, 255, 0)  # Green
+                        elif self.action_state == "FAILURE":
+                            char, color = "!", (255, 0, 0)  # Red
+
+                    # Creature override
+                    if x == self.creature_pos[0] and z == self.creature_pos[1]:
+                        char, color = "C", (255, 100, 100)
+
+                    self.screen.blit(
+                        self.font.render(char, True, color), (proj_x, proj_y)
+                    )
 
         # 4. LOG (Bottom)
         for i, m in enumerate(s.log[-3:]):

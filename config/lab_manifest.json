@@ -1,0 +1,20 @@
+{
+  "entities": [
+    {
+      "id": "C1",
+      "type": "creature",
+      "pos": [5, 5],
+      "behavior": "aggressive",
+      "char": "C",
+      "color": [255, 0, 0]
+    },
+    {
+      "id": "L1",
+      "type": "lock",
+      "pos": [0, 0],
+      "difficulty": 15,
+      "char": "L",
+      "color": [255, 191, 0]
+    }
+  ]
+}
