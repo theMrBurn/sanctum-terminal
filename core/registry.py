@@ -1,17 +1,14 @@
-OBJECT_REGISTRY = {
-    "0001": {
-        "name": "Neon_Substrate",
-        "tags": ["substrate"],
-        "texture": "textures/checkerboard_transparent.png",
-        "color_base": (0.01, 0.01, 0.05, 1),
-        "color_neon": (0, 0.8, 1, 1)
-    },
-    "4004": {
-        "name": "Cosmic_Seraph",
-        "type": "sprite",
-        "texture": "textures/noise.png",
-        "scale": 18.0,
-        "color": (1.0, 0, 0.4, 0.8), 
-        "tags": ["entity", "dynamic_sprite"]
-    }
+# Blueprints for 'On-Demand' shaping
+BLUEPRINTS = {
+    "STONE_ROAD": {"type": "plane", "width": 20, "tex": "atlas_grit"},
+    "WOOD_WALL":  {"type": "volume", "height": 25, "tex": "atlas_grit"},
+    "LANTERN":    {"type": "actor", "light": True, "flicker": True}
+}
+
+# Temporary Safe-Mode for fresh session
+AVATAR_CONFIG = {
+    "speed": 0.0,         # Start at a standstill to check lighting
+    "eye_level": 8.0,
+    "fov": 70.0,
+    "debug_mode": True    # Keep this as a mental note
 }

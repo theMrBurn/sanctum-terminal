@@ -1,54 +1,59 @@
 import math
 from direct.showbase.ShowBase import ShowBase
-from direct.gui.OnscreenText import OnscreenText
-from panda3d.core import TextNode, Fog, TransparencyAttrib, PointLight, Vec4
-from core.registry import OBJECT_REGISTRY
-from core.geometry import GeoFactory
+from panda3d.core import *
 
-class FirstContactSim(ShowBase):
-    def __init__(self, key="4004"):
+class GlobalResyncSim(ShowBase):
+    def __init__(self):
         super().__init__()
-        self.setBackgroundColor(0, 0, 0.02)
+        # 1. FIX THE LENS (No more blank screens)
+        self.setBackgroundColor(0, 0, 0.1) # Navy Blue for visibility
+        self.camLens.setNearFar(0.1, 2000.0)
+
+        # 2. THE AVATAR (The Anchor)
+        self.avatar = self.render.attachNewNode("Avatar")
+        self.camera.reparentTo(self.avatar)
+        self.camera.setPos(0, -50, 8) # Back and up
+        self.camera.lookAt(0, 100, 0) # Look down the road
+
+        # 3. GUARANTEED LIGHTING (Moon + Fill)
+        # Global Fill (Passive)
+        fill = AmbientLight('fill')
+        fill.setColor(Vec4(0.2, 0.2, 0.4, 1))
+        self.render.setLight(self.render.attachNewNode(fill))
         
-        # LIGHTING
-        self.plight = PointLight('octo_light')
-        self.plight.setColor(Vec4(0.8, 0.3, 1.0, 1))
-        self.plnp = self.camera.attachNewNode(self.plight)
-        self.plnp.setPos(0, -5, 10)
-        self.render.setLight(self.plnp)
+        # Moonlight (Active)
+        moon = DirectionalLight('moon')
+        moon.setColor(Vec4(0.4, 0.5, 0.8, 1))
+        moon_np = self.render.attachNewNode(moon)
+        moon_np.setHpr(0, -60, 0)
+        self.render.setLight(moon_np)
 
-        # FOG
-        self.fog = Fog("MythicFog")
-        self.fog.setExpDensity(0.02)
-        self.render.setFog(self.fog)
+        # 4. ON-DEMAND TEST OBJECTS
+        # Building a visible corridor to prove the engine is alive
+        for i in range(10):
+            y = i * 40
+            # The Road (Device)
+            road_cm = CardMaker("road")
+            road_cm.setFrame(-15, 15, 0, 40)
+            road = self.render.attachNewNode(road_cm.generate())
+            road.setPos(0, y, 0); road.setP(-90)
+            road.setColor(0.2, 0.2, 0.5, 1)
 
-        # GENERATE AND REPARENT
-        self.floor = GeoFactory.generate("0001", OBJECT_REGISTRY["0001"])
-        self.floor.reparentTo(self.render)
-        
-        sprite_dna = OBJECT_REGISTRY[key]
-        self.target = GeoFactory.generate(key, sprite_dna)
-        self.target.reparentTo(self.render)
-        self.target.setPos(0, 60, 0)
-        self.target.setBillboardPointEye()
-        self.target.setTransparency(TransparencyAttrib.MDual)
-
-        # HUD
-        self.status = OnscreenText(text="HD-2D SYNC: SUCCESSFUL", pos=(-1.2, 0.9), 
-                                  scale=0.05, fg=(0, 1, 0.8, 1), align=TextNode.ALeft)
+            # The Walls (Device)
+            wall_cm = CardMaker("wall")
+            wall_cm.setFrame(-20, 20, 0, 30)
+            for x in [-25, 25]:
+                w = self.render.attachNewNode(wall_cm.generate())
+                w.setPos(x, y, 0); w.setH(90 if x > 0 else -90)
+                w.setColor(0.1, 0.1, 0.2, 1)
 
         self.disableMouse()
-        self.camera.setPos(0, -20, 8) 
         self.taskMgr.add(self.update, "Update")
 
     def update(self, task):
-        dt = globalClock.getDt()
-        pulse = (math.sin(task.time * 2.5) * 0.4) + 0.6
-        self.plight.setColor(Vec4(pulse * 0.8, 0.2, pulse, 1))
-        self.camera.setY(self.camera.getY() + 15 * dt)
-        if task.time > 5.0: return task.done
+        # Walk through the corridor
+        self.avatar.setY(self.avatar.getY() + 3.0 * globalClock.getDt())
         return task.cont
 
 if __name__ == "__main__":
-    sim = FirstContactSim()
-    sim.run()
+    GlobalResyncSim().run()
