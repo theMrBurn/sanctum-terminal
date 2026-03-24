@@ -1,3 +1,2 @@
-rich
-requests
-pytest
+panda3d>=1.10.14
+rich>=13.0.0

@@ -1,2 +1,2 @@
 [console_scripts]
-sanctum = sanctum:main
+sanctum = main:main

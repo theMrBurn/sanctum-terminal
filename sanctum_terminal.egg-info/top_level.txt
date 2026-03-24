@@ -1,6 +1,1 @@
-config_manager
-engine
-sanctum
-scout
-sensors
-status
+main
