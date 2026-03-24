@@ -1,27 +1,18 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "sanctum-terminal"
 version = "0.1.0"
-description = "Sovereign Reality Engine"
 dependencies = [
-    "rich",
-    "requests",
-    "pytest",
-    "pygame",
-    "moderngl",
-    "pyrr",
-    "numpy"
+    "panda3d>=1.10.14",
+    "rich>=13.0.0",
 ]
 
-[project.scripts]
-sanctum = "sanctum:main"
-
 [tool.setuptools]
-py-modules = ["sanctum", "config_manager", "engine", "scout", "sensors", "status", "viewport", "input_handler", "renderer_handler"]
+py-modules = ["main"]
+packages = []
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-norecursedirs = ["legacy_v1", ".venv"]
+[project.scripts]
+sanctum = "main:main"

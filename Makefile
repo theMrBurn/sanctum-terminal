@@ -1,28 +1,27 @@
-# --- [SANCTUM TERMINAL MASTER CONTROL] ---
-PYTHON = ./.venv/bin/python
-export PYTHONPATH := .
+.PHONY: setup run test clean
 
-.PHONY: test seed clean scout
+# Respecting the .venv and Python 3.12 pathing
+PYTHON := python3.12
+VENV := .venv
+BIN := $(VENV)/bin
 
-# 1. TDD Lifecycle: Pure Initialization
+# Creates the virtual environment and installs dependencies securely
+setup:
+	$(PYTHON) -m venv $(VENV)
+	$(BIN)/pip install --upgrade pip
+	$(BIN)/pip install -e .[dev]
+
+# Runs the application with high-signal telemetry
+run:
+	$(BIN)/sanctum
+
+# Executes the Pytest cycle for "Sandbox First" verification
 test:
-	@echo ">>> [TDD] Initializing Sandboxed Vault..."
-	rm -f data/vault.db
-	$(PYTHON) -m pytest -vs tests/
-	@echo ">>> [TDD] Tearing down Sandbox..."
-	rm -f data/vault.db
+	$(BIN)/pytest tests/
 
-# 2. Production Seeding (Still available for manual overrides)
-seed:
-	$(PYTHON) tools/seed_vault.py
-
-# 3. Deep Workspace Purge
+# Wipes the environment to reset to the "Empty" state
 clean:
+	rm -rf $(VENV)
+	rm -rf *.egg-info
 	find . -type d -name "__pycache__" -exec rm -rf {} +
-	rm -f data/vault.db
-	rm -rf *.egg-info .pytest_cache
-	@echo ">>> [CLEAN] Internal scaffolds cleared."
-
-# 4. Diagnostic
-scout:
-	$(PYTHON) tools/scout_check.py
+	find . -type d -name ".pytest_cache" -exec rm -rf {} +
