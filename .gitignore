@@ -1,15 +1,40 @@
-# Databases
+# ── Databases ─────────────────────────────────────────────────────────────────
 data/*.db
 *.db
 
-# Python
+# ── Large binary assets — use asset storage, not git ─────────────────────────
+exports/
+data/live_assets/*/Texture_*.png
+data/live_assets/*/Texture_*.jpg
+data/live_assets/*.vmaxb
+data/live_assets/*.vmaxpsb
+*.vmaxb
+*.vmaxpsb
+*.vmaxhb
+*.vmaxhvsb
+*.vmaxhvsc
+*.vmax
+*.psd
+
+# ── Keep manifests — they're the asset registry ───────────────────────────────
+!data/live_assets/*/manifest.json
+
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+dist/
+build/
 venv/
 .env
 .venv/
 
-# Tooling
-.trunk/out/
+# ── Test artifacts ────────────────────────────────────────────────────────────
 .pytest_cache/
+tests/mock_live/
+tests/mock_exports/
+
+# ── Tooling ───────────────────────────────────────────────────────────────────
+.trunk/out/
+*.log
