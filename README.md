@@ -1,4 +1,5 @@
 # SANCTUM TERMINAL
+
 ### Sovereign Architect — Living Development Log
 
 ---
@@ -17,8 +18,8 @@ A gun built for destruction cannot be a peacekeeping tool.
 
 The alternative: measure a sustainable economy by two variables.
 
-  Speed of information:  request ↔ response latency
-  Energy to satisfy it:  calories, joules, cognitive load
+Speed of information: request ↔ response latency
+Energy to satisfy it: calories, joules, cognitive load
 
 The balance between those two = sustainable value exchange.
 Not profit. Not markets. Throughput efficiency of human needs.
@@ -43,14 +44,14 @@ Dragon Quest holds the frame. The rest fills it.
 
 ## DESIGN INFLUENCES
 
-| Influence | What We Take |
-|---|---|
-| Persona / Dragon Quest | Calendar structure, social sim, turn combat |
-| Wildermyth | Organic skill emergence from what you actually do |
-| Reincarnated as a Slime | Absorption/mutation — skills combine unexpectedly |
-| No Man's Sky | Open exploration, make-your-own-fun |
-| Cyberpunk 2077 / Shadowrun | Aesthetic, tone, wearable tech interface |
-| Fallout | Traversal feel, world responsiveness |
+| Influence                         | What We Take                                           |
+| --------------------------------- | ------------------------------------------------------ |
+| Persona / Dragon Quest            | Calendar structure, social sim, turn combat            |
+| Wildermyth                        | Organic skill emergence from what you actually do      |
+| Reincarnated as a Slime           | Absorption/mutation — skills combine unexpectedly      |
+| No Man's Sky                      | Open exploration, make-your-own-fun                    |
+| Cyberpunk 2077 / Shadowrun        | Aesthetic, tone, wearable tech interface               |
+| Fallout                           | Traversal feel, world responsiveness                   |
 | Octopath / YIIK / Anno Mutationem | Visual target — bold, lo-fi, neon, intentional PS1/PS2 |
 
 ---
@@ -63,6 +64,7 @@ Numbers surface only when the player deliberately consults
 the wearable terminal for a specific operation.
 
 **Information/Energy Balance (ObserverSystem)**
+
 - `move_delta_mag` = information request velocity
 - `heat` = energy expenditure — accumulates with activity, dissipates at rest
 - `resolve_scout` = transaction validator — can current capacity handle this request?
@@ -71,12 +73,14 @@ the wearable terminal for a specific operation.
 - World response: fog density, shader intensity, encounter difficulty, terminal latency
 
 **Volume / Information Density**
+
 - Each location has a deterministic `loc_key` (adler32 hash of position)
 - Data spires = information density at that coordinate
 - Gold spires = high-value information nodes (rare, emergent)
 - Biome temperature/moisture = continuous perception shift across information space
 
 **Character as Economic Model**
+
 - `impact_rating` = caloric/cognitive cost of a real-world commitment
 - `vibe` = perception filter applied by this specific human
 - `archetypal_name` = the information request itself
@@ -113,24 +117,25 @@ You don't die in real life until you actually do.
 
 Relics are real life inputs:
 
-| Field | Meaning |
-|---|---|
-| `archetypal_name` | The information request — what this commitment is |
-| `vibe` | Perception filter — how it feels to this specific person |
-| `impact_rating` | Energy cost (1–10) — cognitive/caloric weight |
+| Field             | Meaning                                                  |
+| ----------------- | -------------------------------------------------------- |
+| `archetypal_name` | The information request — what this commitment is        |
+| `vibe`            | Perception filter — how it feels to this specific person |
+| `impact_rating`   | Energy cost (1–10) — cognitive/caloric weight            |
 
 Impact tiers scale atmosphere intensity, rotation speed,
 and encounter density simultaneously:
 
-| Rating | Tier | World Response |
-|---|---|---|
-| 1–3 | Surface | Ambient, atmospheric, low stakes |
-| 4–6 | Dungeon | Structured challenge |
-| 7–10 | Boss | Major zone, alters overworld |
+| Rating | Tier    | World Response                   |
+| ------ | ------- | -------------------------------- |
+| 1–3    | Surface | Ambient, atmospheric, low stakes |
+| 4–6    | Dungeon | Structured challenge             |
+| 7–10   | Boss    | Major zone, alters overworld     |
 
 ---
 
 ## ARCHITECTURE
+
 ```
 REAL WORLD                         GAME WORLD
 ──────────────────────             ──────────────────────────
@@ -145,6 +150,7 @@ Heat / throughput balance informs atmosphere without surfacing to the player.
 ```
 
 **Resolution order for every voxel state:**
+
 1. QuestEngine override (boss tier forces biome)
 2. ObserverSystem modifiers (heat/throughput adjusts atmosphere)
 3. BiomeRegistry noise fallback (temperature + moisture)
@@ -153,34 +159,35 @@ Heat / throughput balance informs atmosphere without surfacing to the player.
 
 ## DEV ENVIRONMENT
 
-| Component | Detail |
-|---|---|
-| Machine | MacBook Pro 14" 2023, M2 Pro, 16GB RAM |
-| OS | macOS Tahoe 26.3.1 |
-| Display | 50" 4K 3840x2160 |
-| IDE | VS Code + Claude Code extension |
-| Python | 3.12.13 (Native ARM64) |
-| Engine | Panda3D + Pygame |
-| Linting | Trunk — ruff, bandit, isort, trufflehog, shellcheck |
-| Tests | pytest 9.0.2 |
-| GPU | Apple M2 Pro — Metal backend, no CUDA |
-| Dependency mgmt | .venv — always activated before any command |
-| Security | Atomic SQLite transactions, absolute path resolution |
+| Component       | Detail                                               |
+| --------------- | ---------------------------------------------------- |
+| Machine         | MacBook Pro 14" 2023, M2 Pro, 16GB RAM               |
+| OS              | macOS Tahoe 26.3.1                                   |
+| Display         | 50" 4K 3840x2160                                     |
+| IDE             | VS Code + Claude Code extension                      |
+| Python          | 3.12.13 (Native ARM64)                               |
+| Engine          | Panda3D + Pygame                                     |
+| Linting         | Trunk — ruff, bandit, isort, trufflehog, shellcheck  |
+| Tests           | pytest 9.0.2                                         |
+| GPU             | Apple M2 Pro — Metal backend, no CUDA                |
+| Dependency mgmt | .venv — always activated before any command          |
+| Security        | Atomic SQLite transactions, absolute path resolution |
 
 ---
 
 ## FINANCIAL SNAPSHOT
 
-| Reserve | Amount | Status |
-|---|---|---|
-| Aegis Shield | $10,000.00 | Untouchable stability floor |
-| Liquid Cache | $5,700.00 | Available for relic acquisition |
+| Reserve      | Amount     | Status                          |
+| ------------ | ---------- | ------------------------------- |
+| Aegis Shield | $10,000.00 | Untouchable stability floor     |
+| Liquid Cache | $5,700.00  | Available for relic acquisition |
 
 Asset sync: `tools/importer.py` · `data/vault.db`
 
 ---
 
 ## PROJECT STRUCTURE
+
 ```
 sanctum-terminal/
 ├── config/
@@ -254,10 +261,12 @@ sanctum-terminal/
 ## SESSION LOG
 
 ### 2026-03-26 — Session 1: The Heartbeat
+
 **Baseline:** 0/7 tests passing (collection errors)
 **Closed:** 59/61 passing (2 remaining: headless camera)
 
 **Delivered:**
+
 - `core/systems/quest_engine.py` — 35 contracts green
 - `core/systems/biome_registry.py` — 10x biomes, quest-gated
 - `utils/VoxelFactory.py` — QuestEngine-first, asset pipeline
@@ -274,6 +283,7 @@ sanctum-terminal/
   existing implementations of the economic model
 
 **Deferred to Session 2:**
+
 - SimulationRunner headless camera → 61/61
 - `config/manifest.json` — config-driven values (P1)
 - `AutoPlayController` stub (P2)
@@ -283,5 +293,5 @@ sanctum-terminal/
 
 ---
 
-*Append a new session block after every milestone.*
-*Format: date · baseline · closed · delivered · deferred.*
+_Append a new session block after every milestone._
+_Format: date · baseline · closed · delivered · deferred._

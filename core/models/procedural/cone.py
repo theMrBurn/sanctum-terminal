@@ -1,5 +1,6 @@
-from ursina import Mesh, Vec3, rotate_around_point_2d
 from copy import deepcopy
+
+from ursina import Mesh, Vec3, rotate_around_point_2d
 
 
 class Cone(Mesh):
@@ -31,14 +32,14 @@ class Cone(Mesh):
         degrees_to_rotate = 360 / resolution
 
         verts = []
-        for i in range(resolution):
+        for _i in range(resolution):
             verts.append(Vec3(v[0], -(height / 2), v[1]))
             v = rotate_around_point_2d(v, origin, -degrees_to_rotate)
             verts.append(Vec3(v[0], -(height / 2), v[1]))
 
             verts.append(Vec3(0, height / 2, 0))
         if add_bottom:
-            for i in range(resolution):
+            for _i in range(resolution):
                 verts.append(Vec3(v[0], 0 - (height / 2), v[1]))
                 verts.append(Vec3(0, -(height / 2), 0))
                 v = rotate_around_point_2d(v, origin, -degrees_to_rotate)
@@ -48,7 +49,7 @@ class Cone(Mesh):
 
 
 if __name__ == "__main__":
-    from ursina import Ursina, Entity, color, EditorCamera
+    from ursina import EditorCamera, Entity, Ursina, color
 
     app = Ursina()
     e = Entity(model=Cone(3), texture="brick")

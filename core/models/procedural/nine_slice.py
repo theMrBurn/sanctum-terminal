@@ -1,7 +1,7 @@
 from ursina.mesh import Mesh
+from ursina.ursinastuff import Default
 from ursina.vec2 import Vec2
 from ursina.vec3 import Vec3
-from ursina.ursinastuff import Default
 
 """
 nineslice mesh:
@@ -128,17 +128,16 @@ class NineSlice(Mesh):
 
 if __name__ == "__main__":
     from ursina import (
-        Ursina,
-        window,
-        color,
-        Entity,
-        camera,
-        Draggable,
-        scene,
-        EditorCamera,
-        Grid,
         Button,
+        Draggable,
+        EditorCamera,
+        Entity,
+        Grid,
         NineSlice,
+        Ursina,
+        camera,
+        color,
+        scene,
     )
 
     app = Ursina()

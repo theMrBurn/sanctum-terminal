@@ -1,7 +1,8 @@
-import pytest
+import os
 import sqlite3
 import sys
-import os
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -236,7 +237,7 @@ class TestBuildRelicDict:
     def test_values_are_renderable(self, engine):
         for relic in engine.relics:
             relic_dict = engine.build_relic_dict(relic)
-            for k, v in relic_dict.items():
+            for _k, v in relic_dict.items():
                 if isinstance(v, tuple):
                     assert all(isinstance(x, float) for x in v)
                 else:

@@ -1,4 +1,3 @@
-from panda3d.core import Vec3
 from rich.console import Console
 
 console = Console()

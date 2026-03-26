@@ -90,7 +90,7 @@ class Terrain(Mesh):
         if self.gradient:
             self.colors = []
             for z, column in enumerate(self.height_values):
-                for x, row in enumerate(column):
+                for x, _row in enumerate(column):
                     self.vertices.append(
                         Vec3(x / w, self.height_values[x][z], z / h)
                         + Vec3(centering_offset.x, 0, centering_offset.y)

@@ -1,6 +1,6 @@
-import pytest
 import builtins
-from direct.showbase.ShowBase import ShowBase
+
+import pytest
 
 
 @pytest.fixture(autouse=True)

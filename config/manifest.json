@@ -1,4 +1,114 @@
 {
+  "meta": {
+    "version": "2.0",
+    "project": "sanctum-terminal",
+    "updated": "2026-03-26"
+  },
+  "world": {
+    "ground_z": 6.0,
+    "move_speed": 40.0,
+    "interact_dist": 5.0,
+    "camera_start": [0, -50, 6.0],
+    "background_color": [0.02, 0.02, 0.04]
+  },
+  "avatar": {
+    "height": 1.8,
+    "color": [0.2, 0.8, 1.0],
+    "gravity": 20.0,
+    "friction": 0.85
+  },
+  "tiers": {
+    "surface": [1, 3],
+    "dungeon": [4, 6],
+    "boss": [7, 10]
+  },
+  "atmosphere": {
+    "default": {
+      "u_fog": [0.1, 0.1, 0.15, 1.0],
+      "u_exp": 1.0
+    },
+    "surface": {
+      "u_fog": [0.1, 0.1, 0.15, 1.0],
+      "u_exp": 0.8
+    },
+    "dungeon": {
+      "u_fog": [0.05, 0.05, 0.1, 1.0],
+      "u_exp": 1.2
+    },
+    "boss": {
+      "u_fog": [0.02, 0.0, 0.05, 1.0],
+      "u_exp": 1.8
+    }
+  },
+  "biomes": {
+    "VOID": {
+      "v_id": "METAL",
+      "u_fog": [0.0, 0.0, 0.0, 1.0],
+      "u_exp": 0.5
+    },
+    "NEON": {
+      "v_id": "PIPE",
+      "u_fog": [0.1, 0.0, 0.2, 1.0],
+      "u_exp": 1.1,
+      "u_glow": 2.5
+    },
+    "IRON": {
+      "v_id": "RUST",
+      "u_fog": [0.3, 0.2, 0.1, 1.0],
+      "u_exp": 0.8
+    },
+    "SILICA": {
+      "v_id": "SAND",
+      "u_fog": [0.9, 0.8, 0.7, 1.0],
+      "u_exp": 1.5
+    },
+    "FROZEN": {
+      "v_id": "ICE",
+      "u_fog": [0.8, 0.9, 1.0, 1.0],
+      "u_exp": 1.0
+    },
+    "SULPHUR": {
+      "v_id": "S_STONE",
+      "u_fog": [0.4, 0.4, 0.0, 1.0],
+      "u_exp": 0.9
+    },
+    "BASALT": {
+      "v_id": "LAVA",
+      "u_fog": [0.1, 0.0, 0.0, 1.0],
+      "u_exp": 0.7
+    },
+    "VERDANT": {
+      "v_id": "MOSS",
+      "u_fog": [0.1, 0.2, 0.1, 1.0],
+      "u_exp": 0.9
+    },
+    "MYCELIUM": {
+      "v_id": "SPORE",
+      "u_fog": [0.2, 0.1, 0.2, 1.0],
+      "u_exp": 0.6
+    },
+    "CHROME": {
+      "v_id": "MIRROR",
+      "u_fog": [1.0, 1.0, 1.0, 1.0],
+      "u_exp": 2.0
+    }
+  },
+  "tier_biome_map": {
+    "surface": "VERDANT",
+    "dungeon": "BASALT",
+    "boss": "VOID"
+  },
+  "biome_thresholds": {
+    "frozen_temp_max": 0.2,
+    "silica_temp_min": 0.8,
+    "silica_moisture_max": 0.3,
+    "verdant_moisture_min": 0.7,
+    "iron_moisture_max": 0.2,
+    "mycelium_temp_min": 0.6,
+    "mycelium_moisture_min": 0.4,
+    "neon_temp_max": 0.4,
+    "neon_moisture_max": 0.5
+  },
   "city_map": {
     "pdx": "portland",
     "sea": "seattle",
@@ -8,16 +118,23 @@
     "miami": "miami"
   },
   "tactics": {
-    "1": "stealth",
-    "2": "standard",
-    "3": "aggressive",
-    "stealth": "stealth",
-    "standard": "standard",
-    "aggressive": "aggressive"
+    "stealth": {
+      "tier_affinity": "surface",
+      "heat_modifier": -0.2
+    },
+    "standard": {
+      "tier_affinity": "dungeon",
+      "heat_modifier": 0.0
+    },
+    "aggressive": {
+      "tier_affinity": "boss",
+      "heat_modifier": 0.4
+    }
   },
   "environment": {
     "default_city": "portland",
     "update_rate": 120,
+    "max_user_cities": 10,
     "registry": {
       "portland": {
         "lat": 45.5152,
@@ -34,12 +151,42 @@
         "lon": -80.1918,
         "temp_threshold": 80
       }
-    }
+    },
+    "user_registry": {}
   },
-  "avatar": {
-    "height": 1.8,
-    "color": [0.2, 0.8, 1.0],
-    "gravity": 20.0,
-    "friction": 0.85
+  "observer": {
+    "base_visibility": 72.0,
+    "heat_attack_rate": 40.0,
+    "heat_decay_rate": 15.0,
+    "heat_scale": 50.0,
+    "pulse_duration": 2.0,
+    "pulse_reset": 10.0
+  },
+  "economy": {
+    "info_request_weight": 1.0,
+    "energy_cost_weight": 1.0,
+    "throughput_target": 0.5,
+    "heat_equity_threshold": 30.0,
+    "heat_burnout_threshold": 75.0,
+    "sensors_nominal_below": 10.0
+  },
+  "hud": {
+    "minimap": true,
+    "ambient_indicators": ["health", "biome_state", "quest_pulse"],
+    "terminal_hotkey": "tab",
+    "resolution_target": [3840, 2160]
+  },
+  "skills": {
+    "natural": ["perception", "endurance", "intuition"],
+    "learned": [],
+    "inherited": [],
+    "morphing": {},
+    "mutation_threshold": 3
+  },
+  "character": {
+    "base_level_age": true,
+    "starting_age": 0,
+    "perception_filters": ["belief", "trauma", "moral_code", "physical"],
+    "stat_blocks": ["cognitive", "physical", "social", "energetic"]
   }
 }

@@ -1,5 +1,7 @@
-import pygame
 import sys
+
+import pygame
+
 from core.vault import vault
 from core.viewport import Viewport
 from infra.loader import SystemLoader

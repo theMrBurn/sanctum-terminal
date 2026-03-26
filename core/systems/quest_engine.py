@@ -1,5 +1,13 @@
+import json
 import sqlite3
 from pathlib import Path
+
+
+def _load_manifest():
+    path = Path(__file__).parent.parent.parent / "config" / "manifest.json"
+    if path.exists():
+        return json.load(open(path))
+    return {}
 
 
 class QuestEngine:
@@ -7,40 +15,37 @@ class QuestEngine:
     The Heartbeat. Global state authority for the Sanctum Terminal.
     Reads from vault.db on init, holds state in memory during session,
     writes back to vault.db on register_event.
+    All tunable values loaded from config/manifest.json.
     """
 
-    TIER_MAP = {
-        "surface": (1, 3),
-        "dungeon": (4, 6),
-        "boss": (7, 10),
-    }
+    def __init__(self, db_path=None, config=None):
+        self._config = config or _load_manifest()
 
-    TIER_ATMOSPHERES = {
-        "surface": {
-            "u_fog": (0.1, 0.1, 0.15, 1.0),
-            "u_exp": 0.8,
-        },
-        "dungeon": {
-            "u_fog": (0.05, 0.05, 0.1, 1.0),
-            "u_exp": 1.2,
-        },
-        "boss": {
-            "u_fog": (0.02, 0.0, 0.05, 1.0),
-            "u_exp": 1.8,
-        },
-    }
+        tiers = self._config.get(
+            "tiers", {"surface": [1, 3], "dungeon": [4, 6], "boss": [7, 10]}
+        )
+        self.TIER_MAP = {k: tuple(v) for k, v in tiers.items()}
 
-    DEFAULT_ATMOSPHERE = {
-        "u_fog": (0.1, 0.1, 0.15, 1.0),
-        "u_exp": 1.0,
-    }
+        atm = self._config.get("atmosphere", {})
+        self.TIER_ATMOSPHERES = {
+            "surface": self._parse_atm(
+                atm.get("surface", {"u_fog": (0.1, 0.1, 0.15, 1.0), "u_exp": 0.8})
+            ),
+            "dungeon": self._parse_atm(
+                atm.get("dungeon", {"u_fog": (0.05, 0.05, 0.1, 1.0), "u_exp": 1.2})
+            ),
+            "boss": self._parse_atm(
+                atm.get("boss", {"u_fog": (0.02, 0.0, 0.05, 1.0), "u_exp": 1.8})
+            ),
+        }
+        self.DEFAULT_ATMOSPHERE = self._parse_atm(
+            atm.get("default", {"u_fog": (0.1, 0.1, 0.15, 1.0), "u_exp": 1.0})
+        )
 
-    def __init__(self, db_path=None):
         if db_path is None:
             db_path = Path(__file__).parent.parent.parent / "data" / "vault.db"
 
         self.db_path = Path(db_path)
-
         if not self.db_path.exists():
             raise FileNotFoundError(
                 f"QuestEngine: vault.db not found at {self.db_path}"
@@ -51,8 +56,15 @@ class QuestEngine:
 
     # ── Private ───────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _parse_atm(atm_dict):
+        fog = atm_dict.get("u_fog", [0.1, 0.1, 0.15, 1.0])
+        return {
+            "u_fog": tuple(fog) if isinstance(fog, list) else fog,
+            "u_exp": atm_dict.get("u_exp", 1.0),
+        }
+
     def _load_relics(self):
-        """Pull all relics from vault.db into memory."""
         try:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
@@ -65,13 +77,11 @@ class QuestEngine:
             raise RuntimeError(f"QuestEngine: failed to load relics — {e}") from e
 
     def _max_impact(self):
-        """Highest impact_rating currently in the ledger."""
         if not self.relics:
             return 0
         return max(r["impact_rating"] for r in self.relics)
 
     def _avg_impact(self):
-        """Average impact_rating across all relics."""
         if not self.relics:
             return 0.0
         return sum(r["impact_rating"] for r in self.relics) / len(self.relics)
@@ -79,29 +89,15 @@ class QuestEngine:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def get_impact_tier(self, rating):
-        """
-        Maps a 1-10 impact_rating to a tier string.
-        surface: 1-3 | dungeon: 4-6 | boss: 7-10
-        Unknown values fall back to surface.
-        """
         for tier, (lo, hi) in self.TIER_MAP.items():
             if lo <= rating <= hi:
                 return tier
         return "surface"
 
     def get_atmosphere_for_tier(self, tier):
-        """
-        Returns the base atmosphere dict for a given tier.
-        Unknown tiers fall back to surface.
-        """
         return dict(self.TIER_ATMOSPHERES.get(tier, self.TIER_ATMOSPHERES["surface"]))
 
     def get_active_biome_rules(self):
-        """
-        The core state authority method.
-        Returns the current world rules based on the active relic ledger.
-        VoxelFactory and BiomeRegistry consume this.
-        """
         if not self.relics:
             return {
                 "biome_override": None,
@@ -127,17 +123,10 @@ class QuestEngine:
         }
 
     def register_event(self, relic_dict):
-        """
-        Registers a new relic at runtime.
-        Validates, clamps, persists to vault.db, updates in-memory ledger.
-        """
         if not relic_dict:
             raise ValueError("QuestEngine.register_event: relic_dict is empty.")
-
         if "archetypal_name" not in relic_dict:
-            raise ValueError(
-                "QuestEngine.register_event: 'archetypal_name' is required."
-            )
+            raise ValueError("QuestEngine.register_event: archetypal_name is required.")
 
         rating = relic_dict.get("impact_rating", 1)
         try:
@@ -152,8 +141,7 @@ class QuestEngine:
         try:
             conn = sqlite3.connect(self.db_path)
             conn.execute(
-                "INSERT INTO archive (archetypal_name, vibe, impact_rating) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO archive (archetypal_name, vibe, impact_rating) VALUES (?, ?, ?)",
                 (name, vibe, rating),
             )
             conn.commit()
@@ -172,10 +160,6 @@ class QuestEngine:
         )
 
     def build_relic_dict(self, relic):
-        """
-        Produces a FirstLight-ready shader uniform dict from a relic.
-        This is the bridge between QuestEngine and inject_relic.
-        """
         rating = relic.get("impact_rating", 1)
         tier = self.get_impact_tier(rating)
         atm = self.get_atmosphere_for_tier(tier)

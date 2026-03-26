@@ -1,5 +1,6 @@
-import pytest
 from pathlib import Path
+
+import pytest
 from panda3d.core import NodePath
 
 
@@ -14,10 +15,10 @@ def mock_panda_engine(mocker):
     mocker.patch.object(VirtualFileSystem, "get_global_ptr")
 
 
-# --- The Actual Tests ---
-from core.viewport import Viewport
 from models.procedural.cube import Cube
 from models.procedural.grid import Grid
+
+# --- The Actual Tests ---
 
 
 def test_cube_generation():

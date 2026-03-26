@@ -1,25 +1,24 @@
-import sys
-import os
-import math
 import json
+import math
+import sys
 from pathlib import Path
+
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import (
-    WindowProperties,
-    DirectionalLight,
     AmbientLight,
+    AntialiasAttrib,
+    DirectionalLight,
     Texture,
     Vec4,
-    AntialiasAttrib,
-    Vec3,
+    WindowProperties,
 )
 from rich.console import Console
 
 # Project Imports
 # Note: Ensure these paths match your folder structure
 from core.vault import RelicVault
-from tools.importer import VoxelTransformer as Transformer
 from tools.daemon import VoxelWatcher
+from tools.importer import VoxelTransformer as Transformer
 
 console = Console()
 

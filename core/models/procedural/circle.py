@@ -8,7 +8,7 @@ class Circle(Mesh):
         point.y = radius
 
         self.vertices = list()
-        for i in range(resolution):
+        for _i in range(resolution):
             origin.rotation_z -= 360 / resolution
             self.vertices.append(point.world_position)
 
