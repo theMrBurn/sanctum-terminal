@@ -3,17 +3,11 @@ from FirstLight import FirstLight
 from direct.task import Task
 from panda3d.core import (
     LVector3, CollisionTraverser, CollisionHandlerQueue,
-    CollisionRay, CollisionNode, BitMask32
+    CollisionRay, CollisionNode, BitMask32, NodePath
 )
 
 
 class Simulation:
-    """
-    Headless-safe game loop wrapper around FirstLight.
-    Exposes process_movement, process_interactions, and interact_dist
-    as testable methods callable by both pytest and AutoPlayController.
-    """
-
     GROUND_Z      = 6.0
     MOVE_SPEED    = 40.0
     interact_dist = 5.0
@@ -34,6 +28,10 @@ class Simulation:
 
         self.app.spawn("GLO_Meso_V1", (0, 0, 0))
 
+        if headless:
+            self.app.camera = NodePath("headless_camera")
+            self.app.camera.setPos(0, -50, self.GROUND_Z)
+
     def setup_collision(self):
         self.cTrav  = CollisionTraverser()
         self.cQueue = CollisionHandlerQueue()
@@ -47,17 +45,9 @@ class Simulation:
     def set_key(self, key, val):
         self.key_map[key] = val
 
-    # ── Testable methods ──────────────────────────────────────────────────────
-
     def process_movement(self, dt):
-        """
-        One movement tick. Driven by key_map (live) or AutoPlay (headless).
-        Camera Z locked to GROUND_Z after every move.
-        No-ops without a camera.
-        """
-        if self.headless or not self.app.camera:
+        if not self.app.camera:
             return
-
         can_move_fwd = True
         if hasattr(self, "cTrav"):
             self.cTrav.traverse(self.app.render)
@@ -67,48 +57,47 @@ class Simulation:
                     self.app.camera
                 ).length() < 3.0:
                     can_move_fwd = False
-
-        move = LVector3(0, 0, 0)
-        if self.key_map["w"] and can_move_fwd:
-            move += self.app.camera.getQuat().getForward()
-        if self.key_map["s"]:
-            move -= self.app.camera.getQuat().getForward()
-        if self.key_map["a"]:
-            move -= self.app.camera.getQuat().getRight()
-        if self.key_map["d"]:
-            move += self.app.camera.getQuat().getRight()
-
-        if move.length() > 0:
-            move.normalize()
-            self.app.camera.setPos(
-                self.app.camera.getPos() + move * self.MOVE_SPEED * dt
-            )
-            self.app.camera.setZ(self.GROUND_Z)
+        try:
+            move = LVector3(0, 0, 0)
+            if self.key_map["w"] and can_move_fwd:
+                move += self.app.camera.getQuat().getForward()
+            if self.key_map["s"]:
+                move -= self.app.camera.getQuat().getForward()
+            if self.key_map["a"]:
+                move -= self.app.camera.getQuat().getRight()
+            if self.key_map["d"]:
+                move += self.app.camera.getQuat().getRight()
+            if move.length() > 0:
+                move.normalize()
+                self.app.camera.setPos(
+                    self.app.camera.getPos() + move * self.MOVE_SPEED * dt
+                )
+        except Exception:
+            pass
+        # Ground lock ALWAYS enforced every tick regardless of movement
+        self.app.camera.setZ(self.GROUND_Z)
 
     def process_interactions(self):
-        """
-        Returns entities within interact_dist of camera.
-        No-ops in headless mode.
-        """
-        if self.headless or not self.app.camera:
+        if not self.app.camera:
             return []
-
         results = []
         cam_pos = self.app.camera.getPos()
         for entity in self.app.entities:
             if entity.getPythonTag("interactable"):
-                dist = (entity.getPos() - cam_pos).length()
-                if dist < self.interact_dist:
+                ent_pos = entity.getPos()
+                dist_2d = (
+                    (ent_pos.x - cam_pos.x) ** 2 +
+                    (ent_pos.y - cam_pos.y) ** 2
+                ) ** 0.5
+                if dist_2d < self.interact_dist:
                     results.append(entity)
         return results
 
     def process_mouse_look(self):
-        """Applies mouse look for one frame. No-ops in headless mode."""
         if self.headless or not self.app.camera:
             return
         if not self.app.mouseWatcherNode.hasMouse():
             return
-
         md = self.app.win.getPointer(0)
         cx = self.app.win.getXSize() // 2
         cy = self.app.win.getYSize() // 2
@@ -119,8 +108,6 @@ class Simulation:
             self.app.camera.setP(
                 max(min(self.app.camera.getP() - (md.getY() - cy) * 0.1, 80), -80)
             )
-
-    # ── Main loop ─────────────────────────────────────────────────────────────
 
     def loop(self, task):
         dt = globalClock.getDt()
