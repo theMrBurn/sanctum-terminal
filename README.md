@@ -291,6 +291,14 @@ sanctum-terminal/
 - Interview pipeline (P4)
 - Skill system schema (P5)
 
+This system is built on the belief that hierarchy is a tool,
+not a default. People organize naturally when given the right
+conditions. Sanctum Terminal is those conditions — applied to
+your own life, your own data, your own world.
+
+The game doesn't tell you who to be.
+It shows you who you already are.
+
 ---
 
 _Append a new session block after every milestone._
