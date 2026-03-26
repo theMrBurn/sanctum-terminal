@@ -1,6 +1,7 @@
-import pytest
-import numpy as np
 from unittest.mock import MagicMock
+
+import pytest
+
 from core.systems.observer import ObserverSystem
 
 

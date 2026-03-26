@@ -1,5 +1,4 @@
 import os
-from core.vault import vault
 
 
 class SystemLoader:

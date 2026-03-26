@@ -1,8 +1,10 @@
-import pytest
 from pathlib import Path
-from utils.VoxelFactory import VoxelFactory
+
+import pytest
+
 from FirstLight import FirstLight
 from SimulationRunner import Simulation
+from utils.VoxelFactory import VoxelFactory
 
 
 @pytest.fixture

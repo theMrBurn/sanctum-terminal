@@ -1,14 +1,15 @@
+import builtins
+import json
+from pathlib import Path
+
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import (
-    Filename,
-    getModelPath,
-    WindowProperties,
     BitMask32,
+    Filename,
+    WindowProperties,
+    getModelPath,
     loadPrcFileData,
 )
-import json
-import builtins
-from pathlib import Path
 
 
 class FirstLight(ShowBase):

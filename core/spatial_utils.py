@@ -1,6 +1,3 @@
-import math
-
-
 class RelativityCamera:
     """
     Handles 3D coordinate transformations for the voxel viewport.

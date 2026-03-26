@@ -1,6 +1,8 @@
-import pytest
-import pygame
 from unittest.mock import MagicMock
+
+import pygame
+import pytest
+
 from core.input_handler import InputHandler
 
 
