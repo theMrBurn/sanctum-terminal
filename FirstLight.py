@@ -1,15 +1,11 @@
-import builtins
-import json
-from pathlib import Path
-
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import (
-    BitMask32,
-    Filename,
-    WindowProperties,
-    getModelPath,
-    loadPrcFileData,
+    Filename, getModelPath, WindowProperties,
+    BitMask32, loadPrcFileData
 )
+import json
+import builtins
+from pathlib import Path
 
 
 class FirstLight(ShowBase):
@@ -17,6 +13,11 @@ class FirstLight(ShowBase):
         if headless:
             loadPrcFileData("", "window-type none")
             loadPrcFileData("", "audio-library-name null")
+        else:
+            loadPrcFileData("", "window-title Sanctum Terminal")
+            loadPrcFileData("", "fullscreen false")
+            loadPrcFileData("", "win-size 1920 1080")
+            loadPrcFileData("", "win-origin -2 -2")
 
         if hasattr(builtins, "base"):
             self.__dict__ = builtins.base.__dict__
@@ -24,10 +25,12 @@ class FirstLight(ShowBase):
             super().__init__()
 
         self.base_path = Path(__file__).parent.absolute()
-        getModelPath().prependDirectory(Filename.fromOsSpecific(str(self.base_path)))
+        getModelPath().prependDirectory(
+            Filename.fromOsSpecific(str(self.base_path))
+        )
         self.live_assets = self.base_path / "data" / "live_assets"
 
-        self.entities = []
+        self.entities  = []
         self.asset_lib = self._load_lib()
 
         if not headless:
@@ -51,16 +54,15 @@ class FirstLight(ShowBase):
         props = WindowProperties()
         props.setCursorHidden(True)
         props.setMouseMode(WindowProperties.M_relative)
+        props.setSize(1920, 1080)
         if self.win:
             self.win.requestProperties(props)
         self.set_background_color(0.02, 0.02, 0.04)
 
     def spawn(self, asset_id, pos):
-        """Programmatic object placement with collision defaults."""
         data = self.asset_lib.get(asset_id)
         if not data:
             return None
-
         asset_path = str(self.live_assets / asset_id / data["file"])
         model = self.loader.loadModel(Filename.fromOsSpecific(asset_path))
         model.reparentTo(self.render)
@@ -81,7 +83,6 @@ class FirstLight(ShowBase):
         if not relic_data:
             return None
 
-        # Legacy support: string asset_id passed directly
         if isinstance(relic_data, str):
             data = self.asset_lib.get(relic_data)
             if not data:
@@ -89,7 +90,6 @@ class FirstLight(ShowBase):
             model = self.spawn(relic_data, (0, 0, 0))
             return {"node": model, "id": relic_data}
 
-        # Primary path: RelicDict from QuestEngine
         for key, value in relic_data.items():
             self.render.setShaderInput(key, value)
         return relic_data
