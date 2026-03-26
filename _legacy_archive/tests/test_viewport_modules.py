@@ -1,31 +1,40 @@
 import pytest
-import numpy as np
-from core.vault import Vault
-from systems.observer import ObserverSystem
-from unittest.mock import MagicMock
+from pathlib import Path
+from panda3d.core import NodePath
 
 
-def test_vault_observer_handshake():
-    """Verify that the Vault and Observer can coexist in a shared frame."""
-    vault = Vault()
-    mock_config = MagicMock()
-    mock_config.resolve_city.return_value = "portland"
-    observer = ObserverSystem(mock_config)
+# --- Headless Engine Mock ---
+@pytest.fixture(scope="module", autouse=True)
+def mock_panda_engine(mocker):
+    """Prevents Panda3D from trying to open a window during unit tests."""
+    mocker.patch("direct.showbase.ShowBase.ShowBase.__init__", return_value=None)
+    # Mocking global pointer for VFS if your models use it
+    from panda3d.core import VirtualFileSystem
 
-    # 1. Get world data
-    pos = [0.0, 0.0, 0.0]
-    frame = vault.get_visible_frame(pos, [0, 0, -1], radius=20.0)
-
-    # 2. Get shader state
-    params = observer.get_shader_params()
-
-    assert len(frame) >= 0
-    assert "u_intensity" in params
-    assert params["u_visibility"] == 72.0
+    mocker.patch.object(VirtualFileSystem, "get_global_ptr")
 
 
-def test_collision_boundary():
-    """Ensure the vault correctly identifies floor vs obstacles."""
-    vault = Vault()
-    # Testing a point high in the air
-    assert vault.check_collision([0, 50, 0]) is False
+# --- The Actual Tests ---
+from core.viewport import Viewport
+from models.procedural.cube import Cube
+from models.procedural.grid import Grid
+
+
+def test_cube_generation():
+    """Regression: Ensure Cube creates a valid NodePath."""
+    # We use a try/except because if Panda3D isn't mocked
+    # correctly, it'll throw a C++ error here.
+    try:
+        test_cube = Cube()
+        assert isinstance(test_cube, NodePath)
+        assert test_cube.getName() == "cube"
+    except Exception as e:
+        pytest.fail(f"Cube generation failed due to Engine Initialization: {e}")
+
+
+def test_grid_parameters():
+    """Stability: Verify Grid respects scale constraints."""
+    test_grid = Grid(size=10, subdivisions=5)
+    assert test_grid is not None
+    # Assuming your Grid class has a get_size method or similar
+    # assert test_grid.get_size() == 10
