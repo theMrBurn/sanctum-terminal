@@ -1,19 +1,17 @@
-import json
 import sys
+import json
 from pathlib import Path
-
+from FirstLight import FirstLight
 from direct.task import Task
 from panda3d.core import (
-    BitMask32,
-    CollisionHandlerQueue,
-    CollisionNode,
-    CollisionRay,
-    CollisionTraverser,
     LVector3,
+    CollisionTraverser,
+    CollisionHandlerQueue,
+    CollisionRay,
+    CollisionNode,
+    BitMask32,
     NodePath,
 )
-
-from FirstLight import FirstLight
 
 
 def _load_manifest():
@@ -27,8 +25,7 @@ class Simulation:
     """
     Headless-safe game loop wrapper around FirstLight.
     World constants loaded from config/manifest.json.
-    Exposes process_movement, process_interactions, and interact_dist
-    as testable methods callable by both pytest and AutoPlayController.
+    SpawnEngine composes biome scene on init.
     """
 
     def __init__(self, headless=False, config=None):
@@ -53,11 +50,42 @@ class Simulation:
             self.app.camera.setPos(*cam_start)
             self.app.taskMgr.add(self.loop, "MainLoop")
 
-        self.app.spawn("GLO_Meso_V1", (0, 0, 0))
+        self._spawn_biome_scene()
 
         if headless:
             self.app.camera = NodePath("headless_camera")
             self.app.camera.setPos(*cam_start)
+
+    def _spawn_biome_scene(self):
+        """
+        Composes and spawns a procedural biome scene using SpawnEngine.
+        Falls back to GLO_Meso_V1 if SpawnEngine fails.
+        """
+        try:
+            from core.systems.spawn_engine import SpawnEngine
+            from core.systems.quest_engine import QuestEngine
+
+            db_path = Path(__file__).parent / "data" / "vault.db"
+            quest   = QuestEngine(db_path=db_path) if db_path.exists() else None
+            spawner = SpawnEngine(
+                asset_lib=self.app.asset_lib,
+                db_path=db_path if db_path.exists() else None,
+            )
+
+            if quest:
+                rules = quest.get_active_biome_rules()
+                scene = spawner.scene_from_quest_rules(rules)
+            else:
+                scene = spawner.compose_scene(encounter_density=0.3)
+
+            for item in scene:
+                self.app.spawn(item["asset_id"], item["pos"])
+
+            print(f"SpawnEngine: {len(scene)} objects placed in biome scene.")
+
+        except Exception as e:
+            print(f"SpawnEngine: fallback to GLO_Meso_V1 — {e}")
+            self.app.spawn("GLO_Meso_V1", (0, 0, 0))
 
     def setup_collision(self):
         self.cTrav = CollisionTraverser()
@@ -81,7 +109,9 @@ class Simulation:
             if self.cQueue.getNumEntries() > 0:
                 self.cQueue.sortEntries()
                 if (
-                    self.cQueue.getEntry(0).getSurfacePoint(self.app.camera).length()
+                    self.cQueue.getEntry(0)
+                    .getSurfacePoint(self.app.camera)
+                    .length()
                     < 3.0
                 ):
                     can_move_fwd = False
@@ -128,7 +158,9 @@ class Simulation:
         cx = self.app.win.getXSize() // 2
         cy = self.app.win.getYSize() // 2
         if self.app.win.movePointer(0, cx, cy):
-            self.app.camera.setH(self.app.camera.getH() - (md.getX() - cx) * 0.1)
+            self.app.camera.setH(
+                self.app.camera.getH() - (md.getX() - cx) * 0.1
+            )
             self.app.camera.setP(
                 max(min(self.app.camera.getP() - (md.getY() - cy) * 0.1, 80), -80)
             )

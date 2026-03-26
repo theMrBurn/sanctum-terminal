@@ -16,7 +16,7 @@ from rich.console import Console
 
 # Project Imports
 # Note: Ensure these paths match your folder structure
-from core.vault import RelicVault
+from core.vault import vault as RelicVault
 from tools.daemon import VoxelWatcher
 from tools.importer import VoxelTransformer as Transformer
 

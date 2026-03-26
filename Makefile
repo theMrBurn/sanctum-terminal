@@ -1,4 +1,4 @@
-.PHONY: clean factory test test-unit test-quest run trunk-check
+.PHONY: clean factory test test-unit test-quest run seed-db trunk-check
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
@@ -9,6 +9,10 @@ clean:
 # ── Asset Pipeline ────────────────────────────────────────────────────────────
 factory:
 	PYTHONPATH=. ./.venv/bin/python utils/VoxelFactory.py
+
+# ── Database ──────────────────────────────────────────────────────────────────
+seed-db:
+	PYTHONPATH=. ./.venv/bin/python tools/seed_db.py
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 test:
@@ -38,3 +42,6 @@ trunk-check:
 # ── Run ───────────────────────────────────────────────────────────────────────
 run:
 	PYTHONPATH=. ./.venv/bin/python SimulationRunner.py
+
+lab:
+	PYTHONPATH=. ./.venv/bin/python main.py
