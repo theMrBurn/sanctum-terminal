@@ -1,11 +1,15 @@
+import builtins
+import json
+from pathlib import Path
+
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import (
-    Filename, getModelPath, WindowProperties,
-    BitMask32, loadPrcFileData
+    BitMask32,
+    Filename,
+    WindowProperties,
+    getModelPath,
+    loadPrcFileData,
 )
-import json
-import builtins
-from pathlib import Path
 
 
 class FirstLight(ShowBase):
@@ -25,12 +29,10 @@ class FirstLight(ShowBase):
             super().__init__()
 
         self.base_path = Path(__file__).parent.absolute()
-        getModelPath().prependDirectory(
-            Filename.fromOsSpecific(str(self.base_path))
-        )
+        getModelPath().prependDirectory(Filename.fromOsSpecific(str(self.base_path)))
         self.live_assets = self.base_path / "data" / "live_assets"
 
-        self.entities  = []
+        self.entities = []
         self.asset_lib = self._load_lib()
 
         if not headless:

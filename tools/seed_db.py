@@ -3,6 +3,7 @@
 tools/seed_db.py
 Initializes vault.db schema. Safe to run multiple times.
 """
+
 import sqlite3
 from pathlib import Path
 

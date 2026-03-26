@@ -1,7 +1,8 @@
-import pytest
 import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 
 @pytest.fixture
@@ -24,33 +25,103 @@ def tmp_db(tmp_path):
 @pytest.fixture
 def mock_asset_lib():
     return {
-        "GLO_Meso_V1":        {"id": "GLO_Meso_V1",        "file": "Example_Models_6_.obj",  "interactable": False},
-        "GLO_Micro_V1":       {"id": "GLO_Micro_V1",       "file": "Example_Models_6_.obj",  "interactable": False},
-        "GLO_Master_Town_V1": {"id": "GLO_Master_Town_V1", "file": "Example_Models_6_.obj",  "interactable": False},
-        "ACT_Human_Stock_V1": {"id": "ACT_Human_Stock_V1", "file": "Avatars_2_.obj",          "interactable": True},
-        "ACT_Human_Thin_V1":  {"id": "ACT_Human_Thin_V1",  "file": "Avatars_2_.obj",          "interactable": True},
-        "ACT_Critter_Quad_V1":{"id": "ACT_Critter_Quad_V1","file": "Example_Models_7_.obj",   "interactable": True},
-        "ACT_Critter_Tiny_V1":{"id": "ACT_Critter_Tiny_V1","file": "Example_Models_7_.obj",   "interactable": True},
-        "ACT_Human_Large_V1": {"id": "ACT_Human_Large_V1", "file": "Avatars_2_.obj",          "interactable": True},
-        "ATM_Master_V1":      {"id": "ATM_Master_V1",      "file": "Citadel_-_Ground_1_.obj", "interactable": False},
-        "PAS_Flora_V1":       {"id": "PAS_Flora_V1",       "file": "Citadel_-_Ground_1_.obj", "interactable": False},
-        "PAS_Furniture_V1":   {"id": "PAS_Furniture_V1",   "file": "Citadel_-_Ground_1_.obj", "interactable": False},
-        "TOOL_Major_V1":      {"id": "TOOL_Major_V1",      "file": "Avatars_3_.obj",           "interactable": True},
-        "TOOL_Minor_V1":      {"id": "TOOL_Minor_V1",      "file": "Avatars_3_.obj",           "interactable": True},
-        "TOOL_Aux_V1":        {"id": "TOOL_Aux_V1",        "file": "Avatars_3_.obj",           "interactable": True},
-        "WEAR_Head_V1":       {"id": "WEAR_Head_V1",       "file": "Avatars_4_.obj",           "interactable": False},
-        "WEAR_Limb_V1":       {"id": "WEAR_Limb_V1",       "file": "Avatars_4_.obj",           "interactable": False},
-        "WEAR_Torso_V1":      {"id": "WEAR_Torso_V1",      "file": "Avatars_4_.obj",           "interactable": False},
+        "GLO_Meso_V1": {
+            "id": "GLO_Meso_V1",
+            "file": "Example_Models_6_.obj",
+            "interactable": False,
+        },
+        "GLO_Micro_V1": {
+            "id": "GLO_Micro_V1",
+            "file": "Example_Models_6_.obj",
+            "interactable": False,
+        },
+        "GLO_Master_Town_V1": {
+            "id": "GLO_Master_Town_V1",
+            "file": "Example_Models_6_.obj",
+            "interactable": False,
+        },
+        "ACT_Human_Stock_V1": {
+            "id": "ACT_Human_Stock_V1",
+            "file": "Avatars_2_.obj",
+            "interactable": True,
+        },
+        "ACT_Human_Thin_V1": {
+            "id": "ACT_Human_Thin_V1",
+            "file": "Avatars_2_.obj",
+            "interactable": True,
+        },
+        "ACT_Critter_Quad_V1": {
+            "id": "ACT_Critter_Quad_V1",
+            "file": "Example_Models_7_.obj",
+            "interactable": True,
+        },
+        "ACT_Critter_Tiny_V1": {
+            "id": "ACT_Critter_Tiny_V1",
+            "file": "Example_Models_7_.obj",
+            "interactable": True,
+        },
+        "ACT_Human_Large_V1": {
+            "id": "ACT_Human_Large_V1",
+            "file": "Avatars_2_.obj",
+            "interactable": True,
+        },
+        "ATM_Master_V1": {
+            "id": "ATM_Master_V1",
+            "file": "Citadel_-_Ground_1_.obj",
+            "interactable": False,
+        },
+        "PAS_Flora_V1": {
+            "id": "PAS_Flora_V1",
+            "file": "Citadel_-_Ground_1_.obj",
+            "interactable": False,
+        },
+        "PAS_Furniture_V1": {
+            "id": "PAS_Furniture_V1",
+            "file": "Citadel_-_Ground_1_.obj",
+            "interactable": False,
+        },
+        "TOOL_Major_V1": {
+            "id": "TOOL_Major_V1",
+            "file": "Avatars_3_.obj",
+            "interactable": True,
+        },
+        "TOOL_Minor_V1": {
+            "id": "TOOL_Minor_V1",
+            "file": "Avatars_3_.obj",
+            "interactable": True,
+        },
+        "TOOL_Aux_V1": {
+            "id": "TOOL_Aux_V1",
+            "file": "Avatars_3_.obj",
+            "interactable": True,
+        },
+        "WEAR_Head_V1": {
+            "id": "WEAR_Head_V1",
+            "file": "Avatars_4_.obj",
+            "interactable": False,
+        },
+        "WEAR_Limb_V1": {
+            "id": "WEAR_Limb_V1",
+            "file": "Avatars_4_.obj",
+            "interactable": False,
+        },
+        "WEAR_Torso_V1": {
+            "id": "WEAR_Torso_V1",
+            "file": "Avatars_4_.obj",
+            "interactable": False,
+        },
     }
 
 
 @pytest.fixture
 def engine(tmp_db, mock_asset_lib):
     from core.systems.spawn_engine import SpawnEngine
+
     return SpawnEngine(asset_lib=mock_asset_lib, db_path=tmp_db)
 
 
 # ── Instantiation ─────────────────────────────────────────────────────────────
+
 
 class TestSpawnEngineInit:
 
@@ -74,6 +145,7 @@ class TestSpawnEngineInit:
 
 # ── Prefix taxonomy ───────────────────────────────────────────────────────────
 
+
 class TestPrefixTaxonomy:
 
     def test_glo_assets_are_not_interactable(self, engine):
@@ -90,6 +162,7 @@ class TestPrefixTaxonomy:
 
 
 # ── Scene composition ─────────────────────────────────────────────────────────
+
 
 class TestComposeScene:
 
@@ -108,9 +181,9 @@ class TestComposeScene:
         assert len(glo_items) == 1
 
     def test_compose_low_density_has_fewer_act(self, engine):
-        low  = engine.compose_scene(encounter_density=0.1, seed=42)
+        low = engine.compose_scene(encounter_density=0.1, seed=42)
         high = engine.compose_scene(encounter_density=0.9, seed=42)
-        low_act  = len([i for i in low  if i["prefix"] == "ACT"])
+        low_act = len([i for i in low if i["prefix"] == "ACT"])
         high_act = len([i for i in high if i["prefix"] == "ACT"])
         assert low_act <= high_act
 
@@ -128,8 +201,8 @@ class TestComposeScene:
         scene = engine.compose_scene(encounter_density=0.5, seed=42)
         for item in scene:
             assert "asset_id" in item
-            assert "prefix"   in item
-            assert "pos"      in item
+            assert "prefix" in item
+            assert "pos" in item
 
     def test_pos_is_tuple_of_three(self, engine):
         scene = engine.compose_scene(encounter_density=0.5, seed=42)
@@ -146,6 +219,7 @@ class TestComposeScene:
 
 # ── Ecological rules ──────────────────────────────────────────────────────────
 
+
 class TestEcologicalRules:
 
     def test_wear_never_spawns_without_act(self, engine):
@@ -156,6 +230,6 @@ class TestEcologicalRules:
 
     def test_tool_count_does_not_exceed_act_count(self, engine):
         scene = engine.compose_scene(encounter_density=0.9, seed=42)
-        act_count  = len([i for i in scene if i["prefix"] == "ACT"])
+        act_count = len([i for i in scene if i["prefix"] == "ACT"])
         tool_count = len([i for i in scene if i["prefix"] == "TOOL"])
         assert tool_count <= max(act_count, 1)

@@ -13,7 +13,7 @@ class SeedEngine:
     Consent version tracked on every seed. No PII ever stored.
     """
 
-    MAX_POCKET    = 3
+    MAX_POCKET = 3
     CONSENT_VERSION = "1.0"
 
     def __init__(self, db_path=None, config=None):
@@ -22,12 +22,10 @@ class SeedEngine:
 
         self.db_path = Path(db_path)
         if not self.db_path.exists():
-            raise FileNotFoundError(
-                f"SeedEngine: vault.db not found at {self.db_path}"
-            )
+            raise FileNotFoundError(f"SeedEngine: vault.db not found at {self.db_path}")
 
         self._ensure_schema()
-        self.pocket  = []
+        self.pocket = []
         self.planted = None
         self._load_state()
 
@@ -62,8 +60,8 @@ class SeedEngine:
                     "SELECT * FROM seeds WHERE status != 'archived' "
                     "ORDER BY created_at ASC"
                 ).fetchall()
-            self.pocket  = [dict(r) for r in rows]
-            planted      = [s for s in self.pocket if s["status"] == "planted"]
+            self.pocket = [dict(r) for r in rows]
+            planted = [s for s in self.pocket if s["status"] == "planted"]
             self.planted = planted[0] if planted else None
         except sqlite3.Error as e:
             raise RuntimeError(f"SeedEngine: state load failed — {e}") from e
@@ -82,11 +80,13 @@ class SeedEngine:
         Captures current world state as a JSON snapshot.
         No PII. Only game context.
         """
-        return json.dumps({
-            "biome":      "VOID",
-            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "version":    self.CONSENT_VERSION,
-        })
+        return json.dumps(
+            {
+                "biome": "VOID",
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "version": self.CONSENT_VERSION,
+            }
+        )
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ class SeedEngine:
             )
 
         seed_hash = self._make_hash(label)
-        snapshot  = self._make_snapshot()
+        snapshot = self._make_snapshot()
 
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -111,7 +111,7 @@ class SeedEngine:
                     "INSERT INTO seeds "
                     "(label, seed_hash, status, snapshot, consent_version) "
                     "VALUES (?, ?, 'exploring', ?, ?)",
-                    (label, seed_hash, snapshot, self.CONSENT_VERSION)
+                    (label, seed_hash, snapshot, self.CONSENT_VERSION),
                 )
                 conn.commit()
                 row_id = cursor.lastrowid
@@ -119,11 +119,11 @@ class SeedEngine:
             raise RuntimeError(f"SeedEngine.generate: DB write failed — {e}") from e
 
         seed = {
-            "id":              row_id,
-            "label":           label,
-            "seed_hash":       seed_hash,
-            "status":          "exploring",
-            "snapshot":        snapshot,
+            "id": row_id,
+            "label": label,
+            "seed_hash": seed_hash,
+            "status": "exploring",
+            "snapshot": snapshot,
             "consent_version": self.CONSENT_VERSION,
         }
         self.pocket.append(seed)
@@ -135,9 +135,7 @@ class SeedEngine:
         Only one seed can be planted at a time.
         Raises ValueError if seed not found in pocket.
         """
-        target = next(
-            (s for s in self.pocket if s["seed_hash"] == seed_hash), None
-        )
+        target = next((s for s in self.pocket if s["seed_hash"] == seed_hash), None)
         if target is None:
             raise ValueError(
                 f"SeedEngine.plant: seed {seed_hash!r} not found in pocket."
@@ -151,7 +149,7 @@ class SeedEngine:
                     with sqlite3.connect(self.db_path) as conn:
                         conn.execute(
                             "UPDATE seeds SET status='exploring' WHERE seed_hash=?",
-                            (seed["seed_hash"],)
+                            (seed["seed_hash"],),
                         )
                         conn.commit()
                 except sqlite3.Error as e:
@@ -161,18 +159,15 @@ class SeedEngine:
 
         # Plant the target
         target["status"] = "planted"
-        self.planted     = target
+        self.planted = target
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
-                    "UPDATE seeds SET status='planted' WHERE seed_hash=?",
-                    (seed_hash,)
+                    "UPDATE seeds SET status='planted' WHERE seed_hash=?", (seed_hash,)
                 )
                 conn.commit()
         except sqlite3.Error as e:
-            raise RuntimeError(
-                f"SeedEngine.plant: DB update failed — {e}"
-            ) from e
+            raise RuntimeError(f"SeedEngine.plant: DB update failed — {e}") from e
 
         return target
 
@@ -182,9 +177,7 @@ class SeedEngine:
         Removes from pocket. Frees a slot.
         This is permanent. The world is done.
         """
-        target = next(
-            (s for s in self.pocket if s["seed_hash"] == seed_hash), None
-        )
+        target = next((s for s in self.pocket if s["seed_hash"] == seed_hash), None)
         if target is None:
             raise ValueError(
                 f"SeedEngine.archive: seed {seed_hash!r} not found in pocket."
@@ -193,14 +186,11 @@ class SeedEngine:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
-                    "UPDATE seeds SET status='archived' WHERE seed_hash=?",
-                    (seed_hash,)
+                    "UPDATE seeds SET status='archived' WHERE seed_hash=?", (seed_hash,)
                 )
                 conn.commit()
         except sqlite3.Error as e:
-            raise RuntimeError(
-                f"SeedEngine.archive: DB update failed — {e}"
-            ) from e
+            raise RuntimeError(f"SeedEngine.archive: DB update failed — {e}") from e
 
         self.pocket = [s for s in self.pocket if s["seed_hash"] != seed_hash]
         if self.planted and self.planted["seed_hash"] == seed_hash:
