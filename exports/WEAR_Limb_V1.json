@@ -1,0 +1,7 @@
+{
+  "id": "WEAR_Limb_V1",
+  "render_scale": 1.0,
+  "y_offset": 0.0,
+  "shadow_cast": true,
+  "lod_distance": 50.0
+}
