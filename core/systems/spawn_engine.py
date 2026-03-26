@@ -15,17 +15,17 @@ class SpawnEngine:
 
     # How many of each prefix to consider per density level
     DENSITY_TABLE = {
-        "GLO":  (1, 1),    # always exactly 1
-        "ATM":  (0, 2),    # 0-2 landmarks
-        "PAS":  (1, 4),    # 1-4 passive fill
-        "ACT":  (0, 5),    # 0-5 encounter objects scaled by density
-        "TOOL": (0, 3),    # 0-3 interactive objects
-        "WEAR": (0, 2),    # 0-2 equipment (only with ACT)
+        "GLO": (1, 1),  # always exactly 1
+        "ATM": (0, 2),  # 0-2 landmarks
+        "PAS": (1, 4),  # 1-4 passive fill
+        "ACT": (0, 5),  # 0-5 encounter objects scaled by density
+        "TOOL": (0, 3),  # 0-3 interactive objects
+        "WEAR": (0, 2),  # 0-2 equipment (only with ACT)
     }
 
     def __init__(self, asset_lib=None, db_path=None):
-        self.asset_lib   = asset_lib or {}
-        self.db_path     = Path(db_path) if db_path else None
+        self.asset_lib = asset_lib or {}
+        self.db_path = Path(db_path) if db_path else None
         self.prefix_table = self._build_prefix_table()
 
     # ── Private ───────────────────────────────────────────────────────────────
@@ -76,70 +76,81 @@ class SpawnEngine:
           - TOOL count never exceeds ACT count
         Returns list of dicts: {asset_id, prefix, pos}
         """
-        rng   = random.Random(seed)
+        rng = random.Random(seed)
         scene = []
 
         # GLO — always first, always at origin
         glo_assets = self._pick(rng, "GLO", 1)
         for asset_id in glo_assets:
-            scene.append({
-                "asset_id": asset_id,
-                "prefix":   "GLO",
-                "pos":      (0, 0, 0),
-            })
+            scene.append(
+                {
+                    "asset_id": asset_id,
+                    "prefix": "GLO",
+                    "pos": (0, 0, 0),
+                }
+            )
 
         # ATM — landmarks, scattered wide
         atm_count = self._count_for_density("ATM", encounter_density)
         for asset_id in self._pick(rng, "ATM", atm_count):
-            scene.append({
-                "asset_id": asset_id,
-                "prefix":   "ATM",
-                "pos":      self._random_pos(rng, self.SPAWN_RADIUS),
-            })
+            scene.append(
+                {
+                    "asset_id": asset_id,
+                    "prefix": "ATM",
+                    "pos": self._random_pos(rng, self.SPAWN_RADIUS),
+                }
+            )
 
         # PAS — passive fill, medium scatter
         pas_count = self._count_for_density("PAS", encounter_density)
         for asset_id in self._pick(rng, "PAS", pas_count):
-            scene.append({
-                "asset_id": asset_id,
-                "prefix":   "PAS",
-                "pos":      self._random_pos(rng, self.SPAWN_RADIUS * 0.6),
-            })
+            scene.append(
+                {
+                    "asset_id": asset_id,
+                    "prefix": "PAS",
+                    "pos": self._random_pos(rng, self.SPAWN_RADIUS * 0.6),
+                }
+            )
 
         # ACT — encounters, close to player
         act_count = self._count_for_density("ACT", encounter_density)
         act_spawned = []
         for asset_id in self._pick(rng, "ACT", act_count):
             pos = self._random_pos(rng, self.SPAWN_RADIUS * 0.4)
-            scene.append({
-                "asset_id": asset_id,
-                "prefix":   "ACT",
-                "pos":      pos,
-            })
+            scene.append(
+                {
+                    "asset_id": asset_id,
+                    "prefix": "ACT",
+                    "pos": pos,
+                }
+            )
             act_spawned.append(asset_id)
 
         # TOOL — only if ACT present, count <= ACT count
         if act_spawned:
             tool_count = min(
-                self._count_for_density("TOOL", encounter_density),
-                len(act_spawned)
+                self._count_for_density("TOOL", encounter_density), len(act_spawned)
             )
             for asset_id in self._pick(rng, "TOOL", tool_count):
-                scene.append({
-                    "asset_id": asset_id,
-                    "prefix":   "TOOL",
-                    "pos":      self._random_pos(rng, self.SPAWN_RADIUS * 0.3),
-                })
+                scene.append(
+                    {
+                        "asset_id": asset_id,
+                        "prefix": "TOOL",
+                        "pos": self._random_pos(rng, self.SPAWN_RADIUS * 0.3),
+                    }
+                )
 
         # WEAR — only if ACT present
         if act_spawned:
             wear_count = self._count_for_density("WEAR", encounter_density)
             for asset_id in self._pick(rng, "WEAR", wear_count):
-                scene.append({
-                    "asset_id": asset_id,
-                    "prefix":   "WEAR",
-                    "pos":      self._random_pos(rng, self.SPAWN_RADIUS * 0.2),
-                })
+                scene.append(
+                    {
+                        "asset_id": asset_id,
+                        "prefix": "WEAR",
+                        "pos": self._random_pos(rng, self.SPAWN_RADIUS * 0.2),
+                    }
+                )
 
         return scene
 

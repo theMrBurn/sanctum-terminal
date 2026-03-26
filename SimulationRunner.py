@@ -1,17 +1,19 @@
-import sys
 import json
+import sys
 from pathlib import Path
-from FirstLight import FirstLight
+
 from direct.task import Task
 from panda3d.core import (
-    LVector3,
-    CollisionTraverser,
-    CollisionHandlerQueue,
-    CollisionRay,
-    CollisionNode,
     BitMask32,
+    CollisionHandlerQueue,
+    CollisionNode,
+    CollisionRay,
+    CollisionTraverser,
+    LVector3,
     NodePath,
 )
+
+from FirstLight import FirstLight
 
 
 def _load_manifest():
@@ -62,11 +64,11 @@ class Simulation:
         Falls back to GLO_Meso_V1 if SpawnEngine fails.
         """
         try:
-            from core.systems.spawn_engine import SpawnEngine
             from core.systems.quest_engine import QuestEngine
+            from core.systems.spawn_engine import SpawnEngine
 
             db_path = Path(__file__).parent / "data" / "vault.db"
-            quest   = QuestEngine(db_path=db_path) if db_path.exists() else None
+            quest = QuestEngine(db_path=db_path) if db_path.exists() else None
             spawner = SpawnEngine(
                 asset_lib=self.app.asset_lib,
                 db_path=db_path if db_path.exists() else None,
@@ -109,9 +111,7 @@ class Simulation:
             if self.cQueue.getNumEntries() > 0:
                 self.cQueue.sortEntries()
                 if (
-                    self.cQueue.getEntry(0)
-                    .getSurfacePoint(self.app.camera)
-                    .length()
+                    self.cQueue.getEntry(0).getSurfacePoint(self.app.camera).length()
                     < 3.0
                 ):
                     can_move_fwd = False
@@ -158,9 +158,7 @@ class Simulation:
         cx = self.app.win.getXSize() // 2
         cy = self.app.win.getYSize() // 2
         if self.app.win.movePointer(0, cx, cy):
-            self.app.camera.setH(
-                self.app.camera.getH() - (md.getX() - cx) * 0.1
-            )
+            self.app.camera.setH(self.app.camera.getH() - (md.getX() - cx) * 0.1)
             self.app.camera.setP(
                 max(min(self.app.camera.getP() - (md.getY() - cy) * 0.1, 80), -80)
             )

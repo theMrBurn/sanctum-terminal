@@ -1,7 +1,8 @@
-import pytest
-import sqlite3
 import json
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture
@@ -36,10 +37,12 @@ def tmp_db(tmp_path):
 @pytest.fixture
 def engine(tmp_db):
     from core.systems.seed_engine import SeedEngine
+
     return SeedEngine(db_path=tmp_db)
 
 
 # ── Instantiation ─────────────────────────────────────────────────────────────
+
 
 class TestSeedEngineInit:
 
@@ -48,6 +51,7 @@ class TestSeedEngineInit:
 
     def test_db_path_missing_raises(self):
         from core.systems.seed_engine import SeedEngine
+
         with pytest.raises(FileNotFoundError):
             SeedEngine(db_path="/nonexistent/vault.db")
 
@@ -59,6 +63,7 @@ class TestSeedEngineInit:
 
 
 # ── Seed Generation ───────────────────────────────────────────────────────────
+
 
 class TestGenerateSeed:
 
@@ -105,6 +110,7 @@ class TestGenerateSeed:
 
 # ── Planting ──────────────────────────────────────────────────────────────────
 
+
 class TestPlantSeed:
 
     def test_plant_sets_status_planted(self, engine):
@@ -117,8 +123,7 @@ class TestPlantSeed:
         engine.plant(seed["seed_hash"])
         conn = sqlite3.connect(tmp_db)
         row = conn.execute(
-            "SELECT status FROM seeds WHERE seed_hash=?",
-            (seed["seed_hash"],)
+            "SELECT status FROM seeds WHERE seed_hash=?", (seed["seed_hash"],)
         ).fetchone()
         conn.close()
         assert row[0] == "planted"
@@ -138,6 +143,7 @@ class TestPlantSeed:
 
 # ── Archiving ─────────────────────────────────────────────────────────────────
 
+
 class TestArchiveSeed:
 
     def test_archive_sets_status_archived(self, engine, tmp_db):
@@ -146,8 +152,7 @@ class TestArchiveSeed:
         engine.archive(seed["seed_hash"])
         conn = sqlite3.connect(tmp_db)
         row = conn.execute(
-            "SELECT status FROM seeds WHERE seed_hash=?",
-            (seed["seed_hash"],)
+            "SELECT status FROM seeds WHERE seed_hash=?", (seed["seed_hash"],)
         ).fetchone()
         conn.close()
         assert row[0] == "archived"
@@ -193,6 +198,7 @@ class TestArchiveSeed:
 
 # ── Snapshot ──────────────────────────────────────────────────────────────────
 
+
 class TestSeedSnapshot:
 
     def test_snapshot_is_valid_json(self, engine):
@@ -213,8 +219,6 @@ class TestSeedSnapshot:
     def test_consent_version_recorded(self, engine, tmp_db):
         engine.generate(label="Consent World")
         conn = sqlite3.connect(tmp_db)
-        row = conn.execute(
-            "SELECT consent_version FROM seeds"
-        ).fetchone()
+        row = conn.execute("SELECT consent_version FROM seeds").fetchone()
         conn.close()
         assert row[0] == "1.0"
