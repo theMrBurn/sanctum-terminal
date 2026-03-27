@@ -198,7 +198,8 @@ class InterviewUI:
                 )
                 self._text_nodes.append(hint)
 
-            self._update_input_display()
+            if prompt["type"] == "open":
+                self._update_input_display()
 
         except Exception:
             pass
