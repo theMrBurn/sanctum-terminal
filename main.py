@@ -15,6 +15,7 @@ from panda3d.core import (
 from rich.console import Console
 
 from core.systems.quest_engine import QuestEngine
+from core.systems.grace_handler import GraceHandler
 from core.vault import vault as RelicVault
 from tools.daemon import VoxelWatcher
 from tools.importer import VoxelTransformer as Transformer
@@ -23,7 +24,7 @@ console = Console()
 
 MOUSE_SENSITIVITY = 0.15
 PITCH_CLAMP       = 80.0
-SNAP_THRESHOLD    = 200  # ignore pointer jumps larger than this
+SNAP_THRESHOLD    = 200
 
 
 class SanctumTerminal(ShowBase):
@@ -49,6 +50,10 @@ class SanctumTerminal(ShowBase):
             "a": False, "d": False,
             "q": False, "e": False,
         }
+
+        # Grace handler — boots first, always
+        db_path    = Path("data/vault.db")
+        self.grace = GraceHandler(db_path=db_path) if db_path.exists() else None
 
         self.disableMouse()
         self.camLens.setFov(80)
@@ -83,7 +88,6 @@ class SanctumTerminal(ShowBase):
         props.setCursorHidden(True)
         props.setMouseMode(WindowProperties.M_relative)
         self.win.requestProperties(props)
-        # centre pointer to avoid initial jump
         cx = self.win.getXSize() // 2
         cy = self.win.getYSize() // 2
         self.win.movePointer(0, cx, cy)
@@ -98,27 +102,61 @@ class SanctumTerminal(ShowBase):
         self.win.requestProperties(props)
 
     def boot_biome_scene(self):
+        """
+        Renders procedural biome geometry on boot.
+        Checks grace checkpoint first — recovers last known state if available.
+        Fires biome_transition grace event on load.
+        """
         try:
             from core.systems.biome_renderer import BiomeRenderer
+
             db_path = Path("data/vault.db")
-            quest   = QuestEngine(db_path=db_path) if db_path.exists() else None
-            if quest:
+            quest   = QuestEngine(
+                db_path=db_path, grace=self.grace
+            ) if db_path.exists() else None
+
+            # Attempt grace recovery first
+            recovered = self.grace.recover() if self.grace else None
+            if recovered and "biome_key" in recovered:
+                biome_key = recovered["biome_key"]
+                density   = recovered.get("encounter_density", 0.3)
+                console.log(f"[bold yellow]GRACE:[/bold yellow] Recovered — {biome_key}")
+            elif quest:
                 rules     = quest.get_active_biome_rules()
                 density   = rules.get("encounter_density", 0.3)
                 override  = rules.get("biome_override")
                 biome_key = override if override else "VOID"
             else:
                 density   = 0.3
-                biome_key = "VERDANT"
+                biome_key = "VOID"
+
             renderer = BiomeRenderer(
-                render_root=self.render, biome_key=biome_key, seed=42
+                render_root=self.render,
+                biome_key=biome_key,
+                seed=42
             )
             nodes = renderer.render_scene(encounter_density=density)
+
+            # Fire grace event + checkpoint
+            if self.grace:
+                self.grace.fire("biome_transition", {
+                    "biome_key": biome_key,
+                    "density":   density,
+                })
+                self.grace.checkpoint({
+                    "biome_key":          biome_key,
+                    "encounter_density":  density,
+                    "karma":              0.0,
+                    "camera_speed":       self.camera_speed,
+                })
+
             console.log(
                 f"[bold cyan]BIOME:[/bold cyan] {biome_key} — {len(nodes)} objects rendered."
             )
         except Exception as e:
             console.log(f"[red]BIOME ERROR:[/red] {e}")
+            if self.grace:
+                self.grace.fire("system_panic", {"reason": str(e)})
 
     def setup_lighting(self):
         dlight = DirectionalLight("dlight")
@@ -183,28 +221,21 @@ class SanctumTerminal(ShowBase):
         dt    = globalClock.getDt()
         speed = self.camera_speed * dt
 
-        # ── Mouse look ────────────────────────────────────────────────────────
-        # Use last-position delta instead of centre-snap to eliminate jitter.
-        # M_relative mode gives us raw device delta — no pointer warp needed.
         if self.mouse_look_active and self.mouseWatcherNode.hasMouse():
             md = self.win.getPointer(0)
             mx = md.getX()
             my = md.getY()
-
             if self._last_mx is not None:
                 dx = mx - self._last_mx
                 dy = my - self._last_my
-                # discard snap jumps
                 if abs(dx) < SNAP_THRESHOLD and abs(dy) < SNAP_THRESHOLD:
                     self.cam_yaw   -= dx * MOUSE_SENSITIVITY
                     self.cam_pitch -= dy * MOUSE_SENSITIVITY
                     self.cam_pitch  = max(-PITCH_CLAMP, min(PITCH_CLAMP, self.cam_pitch))
                     self.cam.setHpr(self.cam_yaw, self.cam_pitch, 0)
-
             self._last_mx = mx
             self._last_my = my
 
-        # ── Movement ──────────────────────────────────────────────────────────
         if self.key_map["w"]: self.cam.setPos(self.cam, 0,  speed, 0)
         if self.key_map["s"]: self.cam.setPos(self.cam, 0, -speed, 0)
         if self.key_map["a"]: self.cam.setPos(self.cam, -speed, 0, 0)
@@ -212,7 +243,6 @@ class SanctumTerminal(ShowBase):
         if self.key_map["e"]: self.cam.setPos(self.cam, 0, 0,  speed)
         if self.key_map["q"]: self.cam.setPos(self.cam, 0, 0, -speed)
 
-        # Ground lock
         self.cam.setZ(6.0)
         return task.cont
 
@@ -224,6 +254,8 @@ class SanctumTerminal(ShowBase):
         return task.cont
 
     def exit_app(self):
+        if self.grace:
+            self.grace.fire("system_panic", {"reason": "user_exit"})
         if hasattr(self, "watcher"):
             self.watcher.stop()
         sys.exit(0)

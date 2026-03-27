@@ -16,27 +16,23 @@ class QuestEngine:
     Reads from vault.db on init, holds state in memory during session,
     writes back to vault.db on register_event.
     All tunable values loaded from config/manifest.json.
+    GraceHandler wired for relic_registered events.
     """
 
-    def __init__(self, db_path=None, config=None):
+    def __init__(self, db_path=None, config=None, grace=None):
         self._config = config or _load_manifest()
+        self._grace  = grace
 
-        tiers = self._config.get(
-            "tiers", {"surface": [1, 3], "dungeon": [4, 6], "boss": [7, 10]}
-        )
+        tiers = self._config.get("tiers", {
+            "surface": [1, 3], "dungeon": [4, 6], "boss": [7, 10]
+        })
         self.TIER_MAP = {k: tuple(v) for k, v in tiers.items()}
 
         atm = self._config.get("atmosphere", {})
         self.TIER_ATMOSPHERES = {
-            "surface": self._parse_atm(
-                atm.get("surface", {"u_fog": (0.1, 0.1, 0.15, 1.0), "u_exp": 0.8})
-            ),
-            "dungeon": self._parse_atm(
-                atm.get("dungeon", {"u_fog": (0.05, 0.05, 0.1, 1.0), "u_exp": 1.2})
-            ),
-            "boss": self._parse_atm(
-                atm.get("boss", {"u_fog": (0.02, 0.0, 0.05, 1.0), "u_exp": 1.8})
-            ),
+            "surface": self._parse_atm(atm.get("surface", {"u_fog": (0.1, 0.1, 0.15, 1.0), "u_exp": 0.8})),
+            "dungeon": self._parse_atm(atm.get("dungeon", {"u_fog": (0.05, 0.05, 0.1, 1.0), "u_exp": 1.2})),
+            "boss":    self._parse_atm(atm.get("boss",    {"u_fog": (0.02, 0.0, 0.05, 1.0), "u_exp": 1.8})),
         }
         self.DEFAULT_ATMOSPHERE = self._parse_atm(
             atm.get("default", {"u_fog": (0.1, 0.1, 0.15, 1.0), "u_exp": 1.0})
@@ -53,8 +49,6 @@ class QuestEngine:
 
         self.relics = []
         self._load_relics()
-
-    # ── Private ───────────────────────────────────────────────────────────────
 
     @staticmethod
     def _parse_atm(atm_dict):
@@ -74,7 +68,9 @@ class QuestEngine:
             conn.close()
             self.relics = [dict(r) for r in rows]
         except sqlite3.OperationalError as e:
-            raise RuntimeError(f"QuestEngine: failed to load relics — {e}") from e
+            raise RuntimeError(
+                f"QuestEngine: failed to load relics — {e}"
+            ) from e
 
     def _max_impact(self):
         if not self.relics:
@@ -86,7 +82,9 @@ class QuestEngine:
             return 0.0
         return sum(r["impact_rating"] for r in self.relics) / len(self.relics)
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    def _fire(self, event_type, payload):
+        if self._grace:
+            self._grace.fire(event_type, payload)
 
     def get_impact_tier(self, rating):
         for tier, (lo, hi) in self.TIER_MAP.items():
@@ -100,33 +98,35 @@ class QuestEngine:
     def get_active_biome_rules(self):
         if not self.relics:
             return {
-                "biome_override": None,
-                "atmosphere": dict(self.DEFAULT_ATMOSPHERE),
+                "biome_override":    None,
+                "atmosphere":        dict(self.DEFAULT_ATMOSPHERE),
                 "encounter_density": 0.0,
-                "rotation_speed": 1.0,
+                "rotation_speed":    1.0,
             }
 
-        max_impact = self._max_impact()
-        avg_impact = self._avg_impact()
-        tier = self.get_impact_tier(max_impact)
-        atmosphere = self.get_atmosphere_for_tier(tier)
-        scale = max_impact / 10.0
+        max_impact        = self._max_impact()
+        avg_impact        = self._avg_impact()
+        tier              = self.get_impact_tier(max_impact)
+        atmosphere        = self.get_atmosphere_for_tier(tier)
+        scale             = max_impact / 10.0
         encounter_density = min(1.0, scale * 1.2)
-        rotation_speed = 0.5 + scale
+        rotation_speed    = 0.5 + scale
         atmosphere["u_exp"] = round(0.5 + (avg_impact / 10.0) * 2.0, 3)
 
         return {
-            "biome_override": tier if max_impact >= 7 else None,
-            "atmosphere": atmosphere,
+            "biome_override":    tier if max_impact >= 7 else None,
+            "atmosphere":        atmosphere,
             "encounter_density": round(encounter_density, 3),
-            "rotation_speed": round(rotation_speed, 3),
+            "rotation_speed":    round(rotation_speed, 3),
         }
 
     def register_event(self, relic_dict):
         if not relic_dict:
             raise ValueError("QuestEngine.register_event: relic_dict is empty.")
         if "archetypal_name" not in relic_dict:
-            raise ValueError("QuestEngine.register_event: archetypal_name is required.")
+            raise ValueError(
+                "QuestEngine.register_event: archetypal_name is required."
+            )
 
         rating = relic_dict.get("impact_rating", 1)
         try:
@@ -142,7 +142,7 @@ class QuestEngine:
             conn = sqlite3.connect(self.db_path)
             conn.execute(
                 "INSERT INTO archive (archetypal_name, vibe, impact_rating) VALUES (?, ?, ?)",
-                (name, vibe, rating),
+                (name, vibe, rating)
             )
             conn.commit()
             conn.close()
@@ -151,18 +151,21 @@ class QuestEngine:
                 f"QuestEngine.register_event: DB write failed — {e}"
             ) from e
 
-        self.relics.append(
-            {
-                "archetypal_name": name,
-                "vibe": vibe,
-                "impact_rating": rating,
-            }
-        )
+        self.relics.append({
+            "archetypal_name": name,
+            "vibe":            vibe,
+            "impact_rating":   rating,
+        })
+
+        self._fire("relic_registered", {
+            "archetypal_name": name,
+            "impact_rating":   rating,
+        })
 
     def build_relic_dict(self, relic):
-        rating = relic.get("impact_rating", 1)
-        tier = self.get_impact_tier(rating)
-        atm = self.get_atmosphere_for_tier(tier)
-        scale = rating / 10.0
+        rating       = relic.get("impact_rating", 1)
+        tier         = self.get_impact_tier(rating)
+        atm          = self.get_atmosphere_for_tier(tier)
+        scale        = rating / 10.0
         atm["u_exp"] = round(0.5 + scale * 2.0, 3)
         return atm
