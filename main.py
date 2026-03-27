@@ -121,9 +121,15 @@ class SanctumTerminal(ShowBase):
         self.interview_ui.start()
 
         # Bind character input
+        self.win.requestProperties(self.win.getProperties())
+        self.win.requestProperties(self.win.getProperties())
         self.accept("typed-character", self._handle_interview_char)
         self.accept("enter",           self._handle_interview_enter)
         self.accept("backspace",       self._handle_interview_backspace)
+        # Force keyboard focus
+        base.win.movePointer(0, self.win.getXSize()//2, self.win.getYSize()//2)
+        # Force keyboard focus
+        base.win.movePointer(0, self.win.getXSize()//2, self.win.getYSize()//2)
 
     def _handle_interview_char(self, char):
         if self._interview_active:
@@ -198,10 +204,51 @@ class SanctumTerminal(ShowBase):
     def _reveal_world(self):
         """
         The 'open your eyes' moment.
-        Flash white then fade to biome.
-        Placeholder — full sequence in P2.
+        Black overlay fades out — like opening your eyes.
         """
-        console.log("[bold white]> Open your eyes.[/bold white]")
+        try:
+            from direct.gui.DirectFrame import DirectFrame
+            from direct.interval.LerpInterval import LerpColorScaleInterval
+            from direct.interval.IntervalGlobal import Sequence, Wait, Func
+
+            # Black overlay — eyes closed
+            self._overlay = DirectFrame(
+                frameColor=(0, 0, 0, 1),
+                frameSize=(-2, 2, -2, 2),
+                parent=self.aspect2d,
+                sortOrder=100,
+            )
+
+            # Sequence: wait → fade out overlay (eyes open)
+            reveal = Sequence(
+                Wait(1.5),
+                Func(self._clear_interview_text),
+                LerpColorScaleInterval(
+                    self._overlay, 8.0,
+                    (1, 1, 1, 0),
+                    (1, 1, 1, 1),
+                ),
+                Func(self._on_reveal_complete),
+            )
+            reveal.start()
+
+        except Exception as e:
+            console.log(f"[yellow]REVEAL:[/yellow] {e}")
+            self._on_reveal_complete()
+
+    def _clear_interview_text(self):
+        """Clear interview UI text before reveal."""
+        if hasattr(self, "interview_ui"):
+            self.interview_ui._clear_text()
+
+    def _on_reveal_complete(self):
+        """Called when reveal sequence finishes — enable controls."""
+        if hasattr(self, "_overlay") and self._overlay:
+            try:
+                self._overlay.destroy()
+            except Exception:
+                pass
+        console.log("[bold green]> You are here.[/bold green]")
 
     # ── Mouse + Movement ──────────────────────────────────────────────────────
 
