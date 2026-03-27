@@ -59,8 +59,9 @@ class TestInterviewUIFlow:
 
     def test_complete_after_all_prompts(self, ui):
         ui.start()
-        for answer in ["city", "evening", "too_long",
-                       "enclosed", "heavy", "quickly", "pressure"]:
+        answers = ["city","evening","too_long","enclosed",
+                   "heavy","quickly","people","seeker","The Search","pressure"]
+        for answer in answers:
             ui.submit(answer)
         assert ui.engine.complete is True
 
@@ -69,8 +70,9 @@ class TestInterviewUIFlow:
         ui.on_complete = lambda r: results.append(r)
         ui.engine.on_complete = ui.on_complete
         ui.start()
-        for answer in ["city", "evening", "too_long",
-                       "enclosed", "heavy", "quickly", "pressure"]:
+        answers = ["city","evening","too_long","enclosed",
+                   "heavy","quickly","people","seeker","The Search","pressure"]
+        for answer in answers:
             ui.submit(answer)
         assert len(results) == 1
 
@@ -79,8 +81,9 @@ class TestInterviewUIFlow:
         ui.on_complete = lambda r: results.append(r)
         ui.engine.on_complete = ui.on_complete
         ui.start()
-        for answer in ["city", "evening", "too_long",
-                       "enclosed", "heavy", "quickly", "pressure"]:
+        answers = ["city","evening","too_long","enclosed",
+                   "heavy","quickly","people","seeker","The Search","pressure"]
+        for answer in answers:
             ui.submit(answer)
         assert "torch" in results[0]
 
@@ -89,21 +92,21 @@ class TestDepthInvitation:
 
     def test_low_commitment_triggers_depth_invite(self, ui):
         ui.start()
-        for _ in range(6):
+        for _ in range(9):
             ui.skip()
         ui.submit("torch")
         assert ui.awaiting_depth is True
 
     def test_depth_invite_has_follow_prompt(self, ui):
         ui.start()
-        for _ in range(6):
+        for _ in range(9):
             ui.skip()
         ui.submit("torch")
         assert ui.depth_prompt is not None
 
     def test_depth_response_resolves(self, ui):
         ui.start()
-        for _ in range(6):
+        for _ in range(9):
             ui.skip()
         ui.submit("torch")
         ui.submit_depth("the path forward")

@@ -309,20 +309,25 @@
         "id": "q1",
         "prompt": "Where are you right now?",
         "type": "choice",
+        "curve": "energy",
         "options": {
           "city": {
+            "scale": 0.7,
             "biome_key": "NEON_CITY",
             "label": "In the city"
           },
           "nature": {
+            "scale": 0.3,
             "biome_key": "VERDANT",
             "label": "Somewhere natural"
           },
           "home": {
+            "scale": 0.2,
             "biome_key": "VOID",
             "label": "At home"
           },
           "between": {
+            "scale": 0.5,
             "biome_key": "RUINED",
             "label": "In between places"
           }
@@ -333,25 +338,26 @@
         "id": "q2",
         "prompt": "What time of day does it feel like?",
         "type": "choice",
+        "curve": "time",
         "options": {
           "morning": {
-            "ambient_intensity": 0.8,
+            "scale": 0.7,
             "label": "Morning"
           },
           "midday": {
-            "ambient_intensity": 1.0,
+            "scale": 1.0,
             "label": "Midday"
           },
           "evening": {
-            "ambient_intensity": 0.5,
+            "scale": 0.4,
             "label": "Evening"
           },
           "night": {
-            "ambient_intensity": 0.2,
+            "scale": 0.1,
             "label": "Night"
           },
           "cant_tell": {
-            "ambient_intensity": 0.4,
+            "scale": 0.3,
             "label": "Can't tell"
           }
         },
@@ -361,21 +367,22 @@
         "id": "q3",
         "prompt": "How long have you been awake?",
         "type": "choice",
+        "curve": "fatigue",
         "options": {
           "just_started": {
-            "karma_baseline": 0.1,
+            "scale": 0.1,
             "label": "Just started my day"
           },
           "few_hours": {
-            "karma_baseline": 0.3,
+            "scale": 0.3,
             "label": "A few hours"
           },
           "too_long": {
-            "karma_baseline": 0.7,
+            "scale": 0.8,
             "label": "Too long"
           },
           "dont_know": {
-            "karma_baseline": 0.5,
+            "scale": 0.5,
             "label": "I don't know"
           }
         },
@@ -385,17 +392,18 @@
         "id": "q4",
         "prompt": "You feel more comfortable in...",
         "type": "choice",
+        "curve": "enclosure",
         "options": {
           "open": {
-            "spawn_radius": 60,
+            "scale": 0.1,
             "label": "Open space"
           },
           "enclosed": {
-            "spawn_radius": 20,
+            "scale": 0.9,
             "label": "Enclosed space"
           },
           "either": {
-            "spawn_radius": 40,
+            "scale": 0.5,
             "label": "Doesn't matter"
           }
         },
@@ -405,25 +413,22 @@
         "id": "q5",
         "prompt": "Something is on your mind. How heavy is it?",
         "type": "choice",
+        "curve": "weight",
         "options": {
           "light": {
-            "encounter_density": 0.1,
-            "impact_rating": 2,
+            "scale": 0.1,
             "label": "Light"
           },
           "medium": {
-            "encounter_density": 0.3,
-            "impact_rating": 5,
+            "scale": 0.4,
             "label": "Medium"
           },
           "heavy": {
-            "encounter_density": 0.6,
-            "impact_rating": 7,
+            "scale": 0.7,
             "label": "Heavy"
           },
           "crushing": {
-            "encounter_density": 0.9,
-            "impact_rating": 9,
+            "scale": 0.9,
             "label": "Crushing"
           }
         },
@@ -433,25 +438,22 @@
         "id": "q6",
         "prompt": "How do you move through the world today?",
         "type": "choice",
+        "curve": "pace",
         "options": {
           "deliberately": {
-            "camera_speed": 25.0,
-            "karma_decay_rate": 0.15,
+            "scale": 0.2,
             "label": "Deliberately"
           },
           "quickly": {
-            "camera_speed": 55.0,
-            "karma_decay_rate": 0.03,
+            "scale": 0.8,
             "label": "Quickly"
           },
           "carefully": {
-            "camera_speed": 20.0,
-            "karma_decay_rate": 0.2,
+            "scale": 0.15,
             "label": "Carefully"
           },
           "not_sure": {
-            "camera_speed": 40.0,
-            "karma_decay_rate": 0.08,
+            "scale": 0.5,
             "label": "Not sure"
           }
         },
@@ -459,13 +461,86 @@
       },
       {
         "id": "q7",
+        "prompt": "What surrounds you right now?",
+        "type": "choice",
+        "curve": "flow",
+        "options": {
+          "people": {
+            "scale": 0.8,
+            "biome_secondary": "NEON",
+            "label": "People"
+          },
+          "silence": {
+            "scale": 0.2,
+            "biome_secondary": "FROZEN",
+            "label": "Silence"
+          },
+          "noise": {
+            "scale": 0.7,
+            "biome_secondary": "BASALT",
+            "label": "Noise"
+          },
+          "nature": {
+            "scale": 0.6,
+            "biome_secondary": "VERDANT",
+            "label": "Nature"
+          },
+          "screens": {
+            "scale": 0.5,
+            "biome_secondary": "CHROME",
+            "label": "Screens"
+          }
+        },
+        "default": "silence"
+      },
+      {
+        "id": "q8",
+        "prompt": "What are you?",
+        "type": "choice",
+        "curve": "energy",
+        "options": {
+          "seeker": {
+            "scale": 0.7,
+            "archetype": "SEEKER",
+            "label": "A seeker \u2014 always looking"
+          },
+          "builder": {
+            "scale": 0.5,
+            "archetype": "BUILDER",
+            "label": "A builder \u2014 making things"
+          },
+          "wanderer": {
+            "scale": 0.4,
+            "archetype": "WANDERER",
+            "label": "A wanderer \u2014 moving through"
+          },
+          "keeper": {
+            "scale": 0.3,
+            "archetype": "KEEPER",
+            "label": "A keeper \u2014 holding things together"
+          }
+        },
+        "default": "wanderer"
+      },
+      {
+        "id": "q9",
+        "prompt": "What do you call this chapter?",
+        "type": "open",
+        "optional": false,
+        "resolves": [
+          "label"
+        ],
+        "default": null
+      },
+      {
+        "id": "q10",
         "prompt": "One word for right now.",
         "type": "open",
         "optional": true,
         "resolves": [
           "archetypal_name",
           "vibe",
-          "biome_tint"
+          "torch"
         ],
         "default": null
       }
