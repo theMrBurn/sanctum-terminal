@@ -90,6 +90,20 @@ class InterviewUI:
             self._input_buffer = self._input_buffer[:-1]
             self._update_input_display()
         else:
+            # For choice prompts — single key match
+            if (self.current_prompt and
+                    self.current_prompt["type"] == "choice" and
+                    not self.awaiting_depth):
+                options = self.current_prompt.get("options", {})
+                # Direct key match
+                if char in options:
+                    self.submit(char)
+                    return
+                # First-letter match
+                matches = [k for k in options if k.startswith(char)]
+                if len(matches) == 1:
+                    self.submit(matches[0])
+                    return
             self._input_buffer += char
             self._update_input_display()
 
@@ -155,6 +169,7 @@ class InterviewUI:
                 fg=(0.4, 0.4, 0.5, 1),
                 align=TextNode.ACenter,
                 mayChange=True,
+                sort=200,
             )
             self._text_nodes.append(prog)
 
@@ -167,6 +182,7 @@ class InterviewUI:
                 shadow=(0, 0, 0, 0.6),
                 align=TextNode.ACenter,
                 mayChange=True,
+                sort=200,
             )
             self._text_nodes.append(node)
 
