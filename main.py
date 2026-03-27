@@ -15,99 +15,101 @@ from panda3d.core import (
 from rich.console import Console
 
 from core.systems.quest_engine import QuestEngine
-from core.systems.spawn_engine import SpawnEngine
 from core.vault import vault as RelicVault
 from tools.daemon import VoxelWatcher
 from tools.importer import VoxelTransformer as Transformer
 
 console = Console()
 
+MOUSE_SENSITIVITY = 0.15
+PITCH_CLAMP       = 80.0
+SNAP_THRESHOLD    = 200  # ignore pointer jumps larger than this
+
 
 class SanctumTerminal(ShowBase):
     def __init__(self):
         super().__init__()
 
-        # 1. Window & Lab Setup
         props = WindowProperties()
         props.setTitle("Sanctum Terminal — Lab")
-        props.setSize(1920, 1080)
+        props.setSize(1280, 720)
         self.win.requestProperties(props)
         self.setBackgroundColor(0.02, 0.02, 0.04, 1)
-        props.setFullscreen(True)
 
-
-        # 2. Simulation State
-        self.vault = RelicVault()
-        self.transformer = Transformer()
-        self.camera_speed = 40.0
+        self.vault             = RelicVault()
+        self.transformer       = Transformer()
+        self.camera_speed      = 40.0
+        self.mouse_look_active = False
+        self.cam_yaw           = 0.0
+        self.cam_pitch         = 0.0
+        self._last_mx          = None
+        self._last_my          = None
         self.key_map = {
-            "w": False,
-            "s": False,
-            "a": False,
-            "d": False,
-            "q": False,
-            "e": False,
+            "w": False, "s": False,
+            "a": False, "d": False,
+            "q": False, "e": False,
         }
 
-        # 3. Camera
         self.disableMouse()
-        self.cam.setPos(0, -30, 3)
-        self.cam.lookAt(0, 10, 0)
+        self.camLens.setFov(80)
+        self.cam.setPos(0, 0, 6)
+        self.cam.setHpr(0, 0, 0)
 
-        # 4. Lighting
         self.setup_lighting()
         self.render.setShaderAuto()
         self.render.setAntialias(AntialiasAttrib.MMultisample)
 
-        # 5. VoxelMax Watcher
         self.export_path = Path("exports")
         self.export_path.mkdir(exist_ok=True)
         self.watcher = VoxelWatcher(str(self.export_path), self.on_relic_detected)
         self.watcher.start()
 
-        # 6. Tasks + Controls
         self.setup_controls()
         self.taskMgr.add(self.update_simulation, "SimulationUpdate")
         self.taskMgr.add(self.fly_cam_task, "FlyCamTask")
 
-        # 7. Boot biome scene from SpawnEngine
         self.boot_biome_scene()
 
-        # 8. Legacy relic boot
-        initial_relic = None
-        if len(sys.argv) > 1:
-            initial_relic = sys.argv[1]
-        elif Path(".last_relic").exists():
-            with open(".last_relic", "r") as f:
-                initial_relic = f.read().strip()
-        if initial_relic and Path(initial_relic).exists():
-            self.taskMgr.doMethodLater(
-                0.2, self.load_relic, "InitLoad", extraArgs=[initial_relic]
-            )
-
         console.log("[bold green]ALTAR ONLINE.[/bold green] Ready for Voxel Ingestion.")
-        self.accept("escape", self.exit_app)
+        self.accept("escape",       self.disable_mouse_look)
+        self.accept("shift-escape", self.exit_app)
+        self.accept("mouse1",       self.enable_mouse_look)
+
+    def enable_mouse_look(self):
+        self.mouse_look_active = True
+        self._last_mx          = None
+        self._last_my          = None
+        props = WindowProperties()
+        props.setCursorHidden(True)
+        props.setMouseMode(WindowProperties.M_relative)
+        self.win.requestProperties(props)
+        # centre pointer to avoid initial jump
+        cx = self.win.getXSize() // 2
+        cy = self.win.getYSize() // 2
+        self.win.movePointer(0, cx, cy)
+
+    def disable_mouse_look(self):
+        self.mouse_look_active = False
+        self._last_mx          = None
+        self._last_my          = None
+        props = WindowProperties()
+        props.setCursorHidden(False)
+        props.setMouseMode(WindowProperties.M_absolute)
+        self.win.requestProperties(props)
 
     def boot_biome_scene(self):
-        """Renders procedural biome geometry on boot."""
         try:
-            from pathlib import Path
-
             from core.systems.biome_renderer import BiomeRenderer
-            from core.systems.quest_engine import QuestEngine
-
             db_path = Path("data/vault.db")
-            quest = QuestEngine(db_path=db_path) if db_path.exists() else None
-
+            quest   = QuestEngine(db_path=db_path) if db_path.exists() else None
             if quest:
-                rules = quest.get_active_biome_rules()
-                density = rules.get("encounter_density", 0.3)
-                override = rules.get("biome_override")
+                rules     = quest.get_active_biome_rules()
+                density   = rules.get("encounter_density", 0.3)
+                override  = rules.get("biome_override")
                 biome_key = override if override else "VOID"
             else:
-                density = 0.3
+                density   = 0.3
                 biome_key = "VERDANT"
-
             renderer = BiomeRenderer(
                 render_root=self.render, biome_key=biome_key, seed=42
             )
@@ -125,7 +127,6 @@ class SanctumTerminal(ShowBase):
         dlnp = self.render.attachNewNode(dlight)
         dlnp.setHpr(150, -45, 0)
         self.render.setLight(dlnp)
-
         alight = AmbientLight("alight")
         alight.setColor(Vec4(0.2, 0.2, 0.25, 1))
         alnp = self.render.attachNewNode(alight)
@@ -143,8 +144,8 @@ class SanctumTerminal(ShowBase):
         self.taskMgr.add(lambda t: self.load_relic(file_path), "LoadRelicTask")
 
     def smart_load(self, model_path):
-        model = self.loader.loadModel(model_path)
-        p = Path(model_path)
+        model     = self.loader.loadModel(model_path)
+        p         = Path(model_path)
         json_path = p.with_suffix(".json")
         if json_path.exists():
             with open(json_path, "r") as f:
@@ -179,19 +180,40 @@ class SanctumTerminal(ShowBase):
             return False
 
     def fly_cam_task(self, task):
-        dt = globalClock.getDt()
-        if self.key_map["w"]:
-            self.cam.setY(self.cam, self.camera_speed * dt)
-        if self.key_map["s"]:
-            self.cam.setY(self.cam, -self.camera_speed * dt)
-        if self.key_map["a"]:
-            self.cam.setX(self.cam, -self.camera_speed * dt)
-        if self.key_map["d"]:
-            self.cam.setX(self.cam, self.camera_speed * dt)
-        if self.key_map["e"]:
-            self.cam.setZ(self.cam, self.camera_speed * dt)
-        if self.key_map["q"]:
-            self.cam.setZ(self.cam, -self.camera_speed * dt)
+        dt    = globalClock.getDt()
+        speed = self.camera_speed * dt
+
+        # ── Mouse look ────────────────────────────────────────────────────────
+        # Use last-position delta instead of centre-snap to eliminate jitter.
+        # M_relative mode gives us raw device delta — no pointer warp needed.
+        if self.mouse_look_active and self.mouseWatcherNode.hasMouse():
+            md = self.win.getPointer(0)
+            mx = md.getX()
+            my = md.getY()
+
+            if self._last_mx is not None:
+                dx = mx - self._last_mx
+                dy = my - self._last_my
+                # discard snap jumps
+                if abs(dx) < SNAP_THRESHOLD and abs(dy) < SNAP_THRESHOLD:
+                    self.cam_yaw   -= dx * MOUSE_SENSITIVITY
+                    self.cam_pitch -= dy * MOUSE_SENSITIVITY
+                    self.cam_pitch  = max(-PITCH_CLAMP, min(PITCH_CLAMP, self.cam_pitch))
+                    self.cam.setHpr(self.cam_yaw, self.cam_pitch, 0)
+
+            self._last_mx = mx
+            self._last_my = my
+
+        # ── Movement ──────────────────────────────────────────────────────────
+        if self.key_map["w"]: self.cam.setPos(self.cam, 0,  speed, 0)
+        if self.key_map["s"]: self.cam.setPos(self.cam, 0, -speed, 0)
+        if self.key_map["a"]: self.cam.setPos(self.cam, -speed, 0, 0)
+        if self.key_map["d"]: self.cam.setPos(self.cam,  speed, 0, 0)
+        if self.key_map["e"]: self.cam.setPos(self.cam, 0, 0,  speed)
+        if self.key_map["q"]: self.cam.setPos(self.cam, 0, 0, -speed)
+
+        # Ground lock
+        self.cam.setZ(6.0)
         return task.cont
 
     def update_simulation(self, task):
