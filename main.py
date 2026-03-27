@@ -101,8 +101,10 @@ class SanctumTerminal(ShowBase):
                 console.log(f"[bold yellow]GRACE:[/bold yellow] Recovered — {biome_key}")
                 self._spawn_biome(biome_key, density)
             else:
-                # First boot — run viewport interview
-                self._start_interview()
+                # Spawn default biome silently
+                self._spawn_biome("VOID", 0.3)
+                self._place_overlay()
+                self._show_click_to_begin()
 
         except Exception as e:
             console.log(f"[red]BOOT ERROR:[/red] {e}")
@@ -110,8 +112,39 @@ class SanctumTerminal(ShowBase):
                 self.grace.fire("system_panic", {"reason": str(e)})
             self._spawn_biome("VOID", 0.3)
 
+    def _show_click_to_begin(self):
+        """Show click-to-begin prompt — gets macOS keyboard focus."""
+        try:
+            from direct.gui.OnscreenText import OnscreenText
+            from panda3d.core import TextNode
+            self._click_prompt = OnscreenText(
+                text="> Click to begin.",
+                pos=(0, 0),
+                scale=0.07,
+                fg=(1, 1, 1, 0.8),
+                align=TextNode.ACenter,
+                mayChange=True,
+            )
+            self.accept("mouse1", self._on_click_to_begin)
+        except Exception as e:
+            console.log(f"[yellow]CLICK:[/yellow] {e}")
+            self._start_interview()
+
+    def _on_click_to_begin(self):
+        """Player clicked — now we have keyboard focus."""
+        if hasattr(self, "_click_prompt") and self._click_prompt:
+            try:
+                self._click_prompt.destroy()
+            except Exception:
+                pass
+        self._start_interview()
+
     def _start_interview(self):
         """Launch the viewport interview."""
+        # Suspend movement keys during interview
+        for key in self.key_map:
+            self.ignore(key)
+            self.ignore(f"{key}-up")
         self._interview_active = True
         self.interview_ui = InterviewUI(
             render_root=self.render,
@@ -216,7 +249,8 @@ class SanctumTerminal(ShowBase):
                 frameColor=(0, 0, 0, 1),
                 frameSize=(-2, 2, -2, 2),
                 parent=self.aspect2d,
-                sortOrder=100,
+                sortOrder=50,
+                suppressMouse=False,
             )
 
             # Sequence: wait → fade out overlay (eyes open)
@@ -224,7 +258,7 @@ class SanctumTerminal(ShowBase):
                 Wait(1.5),
                 Func(self._clear_interview_text),
                 LerpColorScaleInterval(
-                    self._overlay, 8.0,
+                    self._overlay, 4.0,
                     (1, 1, 1, 0),
                     (1, 1, 1, 1),
                 ),
@@ -243,6 +277,8 @@ class SanctumTerminal(ShowBase):
 
     def _on_reveal_complete(self):
         """Called when reveal sequence finishes — enable controls."""
+        # Restore movement keys
+        self.setup_controls()
         if hasattr(self, "_overlay") and self._overlay:
             try:
                 self._overlay.destroy()
