@@ -20,14 +20,13 @@
     ]
   },
   "avatar": {
-    "height": 1.8,
-    "color": [
-      0.2,
-      0.8,
-      1.0
-    ],
-    "gravity": 20.0,
-    "friction": 0.85
+    "eye_height": 6.0,
+    "walk_speed": 20.0,
+    "run_speed": 45.0,
+    "jump_velocity": 18.0,
+    "gravity": 40.0,
+    "fov": 80.0,
+    "spine_locked": true
   },
   "tiers": {
     "surface": [
