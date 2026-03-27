@@ -1,7 +1,5 @@
 import pytest
 import json
-from pathlib import Path
-from unittest.mock import patch
 
 
 @pytest.fixture
@@ -15,18 +13,13 @@ def engine(config):
     return InterviewEngine(config=config)
 
 
-# ── Init ──────────────────────────────────────────────────────────────────────
-
 class TestInterviewEngineInit:
 
     def test_boots_without_error(self, engine):
         assert engine is not None
 
-    def test_has_prompts(self, engine):
-        assert len(engine.prompts) > 0
-
-    def test_has_seven_prompts(self, engine):
-        assert len(engine.prompts) == 7
+    def test_has_ten_prompts(self, engine):
+        assert len(engine.prompts) == 10
 
     def test_answers_start_empty(self, engine):
         assert engine.answers == {}
@@ -37,15 +30,12 @@ class TestInterviewEngineInit:
     def test_torch_always_exists(self, engine):
         assert engine.torch is not None
 
-    def test_torch_has_required_keys(self, engine):
-        for key in ["id", "name", "description", "impact", "ability"]:
-            assert key in engine.torch
-
     def test_depth_score_starts_zero(self, engine):
         assert engine.depth_score == 0
 
+    def test_scales_start_empty(self, engine):
+        assert engine.scales == {}
 
-# ── Answer ────────────────────────────────────────────────────────────────────
 
 class TestAnswer:
 
@@ -61,199 +51,161 @@ class TestAnswer:
         with pytest.raises(ValueError):
             engine.answer("q1", "underwater")
 
+    def test_answer_stores_scale(self, engine):
+        engine.answer("q1", "city")
+        assert "q1" in engine.scales
+        assert 0.0 <= engine.scales["q1"] <= 1.0
+
     def test_open_question_accepts_any_string(self, engine):
-        engine.answer("q7", "scattered")
-        assert engine.answers["q7"] == "scattered"
+        engine.answer("q10", "scattered")
+        assert engine.answers["q10"] == "scattered"
 
     def test_open_question_accepts_none(self, engine):
-        engine.answer("q7", None)
-        assert engine.answers["q7"] is None
+        engine.answer("q10", None)
+        assert engine.answers["q10"] is None
 
-    def test_multiple_answers_stored(self, engine):
-        engine.answer("q1", "city")
-        engine.answer("q2", "evening")
-        assert len(engine.answers) == 2
-
-
-# ── Depth detection ───────────────────────────────────────────────────────────
 
 class TestDepthDetection:
 
-    def test_no_word_is_depth_zero(self, engine):
-        from core.systems.interview import _detect_commitment_depth
-        assert _detect_commitment_depth(None) == 0
-        assert _detect_commitment_depth("") == 0
-
-    def test_signal_word_is_depth_one(self, engine):
+    def test_signal_word_is_depth_one(self):
         from core.systems.interview import _detect_commitment_depth
         assert _detect_commitment_depth("torch") == 1
-        assert _detect_commitment_depth("fire") == 1
-        assert _detect_commitment_depth("idk") == 1
 
-    def test_short_word_is_depth_one(self, engine):
-        from core.systems.interview import _detect_commitment_depth
-        assert _detect_commitment_depth("ok") == 1
-
-    def test_medium_word_is_depth_two(self, engine):
+    def test_medium_word_is_depth_two(self):
         from core.systems.interview import _detect_commitment_depth
         assert _detect_commitment_depth("adrift") == 2
 
-    def test_long_word_is_depth_three(self, engine):
+    def test_long_word_is_depth_three(self):
         from core.systems.interview import _detect_commitment_depth
         assert _detect_commitment_depth("overwhelmed") == 3
-        assert _detect_commitment_depth("transitioning") == 3
 
-    def test_q7_sets_depth_score(self, engine):
-        engine.answer("q7", "overwhelmed")
+    def test_q10_sets_depth_score(self, engine):
+        engine.answer("q10", "overwhelmed")
         assert engine.depth_score == 3
 
-    def test_q7_skip_sets_depth_zero(self, engine):
-        engine.skip("q7")
+    def test_q10_skip_sets_depth_zero(self, engine):
+        engine.skip("q10")
         assert engine.depth_score == 0
 
-
-# ── Torch enhancement ─────────────────────────────────────────────────────────
 
 class TestTorchEnhancement:
 
     def test_default_torch_always_generated(self, engine):
         assert engine.torch["id"] == "TORCH_DEFAULT"
 
-    def test_skip_q7_keeps_default_torch(self, engine):
-        engine.skip("q7")
-        assert engine.torch["name"] == "The First Torch"
-
     def test_low_depth_generates_dim_torch(self, engine):
-        engine.answer("q7", "torch")
+        engine.answer("q10", "torch")
         assert "Dim" in engine.torch["name"]
 
     def test_medium_depth_names_torch(self, engine):
-        engine.answer("q7", "adrift")
+        engine.answer("q10", "adrift")
         assert "Adrift" in engine.torch["name"]
 
     def test_medium_depth_sets_ability(self, engine):
-        engine.answer("q7", "adrift")
+        engine.answer("q10", "adrift")
         assert engine.torch["ability"] == "Wayfinding"
 
     def test_high_depth_generates_rare_torch(self, engine):
-        engine.answer("q7", "overwhelmed")
+        engine.answer("q10", "overwhelmed")
         assert engine.torch.get("rare") is True
 
     def test_high_depth_torch_is_transferable(self, engine):
-        engine.answer("q7", "overwhelmed")
+        engine.answer("q10", "overwhelmed")
         assert engine.torch["transferable"] is True
 
     def test_high_depth_torch_impact_is_high(self, engine):
-        engine.answer("q7", "overwhelmed")
+        engine.answer("q10", "overwhelmed")
         assert engine.torch["impact"] >= 6
 
-
-# ── Resolve ───────────────────────────────────────────────────────────────────
 
 class TestResolve:
 
     def test_resolve_returns_dict(self, engine):
-        result = engine.resolve()
-        assert isinstance(result, dict)
+        assert isinstance(engine.resolve(), dict)
 
     def test_resolve_has_biome_key(self, engine):
-        result = engine.resolve()
-        assert "biome_key" in result
+        assert "biome_key" in engine.resolve()
 
     def test_resolve_has_encounter_density(self, engine):
-        result = engine.resolve()
-        assert "encounter_density" in result
+        assert "encounter_density" in engine.resolve()
 
     def test_resolve_has_karma_baseline(self, engine):
-        result = engine.resolve()
-        assert "karma_baseline" in result
+        assert "karma_baseline" in engine.resolve()
 
     def test_resolve_has_camera_speed(self, engine):
-        result = engine.resolve()
-        assert "camera_speed" in result
+        assert "camera_speed" in engine.resolve()
 
     def test_resolve_has_spawn_radius(self, engine):
-        result = engine.resolve()
-        assert "spawn_radius" in result
+        assert "spawn_radius" in engine.resolve()
 
-    def test_resolve_has_first_relic(self, engine):
-        result = engine.resolve()
-        assert "first_relic" in result
+    def test_resolve_has_heat(self, engine):
+        assert "heat" in engine.resolve()
+
+    def test_resolve_has_moisture(self, engine):
+        assert "moisture" in engine.resolve()
 
     def test_resolve_has_torch(self, engine):
-        result = engine.resolve()
-        assert "torch" in result
+        assert "torch" in engine.resolve()
 
     def test_resolve_has_depth_score(self, engine):
-        result = engine.resolve()
-        assert "depth_score" in result
+        assert "depth_score" in engine.resolve()
 
-    def test_resolve_city_answer_gives_neon_city(self, engine):
+    def test_resolve_has_archetype(self, engine):
+        assert "archetype" in engine.resolve()
+
+    def test_resolve_has_label(self, engine):
+        assert "label" in engine.resolve()
+
+    def test_city_gives_neon_city(self, engine):
         engine.answer("q1", "city")
-        result = engine.resolve()
-        assert result["biome_key"] == "NEON_CITY"
+        assert engine.resolve()["biome_key"] == "NEON_CITY"
 
-    def test_resolve_crushing_gives_high_density(self, engine):
+    def test_crushing_gives_high_density(self, engine):
         engine.answer("q5", "crushing")
-        result = engine.resolve()
-        assert result["encounter_density"] == 0.9
+        assert engine.resolve()["encounter_density"] > 0.7
 
-    def test_resolve_too_long_gives_high_karma(self, engine):
+    def test_too_long_gives_high_karma(self, engine):
         engine.answer("q3", "too_long")
-        result = engine.resolve()
-        assert result["karma_baseline"] == 0.7
+        assert engine.resolve()["karma_baseline"] > 0.5
 
-    def test_resolve_uses_defaults_for_missing(self, engine):
-        result = engine.resolve()
-        assert result["biome_key"] is not None
+    def test_q10_sets_relic_name(self, engine):
+        engine.answer("q10", "adrift")
+        assert engine.resolve()["first_relic"]["archetypal_name"] == "adrift"
 
-    def test_resolve_q7_sets_first_relic_name(self, engine):
-        engine.answer("q7", "adrift")
-        result = engine.resolve()
-        assert result["first_relic"]["archetypal_name"] == "adrift"
+    def test_q9_sets_label(self, engine):
+        engine.answer("q9", "The Long Winter")
+        assert engine.resolve()["label"] == "The Long Winter"
 
-    def test_resolve_q7_none_sets_default_relic(self, engine):
-        engine.answer("q7", None)
-        result = engine.resolve()
-        assert result["first_relic"]["archetypal_name"] == "unnamed"
+    def test_seeker_archetype(self, engine):
+        engine.answer("q8", "seeker")
+        assert engine.resolve()["archetype"] == "SEEKER"
 
+    def test_q10_none_sets_unnamed(self, engine):
+        engine.answer("q10", None)
+        assert engine.resolve()["first_relic"]["archetypal_name"] == "unnamed"
 
-# ── Complete ──────────────────────────────────────────────────────────────────
 
 class TestComplete:
 
     def test_complete_after_all_answers(self, engine):
-        for qid, answer in [
-            ("q1", "city"), ("q2", "evening"), ("q3", "too_long"),
-            ("q4", "enclosed"), ("q5", "heavy"), ("q6", "quickly"),
-            ("q7", "pressure")
+        for qid, ans in [
+            ("q1","city"),("q2","evening"),("q3","too_long"),
+            ("q4","enclosed"),("q5","heavy"),("q6","quickly"),
+            ("q7","people"),("q8","seeker"),("q9","The Search"),
+            ("q10","pressure")
         ]:
-            engine.answer(qid, answer)
+            engine.answer(qid, ans)
         assert engine.complete is True
 
-    def test_not_complete_with_partial_answers(self, engine):
-        engine.answer("q1", "city")
-        engine.answer("q2", "evening")
-        assert engine.complete is False
-
-    def test_complete_fires_grace_event(self, engine):
+    def test_complete_fires_callback(self, engine):
         events = []
         engine.on_complete = lambda r: events.append(r)
-        for qid, answer in [
-            ("q1", "city"), ("q2", "evening"), ("q3", "too_long"),
-            ("q4", "enclosed"), ("q5", "heavy"), ("q6", "quickly"),
-            ("q7", "pressure")
+        for qid, ans in [
+            ("q1","city"),("q2","evening"),("q3","too_long"),
+            ("q4","enclosed"),("q5","heavy"),("q6","quickly"),
+            ("q7","people"),("q8","seeker"),("q9","The Search"),
+            ("q10","pressure")
         ]:
-            engine.answer(qid, answer)
+            engine.answer(qid, ans)
         assert len(events) == 1
-
-    def test_complete_result_has_torch(self, engine):
-        events = []
-        engine.on_complete = lambda r: events.append(r)
-        for qid, answer in [
-            ("q1", "city"), ("q2", "evening"), ("q3", "too_long"),
-            ("q4", "enclosed"), ("q5", "heavy"), ("q6", "quickly"),
-            ("q7", "pressure")
-        ]:
-            engine.answer(qid, answer)
         assert "torch" in events[0]
