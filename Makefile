@@ -45,3 +45,6 @@ run:
 
 lab:
 	PYTHONPATH=. ./.venv/bin/python main.py
+
+room:
+	PYTHONPATH=. ./.venv/bin/python room_lab.py
