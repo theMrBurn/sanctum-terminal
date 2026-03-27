@@ -14,8 +14,8 @@ from panda3d.core import (
 )
 from rich.console import Console
 
-from core.systems.quest_engine import QuestEngine
 from core.systems.grace_handler import GraceHandler
+from core.systems.quest_engine import QuestEngine
 from core.vault import vault as RelicVault
 from tools.daemon import VoxelWatcher
 from tools.importer import VoxelTransformer as Transformer
@@ -23,8 +23,8 @@ from tools.importer import VoxelTransformer as Transformer
 console = Console()
 
 MOUSE_SENSITIVITY = 0.15
-PITCH_CLAMP       = 80.0
-SNAP_THRESHOLD    = 200
+PITCH_CLAMP = 80.0
+SNAP_THRESHOLD = 200
 
 
 class SanctumTerminal(ShowBase):
@@ -37,22 +37,25 @@ class SanctumTerminal(ShowBase):
         self.win.requestProperties(props)
         self.setBackgroundColor(0.02, 0.02, 0.04, 1)
 
-        self.vault             = RelicVault()
-        self.transformer       = Transformer()
-        self.camera_speed      = 40.0
+        self.vault = RelicVault()
+        self.transformer = Transformer()
+        self.camera_speed = 40.0
         self.mouse_look_active = False
-        self.cam_yaw           = 0.0
-        self.cam_pitch         = 0.0
-        self._last_mx          = None
-        self._last_my          = None
+        self.cam_yaw = 0.0
+        self.cam_pitch = 0.0
+        self._last_mx = None
+        self._last_my = None
         self.key_map = {
-            "w": False, "s": False,
-            "a": False, "d": False,
-            "q": False, "e": False,
+            "w": False,
+            "s": False,
+            "a": False,
+            "d": False,
+            "q": False,
+            "e": False,
         }
 
         # Grace handler — boots first, always
-        db_path    = Path("data/vault.db")
+        db_path = Path("data/vault.db")
         self.grace = GraceHandler(db_path=db_path) if db_path.exists() else None
 
         self.disableMouse()
@@ -76,14 +79,14 @@ class SanctumTerminal(ShowBase):
         self.boot_biome_scene()
 
         console.log("[bold green]ALTAR ONLINE.[/bold green] Ready for Voxel Ingestion.")
-        self.accept("escape",       self.disable_mouse_look)
+        self.accept("escape", self.disable_mouse_look)
         self.accept("shift-escape", self.exit_app)
-        self.accept("mouse1",       self.enable_mouse_look)
+        self.accept("mouse1", self.enable_mouse_look)
 
     def enable_mouse_look(self):
         self.mouse_look_active = True
-        self._last_mx          = None
-        self._last_my          = None
+        self._last_mx = None
+        self._last_my = None
         props = WindowProperties()
         props.setCursorHidden(True)
         props.setMouseMode(WindowProperties.M_relative)
@@ -94,61 +97,73 @@ class SanctumTerminal(ShowBase):
 
     def disable_mouse_look(self):
         self.mouse_look_active = False
-        self._last_mx          = None
-        self._last_my          = None
+        self._last_mx = None
+        self._last_my = None
         props = WindowProperties()
         props.setCursorHidden(False)
         props.setMouseMode(WindowProperties.M_absolute)
         self.win.requestProperties(props)
 
     def boot_biome_scene(self):
-        """
-        Renders procedural biome geometry on boot.
-        Checks grace checkpoint first — recovers last known state if available.
-        Fires biome_transition grace event on load.
-        """
         try:
             from core.systems.biome_renderer import BiomeRenderer
+            from core.systems.interview import InterviewEngine
 
             db_path = Path("data/vault.db")
-            quest   = QuestEngine(
-                db_path=db_path, grace=self.grace
-            ) if db_path.exists() else None
+            quest = (
+                QuestEngine(db_path=db_path, grace=self.grace)
+                if db_path.exists()
+                else None
+            )
 
-            # Attempt grace recovery first
+            # Grace recovery — skip interview if checkpoint exists
             recovered = self.grace.recover() if self.grace else None
+
             if recovered and "biome_key" in recovered:
                 biome_key = recovered["biome_key"]
-                density   = recovered.get("encounter_density", 0.3)
-                console.log(f"[bold yellow]GRACE:[/bold yellow] Recovered — {biome_key}")
-            elif quest:
-                rules     = quest.get_active_biome_rules()
-                density   = rules.get("encounter_density", 0.3)
-                override  = rules.get("biome_override")
-                biome_key = override if override else "VOID"
+                density = recovered.get("encounter_density", 0.3)
+                self.camera_speed = recovered.get("camera_speed", 40.0)
+                console.log(
+                    f"[bold yellow]GRACE:[/bold yellow] Recovered — {biome_key}"
+                )
+
             else:
-                density   = 0.3
-                biome_key = "VOID"
+                # First boot — run interview
+                interview = InterviewEngine()
+                config = interview.run_in_terminal()
+
+                biome_key = config["biome_key"]
+                density = config["encounter_density"]
+                self.camera_speed = config["camera_speed"]
+
+                # Register first relic from interview
+                if quest and config["first_relic"]["archetypal_name"] != "unnamed":
+                    quest.register_event(config["first_relic"])
+
+                if self.grace:
+                    self.grace.fire("interview_complete", config)
 
             renderer = BiomeRenderer(
-                render_root=self.render,
-                biome_key=biome_key,
-                seed=42
+                render_root=self.render, biome_key=biome_key, seed=42
             )
             nodes = renderer.render_scene(encounter_density=density)
 
-            # Fire grace event + checkpoint
             if self.grace:
-                self.grace.fire("biome_transition", {
-                    "biome_key": biome_key,
-                    "density":   density,
-                })
-                self.grace.checkpoint({
-                    "biome_key":          biome_key,
-                    "encounter_density":  density,
-                    "karma":              0.0,
-                    "camera_speed":       self.camera_speed,
-                })
+                self.grace.fire(
+                    "biome_transition",
+                    {
+                        "biome_key": biome_key,
+                        "density": density,
+                    },
+                )
+                self.grace.checkpoint(
+                    {
+                        "biome_key": biome_key,
+                        "encounter_density": density,
+                        "karma": 0.0,
+                        "camera_speed": self.camera_speed,
+                    }
+                )
 
             console.log(
                 f"[bold cyan]BIOME:[/bold cyan] {biome_key} — {len(nodes)} objects rendered."
@@ -182,8 +197,8 @@ class SanctumTerminal(ShowBase):
         self.taskMgr.add(lambda t: self.load_relic(file_path), "LoadRelicTask")
 
     def smart_load(self, model_path):
-        model     = self.loader.loadModel(model_path)
-        p         = Path(model_path)
+        model = self.loader.loadModel(model_path)
+        p = Path(model_path)
         json_path = p.with_suffix(".json")
         if json_path.exists():
             with open(json_path, "r") as f:
@@ -218,7 +233,7 @@ class SanctumTerminal(ShowBase):
             return False
 
     def fly_cam_task(self, task):
-        dt    = globalClock.getDt()
+        dt = globalClock.getDt()
         speed = self.camera_speed * dt
 
         if self.mouse_look_active and self.mouseWatcherNode.hasMouse():
@@ -229,19 +244,25 @@ class SanctumTerminal(ShowBase):
                 dx = mx - self._last_mx
                 dy = my - self._last_my
                 if abs(dx) < SNAP_THRESHOLD and abs(dy) < SNAP_THRESHOLD:
-                    self.cam_yaw   -= dx * MOUSE_SENSITIVITY
+                    self.cam_yaw -= dx * MOUSE_SENSITIVITY
                     self.cam_pitch -= dy * MOUSE_SENSITIVITY
-                    self.cam_pitch  = max(-PITCH_CLAMP, min(PITCH_CLAMP, self.cam_pitch))
+                    self.cam_pitch = max(-PITCH_CLAMP, min(PITCH_CLAMP, self.cam_pitch))
                     self.cam.setHpr(self.cam_yaw, self.cam_pitch, 0)
             self._last_mx = mx
             self._last_my = my
 
-        if self.key_map["w"]: self.cam.setPos(self.cam, 0,  speed, 0)
-        if self.key_map["s"]: self.cam.setPos(self.cam, 0, -speed, 0)
-        if self.key_map["a"]: self.cam.setPos(self.cam, -speed, 0, 0)
-        if self.key_map["d"]: self.cam.setPos(self.cam,  speed, 0, 0)
-        if self.key_map["e"]: self.cam.setPos(self.cam, 0, 0,  speed)
-        if self.key_map["q"]: self.cam.setPos(self.cam, 0, 0, -speed)
+        if self.key_map["w"]:
+            self.cam.setPos(self.cam, 0, speed, 0)
+        if self.key_map["s"]:
+            self.cam.setPos(self.cam, 0, -speed, 0)
+        if self.key_map["a"]:
+            self.cam.setPos(self.cam, -speed, 0, 0)
+        if self.key_map["d"]:
+            self.cam.setPos(self.cam, speed, 0, 0)
+        if self.key_map["e"]:
+            self.cam.setPos(self.cam, 0, 0, speed)
+        if self.key_map["q"]:
+            self.cam.setPos(self.cam, 0, 0, -speed)
 
         self.cam.setZ(6.0)
         return task.cont

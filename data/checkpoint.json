@@ -1,17 +1,17 @@
 {
-  "written_at": "2026-03-26T22:55:09",
+  "written_at": "2026-03-26T23:08:04",
   "state": {
     "biome_key": "VOID",
-    "encounter_density": 0.0,
+    "encounter_density": 0.3,
     "karma": 0.0,
-    "camera_speed": 40.0
+    "camera_speed": 25.0
   },
   "last_event": {
     "event_type": "biome_transition",
     "payload": {
       "biome_key": "VOID",
-      "density": 0.0
+      "density": 0.3
     },
-    "timestamp": "2026-03-26T22:55:09"
+    "timestamp": "2026-03-26T23:08:04"
   }
 }
