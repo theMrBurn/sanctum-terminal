@@ -303,3 +303,116 @@ It shows you who you already are.
 
 _Append a new session block after every milestone._
 _Format: date · baseline · closed · delivered · deferred._
+
+
+---
+
+## Project State — Session Log
+
+### Session 1 — Foundation
+- 61/61 tests green
+- QuestEngine, BiomeRegistry, VoxelFactory, vault, InputHandler
+- SimulationRunner (headless), FirstLight (Panda3D)
+- Branch: voxel-manufacturing-for-rendering
+
+### Session 2 — Config + Spawn
+- 151/151 tests green  
+- config/manifest.json (45 contracts)
+- SeedEngine (26), SpawnEngine (19)
+- BiomeRenderer (procedural Panda3D geometry, no textures)
+- make lab — first walkable biome
+
+### Session 3 — Lab + Identity
+- 151/151 → 198/198 tests
+- GraceHandler (20) — universal state preservation
+- InterviewEngine (27) — 7-prompt world seed interview
+- BiomeRenderer expanded — 20 feeling-based palettes
+- FPS camera, mouse look, WSAD confirmed smooth
+- Branch: interview-pipeline
+
+### Session 4 — Interview Wired
+- 198/198 tests green
+- InterviewEngine runs on first boot (terminal)
+- Grace recovery on subsequent boots
+- QuestEngine + SeedEngine fire grace events
+- Interview → biome config → world renders from answers
+
+---
+
+## Core Economic Principle — Non-Negotiable
+
+Real effort generates real value. Overcoming actual life challenges
+produces actual in-game rewards. Not simulated. Not grinded. Earned.
+
+Every reward is unique, provably generated from the specific conditions
+of its creation. The hash proves it. No two players receive the same
+enhancement from the same circumstances.
+
+Sharing multiplies value. Completed arcs leave permanent artifacts
+that other players can discover, trade, and build on. The ledger
+credits the origin. Your effort ripples outward.
+
+Nothing is extracted without consent.
+
+---
+
+## Consent Constitution — Permanent
+
+- Never ask for PII
+- Never ask for specific financial data  
+- Never ask for health information
+- Consent is the only permission model
+- No data leaves vault without explicit user action
+- Experience is never punishing — consequences feel real, not cruel
+
+---
+
+## QR/Port Sharing System — Design Intent
+
+Every object in Sanctum — relic, skill, enhancement, craft object,
+landmark — has a unique shareable key derived from its provenance hash.
+Expressible as QR code, short port key, or deep link.
+
+Scanning/entering a key imports the object into your vault with full
+provenance intact. The hash proves origin. No central server required.
+
+---
+
+## Phase Architecture
+
+### Phase 1: The Seeding Campaign (3-6 days, engine decides)
+Procedural dungeon crawl built from player life state.
+Challenges mirror real commitments. Craft system active.
+Campaign duration extends based on discovery and engagement.
+Hidden by design — player just plays, engine watches.
+
+### Phase 2: The Confirmation  
+Ascent through biome-specific path to space.
+Stars. White flash. Point of no return.
+Seed locks. Vault seals. Sovereign identity confirmed.
+
+### Phase 3: The Game
+Wake up in bed. Richer world. HUD active. Full game unlocked.
+Side-by-side with real life. No end state except chosen conclusion.
+Archive when story is complete. Legacy persists.
+
+---
+
+## Scale Stack
+```
+GROUND      Z=0-500        Immediate biome, dungeon crawl
+ATMOSPHERE  Z=500-20000    Biome dissolves upward, weather layer  
+ORBITAL     Z=20k-200k     Seed planet visible, relic constellation
+SOLAR       Z=200k-2M      All seeds as planets, legacy artifacts
+DEEP SPACE  Z=2M+          Sanctum Network, artifact economy, ledger
+```
+
+Seamless. One coordinate system. One process. No loading screens.
+
+---
+
+## Target Hardware
+
+Raspberry Pi 5 (8GB) + NVMe SSD + active cooling + 1080p display.
+Full game runs in single Python process, under 50MB RAM at idle.
+Sovereign hardware. Your device. Your data. Your world.
