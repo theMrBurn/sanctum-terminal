@@ -8,88 +8,179 @@
     "ground_z": 6.0,
     "move_speed": 40.0,
     "interact_dist": 5.0,
-    "camera_start": [0, -50, 6.0],
-    "background_color": [0.02, 0.02, 0.04]
+    "camera_start": [
+      0,
+      -50,
+      6.0
+    ],
+    "background_color": [
+      0.02,
+      0.02,
+      0.04
+    ]
   },
   "avatar": {
     "height": 1.8,
-    "color": [0.2, 0.8, 1.0],
+    "color": [
+      0.2,
+      0.8,
+      1.0
+    ],
     "gravity": 20.0,
     "friction": 0.85
   },
   "tiers": {
-    "surface": [1, 3],
-    "dungeon": [4, 6],
-    "boss": [7, 10]
+    "surface": [
+      1,
+      3
+    ],
+    "dungeon": [
+      4,
+      6
+    ],
+    "boss": [
+      7,
+      10
+    ]
   },
   "atmosphere": {
     "default": {
-      "u_fog": [0.1, 0.1, 0.15, 1.0],
+      "u_fog": [
+        0.1,
+        0.1,
+        0.15,
+        1.0
+      ],
       "u_exp": 1.0
     },
     "surface": {
-      "u_fog": [0.1, 0.1, 0.15, 1.0],
+      "u_fog": [
+        0.1,
+        0.1,
+        0.15,
+        1.0
+      ],
       "u_exp": 0.8
     },
     "dungeon": {
-      "u_fog": [0.05, 0.05, 0.1, 1.0],
+      "u_fog": [
+        0.05,
+        0.05,
+        0.1,
+        1.0
+      ],
       "u_exp": 1.2
     },
     "boss": {
-      "u_fog": [0.02, 0.0, 0.05, 1.0],
+      "u_fog": [
+        0.02,
+        0.0,
+        0.05,
+        1.0
+      ],
       "u_exp": 1.8
     }
   },
   "biomes": {
     "VOID": {
       "v_id": "METAL",
-      "u_fog": [0.0, 0.0, 0.0, 1.0],
+      "u_fog": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
       "u_exp": 0.5
     },
     "NEON": {
       "v_id": "PIPE",
-      "u_fog": [0.1, 0.0, 0.2, 1.0],
+      "u_fog": [
+        0.1,
+        0.0,
+        0.2,
+        1.0
+      ],
       "u_exp": 1.1,
       "u_glow": 2.5
     },
     "IRON": {
       "v_id": "RUST",
-      "u_fog": [0.3, 0.2, 0.1, 1.0],
+      "u_fog": [
+        0.3,
+        0.2,
+        0.1,
+        1.0
+      ],
       "u_exp": 0.8
     },
     "SILICA": {
       "v_id": "SAND",
-      "u_fog": [0.9, 0.8, 0.7, 1.0],
+      "u_fog": [
+        0.9,
+        0.8,
+        0.7,
+        1.0
+      ],
       "u_exp": 1.5
     },
     "FROZEN": {
       "v_id": "ICE",
-      "u_fog": [0.8, 0.9, 1.0, 1.0],
+      "u_fog": [
+        0.8,
+        0.9,
+        1.0,
+        1.0
+      ],
       "u_exp": 1.0
     },
     "SULPHUR": {
       "v_id": "S_STONE",
-      "u_fog": [0.4, 0.4, 0.0, 1.0],
+      "u_fog": [
+        0.4,
+        0.4,
+        0.0,
+        1.0
+      ],
       "u_exp": 0.9
     },
     "BASALT": {
       "v_id": "LAVA",
-      "u_fog": [0.1, 0.0, 0.0, 1.0],
+      "u_fog": [
+        0.1,
+        0.0,
+        0.0,
+        1.0
+      ],
       "u_exp": 0.7
     },
     "VERDANT": {
       "v_id": "MOSS",
-      "u_fog": [0.1, 0.2, 0.1, 1.0],
+      "u_fog": [
+        0.1,
+        0.2,
+        0.1,
+        1.0
+      ],
       "u_exp": 0.9
     },
     "MYCELIUM": {
       "v_id": "SPORE",
-      "u_fog": [0.2, 0.1, 0.2, 1.0],
+      "u_fog": [
+        0.2,
+        0.1,
+        0.2,
+        1.0
+      ],
       "u_exp": 0.6
     },
     "CHROME": {
       "v_id": "MIRROR",
-      "u_fog": [1.0, 1.0, 1.0, 1.0],
+      "u_fog": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
       "u_exp": 2.0
     }
   },
@@ -172,12 +263,23 @@
   },
   "hud": {
     "minimap": true,
-    "ambient_indicators": ["health", "biome_state", "quest_pulse"],
+    "ambient_indicators": [
+      "health",
+      "biome_state",
+      "quest_pulse"
+    ],
     "terminal_hotkey": "tab",
-    "resolution_target": [3840, 2160]
+    "resolution_target": [
+      3840,
+      2160
+    ]
   },
   "skills": {
-    "natural": ["perception", "endurance", "intuition"],
+    "natural": [
+      "perception",
+      "endurance",
+      "intuition"
+    ],
     "learned": [],
     "inherited": [],
     "morphing": {},
@@ -186,7 +288,187 @@
   "character": {
     "base_level_age": true,
     "starting_age": 0,
-    "perception_filters": ["belief", "trauma", "moral_code", "physical"],
-    "stat_blocks": ["cognitive", "physical", "social", "energetic"]
+    "perception_filters": [
+      "belief",
+      "trauma",
+      "moral_code",
+      "physical"
+    ],
+    "stat_blocks": [
+      "cognitive",
+      "physical",
+      "social",
+      "energetic"
+    ]
+  },
+  "questionnaire": {
+    "version": "1.0",
+    "consent_note": "All questions optional. No PII collected. Your words stay in your vault.",
+    "prompts": [
+      {
+        "id": "q1",
+        "prompt": "Where are you right now?",
+        "type": "choice",
+        "options": {
+          "city": {
+            "biome_key": "NEON_CITY",
+            "label": "In the city"
+          },
+          "nature": {
+            "biome_key": "VERDANT",
+            "label": "Somewhere natural"
+          },
+          "home": {
+            "biome_key": "VOID",
+            "label": "At home"
+          },
+          "between": {
+            "biome_key": "RUINED",
+            "label": "In between places"
+          }
+        },
+        "default": "home"
+      },
+      {
+        "id": "q2",
+        "prompt": "What time of day does it feel like?",
+        "type": "choice",
+        "options": {
+          "morning": {
+            "ambient_intensity": 0.8,
+            "label": "Morning"
+          },
+          "midday": {
+            "ambient_intensity": 1.0,
+            "label": "Midday"
+          },
+          "evening": {
+            "ambient_intensity": 0.5,
+            "label": "Evening"
+          },
+          "night": {
+            "ambient_intensity": 0.2,
+            "label": "Night"
+          },
+          "cant_tell": {
+            "ambient_intensity": 0.4,
+            "label": "Can't tell"
+          }
+        },
+        "default": "evening"
+      },
+      {
+        "id": "q3",
+        "prompt": "How long have you been awake?",
+        "type": "choice",
+        "options": {
+          "just_started": {
+            "karma_baseline": 0.1,
+            "label": "Just started my day"
+          },
+          "few_hours": {
+            "karma_baseline": 0.3,
+            "label": "A few hours"
+          },
+          "too_long": {
+            "karma_baseline": 0.7,
+            "label": "Too long"
+          },
+          "dont_know": {
+            "karma_baseline": 0.5,
+            "label": "I don't know"
+          }
+        },
+        "default": "few_hours"
+      },
+      {
+        "id": "q4",
+        "prompt": "You feel more comfortable in...",
+        "type": "choice",
+        "options": {
+          "open": {
+            "spawn_radius": 60,
+            "label": "Open space"
+          },
+          "enclosed": {
+            "spawn_radius": 20,
+            "label": "Enclosed space"
+          },
+          "either": {
+            "spawn_radius": 40,
+            "label": "Doesn't matter"
+          }
+        },
+        "default": "either"
+      },
+      {
+        "id": "q5",
+        "prompt": "Something is on your mind. How heavy is it?",
+        "type": "choice",
+        "options": {
+          "light": {
+            "encounter_density": 0.1,
+            "impact_rating": 2,
+            "label": "Light"
+          },
+          "medium": {
+            "encounter_density": 0.3,
+            "impact_rating": 5,
+            "label": "Medium"
+          },
+          "heavy": {
+            "encounter_density": 0.6,
+            "impact_rating": 7,
+            "label": "Heavy"
+          },
+          "crushing": {
+            "encounter_density": 0.9,
+            "impact_rating": 9,
+            "label": "Crushing"
+          }
+        },
+        "default": "medium"
+      },
+      {
+        "id": "q6",
+        "prompt": "How do you move through the world today?",
+        "type": "choice",
+        "options": {
+          "deliberately": {
+            "camera_speed": 25.0,
+            "karma_decay_rate": 0.15,
+            "label": "Deliberately"
+          },
+          "quickly": {
+            "camera_speed": 55.0,
+            "karma_decay_rate": 0.03,
+            "label": "Quickly"
+          },
+          "carefully": {
+            "camera_speed": 20.0,
+            "karma_decay_rate": 0.2,
+            "label": "Carefully"
+          },
+          "not_sure": {
+            "camera_speed": 40.0,
+            "karma_decay_rate": 0.08,
+            "label": "Not sure"
+          }
+        },
+        "default": "not_sure"
+      },
+      {
+        "id": "q7",
+        "prompt": "One word for right now.",
+        "type": "open",
+        "optional": true,
+        "resolves": [
+          "archetypal_name",
+          "vibe",
+          "biome_tint"
+        ],
+        "default": null
+      }
+    ]
   }
 }

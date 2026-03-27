@@ -3,7 +3,6 @@
 tools/seed_db.py
 Initializes vault.db schema. Safe to run multiple times.
 """
-
 import sqlite3
 from pathlib import Path
 
@@ -30,6 +29,14 @@ conn.execute("""
         consent_version TEXT DEFAULT '1.0'
     )
 """)
+conn.execute("""
+    CREATE TABLE IF NOT EXISTS grace_log (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        payload    TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+""")
 conn.commit()
 conn.close()
-print("vault.db schema initialized.")
+print("vault.db schema initialized — archive, seeds, grace_log.")
