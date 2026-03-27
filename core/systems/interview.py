@@ -25,6 +25,51 @@ DEFAULTS = {
 }
 
 
+TORCH = {
+    "id":           "TORCH_DEFAULT",
+    "name":         "The First Torch",
+    "description":  "You made this. It was the first thing.",
+    "impact":       1,
+    "type":         "craft",
+    "ability":      "Illumination",
+    "ability_desc": "Reveals one hidden path per session.",
+    "transferable": True,
+}
+
+LOW_COMMITMENT_SIGNALS = {
+    "torch", "fire", "light", "thing", "stuff", "idk",
+    "nothing", "something", "whatever", "dunno", "ok",
+    "yes", "no", "maybe", "sure", "fine", "good",
+    "bad", "meh", "hmm", "um", "uh", "eh",
+}
+
+DEPTH_PROMPTS = [
+    "What do you need to see?",
+    "What are you trying to find your way through?",
+    "What would having light change for you right now?",
+    "What is in the dark that you would rather not look at?",
+    "Where are you trying to go?",
+]
+
+
+def _detect_commitment_depth(word):
+    if not word:
+        return 0
+    word = word.strip().lower()
+    if word in LOW_COMMITMENT_SIGNALS:
+        return 1
+    if len(word) <= 4:
+        return 1
+    if len(word) <= 8:
+        return 2
+    return 3
+
+
+def _depth_prompt(word, rng_index=0):
+    idx = rng_index % len(DEPTH_PROMPTS)
+    return DEPTH_PROMPTS[idx]
+
+
 class InterviewEngine:
     """
     World seed interview — 7 optional prompts that build a render config.
@@ -35,8 +80,10 @@ class InterviewEngine:
     def __init__(self, config=None):
         self._config  = config or _load_manifest()
         self.prompts  = self._config.get("questionnaire", {}).get("prompts", [])
-        self.answers  = {}
-        self.complete = False
+        self.answers     = {}
+        self.complete    = False
+        self.torch       = dict(TORCH)
+        self.depth_score = 0
         self.on_complete = None
 
     def _get_prompt(self, prompt_id):
@@ -65,6 +112,9 @@ class InterviewEngine:
                     f"InterviewEngine: '{value}' is not valid for {prompt_id}. "
                     f"Valid: {list(prompt['options'].keys())}"
                 )
+        if prompt_id == "q7":
+            self.depth_score = _detect_commitment_depth(value)
+            self._enhance_torch(value)
         self.answers[prompt_id] = value
         self._check_complete()
         return self
@@ -73,9 +123,34 @@ class InterviewEngine:
         prompt = self._get_prompt(prompt_id)
         if prompt is None:
             raise ValueError(f"InterviewEngine: unknown prompt '{prompt_id}'")
+        if prompt_id == "q7":
+            self.depth_score = 0
         self.answers[prompt_id] = None
         self._check_complete()
         return self
+
+
+    def _enhance_torch(self, word):
+        if not word or self.depth_score == 0:
+            return
+        if self.depth_score == 1:
+            self.torch["name"]        = "A Dim Torch"
+            self.torch["description"] = "It lights something. You are not sure what yet."
+            self.torch["impact"]      = 2
+        elif self.depth_score == 2:
+            self.torch["name"]        = f"The {word.title()} Torch"
+            self.torch["description"] = f"Made in the time of {word}. It carries that weight."
+            self.torch["impact"]      = 4
+            self.torch["ability"]     = "Wayfinding"
+            self.torch["ability_desc"] = f"In moments of {word}, reveals a path others cannot see."
+        elif self.depth_score == 3:
+            self.torch["name"]        = f"The Torch of {word.title()}"
+            self.torch["description"] = f"This torch was made in the time of {word}. Whoever carried this knew what they were walking toward."
+            self.torch["impact"]      = 7
+            self.torch["ability"]     = f"{word.title()} Light"
+            self.torch["ability_desc"] = f"Born from {word}. Reveals hidden encounters in dense biomes. Can be shared."
+            self.torch["transferable"] = True
+            self.torch["rare"]         = True
 
     def resolve(self):
         config = dict(DEFAULTS)
@@ -114,6 +189,8 @@ class InterviewEngine:
                 impact = q5_prompt["options"].get(q5, {}).get("impact_rating", 3)
                 config["first_relic"]["impact_rating"] = impact
 
+        config['torch']       = self.torch
+        config['depth_score'] = self.depth_score
         return config
 
     def next_prompt(self):

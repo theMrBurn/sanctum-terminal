@@ -34,6 +34,16 @@ class TestInterviewEngineInit:
     def test_complete_starts_false(self, engine):
         assert engine.complete is False
 
+    def test_torch_always_exists(self, engine):
+        assert engine.torch is not None
+
+    def test_torch_has_required_keys(self, engine):
+        for key in ["id", "name", "description", "impact", "ability"]:
+            assert key in engine.torch
+
+    def test_depth_score_starts_zero(self, engine):
+        assert engine.depth_score == 0
+
 
 # ── Answer ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +73,79 @@ class TestAnswer:
         engine.answer("q1", "city")
         engine.answer("q2", "evening")
         assert len(engine.answers) == 2
+
+
+# ── Depth detection ───────────────────────────────────────────────────────────
+
+class TestDepthDetection:
+
+    def test_no_word_is_depth_zero(self, engine):
+        from core.systems.interview import _detect_commitment_depth
+        assert _detect_commitment_depth(None) == 0
+        assert _detect_commitment_depth("") == 0
+
+    def test_signal_word_is_depth_one(self, engine):
+        from core.systems.interview import _detect_commitment_depth
+        assert _detect_commitment_depth("torch") == 1
+        assert _detect_commitment_depth("fire") == 1
+        assert _detect_commitment_depth("idk") == 1
+
+    def test_short_word_is_depth_one(self, engine):
+        from core.systems.interview import _detect_commitment_depth
+        assert _detect_commitment_depth("ok") == 1
+
+    def test_medium_word_is_depth_two(self, engine):
+        from core.systems.interview import _detect_commitment_depth
+        assert _detect_commitment_depth("adrift") == 2
+
+    def test_long_word_is_depth_three(self, engine):
+        from core.systems.interview import _detect_commitment_depth
+        assert _detect_commitment_depth("overwhelmed") == 3
+        assert _detect_commitment_depth("transitioning") == 3
+
+    def test_q7_sets_depth_score(self, engine):
+        engine.answer("q7", "overwhelmed")
+        assert engine.depth_score == 3
+
+    def test_q7_skip_sets_depth_zero(self, engine):
+        engine.skip("q7")
+        assert engine.depth_score == 0
+
+
+# ── Torch enhancement ─────────────────────────────────────────────────────────
+
+class TestTorchEnhancement:
+
+    def test_default_torch_always_generated(self, engine):
+        assert engine.torch["id"] == "TORCH_DEFAULT"
+
+    def test_skip_q7_keeps_default_torch(self, engine):
+        engine.skip("q7")
+        assert engine.torch["name"] == "The First Torch"
+
+    def test_low_depth_generates_dim_torch(self, engine):
+        engine.answer("q7", "torch")
+        assert "Dim" in engine.torch["name"]
+
+    def test_medium_depth_names_torch(self, engine):
+        engine.answer("q7", "adrift")
+        assert "Adrift" in engine.torch["name"]
+
+    def test_medium_depth_sets_ability(self, engine):
+        engine.answer("q7", "adrift")
+        assert engine.torch["ability"] == "Wayfinding"
+
+    def test_high_depth_generates_rare_torch(self, engine):
+        engine.answer("q7", "overwhelmed")
+        assert engine.torch.get("rare") is True
+
+    def test_high_depth_torch_is_transferable(self, engine):
+        engine.answer("q7", "overwhelmed")
+        assert engine.torch["transferable"] is True
+
+    def test_high_depth_torch_impact_is_high(self, engine):
+        engine.answer("q7", "overwhelmed")
+        assert engine.torch["impact"] >= 6
 
 
 # ── Resolve ───────────────────────────────────────────────────────────────────
@@ -96,6 +179,14 @@ class TestResolve:
     def test_resolve_has_first_relic(self, engine):
         result = engine.resolve()
         assert "first_relic" in result
+
+    def test_resolve_has_torch(self, engine):
+        result = engine.resolve()
+        assert "torch" in result
+
+    def test_resolve_has_depth_score(self, engine):
+        result = engine.resolve()
+        assert "depth_score" in result
 
     def test_resolve_city_answer_gives_neon_city(self, engine):
         engine.answer("q1", "city")
@@ -155,3 +246,14 @@ class TestComplete:
         ]:
             engine.answer(qid, answer)
         assert len(events) == 1
+
+    def test_complete_result_has_torch(self, engine):
+        events = []
+        engine.on_complete = lambda r: events.append(r)
+        for qid, answer in [
+            ("q1", "city"), ("q2", "evening"), ("q3", "too_long"),
+            ("q4", "enclosed"), ("q5", "heavy"), ("q6", "quickly"),
+            ("q7", "pressure")
+        ]:
+            engine.answer(qid, answer)
+        assert "torch" in events[0]
