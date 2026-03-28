@@ -26,7 +26,14 @@
     "jump_velocity": 18.0,
     "gravity": 40.0,
     "fov": 80.0,
-    "spine_locked": true
+    "spine_locked": true,
+    "height": 1.8,
+    "color": [
+      0.2,
+      0.8,
+      1.0
+    ],
+    "friction": 0.85
   },
   "tiers": {
     "surface": [
