@@ -1,0 +1,392 @@
+{
+  "id": "VERDANT",
+  "category": "exterior",
+  "palette": {
+    "floor": [
+      0.1,
+      0.25,
+      0.1
+    ],
+    "accent": [
+      0.3,
+      0.6,
+      0.2
+    ],
+    "dark": [
+      0.06,
+      0.14,
+      0.06
+    ],
+    "bark": [
+      0.18,
+      0.14,
+      0.08
+    ],
+    "water": [
+      0.15,
+      0.35,
+      0.55
+    ]
+  },
+  "trees": {
+    "OAK": {
+      "description": "Wide spreading canopy, short thick trunk",
+      "trunk": {
+        "w": [
+          1.2,
+          2.0
+        ],
+        "h": [
+          8,
+          12
+        ],
+        "color": "bark"
+      },
+      "canopy": [
+        {
+          "w": [
+            8,
+            14
+          ],
+          "h": [
+            2.0,
+            3.5
+          ],
+          "z_offset": 0.0,
+          "color": "accent"
+        },
+        {
+          "w": [
+            6,
+            10
+          ],
+          "h": [
+            1.5,
+            2.5
+          ],
+          "z_offset": 2.5,
+          "color": "accent"
+        },
+        {
+          "w": [
+            4,
+            7
+          ],
+          "h": [
+            1.0,
+            2.0
+          ],
+          "z_offset": 4.5,
+          "color": "accent"
+        }
+      ],
+      "frequency": 0.2
+    },
+    "PINE": {
+      "description": "Tall narrow trunk, layered tiers",
+      "trunk": {
+        "w": [
+          0.6,
+          1.0
+        ],
+        "h": [
+          18,
+          28
+        ],
+        "color": "bark"
+      },
+      "canopy": [
+        {
+          "w": [
+            5,
+            8
+          ],
+          "h": [
+            1.5,
+            2.5
+          ],
+          "z_offset": 0.0,
+          "color": "accent"
+        },
+        {
+          "w": [
+            4,
+            6
+          ],
+          "h": [
+            1.2,
+            2.0
+          ],
+          "z_offset": 3.5,
+          "color": "accent"
+        },
+        {
+          "w": [
+            2,
+            4
+          ],
+          "h": [
+            1.0,
+            1.8
+          ],
+          "z_offset": 7.0,
+          "color": "accent"
+        },
+        {
+          "w": [
+            1,
+            2
+          ],
+          "h": [
+            0.8,
+            1.2
+          ],
+          "z_offset": 10.0,
+          "color": "accent"
+        }
+      ],
+      "frequency": 0.18
+    },
+    "WILLOW": {
+      "description": "Medium trunk, wide drooping canopy",
+      "trunk": {
+        "w": [
+          0.8,
+          1.4
+        ],
+        "h": [
+          10,
+          15
+        ],
+        "color": "bark"
+      },
+      "canopy": [
+        {
+          "w": [
+            10,
+            16
+          ],
+          "h": [
+            1.0,
+            2.0
+          ],
+          "z_offset": -2.0,
+          "color": "dark"
+        },
+        {
+          "w": [
+            8,
+            12
+          ],
+          "h": [
+            1.0,
+            1.8
+          ],
+          "z_offset": 0.0,
+          "color": "accent"
+        },
+        {
+          "w": [
+            6,
+            9
+          ],
+          "h": [
+            0.8,
+            1.5
+          ],
+          "z_offset": 1.5,
+          "color": "accent"
+        }
+      ],
+      "frequency": 0.12
+    },
+    "DEAD": {
+      "description": "Bare twisted trunk, no canopy",
+      "trunk": {
+        "w": [
+          0.5,
+          1.2
+        ],
+        "h": [
+          6,
+          16
+        ],
+        "color": "floor"
+      },
+      "canopy": [],
+      "branches": {
+        "count": [
+          2,
+          5
+        ],
+        "w": [
+          0.2,
+          0.5
+        ],
+        "h": [
+          1,
+          4
+        ]
+      },
+      "frequency": 0.1
+    },
+    "YOUNG": {
+      "description": "Thin tall trunk, small tight canopy",
+      "trunk": {
+        "w": [
+          0.3,
+          0.6
+        ],
+        "h": [
+          6,
+          10
+        ],
+        "color": "bark"
+      },
+      "canopy": [
+        {
+          "w": [
+            2,
+            4
+          ],
+          "h": [
+            1.5,
+            2.5
+          ],
+          "z_offset": 0.0,
+          "color": "accent"
+        },
+        {
+          "w": [
+            1,
+            3
+          ],
+          "h": [
+            1.0,
+            2.0
+          ],
+          "z_offset": 2.0,
+          "color": "accent"
+        }
+      ],
+      "frequency": 0.18
+    },
+    "ANCIENT": {
+      "description": "Massive trunk, huge multi-canopy",
+      "trunk": {
+        "w": [
+          2.5,
+          4.5
+        ],
+        "h": [
+          14,
+          22
+        ],
+        "color": "bark"
+      },
+      "canopy": [
+        {
+          "w": [
+            12,
+            20
+          ],
+          "h": [
+            2.5,
+            4.0
+          ],
+          "z_offset": 0.0,
+          "color": "dark"
+        },
+        {
+          "w": [
+            10,
+            16
+          ],
+          "h": [
+            2.0,
+            3.5
+          ],
+          "z_offset": 3.5,
+          "color": "accent"
+        },
+        {
+          "w": [
+            7,
+            12
+          ],
+          "h": [
+            1.5,
+            3.0
+          ],
+          "z_offset": 6.5,
+          "color": "accent"
+        },
+        {
+          "w": [
+            4,
+            8
+          ],
+          "h": [
+            1.0,
+            2.0
+          ],
+          "z_offset": 9.0,
+          "color": "accent"
+        }
+      ],
+      "trunk_flare": {
+        "w": [
+          4,
+          7
+        ],
+        "h": [
+          1.5,
+          2.5
+        ]
+      },
+      "frequency": 0.07
+    },
+    "SHRUB": {
+      "description": "No trunk, ground-level dense mass",
+      "trunk": {
+        "w": [
+          0.0,
+          0.0
+        ],
+        "h": [
+          0,
+          0
+        ],
+        "color": "bark"
+      },
+      "canopy": [
+        {
+          "w": [
+            2,
+            5
+          ],
+          "h": [
+            1.5,
+            3.0
+          ],
+          "z_offset": 0.0,
+          "color": "accent"
+        },
+        {
+          "w": [
+            1,
+            3
+          ],
+          "h": [
+            1.0,
+            2.0
+          ],
+          "z_offset": 1.5,
+          "color": "accent"
+        }
+      ],
+      "ground_offset": 0.5,
+      "frequency": 0.15
+    }
+  }
+}
