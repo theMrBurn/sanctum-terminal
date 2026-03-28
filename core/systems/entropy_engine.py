@@ -1,22 +1,35 @@
+"""
+core/systems/entropy_engine.py
+
+Every living thing has a place where it belongs.
+This engine calculates how much any given species belongs
+at any given point in the world.
+
+P(E) = product of Gaussian attunements across local conditions.
+The world grows where it belongs. Not where it is placed.
+"""
+import copy
 import math
 import random
 
 
 class EntropyEngine:
     """
-    Gaussian placement weights for ecological tree distribution.
-    Every tree type has ideal conditions (elevation, moisture, slope).
-    P(E) = product of gaussians across all local variables.
-    The world grows where it belongs.
+    Ecological placement engine.
+    Each species has ideal conditions — elevation, moisture, slope.
+    Proximity to ideal yields high attunement.
+    Distance from ideal yields low attunement.
+    The interference of all three determines where life takes root.
     """
 
-    # Ideal conditions per tree type
-    # mu = ideal value, sigma = tolerance (grit)
+    # Ideal conditions per species.
+    # mu    = the sweet spot
+    # sigma = the grit — how far from ideal before presence fades
     IDEALS = {
         'OAK': {
-            'elevation': {'mu': 4.0,  'sigma': 6.0},
+            'elevation': {'mu':  4.0, 'sigma': 6.0},
             'moisture':  {'mu': 0.55, 'sigma': 0.25},
-            'slope':     {'mu': 0.1,  'sigma': 0.15},
+            'slope':     {'mu':  0.1, 'sigma': 0.15},
         },
         'PINE': {
             'elevation': {'mu': 12.0, 'sigma': 5.0},
@@ -24,86 +37,98 @@ class EntropyEngine:
             'slope':     {'mu': 0.45, 'sigma': 0.20},
         },
         'WILLOW': {
-            'elevation': {'mu': 1.0,  'sigma': 3.0},
+            'elevation': {'mu':  1.0, 'sigma': 3.0},
             'moisture':  {'mu': 0.85, 'sigma': 0.15},
             'slope':     {'mu': 0.05, 'sigma': 0.08},
         },
         'DEAD': {
-            'elevation': {'mu': 8.0,  'sigma': 6.0},
+            'elevation': {'mu':  8.0, 'sigma': 6.0},
             'moisture':  {'mu': 0.12, 'sigma': 0.15},
             'slope':     {'mu': 0.25, 'sigma': 0.20},
         },
         'YOUNG': {
-            'elevation': {'mu': 3.0,  'sigma': 5.0},
+            'elevation': {'mu':  3.0, 'sigma': 5.0},
             'moisture':  {'mu': 0.50, 'sigma': 0.30},
             'slope':     {'mu': 0.15, 'sigma': 0.20},
         },
         'ANCIENT': {
-            'elevation': {'mu': 0.0,  'sigma': 4.0},
+            'elevation': {'mu':  0.0, 'sigma': 4.0},
             'moisture':  {'mu': 0.70, 'sigma': 0.20},
             'slope':     {'mu': 0.03, 'sigma': 0.06},
         },
         'SHRUB': {
-            'elevation': {'mu': 2.0,  'sigma': 5.0},
+            'elevation': {'mu':  2.0, 'sigma': 5.0},
             'moisture':  {'mu': 0.50, 'sigma': 0.35},
             'slope':     {'mu': 0.05, 'sigma': 0.08},
         },
     }
 
-    # Wide Relational Curve thresholds
-    FOCUS_DIST    = 10.0
-    MIDFIELD_DIST = 30.0
-    HORIZON_DIST  = 40.0
+    # The Wide Relational Curve — render presence by distance
+    FOCUS_DIST    = 10.0   # full presence, SURREAL_SPEC active
+    MIDFIELD_DIST = 30.0   # silhouette, Another World vectors
+    HORIZON_DIST  = 40.0   # Carcosa threshold — dither and fade
 
     def gaussian(self, value, mu, sigma):
         """
-        Single Gaussian score.
-        Returns 1.0 at ideal (value==mu), approaches 0.0 further away.
+        How close is this value to the ideal?
+        Returns 1.0 at perfect attunement, approaches 0.0 at the margins.
         """
         return float(math.exp(-((value - mu) ** 2) / (2 * sigma ** 2)))
 
-    def placement_weight(self, tree_type, elevation, moisture, slope):
+    def attunement(self, species, elevation, moisture, slope):
         """
-        P(E) = product of gaussians across elevation, moisture, slope.
-        Returns float 0.0-1.0.
-        Higher = more likely to place this tree type here.
+        How much does this species belong here?
+
+        P(E) = gaussian(elevation) * gaussian(moisture) * gaussian(slope)
+
+        Returns 1.0 at perfect conditions.
+        Returns near 0.0 at the margins.
+        The world grows where it belongs.
         """
-        if tree_type not in self.IDEALS:
+        if species not in self.IDEALS:
             raise ValueError(
-                f'EntropyEngine: unknown tree type {tree_type!r}. '
-                f'Valid: {list(self.IDEALS.keys())}'
+                f'Unknown species: {species!r}. '
+                f'Known: {list(self.IDEALS.keys())}'
             )
-        ideal = self.IDEALS[tree_type]
-        p_elev = self.gaussian(elevation, **ideal['elevation'])
-        p_mois = self.gaussian(moisture,  **ideal['moisture'])
-        p_slop = self.gaussian(slope,     **ideal['slope'])
-        return float(p_elev * p_mois * p_slop)
+        ideal = self.IDEALS[species]
+        return float(
+            self.gaussian(elevation, **ideal['elevation'])
+            * self.gaussian(moisture,  **ideal['moisture'])
+            * self.gaussian(slope,     **ideal['slope'])
+        )
+
+    # Keep placement_weight as alias — tests reference it
+    def placement_weight(self, tree_type, elevation, moisture, slope):
+        """Alias for attunement(). Preserved for test compatibility."""
+        return self.attunement(tree_type, elevation, moisture, slope)
 
     def pick_tree_type(self, elevation, moisture, slope, rng=None):
         """
-        Sample a tree type weighted by placement_weight at local conditions.
-        Uses entropy math -- not pure frequency weights.
-        The world grows where it belongs.
+        Which species belongs here most?
+
+        Weighted sampling from attunement scores.
+        Nothing is impossible — only some things are unlikely.
+        The world has exceptions. That is what makes it feel alive.
         """
         if rng is None:
             rng = random
         weights = {
-            t: self.placement_weight(t, elevation, moisture, slope)
-            for t in self.IDEALS
+            s: self.attunement(s, elevation, moisture, slope)
+            for s in self.IDEALS
         }
-        # Normalize -- ensure at least min weight so nothing is impossible
-        min_w = 0.02
-        weights = {t: max(min_w, w) for t, w in weights.items()}
-        types  = list(weights.keys())
-        vals   = list(weights.values())
-        return rng.choices(types, weights=vals, k=1)[0]
+        # Every species has a minimum presence — nothing is banished
+        weights = {s: max(0.02, w) for s, w in weights.items()}
+        species = list(weights.keys())
+        vals    = list(weights.values())
+        return rng.choices(species, weights=vals, k=1)[0]
 
-    def lod_tier(self, distance):
+    def presence_tier(self, distance):
         """
-        Wide Relational Curve -- LOD tier from camera distance.
-        FOCUS    d < 10  : full detail + SURREAL_SPEC
-        MIDFIELD 10-30   : flat vector silhouettes
-        HORIZON  d > 40  : dithered, P(E) near 0
+        Where does this distance fall on the Wide Relational Curve?
+
+        FOCUS    — full presence, sharp, SURREAL_SPEC active
+        MIDFIELD — silhouette, flat vectors, Another World
+        HORIZON  — the Carcosa threshold, dither and fade
         """
         if distance < self.FOCUS_DIST:
             return 'FOCUS'
@@ -112,31 +137,41 @@ class EntropyEngine:
         else:
             return 'HORIZON'
 
+    # Keep lod_tier as alias — tests reference it
+    def lod_tier(self, distance):
+        """Alias for presence_tier(). Preserved for test compatibility."""
+        return self.presence_tier(distance)
+
     def sigmoid_weight(self, distance):
         """
-        Sigmoid activation for render weight.
-        1.0 at distance=0, 0.0 at distance=infinity.
-        Smooth falloff across the wide relational curve.
+        Render weight by distance.
+        1.0 at the threshold of presence.
+        0.0 at the horizon.
+        Smooth — nothing cuts, everything fades.
         """
-        # Sigmoid centered at MIDFIELD_DIST
-        k = 0.15  # steepness
+        k = 0.15  # steepness of the curve
         return float(1.0 / (1.0 + math.exp(k * (distance - self.MIDFIELD_DIST))))
 
-    def interview_modifiers(self, seed_params):
+    def attune_to_seed(self, seed_params):
         """
-        Apply interview seed params to IDEALS.
-        moisture shifts WILLOW/ANCIENT probability.
-        heat shifts DEAD probability.
-        Returns modified IDEALS copy -- does not mutate original.
+        Shift species ideals to reflect the world's seed parameters.
+
+        The interview spoke. The ecology listens.
+        High moisture shifts WILLOW and ANCIENT toward abundance.
+        High heat shifts DEAD toward prevalence.
+
+        Returns modified IDEALS — does not alter the original.
         """
-        import copy
-        ideals = copy.deepcopy(self.IDEALS)
+        ideals   = copy.deepcopy(self.IDEALS)
         moisture = seed_params.get('moisture', 0.5)
         heat     = seed_params.get('heat', 0.5)
-        # High moisture -- WILLOW and ANCIENT thrive
-        ideals['WILLOW']['moisture']['mu']  = min(0.95, moisture + 0.1)
-        ideals['ANCIENT']['moisture']['mu'] = min(0.90, moisture + 0.05)
-        # High heat -- DEAD trees spread
-        ideals['DEAD']['moisture']['mu']    = max(0.02, 0.12 - heat * 0.1)
-        ideals['DEAD']['elevation']['sigma']= 4.0 + heat * 4.0
+        ideals['WILLOW']['moisture']['mu']   = min(0.95, moisture + 0.1)
+        ideals['ANCIENT']['moisture']['mu']  = min(0.90, moisture + 0.05)
+        ideals['DEAD']['moisture']['mu']     = max(0.02, 0.12 - heat * 0.1)
+        ideals['DEAD']['elevation']['sigma'] = 4.0 + heat * 4.0
         return ideals
+
+    # Keep interview_modifiers as alias — tests reference it
+    def interview_modifiers(self, seed_params):
+        """Alias for attune_to_seed(). Preserved for test compatibility."""
+        return self.attune_to_seed(seed_params)
