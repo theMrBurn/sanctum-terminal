@@ -1,0 +1,332 @@
+{
+  "ENDURANCE_BODY": {
+    "examples": [
+      "long distance runner",
+      "swimmer",
+      "cyclist",
+      "climber"
+    ],
+    "discipline": "sustained output over time",
+    "rhythm": "slow build no peaks",
+    "threshold": 0.9,
+    "resolution_bias": {
+      "ENDURE": 0.8,
+      "RETREAT": 0.6,
+      "OVERWHELM": 0.4
+    },
+    "care_pattern": "self and others pacing",
+    "curiosity": [
+      "terrain",
+      "weather",
+      "distance"
+    ],
+    "world_modifiers": {
+      "presence_regen_rate": 1.4,
+      "distance_scaling": 1.3,
+      "endure_effectiveness": 1.5
+    },
+    "combat_style": "EMPTY_HAND",
+    "fingerprint_weights": {
+      "exploration_time": 0.8,
+      "distance_average": 0.9,
+      "endure_count": 0.8
+    }
+  },
+  "PRECISION_HAND": {
+    "examples": [
+      "surgeon",
+      "calligrapher",
+      "watchmaker",
+      "sniper"
+    ],
+    "discipline": "one perfect action over many attempts",
+    "rhythm": "still then decisive",
+    "threshold": 0.7,
+    "resolution_bias": {
+      "OBSERVE": 0.9,
+      "OVERWHELM": 0.8,
+      "NEGOTIATE": 0.4
+    },
+    "care_pattern": "the work and the instrument",
+    "curiosity": [
+      "detail",
+      "mechanism",
+      "what is inside"
+    ],
+    "world_modifiers": {
+      "crafting_mastery_rate": 1.5,
+      "timing_window_size": 1.3,
+      "entropy_from_stillness": 1.6
+    },
+    "combat_style": "STROKE",
+    "fingerprint_weights": {
+      "crafting_time": 0.8,
+      "observation_time": 0.9,
+      "precision_score": 0.9
+    }
+  },
+  "GUARDIAN": {
+    "examples": [
+      "nanny",
+      "nurse",
+      "teacher",
+      "parent",
+      "social worker"
+    ],
+    "discipline": "sustained attention to others states",
+    "rhythm": "responsive not initiating",
+    "threshold": 0.8,
+    "resolution_bias": {
+      "NEGOTIATE": 0.9,
+      "ENDURE": 0.8,
+      "OBSERVE": 0.7
+    },
+    "care_pattern": "the people and their wellbeing",
+    "curiosity": [
+      "what does this need",
+      "who is here"
+    ],
+    "world_modifiers": {
+      "negotiate_effectiveness": 1.6,
+      "creature_escalation_rate": 0.5,
+      "food_presence_bonus": 1.4
+    },
+    "combat_style": "KEEPER",
+    "fingerprint_weights": {
+      "negotiate_count": 0.9,
+      "crafting_time": 0.6,
+      "food_prepared": 0.8
+    }
+  },
+  "FORCE_MULTIPLIER": {
+    "examples": [
+      "navy seal",
+      "green beret",
+      "special forces"
+    ],
+    "discipline": "overwhelming precision under extreme conditions",
+    "rhythm": "mission phases clear objectives",
+    "threshold": 0.95,
+    "resolution_bias": {
+      "OVERWHELM": 0.95,
+      "OBSERVE": 0.8,
+      "RETREAT": 0.3
+    },
+    "care_pattern": "the team and the mission",
+    "curiosity": [
+      "terrain advantage",
+      "exit routes",
+      "what is wrong here"
+    ],
+    "world_modifiers": {
+      "overwhelm_effectiveness": 1.6,
+      "terrain_bonus": 1.4,
+      "absorption_chance": 1.5
+    },
+    "combat_style": "FOUNDATION",
+    "fingerprint_weights": {
+      "overwhelm_count": 0.9,
+      "distance_average": 0.7,
+      "encounters_engaged": 0.8
+    }
+  },
+  "RHYTHM_KEEPER": {
+    "examples": [
+      "drummer",
+      "dj",
+      "conductor",
+      "dancer"
+    ],
+    "discipline": "pattern in time precision of beat",
+    "rhythm": "polyrhythmic multiple layers",
+    "threshold": 0.6,
+    "resolution_bias": {
+      "OVERWHELM": 0.8,
+      "NEGOTIATE": 0.7,
+      "OBSERVE": 0.6
+    },
+    "care_pattern": "the groove and collective experience",
+    "curiosity": [
+      "tempo",
+      "pattern",
+      "what breaks the rhythm"
+    ],
+    "world_modifiers": {
+      "timing_window_size": 1.5,
+      "entropy_fill_rate": 1.4,
+      "audio_puzzle_clarity": 1.6
+    },
+    "combat_style": "PULSE",
+    "fingerprint_weights": {
+      "rhythm_pattern_score": 0.95,
+      "audio_interactions": 0.8,
+      "timing_accuracy": 0.9
+    }
+  },
+  "SYSTEMS_THINKER": {
+    "examples": [
+      "plumber",
+      "engineer",
+      "programmer",
+      "architect",
+      "chef"
+    ],
+    "discipline": "understand the system find the intervention point",
+    "rhythm": "diagnostic hypothesis test adjust",
+    "threshold": 0.7,
+    "resolution_bias": {
+      "ABSORB": 0.8,
+      "OVERWHELM": 0.7,
+      "NEGOTIATE": 0.6
+    },
+    "care_pattern": "the systems integrity",
+    "curiosity": [
+      "how does this work",
+      "what breaks it",
+      "what connects"
+    ],
+    "world_modifiers": {
+      "crafting_tier_rate": 1.5,
+      "object_relationship_reveal": 1.4,
+      "alchemy_yield": 1.3
+    },
+    "combat_style": "PRESSURE",
+    "fingerprint_weights": {
+      "crafting_time": 0.85,
+      "unknown_combinations": 0.8,
+      "puzzle_attempts": 0.6
+    }
+  },
+  "NATURALIST": {
+    "examples": [
+      "botanist",
+      "ecologist",
+      "farmer",
+      "vet",
+      "park ranger"
+    ],
+    "discipline": "patient observation of living systems",
+    "rhythm": "seasonal long organisms set the pace",
+    "threshold": 0.75,
+    "resolution_bias": {
+      "OBSERVE": 0.95,
+      "ABSORB": 0.8,
+      "NEGOTIATE": 0.7
+    },
+    "care_pattern": "the ecosystem and individual organism",
+    "curiosity": [
+      "why is this here",
+      "what does it need"
+    ],
+    "world_modifiers": {
+      "cultivation_combat_tier": 2,
+      "creature_part_quality": 1.5,
+      "ecology_legibility": 1.6
+    },
+    "combat_style": "CULTIVATION",
+    "fingerprint_weights": {
+      "observation_time": 0.9,
+      "creature_interactions": 0.8,
+      "objects_inspected": 0.85
+    }
+  },
+  "PERFORMER": {
+    "examples": [
+      "actor",
+      "musician",
+      "comedian",
+      "athlete",
+      "public speaker"
+    ],
+    "discipline": "read the room give what it needs",
+    "rhythm": "responsive to audience",
+    "threshold": 0.65,
+    "resolution_bias": {
+      "NEGOTIATE": 0.9,
+      "OBSERVE": 0.8,
+      "ABSORB": 0.7
+    },
+    "care_pattern": "the audience and connection",
+    "curiosity": [
+      "what does this moment need",
+      "what is the story"
+    ],
+    "world_modifiers": {
+      "resonance_fill_rate": 1.5,
+      "creature_presence_response": 1.4,
+      "negotiate_unique_outcomes": true
+    },
+    "combat_style": "RESONANCE",
+    "fingerprint_weights": {
+      "negotiate_count": 0.8,
+      "audio_interactions": 0.85,
+      "creature_interactions": 0.7
+    }
+  },
+  "MAKER": {
+    "examples": [
+      "carpenter",
+      "sculptor",
+      "painter",
+      "blacksmith",
+      "jeweler"
+    ],
+    "discipline": "material knowledge and transformation",
+    "rhythm": "material sets the pace",
+    "threshold": 0.7,
+    "resolution_bias": {
+      "ABSORB": 0.85,
+      "OBSERVE": 0.7,
+      "OVERWHELM": 0.5
+    },
+    "care_pattern": "the material the craft the objects purpose",
+    "curiosity": [
+      "what can this become",
+      "what does it want to be"
+    ],
+    "world_modifiers": {
+      "crafting_mastery_rate": 1.8,
+      "made_object_quality": 1.4,
+      "raw_material_density": 1.3
+    },
+    "combat_style": "FOUNDATION",
+    "fingerprint_weights": {
+      "crafting_time": 0.95,
+      "crafting_tier": 0.9,
+      "workbench_interactions": 0.85
+    }
+  },
+  "SEEKER": {
+    "examples": [
+      "philosopher",
+      "researcher",
+      "journalist",
+      "detective",
+      "explorer"
+    ],
+    "discipline": "follow the question wherever it goes",
+    "rhythm": "question lead deeper question further",
+    "threshold": 0.6,
+    "resolution_bias": {
+      "OBSERVE": 0.95,
+      "ABSORB": 0.8,
+      "RETREAT": 0.5
+    },
+    "care_pattern": "the truth and full picture",
+    "curiosity": [
+      "what is actually here",
+      "what does it mean"
+    ],
+    "world_modifiers": {
+      "hidden_object_distance": 1.5,
+      "object_property_reveal": 1.6,
+      "puzzle_density": 1.4
+    },
+    "combat_style": "STROKE",
+    "fingerprint_weights": {
+      "exploration_time": 0.9,
+      "objects_inspected": 0.85,
+      "puzzle_attempts": 0.8
+    }
+  }
+}
