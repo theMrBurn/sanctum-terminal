@@ -98,3 +98,47 @@ class TestElevationHelpers:
         x, y = gen.lowest_neighbor(0.0, 0.0, step=10.0)
         assert isinstance(x, float)
         assert isinstance(y, float)
+
+class TestSpawnFinder:
+
+    def test_find_spawn_returns_tuple(self):
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point
+        gen = TerrainGenerator(seed=42)
+        x, y = find_spawn_point(gen, seed=42)
+        assert isinstance(x, float)
+        assert isinstance(y, float)
+
+    def test_spawn_not_underwater(self):
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point
+        gen = TerrainGenerator(seed=42)
+        x, y = find_spawn_point(gen, seed=42)
+        h = gen.height_at(x, y)
+        assert h >= -3.0
+
+    def test_spawn_not_on_peak(self):
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point
+        gen = TerrainGenerator(seed=42)
+        x, y = find_spawn_point(gen, seed=42)
+        h = gen.height_at(x, y)
+        assert h <= 20.0
+
+    def test_spawn_not_on_cliff(self):
+        import math
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point
+        gen = TerrainGenerator(seed=42)
+        x, y = find_spawn_point(gen, seed=42)
+        dx, dy = gen.slope_direction(x, y)
+        slope = math.sqrt(dx*dx + dy*dy)
+        assert slope <= 0.4
+
+    def test_different_seeds_different_spawn(self):
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point
+        gen = TerrainGenerator(seed=42)
+        x1, y1 = find_spawn_point(gen, seed=42)
+        x2, y2 = find_spawn_point(gen, seed=99)
+        assert (x1, y1) != (x2, y2)
