@@ -48,3 +48,6 @@ lab:
 
 room:
 	PYTHONPATH=. ./.venv/bin/python room_lab.py
+
+creation:
+	PYTHONPATH=. ./.venv/bin/python creation_lab.py
