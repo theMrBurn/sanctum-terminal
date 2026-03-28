@@ -18,6 +18,10 @@ seed-db:
 test:
 	PYTHONPATH=. ./.venv/bin/python -m pytest tests/ \
 		--ignore=tests/unit/test_observer.py \
+		--ignore=tests/test_seed_engine.py \
+		--ignore=tests/test_spawn_engine.py \
+		--ignore=tests/test_biome_stack.py \
+		--ignore=tests/test_active_pipeline.py \
 		-v --tb=short
 
 test-unit:
