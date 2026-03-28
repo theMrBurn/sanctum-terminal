@@ -4,6 +4,7 @@ from panda3d.core import AmbientLight, AntialiasAttrib, DirectionalLight, Vec4, 
 from rich.console import Console
 from core.systems.biome_renderer import _make_box_geom, _make_plane_geom, BIOME_PALETTE
 from core.systems.terrain_generator import TerrainGenerator
+from core.systems.cavern_builder import CavernBuilder, CAVERN_X, CAVERN_Y
 
 console = Console()
 MOUSE_SENSITIVITY = 0.15
@@ -42,7 +43,9 @@ class RoomLab(ShowBase):
         self.disableMouse()
         self.camLens.setFov(80)
         self.camLens.setFar(4000)
-        self.cam.setPos(0, 0, GROUND_Z)
+        # Start inside cavern facing the mouth (south)
+        self.cam.setPos(CAVERN_X, CAVERN_Y + 6, GROUND_Z)
+        self.cam.setHpr(180, 0, 0)  # facing south toward mouth
         self.cam.setHpr(0, 0, 0)
         self.setup_lighting()
         self.render.setShaderAuto()
@@ -128,7 +131,9 @@ class RoomLab(ShowBase):
             sector='verdant'
         )
         self.render.attachNewNode(node)
-        self._build_spawn_marker()
+        # Build spawn cavern
+        cavern = CavernBuilder(self.render, self._terrain)
+        self._spawn_pos = cavern.build()
         console.log('[dim]World built — 4 sectors, stream, creatures, transitions[/dim]')
 
     def _ground_plane(self, cx, cy, w, d, color):
