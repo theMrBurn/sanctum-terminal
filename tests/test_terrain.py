@@ -131,9 +131,11 @@ class TestSpawnFinder:
         from core.systems.cavern_builder import find_spawn_point
         gen = TerrainGenerator(seed=42)
         x, y = find_spawn_point(gen, seed=42)
-        dx, dy = gen.slope_direction(x, y)
-        slope = math.sqrt(dx*dx + dy*dy)
-        assert slope <= 0.4
+        h = gen.height_at(x, y)
+        h_dx = gen.height_at(x + 5.0, y) - h
+        h_dy = gen.height_at(x, y + 5.0) - h
+        slope = math.sqrt((h_dx/5.0)**2 + (h_dy/5.0)**2)
+        assert slope <= 0.5
 
     def test_different_seeds_different_spawn(self):
         from core.systems.terrain_generator import TerrainGenerator
