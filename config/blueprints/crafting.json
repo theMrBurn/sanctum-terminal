@@ -1,0 +1,158 @@
+{
+  "torch": {
+    "inputs": [
+      "stripped_branch",
+      "sap_vessel"
+    ],
+    "output": {
+      "name": "Field Torch",
+      "primitive": "PILLAR",
+      "description": "Burns longer than it should.",
+      "ability": "Illumination within 8 units",
+      "impact_rating": 3
+    }
+  },
+  "fire_kit": {
+    "inputs": [
+      "flint_shard",
+      "root_cluster"
+    ],
+    "output": {
+      "name": "Fire Kit",
+      "primitive": "BLOCK",
+      "description": "Everything needed. Nothing extra.",
+      "ability": "Start fire",
+      "impact_rating": 2
+    }
+  },
+  "lit_torch": {
+    "inputs": [
+      "flint_shard",
+      "fuel_canister"
+    ],
+    "output": {
+      "name": "Lit Torch",
+      "primitive": "PILLAR",
+      "description": "Burns hot. Wont last forever.",
+      "ability": "Illumination + heat upgrade",
+      "impact_rating": 5
+    }
+  },
+  "blade": {
+    "inputs": [
+      "flint_shard",
+      "river_stone"
+    ],
+    "output": {
+      "name": "Stone Blade",
+      "primitive": "WEDGE",
+      "description": "Sharp enough. Heavy enough.",
+      "ability": "Enables harvesting fauna",
+      "impact_rating": 4
+    }
+  },
+  "staff": {
+    "inputs": [
+      "stripped_branch",
+      "river_stone"
+    ],
+    "output": {
+      "name": "Walking Staff",
+      "primitive": "PILLAR",
+      "description": "Balances the load.",
+      "ability": "Shows slope_direction on equip",
+      "impact_rating": 2
+    }
+  },
+  "vessel": {
+    "inputs": [
+      "clay_deposit",
+      "root_cluster"
+    ],
+    "output": {
+      "name": "Clay Vessel",
+      "primitive": "BLOCK",
+      "description": "Still drying. Handle carefully.",
+      "ability": "Holds water or small objects",
+      "impact_rating": 2
+    }
+  },
+  "signal_mirror": {
+    "inputs": [
+      "glass_shard",
+      "faded_sign_panel"
+    ],
+    "output": {
+      "name": "Signal Mirror",
+      "primitive": "SLAB",
+      "description": "Catches light across distance.",
+      "ability": "Reveals hidden encounter zones",
+      "impact_rating": 4
+    }
+  },
+  "shelter": {
+    "inputs": [
+      "canopy_leaf_bundle",
+      "fallen_log_section"
+    ],
+    "output": {
+      "name": "Lean-To Shelter",
+      "primitive": "SLAB",
+      "description": "Keeps the rain off. Mostly.",
+      "ability": "Restores karma by 0.1 on use",
+      "impact_rating": 3
+    }
+  },
+  "bone_needle": {
+    "inputs": [
+      "small_bone",
+      "flint_shard"
+    ],
+    "output": {
+      "name": "Bone Needle",
+      "primitive": "SPIKE",
+      "description": "Fine point. Surprising strength.",
+      "ability": "Repair \u2014 combine damaged objects",
+      "impact_rating": 3
+    }
+  },
+  "hide_wrap": {
+    "inputs": [
+      "creature_hide",
+      "stripped_branch"
+    ],
+    "output": {
+      "name": "Hide Wrap",
+      "primitive": "PLANE",
+      "description": "Insulates. Protects. Carries.",
+      "ability": "Increases carry capacity by 2",
+      "impact_rating": 2
+    }
+  },
+  "crowbar": {
+    "inputs": [
+      "rusted_pipe",
+      "concrete_fragment"
+    ],
+    "output": {
+      "name": "Salvage Bar",
+      "primitive": "PILLAR",
+      "description": "Opens things that dont want to open.",
+      "ability": "Reveals hidden objects in remnants",
+      "impact_rating": 5
+    }
+  },
+  "UNKNOWN": {
+    "inputs": [
+      "any",
+      "any"
+    ],
+    "output": {
+      "name": "Unnamed Object",
+      "primitive": "BLOCK",
+      "description": "Something happened. Not sure what yet.",
+      "ability": "Unknown",
+      "impact_rating": 1
+    }
+  }
+}

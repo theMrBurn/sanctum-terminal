@@ -1,0 +1,466 @@
+{
+  "flora": {
+    "stripped_branch": {
+      "primitive": "PILLAR",
+      "role": "handle",
+      "color": [
+        0.35,
+        0.25,
+        0.12
+      ],
+      "scale": [
+        0.15,
+        1.2,
+        0.15
+      ],
+      "description": "A stripped branch. Straight enough to be useful.",
+      "uses": [
+        "torch_handle",
+        "walking_staff",
+        "splint"
+      ]
+    },
+    "canopy_leaf_bundle": {
+      "primitive": "SLAB",
+      "role": "cover",
+      "color": [
+        0.2,
+        0.55,
+        0.15
+      ],
+      "scale": [
+        0.8,
+        0.1,
+        0.8
+      ],
+      "description": "A bundle of broad leaves. Still green.",
+      "uses": [
+        "shelter_cover",
+        "ground_insulation",
+        "wrapping"
+      ]
+    },
+    "root_cluster": {
+      "primitive": "BLOCK",
+      "role": "material",
+      "color": [
+        0.18,
+        0.14,
+        0.08
+      ],
+      "scale": [
+        0.6,
+        0.3,
+        0.6
+      ],
+      "description": "A dense root cluster pulled from soft ground.",
+      "uses": [
+        "tinder",
+        "rope_fiber",
+        "medicine"
+      ]
+    },
+    "fallen_log_section": {
+      "primitive": "SLAB",
+      "role": "surface",
+      "color": [
+        0.22,
+        0.16,
+        0.09
+      ],
+      "scale": [
+        2.0,
+        0.4,
+        0.6
+      ],
+      "description": "A section of fallen log. Heavy but workable.",
+      "uses": [
+        "fuel",
+        "float",
+        "workbench"
+      ]
+    },
+    "sap_vessel": {
+      "primitive": "SPIKE",
+      "role": "container",
+      "color": [
+        0.75,
+        0.55,
+        0.15
+      ],
+      "scale": [
+        0.2,
+        0.4,
+        0.2
+      ],
+      "description": "Hardened sap. Amber-colored. Sticky.",
+      "uses": [
+        "adhesive",
+        "torch_fuel",
+        "wound_seal"
+      ]
+    }
+  },
+  "geology": {
+    "river_stone": {
+      "primitive": "BLOCK",
+      "role": "blank",
+      "color": [
+        0.45,
+        0.48,
+        0.55
+      ],
+      "scale": [
+        0.4,
+        0.3,
+        0.4
+      ],
+      "description": "Smooth. Rounded by water. Good weight.",
+      "uses": [
+        "blade_blank",
+        "grinding_surface",
+        "weight"
+      ]
+    },
+    "flint_shard": {
+      "primitive": "WEDGE",
+      "role": "edge",
+      "color": [
+        0.28,
+        0.26,
+        0.24
+      ],
+      "scale": [
+        0.3,
+        0.2,
+        0.4
+      ],
+      "description": "Sharp edge. Breaks predictably.",
+      "uses": [
+        "fire_starter",
+        "cutting_edge",
+        "scraper"
+      ]
+    },
+    "clay_deposit": {
+      "primitive": "SLAB",
+      "role": "material",
+      "color": [
+        0.62,
+        0.42,
+        0.28
+      ],
+      "scale": [
+        0.6,
+        0.15,
+        0.6
+      ],
+      "description": "Still wet. Workable for another hour.",
+      "uses": [
+        "vessel",
+        "seal",
+        "thermal_brick"
+      ]
+    },
+    "chalk_outcrop": {
+      "primitive": "BLOCK",
+      "role": "marker",
+      "color": [
+        0.88,
+        0.85,
+        0.8
+      ],
+      "scale": [
+        0.5,
+        0.4,
+        0.5
+      ],
+      "description": "Soft enough to mark with. Leaves white dust.",
+      "uses": [
+        "marking",
+        "drying_agent",
+        "signal"
+      ]
+    }
+  },
+  "fauna": {
+    "shed_antler": {
+      "primitive": "SPIKE",
+      "role": "tool_blank",
+      "color": [
+        0.82,
+        0.76,
+        0.62
+      ],
+      "scale": [
+        0.2,
+        0.9,
+        0.2
+      ],
+      "description": "Shed recently. Still solid at the base.",
+      "uses": [
+        "hook",
+        "needle",
+        "handle_reinforcement"
+      ]
+    },
+    "small_bone": {
+      "primitive": "SPIKE",
+      "role": "needle_blank",
+      "color": [
+        0.85,
+        0.82,
+        0.75
+      ],
+      "scale": [
+        0.08,
+        0.5,
+        0.08
+      ],
+      "description": "Small. Clean. Could be a needle.",
+      "uses": [
+        "needle",
+        "pin",
+        "whistle"
+      ]
+    },
+    "creature_hide": {
+      "primitive": "PLANE",
+      "role": "wrap",
+      "color": [
+        0.48,
+        0.38,
+        0.28
+      ],
+      "scale": [
+        1.2,
+        0.05,
+        0.8
+      ],
+      "description": "Dried flat. Stiff at the edges.",
+      "uses": [
+        "wrap",
+        "water_carrier",
+        "insulation"
+      ]
+    }
+  },
+  "remnant": {
+    "rusted_pipe": {
+      "primitive": "PILLAR",
+      "role": "weapon_blank",
+      "color": [
+        0.48,
+        0.28,
+        0.12
+      ],
+      "scale": [
+        0.2,
+        1.5,
+        0.2
+      ],
+      "description": "Hollow. Heavy end. Still holds shape.",
+      "uses": [
+        "weapon_blank",
+        "water_channel",
+        "lever"
+      ]
+    },
+    "glass_shard": {
+      "primitive": "WEDGE",
+      "role": "lens",
+      "color": [
+        0.55,
+        0.72,
+        0.65
+      ],
+      "scale": [
+        0.25,
+        0.05,
+        0.35
+      ],
+      "description": "Irregular edge. One clean face.",
+      "uses": [
+        "cutting_edge",
+        "fire_lens",
+        "signal_mirror"
+      ]
+    },
+    "fuel_canister": {
+      "primitive": "BLOCK",
+      "role": "container",
+      "color": [
+        0.38,
+        0.28,
+        0.22
+      ],
+      "scale": [
+        0.5,
+        0.7,
+        0.5
+      ],
+      "description": "Empty but sealed. Smells like something.",
+      "uses": [
+        "fuel_reserve",
+        "float",
+        "weight"
+      ]
+    },
+    "concrete_fragment": {
+      "primitive": "BLOCK",
+      "role": "anchor",
+      "color": [
+        0.52,
+        0.5,
+        0.46
+      ],
+      "scale": [
+        0.8,
+        0.5,
+        0.8
+      ],
+      "description": "Broken clean. One flat face.",
+      "uses": [
+        "anchor",
+        "grinding_block",
+        "barrier"
+      ]
+    },
+    "faded_sign_panel": {
+      "primitive": "SLAB",
+      "role": "surface",
+      "color": [
+        0.55,
+        0.38,
+        0.28
+      ],
+      "scale": [
+        1.8,
+        0.08,
+        0.8
+      ],
+      "description": "Aluminum. Faded. Still flat.",
+      "uses": [
+        "shelter_wall",
+        "sled_surface",
+        "marker"
+      ]
+    }
+  },
+  "relic": {
+    "wayfinder_stone": {
+      "primitive": "BLOCK",
+      "role": "compass",
+      "color": [
+        0.12,
+        0.1,
+        0.2
+      ],
+      "scale": [
+        0.4,
+        0.4,
+        0.4
+      ],
+      "description": "Pulses when facing lowest ground.",
+      "uses": [
+        "navigation"
+      ],
+      "ability": "Pulses toward lowest terrain neighbor"
+    },
+    "keepers_seal": {
+      "primitive": "SLAB",
+      "role": "anchor",
+      "color": [
+        0.22,
+        0.18,
+        0.14
+      ],
+      "scale": [
+        0.6,
+        0.08,
+        0.6
+      ],
+      "description": "Worn smooth. Objects nearby dont leave.",
+      "uses": [
+        "persistence"
+      ],
+      "ability": "Placed objects within 10 units persist"
+    },
+    "the_weight": {
+      "primitive": "BLOCK",
+      "role": "presence",
+      "color": [
+        0.08,
+        0.06,
+        0.1
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "description": "You carried this in. It belongs here.",
+      "uses": [
+        "none"
+      ],
+      "ability": "Reduces encounter_density in radius"
+    },
+    "builders_manifest": {
+      "primitive": "SLAB",
+      "role": "blueprint",
+      "color": [
+        0.2,
+        0.18,
+        0.14
+      ],
+      "scale": [
+        0.5,
+        0.06,
+        0.4
+      ],
+      "description": "Shows what things could become.",
+      "uses": [
+        "reveal"
+      ],
+      "ability": "Reveals craft uses of nearby objects"
+    },
+    "nerve_moss_cluster": {
+      "primitive": "SPIKE",
+      "role": "growth",
+      "color": [
+        0.12,
+        0.28,
+        0.1
+      ],
+      "scale": [
+        0.3,
+        0.6,
+        0.3
+      ],
+      "description": "It wasnt here yesterday.",
+      "uses": [
+        "spread"
+      ],
+      "ability": "Grows on surfaces if moisture > 0.7"
+    },
+    "the_unnamed": {
+      "primitive": "BLOCK",
+      "role": "unknown",
+      "color": [
+        0.05,
+        0.05,
+        0.05
+      ],
+      "scale": [
+        0.4,
+        0.4,
+        0.4
+      ],
+      "description": "You didnt name it. It named itself.",
+      "uses": [
+        "unknown"
+      ],
+      "ability": "Changes each session"
+    }
+  }
+}
