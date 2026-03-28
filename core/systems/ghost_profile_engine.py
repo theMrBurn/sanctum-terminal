@@ -66,7 +66,7 @@ class GhostProfileEngine:
         for name in scores:
             scores[name] = max(0.05, scores[name])
 
-        return self._normalize(scores)
+        return self._normalize_blend(scores)
 
     def update_from_fingerprint(self, fingerprint):
         """
@@ -92,7 +92,7 @@ class GhostProfileEngine:
         for name in scores:
             scores[name] = max(0.05, scores[name])
 
-        return self._normalize(scores)
+        return self._normalize_blend(scores)
 
     def merge_blends(self, blend_a, blend_b, weight_a=0.4, weight_b=0.6):
         """
@@ -107,7 +107,7 @@ class GhostProfileEngine:
                 blend_a.get(key, 0.0) * weight_a +
                 blend_b.get(key, 0.0) * weight_b
             )
-        return self._normalize(merged)
+        return self._normalize_blend(merged)
 
     def dominant_profile(self, blend):
         """Return the profile with highest weight in blend."""
@@ -156,7 +156,8 @@ class GhostProfileEngine:
                     merged[path] = val * weight
         return merged
 
-    def _normalize(self, scores):
+    def _normalize_blend(self, scores):
+        """Normalize a dict of weights to sum to 1.0."""
         total = sum(scores.values())
         if total == 0:
             equal = 1.0 / len(scores)
