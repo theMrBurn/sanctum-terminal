@@ -4,6 +4,47 @@ from core.systems.biome_renderer import _make_box_geom, _make_plane_geom
 
 console = Console()
 
+import random as _random
+
+
+def find_spawn_point(terrain, seed=42, search_radius=300):
+    """
+    Find a valid cavern spawn point procedurally.
+    Scores candidates by: low elevation, low slope, near center.
+    Never underwater, never on a cliff, never on a peak.
+    Returns (x, y) world position.
+    """
+    import math
+    rng = _random.Random(seed + 7)
+    best_score = -1
+    best_x, best_y = 0.0, 0.0
+
+    for _ in range(200):
+        x = rng.uniform(-search_radius * 0.5, search_radius * 0.5)
+        y = rng.uniform(-search_radius * 0.5, search_radius * 0.5)
+        h = terrain.height_at(x, y)
+        # Use height difference to calculate actual slope magnitude
+        h_dx = terrain.height_at(x + 5.0, y) - h
+        h_dy = terrain.height_at(x, y + 5.0) - h
+        slope = math.sqrt((h_dx/5.0)**2 + (h_dy/5.0)**2)
+
+        if h < -3.0:    continue
+        if h > 20.0:    continue
+        if slope > 0.4: continue
+
+        elev_score  = max(0.0, 1.0 - abs(h) / 15.0)
+        slope_score = max(0.0, 1.0 - slope / 0.4)
+        dist        = math.sqrt(x*x + y*y)
+        dist_score  = max(0.0, 1.0 - dist / search_radius)
+        score = elev_score * 0.4 + slope_score * 0.4 + dist_score * 0.2
+
+        if score > best_score:
+            best_score = score
+            best_x, best_y = x, y
+
+    return best_x, best_y
+
+
 # Spawn cavern anchor -- flattest point near origin for seed=42
 CAVERN_X  = -10.0
 CAVERN_Y  =  20.0
@@ -25,12 +66,11 @@ class CavernBuilder:
     EARTH       = (0.22, 0.18, 0.12)
     MOSS        = (0.15, 0.25, 0.12)
 
-    def __init__(self, render_root, terrain):
+    def __init__(self, render_root, terrain, seed=42):
         self.render  = render_root
         self.terrain = terrain
-        self.cx      = CAVERN_X
-        self.cy      = CAVERN_Y
-        self.gz      = terrain.height_at(CAVERN_X, CAVERN_Y)
+        self.cx, self.cy = find_spawn_point(terrain, seed=seed)
+        self.gz      = terrain.height_at(self.cx, self.cy)
 
     def build(self):
         """Build full cavern. Returns spawn position (x, y, z) for avatar."""
