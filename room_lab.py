@@ -3,6 +3,7 @@ from direct.showbase.ShowBase import ShowBase
 from panda3d.core import AmbientLight, AntialiasAttrib, DirectionalLight, Vec4, WindowProperties, LVector3
 from rich.console import Console
 from core.systems.biome_renderer import _make_box_geom, _make_plane_geom, BIOME_PALETTE
+from core.systems.terrain_generator import TerrainGenerator
 
 console = Console()
 MOUSE_SENSITIVITY = 0.15
@@ -26,7 +27,7 @@ class RoomLab(ShowBase):
         props.setTitle('Sanctum — World Lab')
         props.setSize(1280, 720)
         self.win.requestProperties(props)
-        self.setBackgroundColor(0.45, 0.65, 0.85, 1)
+        self.setBackgroundColor(0.55, 0.62, 0.72, 1)  # Desaturated slate sky
         self.cam_yaw      = 0.0
         self.cam_pitch    = 0.0
         self.vel_z        = 0.0
@@ -48,7 +49,7 @@ class RoomLab(ShowBase):
         # Atmospheric fog
         from panda3d.core import Fog
         fog = Fog('atm_fog')
-        fog.setColor(0.45, 0.65, 0.85)
+        fog.setColor(0.50, 0.55, 0.62)  # Desaturated fog
         fog.setExpDensity(0.0008)
         self.render.setFog(fog)
         self.render.setAntialias(AntialiasAttrib.MMultisample)
@@ -69,6 +70,8 @@ class RoomLab(ShowBase):
         pal  = BIOME_PALETTE['VERDANT']
         fc   = pal['floor']
         ac   = pal['accent']
+        self._terrain = TerrainGenerator(seed=self.SEED)
+        terrain = self._terrain
 
         # ── Ground planes per sector ──────────────────────────────────────
         # Sector 1 NW — verdant
@@ -113,6 +116,19 @@ class RoomLab(ShowBase):
 
         # Batch all static geometry — massive performance gain
         self.render.flattenStrong()
+
+        # Terrain built AFTER flattenStrong so Z values are preserved
+        mtn_floor    = (0.35, 0.32, 0.28)
+        node = terrain.build_mesh(
+            cx=0, cy=0,
+            width=self.WORLD_W,
+            depth=self.WORLD_D,
+            subdivisions=64,
+            color=fc,
+            sector='verdant'
+        )
+        self.render.attachNewNode(node)
+        self._build_spawn_marker()
         console.log('[dim]World built — 4 sectors, stream, creatures, transitions[/dim]')
 
     def _ground_plane(self, cx, cy, w, d, color):
@@ -211,7 +227,8 @@ class RoomLab(ShowBase):
                 bc = gc1 if rng.random() > 0.4 else gc2
                 bn = _make_box_geom(bw, bh, bw*0.1, bc)
                 bp = self.render.attachNewNode(bn)
-                bp.setPos(bx, by, bh/2)
+                gz = self._terrain.height_at(bx, by) if hasattr(self, '_terrain') else 0
+                bp.setPos(bx, by, gz + bh/2)
                 bp.setHpr(rng.uniform(0,360), rng.uniform(-15,15), 0)
 
     def _build_rocks(self, rng, x1, x2, y1, y2, base_c, count):
@@ -222,7 +239,8 @@ class RoomLab(ShowBase):
             rc = (base_c[0]*rng.uniform(0.7,1.1), base_c[1]*rng.uniform(0.7,1.0), base_c[2]*rng.uniform(0.6,0.9))
             rn = _make_box_geom(rs, rs*rng.uniform(0.4,0.9), rs*rng.uniform(0.6,1.2), rc)
             rp = self.render.attachNewNode(rn)
-            rp.setPos(x, y, rs*0.3)
+            gz = self._terrain.height_at(x, y) if hasattr(self, '_terrain') else 0
+            rp.setPos(x, y, gz + rs*0.3)
             rp.setHpr(rng.uniform(0,360), rng.uniform(-10,10), 0)
 
     def _build_desert_scatter(self, rng, x1, x2, y1, y2, count):
@@ -378,6 +396,42 @@ class RoomLab(ShowBase):
 
         console.log(f"[dim]Gas station placed at ({x:.0f}, {y:.0f})[/dim]")
 
+    def _build_spawn_marker(self):
+        """
+        Sanctum Stone -- marks the entry point.
+        Dark obelisk, slightly luminous, impossible geometry.
+        """
+        stone_c  = (0.08, 0.06, 0.12)  # near-black, slight purple
+        ring_c   = (0.15, 0.12, 0.25)  # dark ring
+        glow_c   = (0.3,  0.25, 0.5)   # subtle glow band
+
+        gz = self._terrain.height_at(0, 0) if hasattr(self, "_terrain") else 0
+
+        # Base ring -- flat wide slab
+        bn = _make_box_geom(6, 0.3, 6, ring_c)
+        self.render.attachNewNode(bn).setPos(0, 0, gz + 0.15)
+
+        # Obelisk -- tall narrow pillar
+        on2 = _make_box_geom(1.2, 18, 1.2, stone_c)
+        self.render.attachNewNode(on2).setPos(0, 0, gz + 9)
+
+        # Mid band -- glow stripe
+        gn = _make_box_geom(1.4, 0.4, 1.4, glow_c)
+        self.render.attachNewNode(gn).setPos(0, 0, gz + 6)
+
+        # Cap -- angled tip
+        cn = _make_box_geom(0.8, 2.0, 0.8, ring_c)
+        cp = self.render.attachNewNode(cn)
+        cp.setPos(0, 0, gz + 18)
+        cp.setHpr(45, 0, 0)
+
+        # Four corner stones -- smaller obelisks
+        for ox, oy in [(-4,0),(4,0),(0,-4),(0,4)]:
+            sn = _make_box_geom(0.4, 4, 0.4, stone_c)
+            self.render.attachNewNode(sn).setPos(ox, oy, gz + 2)
+
+        console.log("[bold magenta]SANCTUM STONE[/bold magenta] — spawn marker placed")
+
     def _build_treeline(self, rng, hw, hd, ac, fc):
         dark_t = (fc[0]*0.3, fc[1]*0.35, fc[2]*0.25)
         dark_c = (ac[0]*0.3, ac[1]*0.45, ac[2]*0.3)
@@ -399,17 +453,17 @@ class RoomLab(ShowBase):
 
     def setup_lighting(self):
         sun = DirectionalLight('sun')
-        sun.setColor(Vec4(1.0, 0.92, 0.75, 1))
+        sun.setColor(Vec4(0.95, 0.90, 0.85, 1))  # Cool cinematic sun
         sn = self.render.attachNewNode(sun)
         sn.setHpr(45, -35, 0)
         self.render.setLight(sn)
         fill = DirectionalLight('fill')
-        fill.setColor(Vec4(0.25, 0.35, 0.5, 1))
+        fill.setColor(Vec4(0.15, 0.20, 0.35, 1))  # Deep shadow fill
         fn = self.render.attachNewNode(fill)
         fn.setHpr(225, -60, 0)
         self.render.setLight(fn)
         amb = AmbientLight('amb')
-        amb.setColor(Vec4(0.18, 0.25, 0.15, 1))
+        amb.setColor(Vec4(0.08, 0.10, 0.08, 1))  # Low ambient -- deep shadows
         self.render.setLight(self.render.attachNewNode(amb))
 
     # ── Controls ──────────────────────────────────────────────────────────
@@ -476,14 +530,16 @@ class RoomLab(ShowBase):
             self.vel_z -= GRAVITY * dt
             x, y, z = self.cam.getPos()
             z += self.vel_z * dt
-            if z <= GROUND_Z:
-                z = GROUND_Z
+            ground = self._terrain.height_at(x, y) + GROUND_Z
+            if z <= ground:
+                z = ground
                 self.vel_z = 0
                 self.on_ground = True
             self.cam.setPos(x, y, z)
         else:
             x, y, z = self.cam.getPos()
-            self.cam.setPos(x, y, GROUND_Z)
+            ground = self._terrain.height_at(x, y) + GROUND_Z
+            self.cam.setPos(x, y, ground)
 
         # World bounds
         x, y, z = self.cam.getPos()
