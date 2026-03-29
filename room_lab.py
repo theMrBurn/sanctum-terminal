@@ -7,6 +7,7 @@ from core.systems.biome_renderer import _make_box_geom, _make_plane_geom, BIOME_
 from core.systems.terrain_generator import TerrainGenerator
 from core.systems.cavern_builder import CavernBuilder
 from core.systems.session_boundary import SessionBoundary
+from core.systems.inventory import Inventory
 
 console = Console()
 MOUSE_SENSITIVITY = 0.15
@@ -42,8 +43,10 @@ class RoomLab(ShowBase):
             'w':False,'s':False,'a':False,'d':False,
             'shift':False,'space':False,
         }
-        self._session = SessionBoundary()
-        self._seed    = 'BURN'  # Philosopher Monk
+        self._session     = SessionBoundary()
+        self._seed        = 'BURN'  # Philosopher Monk
+        self._inventory   = Inventory(max_slots=8, max_weight=20.0)
+        self._world_objects = {}  # id -> {node, obj_data}
         # Controller
         pygame.init()
         pygame.joystick.init()
@@ -73,6 +76,8 @@ class RoomLab(ShowBase):
         self._build_world()
         self.taskMgr.add(self.game_loop, 'GameLoop')
         console.log('[bold green]WORLD LAB[/bold green] — WSAD walk | Shift run | Space jump | Click mouse | Shift+ESC quit')
+        self.accept('e',            self._interact)
+        self.accept('q',            self._drop)
         self.accept('escape',       self.disable_mouse_look)
         self.accept('shift-escape', self.exit_app)
         self.accept('mouse1',       self.enable_mouse_look)
@@ -150,6 +155,37 @@ class RoomLab(ShowBase):
         sx, sy, sz = self._spawn_pos
         self.cam.setPos(sx, sy, sz)
         self.cam.setHpr(180, 0, 0)
+        # Seed guaranteed interactable objects near cavern
+        from core.systems.biome_renderer import _make_box_geom as _mbg
+        _seed_objects = [
+            {'id':'flint_shard',  'name':'Flint Shard',  'weight':0.3, 'category':'geology', 'description':'Sharp. Could be useful.', 'ox': 4, 'oy': 3},
+            {'id':'root_cluster', 'name':'Root Cluster', 'weight':0.5, 'category':'flora',   'description':'Still alive. Barely.', 'ox':-5, 'oy': 2},
+            {'id':'smooth_stone', 'name':'Smooth Stone', 'weight':0.8, 'category':'geology', 'description':'Worn by water. Long time.', 'ox': 2, 'oy':-4},
+        ]
+        _cx, _cy, _ = self._spawn_pos
+        for _so in _seed_objects:
+            _ox = _cx + _so['ox']
+            _oy = _cy + _so['oy']
+            _gz = self._terrain.height_at(_ox, _oy)
+            _clr = (0.35,0.28,0.18) if _so['category']=='geology' else (0.12,0.35,0.08)
+            _rk = _mbg(0.6, 0.35, 0.6, _clr)
+            _rp = self.render.attachNewNode(_rk)
+            _rp.setPos(_ox, _oy, _gz + 0.2)
+            self._world_objects[_so['id']] = {'node': _rp, 'data': _so}
+        # TARGET OBJECT -- bright, right in front of spawn, pickup test
+        from core.systems.biome_renderer import _make_box_geom as _mbg
+        _cx, _cy, _ = self._spawn_pos
+        _tz = self._terrain.height_at(_cx, _cy - 3)
+        _tn = _mbg(1.5, 1.5, 1.5, (0.9, 0.7, 0.1))  # bright yellow
+        _tp = self.render.attachNewNode(_tn)
+        _tp.setPos(_cx, _cy - 3, _tz + 0.75)
+        self._world_objects['TARGET'] = {
+            'node': _tp,
+            'data': {'id': 'TARGET', 'name': 'The Book',
+                     'weight': 0.5, 'category': 'relic',
+                     'description': 'You brought it with you. You forgot.'}
+        }
+        console.log(f'[bold yellow]TARGET[/bold yellow] placed at ({_cx:.1f}, {_cy-3:.1f})')
         console.log('[dim]World built — 4 sectors, stream, creatures, transitions[/dim]')
         self._session_state = self._session.begin(seed=self._seed)
         self._restore_position()
@@ -508,6 +544,7 @@ class RoomLab(ShowBase):
             self.on_ground = False
 
     def enable_mouse_look(self):
+        self.win.movePointer(0, self.win.getXSize()//2, self.win.getYSize()//2)
         self.mouse_look_active=True
         self._last_mx=None
         self._last_my=None
@@ -553,8 +590,34 @@ class RoomLab(ShowBase):
             self.enable_mouse_look()
 
     def _interact(self):
-        """X — interact with nearest object."""
-        console.log('[dim]X — interact (not yet implemented)[/dim]')
+        """E / X — pick up nearest object within 8 units."""
+        import math
+        cx, cy, _ = self.cam.getPos()
+        nearest_id   = None
+        nearest_dist = 8.0  # pickup radius
+        for obj_id, entry in self._world_objects.items():
+            if entry['node'] is None:
+                continue
+            ox, oy, _ = entry['node'].getPos()
+            dist = math.sqrt((cx-ox)**2 + (cy-oy)**2)
+            if dist < nearest_dist:
+                nearest_dist = dist
+                nearest_id   = obj_id
+        if nearest_id:
+            entry = self._world_objects[nearest_id]
+            if self._inventory.pickup(entry['data']):
+                entry['node'].removeNode()
+                entry['node'] = None
+                name = entry['data']['name']
+                console.log(f'[bold cyan]PICKED UP[/bold cyan] {name} — {self._inventory.count()}/8 slots')
+                if nearest_id == 'TARGET':
+                    console.log('[bold green]SUCCESS — pickup system working[/bold green]')
+                    console.log(f'[dim]Inventory: {self._inventory.list()}[/dim]')
+                    self.exit_app()
+            else:
+                console.log('[dim]Inventory full[/dim]')
+        else:
+            console.log('[dim]Nothing nearby[/dim]')
 
     def _drop(self):
         """LB — drop held object."""
