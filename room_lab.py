@@ -498,7 +498,7 @@ class RoomLab(ShowBase):
             self.accept(f'{key}-up', self.update_key_map, [key, False])
         self.accept('shift',      self.update_key_map, ['shift', True])
         self.accept('shift-up',   self.update_key_map, ['shift', False])
-        self.accept('space',      self.do_jump)
+        # self.accept('space',      self.do_jump)  # disabled until terrain solid
 
     def update_key_map(self,key,val): self.key_map[key]=val
 
@@ -634,28 +634,32 @@ class RoomLab(ShowBase):
                 self._torch_toggle()
             if self._pad.get_button(7):
                 self._inventory()
-        # Movement
-        if self.key_map['w']: self.cam.setPos(self.cam, 0,  speed*dt, 0)
-        if self.key_map['s']: self.cam.setPos(self.cam, 0, -speed*dt, 0)
-        if self.key_map['a']: self.cam.setPos(self.cam, -speed*dt, 0, 0)
-        if self.key_map['d']: self.cam.setPos(self.cam,  speed*dt, 0, 0)
+        # Movement -- Panda3D heading: 0=north(+Y), 90=west(-X)
+        import math as _m
+        h = _m.radians(self.cam_yaw)
+        # Forward vector
+        fx = -_m.sin(h)
+        fy =  _m.cos(h)
+        # Right vector (strafe)
+        rx =  _m.cos(h)
+        ry =  _m.sin(h)
+        s  = speed * dt
+        if self.key_map.get('w'):
+            self.cam.setX(self.cam.getX() + fx * s)
+            self.cam.setY(self.cam.getY() + fy * s)
+        if self.key_map.get('s'):
+            self.cam.setX(self.cam.getX() - fx * s)
+            self.cam.setY(self.cam.getY() - fy * s)
+        if self.key_map.get('a'):
+            self.cam.setX(self.cam.getX() - rx * s)
+            self.cam.setY(self.cam.getY() - ry * s)
+        if self.key_map.get('d'):
+            self.cam.setX(self.cam.getX() + rx * s)
+            self.cam.setY(self.cam.getY() + ry * s)
 
-        # Jump + gravity
-        if not self.on_ground:
-            self.vel_z -= GRAVITY * dt
-            x, y, z = self.cam.getPos()
-            z += self.vel_z * dt
-            ground = self._terrain.height_at(x, y) + GROUND_Z
-            if z <= ground:
-                z = ground
-                self.vel_z = 0
-                self.on_ground = True
-            self.cam.setPos(x, y, z)
-        else:
-            x, y, z = self.cam.getPos()
-            ground = self._terrain.height_at(x, y) + GROUND_Z
-            if getattr(self, '_position_restored', False):
-                self.cam.setPos(x, y, ground)
+        # Z -- terrain owns it. Always. No conditions.
+        x, y = self.cam.getX(), self.cam.getY()
+        self.cam.setZ(self._terrain.height_at(x, y) + GROUND_Z)
 
         # World bounds
         x, y, z = self.cam.getPos()
