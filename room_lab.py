@@ -222,6 +222,19 @@ class RoomLab(ShowBase):
                 'data': {k: v for k, v in _qd.items() if k not in ('color','size','offset')}
             }
         console.log('[bold yellow]QUEST[/bold yellow] — find: Dark Flint | Ghost Flower | Sanctum Key')
+        # Onscreen HUD
+        from direct.gui.OnscreenText import OnscreenText
+        from panda3d.core import TextNode
+        self._hud_msg = OnscreenText(
+            text='', pos=(-1.3, -0.85), scale=0.05,
+            fg=(1,1,1,1), shadow=(0,0,0,0.8),
+            align=TextNode.ALeft, mayChange=True
+        )
+        self._hud_inv = OnscreenText(
+            text='', pos=(-1.3, 0.92), scale=0.04,
+            fg=(0.8,0.8,0.8,0.8), shadow=(0,0,0,0.6),
+            align=TextNode.ALeft, mayChange=True
+        )
         console.log('[dim]World built — 4 sectors, stream, creatures, transitions[/dim]')
         self._session_state = self._session.begin(seed=self._seed)
         self._restore_position()
@@ -639,13 +652,39 @@ class RoomLab(ShowBase):
             if dist < nearest_dist:
                 nearest_dist = dist
                 nearest_id   = obj_id
+        # Also check fixtures by position
+        if nearest_id is None:
+            import math as _mf
+            cx2, cy2, _ = self.cam.getPos()
+            for fid, fentry in self._world_objects.items():
+                if 'position' not in fentry:
+                    continue
+                vis_cond = fentry.get('visible_when')
+                if vis_cond is not None and not vis_cond():
+                    continue
+                fx, fy, fz = fentry['position']
+                fdist = _mf.sqrt((cx2-fx)**2 + (cy2-fy)**2)
+                if fdist < 15.0:  # wider radius for fixtures
+                    nearest_id = fid
+                    break
         if nearest_id:
             entry = self._world_objects[nearest_id]
+            # Handle fixture actions
+            if entry['data'].get('action') == 'craft':
+                msg = f'Workbench — carrying {self._inventory.count()} items'
+                self._hud_msg.setText(msg)
+                console.log('[bold cyan]WORKBENCH[/bold cyan] — opening creation lab...')
+                for item in self._inventory.list():
+                    console.log(f'[dim]  {item["name"]}[/dim]')
+                return
             if self._inventory.pickup(entry['data']):
                 entry['node'].removeNode()
                 entry['node'] = None
                 name = entry['data']['name']
                 console.log(f'[bold cyan]PICKED UP[/bold cyan] {name} — {self._inventory.count()}/8 slots')
+                if hasattr(self, '_hud_inv'):
+                    items = ' | '.join(o['name'] for o in self._inventory.list())
+                    self._hud_inv.setText(f'[{self._inventory.count()}/8] {items}')
                 if hasattr(self, '_quest_objects') and nearest_id in self._quest_objects:
                     self._found_objects.add(nearest_id)
                     remaining = self._quest_objects - self._found_objects
@@ -660,13 +699,10 @@ class RoomLab(ShowBase):
                     if not remaining:
                         console.log('')
                         console.log('[bold yellow]═══ QUEST COMPLETE ═══[/bold yellow]')
-                        console.log(f'[bold green]All three found. The world acknowledged.[/bold green]')
-                        console.log(f'[dim]Inventory:[/dim]')
-                        for item in self._inventory.list():
-                            console.log(f'[dim]  {item["name"]} — {item["description"]}[/dim]')
-                        console.log(f'[dim]World age: {self._session_state["world_age"]}[/dim]')
-                        console.log(f'[dim]Session depth: {self._session_state["elapsed_seconds"]:.1f}s[/dim]')
-                        self.exit_app()
+                        console.log('[bold green]All three found. Now find the workbench.[/bold green]')
+                        console.log('[dim]Gas station — southwest. Follow the stream.[/dim]')
+                        if hasattr(self, '_hud_msg'):
+                            self._hud_msg.setText('All three found. Find the workbench. Southwest.')
             else:
                 console.log('[dim]Inventory full[/dim]')
         else:
@@ -781,14 +817,21 @@ class RoomLab(ShowBase):
         import math as _math2
         cx, cy, _ = self.cam.getPos()
         for obj_id, entry in self._world_objects.items():
-            if entry['node'] is None:
+            # Check contextual visibility condition
+            vis_cond = entry.get('visible_when')
+            if vis_cond is not None and not vis_cond():
                 continue
-            ox, oy, oz = entry['node'].getPos()
+            if entry.get('node') is None and 'position' not in entry:
+                continue
+            if entry.get('node') is not None:
+                ox, oy, oz = entry['node'].getPos()
+            else:
+                ox, oy, oz = entry['position']
             dist = _math2.sqrt((cx-ox)**2 + (cy-oy)**2)
             label_node = entry.get('label_node')
             if dist < 8.0:
-                if label_node is None:
-                    from panda3d.core import TextNode, NodePath
+                if label_node is None and entry.get('node') is not None:
+                    from panda3d.core import TextNode
                     tn = TextNode(f'label_{obj_id}')
                     tn.setText(entry['data']['name'])
                     tn.setAlign(TextNode.ACenter)
@@ -801,15 +844,49 @@ class RoomLab(ShowBase):
                     lnp.setPos(0, 0, 2.5)
                     lnp.setBillboardPointEye()
                     entry['label_node'] = lnp
-                else:
-                    # Update opacity by distance
+                elif label_node is not None:
                     alpha = min(1.0, max(0.2, (8.0-dist)/4.0))
                     tn = label_node.node()
                     tn.setTextColor(1, 1, 1, alpha)
+                # Fixture prompt
+                if entry['data'].get('action') == 'craft' and dist < 6.0:
+                    if not entry.get('prompted'):
+                        console.log('[dim]Workbench nearby — [E] to craft[/dim]')
+                        entry['prompted'] = True
+                elif entry.get('prompted') and dist >= 6.0:
+                    entry['prompted'] = False
             else:
                 if label_node is not None:
                     label_node.removeNode()
                     entry['label_node'] = None
+
+        # Compass -- bearing to nearest quest objective
+        if hasattr(self, '_hud_msg') and hasattr(self, '_quest_objects'):
+            remaining = self._quest_objects - getattr(self, '_found_objects', set())
+            # Also show workbench bearing if quest complete
+            targets = {}
+            if not remaining and 'sanctum_key' in getattr(self, '_found_objects', set()):
+                targets['workbench'] = (-120.0, 80.0)
+            for obj_id in remaining:
+                entry = self._world_objects.get(obj_id)
+                if entry and entry.get('node'):
+                    ox, oy, _ = entry['node'].getPos()
+                    targets[obj_id] = (ox, oy)
+            if targets:
+                import math as _mc
+                cx2, cy2, _ = self.cam.getPos()
+                parts = []
+                for tid, (tx, ty) in list(targets.items())[:2]:
+                    dx = tx - cx2
+                    dy = ty - cy2
+                    dist = _mc.sqrt(dx*dx + dy*dy)
+                    bearing = _mc.degrees(_mc.atan2(dx, dy)) - self.cam_yaw
+                    bearing = bearing % 360
+                    arrows = ['N','NE','E','SE','S','SW','W','NW']
+                    arrow = arrows[int((bearing + 22.5) / 45) % 8]
+                    name = self._world_objects.get(tid, {}).get('data', {}).get('name', tid)
+                    parts.append(f'{arrow} {name} {dist:.0f}m')
+                self._hud_msg.setText('  '.join(parts))
 
         # World bounds
         x, y, z = self.cam.getPos()
