@@ -45,8 +45,9 @@ class RoomLab(ShowBase):
         }
         self._session     = SessionBoundary()
         self._seed        = 'BURN'  # Philosopher Monk
-        self._inventory   = Inventory(max_slots=8, max_weight=20.0)
-        self._world_objects = {}  # id -> {node, obj_data}
+        self._inventory         = Inventory(max_slots=8, max_weight=20.0)
+        self._world_objects     = {}  # id -> {node, obj_data}
+        self._workbench_unlocked = False
         # Controller
         pygame.init()
         pygame.joystick.init()
@@ -504,6 +505,28 @@ class RoomLab(ShowBase):
         sp2.setHpr(rng.uniform(20,60), rng.uniform(60,80), 0)
 
         console.log(f"[dim]Gas station placed at ({x:.0f}, {y:.0f})[/dim]")
+        # Workbench -- visible box in front of gas station
+        _wb_x = float(x)
+        _wb_y = float(y) - 15.0
+        _wb_z = self._terrain.height_at(_wb_x, _wb_y)
+        _wb_surface = max(_wb_z, 0.0) + 0.75  # never underground
+        _wb_box = _make_box_geom(3.0, 1.5, 2.0, (0.45, 0.30, 0.15))
+        _wb_np  = self.render.attachNewNode(_wb_box)
+        _wb_np.setPos(_wb_x, _wb_y, _wb_surface)
+        self._world_objects['workbench'] = {
+            'node':         _wb_np,
+            'position':     (_wb_x, _wb_y, _wb_z),
+            'visible_when': 'workbench_unlocked',
+            'data': {
+                'id':          'workbench',
+                'name':        'Workbench',
+                'weight':      0,
+                'category':    'fixture',
+                'description': 'Something was made here. Could be again.',
+                'action':      'craft'
+            }
+        }
+        console.log(f"[dim]Workbench placed at ({_wb_x:.0f}, {_wb_y:.0f})[/dim]")
 
     def _build_spawn_marker(self):
         """
@@ -647,6 +670,13 @@ class RoomLab(ShowBase):
         for obj_id, entry in self._world_objects.items():
             if entry['node'] is None:
                 continue
+            # Check visibility condition
+            vis_cond = entry.get('visible_when')
+            if vis_cond is not None:
+                if isinstance(vis_cond, str) and not getattr(self, vis_cond, False):
+                    continue
+                elif callable(vis_cond) and not vis_cond():
+                    continue
             ox, oy, _ = entry['node'].getPos()
             dist = math.sqrt((cx-ox)**2 + (cy-oy)**2)
             if dist < nearest_dist:
@@ -660,13 +690,26 @@ class RoomLab(ShowBase):
                 if 'position' not in fentry:
                     continue
                 vis_cond = fentry.get('visible_when')
-                if vis_cond is not None and not vis_cond():
-                    continue
+                if vis_cond is not None:
+                    if isinstance(vis_cond, str):
+                        if not getattr(self, vis_cond, False):
+                            continue
+                    elif callable(vis_cond) and not vis_cond():
+                        continue
                 fx, fy, fz = fentry['position']
                 fdist = _mf.sqrt((cx2-fx)**2 + (cy2-fy)**2)
                 if fdist < 15.0:  # wider radius for fixtures
                     nearest_id = fid
                     break
+        import math as _dbg
+        _cx3,_cy3,_ = self.cam.getPos()
+        for _did, _de in self._world_objects.items():
+            if _de.get('node'):
+                _dx,_dy,_ = _de['node'].getPos()
+                _dd = _dbg.sqrt((_cx3-_dx)**2+(_cy3-_dy)**2)
+                if _dd < 30:
+                    console.log(f'[dim]  obj={_did} dist={_dd:.1f} vis={_de.get("visible_when")} flag={getattr(self,str(_de.get("visible_when","")),"N/A")}[/dim]')
+        console.log(f'[dim]DEBUG: nearest={nearest_id} unlocked={getattr(self,"_workbench_unlocked",False)}[/dim]')
         if nearest_id:
             entry = self._world_objects[nearest_id]
             # Handle fixture actions
@@ -697,6 +740,7 @@ class RoomLab(ShowBase):
                     if remain_names:
                         console.log(f'[dim]  still seeking: {" | ".join(remain_names)}[/dim]')
                     if not remaining:
+                        self._workbench_unlocked = True
                         console.log('')
                         console.log('[bold yellow]═══ QUEST COMPLETE ═══[/bold yellow]')
                         console.log('[bold green]All three found. Now find the workbench.[/bold green]')
@@ -819,8 +863,12 @@ class RoomLab(ShowBase):
         for obj_id, entry in self._world_objects.items():
             # Check contextual visibility condition
             vis_cond = entry.get('visible_when')
-            if vis_cond is not None and not vis_cond():
-                continue
+            if vis_cond is not None:
+                if isinstance(vis_cond, str):
+                    if not getattr(self, vis_cond, False):
+                        continue
+                elif callable(vis_cond) and not vis_cond():
+                    continue
             if entry.get('node') is None and 'position' not in entry:
                 continue
             if entry.get('node') is not None:
