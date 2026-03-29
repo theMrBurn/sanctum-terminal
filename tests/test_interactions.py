@@ -233,3 +233,133 @@ class TestLabBoundaryConstants:
     def test_z_always_ground(self):
         _, _, z = clamp_to_lab(0.0, 0.0, 999.0)
         assert abs(z - GROUND_Z) < 0.01
+
+
+# -- InteractionEngine --------------------------------------------------------
+# TDD: defines the contract. Red first, then implementation.
+#
+# InteractionEngine owns object lifecycle in the world:
+#     DORMANT -> DETECTABLE -> REACHABLE -> HELD -> STOWED
+#
+# PickupSystem becomes one handler IE delegates to.
+# Proximity glow fires on layer_fx when state changes.
+# visible_when flag system slots in here cleanly.
+
+class TestInteractionEngine:
+
+    def _make_sim(self):
+        from SimulationRunner import Simulation
+        return Simulation(headless=True)
+
+    def test_interaction_engine_importable(self):
+        from core.systems.interaction_engine import InteractionEngine
+        assert InteractionEngine is not None
+
+    def test_boots_with_camera_and_render(self):
+        from core.systems.interaction_engine import InteractionEngine
+        sim = self._make_sim()
+        ie  = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        assert ie is not None
+
+    def test_register_node_starts_dormant(self):
+        from core.systems.interaction_engine import InteractionEngine, InteractionState
+        sim  = self._make_sim()
+        ie   = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        node = sim.app.spawn("TOOL_Minor_V1", (10, 10, 0))
+        ie.register(node, "pickup", obj={"id": "tool_01", "weight": 0.5})
+        assert ie.get_state(node) is InteractionState.DORMANT
+
+    def test_tick_near_camera_becomes_reachable(self):
+        from core.systems.interaction_engine import InteractionEngine, InteractionState
+        sim  = self._make_sim()
+        ie   = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        node = sim.app.spawn("TOOL_Minor_V1", (1, 0, 0))
+        ie.register(node, "pickup", obj={"id": "tool_01", "weight": 0.5})
+        sim.app.camera.setPos(0, 0, 6)
+        ie.tick()
+        assert ie.get_state(node) is InteractionState.REACHABLE
+
+    def test_tick_far_from_camera_stays_dormant(self):
+        from core.systems.interaction_engine import InteractionEngine, InteractionState
+        sim  = self._make_sim()
+        ie   = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        node = sim.app.spawn("TOOL_Minor_V1", (50, 50, 0))
+        ie.register(node, "pickup", obj={"id": "tool_01", "weight": 0.5})
+        sim.app.camera.setPos(0, 0, 6)
+        ie.tick()
+        assert ie.get_state(node) is InteractionState.DORMANT
+
+    def test_nearest_returns_closest_reachable(self):
+        from core.systems.interaction_engine import InteractionEngine, InteractionState
+        sim  = self._make_sim()
+        ie   = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        near = sim.app.spawn("TOOL_Minor_V1", (1, 0, 0))
+        far  = sim.app.spawn("TOOL_Minor_V1", (3, 0, 0))
+        ie.register(near, "pickup", obj={"id": "near_01", "weight": 0.5})
+        ie.register(far,  "pickup", obj={"id": "far_01",  "weight": 0.5})
+        sim.app.camera.setPos(0, 0, 6)
+        ie.tick()
+        result = ie.nearest("pickup")
+        assert result["obj"]["id"] == "near_01"
+
+    def test_nearest_returns_none_when_nothing_reachable(self):
+        from core.systems.interaction_engine import InteractionEngine
+        sim  = self._make_sim()
+        ie   = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        node = sim.app.spawn("TOOL_Minor_V1", (50, 50, 0))
+        ie.register(node, "pickup", obj={"id": "tool_01", "weight": 0.5})
+        sim.app.camera.setPos(0, 0, 6)
+        ie.tick()
+        assert ie.nearest("pickup") is None
+
+    def test_state_change_fires_callback(self):
+        from core.systems.interaction_engine import InteractionEngine, InteractionState
+        sim  = self._make_sim()
+        log  = []
+        ie   = InteractionEngine(
+            camera=sim.app.camera,
+            render=sim.app.render,
+            on_state_change=lambda node, state: log.append(state)
+        )
+        node = sim.app.spawn("TOOL_Minor_V1", (1, 0, 0))
+        ie.register(node, "pickup", obj={"id": "tool_01", "weight": 0.5})
+        sim.app.camera.setPos(0, 0, 6)
+        ie.tick()
+        assert InteractionState.REACHABLE in log
+
+    def test_hidden_node_not_reachable(self):
+        from core.systems.interaction_engine import InteractionEngine, InteractionState
+        sim  = self._make_sim()
+        ie   = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        node = sim.app.spawn("TOOL_Minor_V1", (1, 0, 0))
+        node.hide()
+        ie.register(node, "pickup", obj={"id": "tool_01", "weight": 0.5})
+        sim.app.camera.setPos(0, 0, 6)
+        ie.tick()
+        assert ie.get_state(node) is InteractionState.DORMANT
+
+    def test_unregister_removes_node(self):
+        from core.systems.interaction_engine import InteractionEngine, InteractionState
+        sim  = self._make_sim()
+        ie   = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        node = sim.app.spawn("TOOL_Minor_V1", (1, 0, 0))
+        ie.register(node, "pickup", obj={"id": "tool_01", "weight": 0.5})
+        ie.unregister(node)
+        sim.app.camera.setPos(0, 0, 6)
+        ie.tick()
+        assert ie.get_state(node) is None
+
+    def test_multiple_interaction_types(self):
+        """pickup and activate are distinct interaction types."""
+        from core.systems.interaction_engine import InteractionEngine, InteractionState
+        sim      = self._make_sim()
+        ie       = InteractionEngine(camera=sim.app.camera, render=sim.app.render)
+        pickable = sim.app.spawn("TOOL_Minor_V1", (1, 0, 0))
+        activate = sim.app.spawn("TOOL_Minor_V1", (1, 1, 0))
+        ie.register(pickable, "pickup",   obj={"id": "pick_01", "weight": 0.5})
+        ie.register(activate, "activate", obj={"id": "act_01",  "weight": 0.0})
+        sim.app.camera.setPos(0, 0, 6)
+        ie.tick()
+        assert ie.nearest("pickup")   is not None
+        assert ie.nearest("activate") is not None
+        assert ie.nearest("harvest")  is None
