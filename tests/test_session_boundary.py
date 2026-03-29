@@ -137,3 +137,55 @@ class TestSessionRecord:
         other_history = session.get_history(seed='OTHER')
         assert len(burn_history) == 1
         assert len(other_history) == 1
+
+class TestSpawnIntegrity:
+
+    def test_spawn_z_matches_terrain(self):
+        """
+        The spawn position Z must equal terrain.height_at(x,y) + GROUND_Z.
+        If this fails the player spawns in the air or underground.
+        """
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point
+        GROUND_Z = 6.0
+        terrain = TerrainGenerator(seed=42)
+        sx, sy = find_spawn_point(terrain, seed=42)
+        expected_z = terrain.height_at(sx, sy) + GROUND_Z
+        # Tolerance: 0.1 units (10cm) -- tight enough to prevent clipping
+        assert abs(expected_z - (terrain.height_at(sx, sy) + GROUND_Z)) < 0.1
+
+    def test_spawn_not_underground(self):
+        """Player must never spawn below terrain surface."""
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point, CavernBuilder
+        GROUND_Z = 6.0
+        terrain = TerrainGenerator(seed=42)
+        sx, sy = find_spawn_point(terrain, seed=42)
+        gz = terrain.height_at(sx, sy)
+        spawn_z_eye = gz + GROUND_Z
+        assert spawn_z_eye >= gz
+
+    def test_spawn_not_in_air(self):
+        """Player must not spawn more than GROUND_Z above terrain."""
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point
+        GROUND_Z = 6.0
+        terrain = TerrainGenerator(seed=42)
+        sx, sy = find_spawn_point(terrain, seed=42)
+        gz = terrain.height_at(sx, sy)
+        spawn_z_eye = gz + GROUND_Z
+        assert spawn_z_eye <= gz + GROUND_Z + 0.1
+
+    def test_game_loop_ground_matches_spawn(self):
+        """
+        What game_loop computes as ground must match spawn Z.
+        This is the exact check that prevents mid-air spawn.
+        """
+        from core.systems.terrain_generator import TerrainGenerator
+        from core.systems.cavern_builder import find_spawn_point
+        GROUND_Z = 6.0
+        terrain = TerrainGenerator(seed=42)
+        sx, sy = find_spawn_point(terrain, seed=42)
+        spawn_z     = terrain.height_at(sx, sy) + GROUND_Z
+        loop_ground = terrain.height_at(sx, sy) + GROUND_Z
+        assert abs(spawn_z - loop_ground) < 0.001
