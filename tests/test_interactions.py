@@ -201,7 +201,7 @@ class TestPickupSystemContract:
 # AtmosphereModule will follow the same extraction pattern for lighting.
 
 from creation_lab import (
-    GROUND_Z, LAB_X, LAB_Y_N, LAB_Y_S, LAB_CEILING,
+    GROUND_Z, LAB_X, LAB_Y_N, LAB_Y_S,
     _WALL_MARGIN, clamp_to_lab,
 )
 
@@ -213,7 +213,6 @@ class TestLabBoundaryConstants:
         assert LAB_X > 0
         assert LAB_Y_N > 0
         assert LAB_Y_S < 0
-        assert LAB_CEILING > GROUND_Z
 
     def test_camera_clamped_at_north_wall(self):
         x, y, z = clamp_to_lab(0.0, LAB_Y_N + 10.0, 0.0)

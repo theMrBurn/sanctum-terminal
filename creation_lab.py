@@ -23,12 +23,10 @@ SNAP_THRESHOLD    = 200
 
 
 def _load_lab_config():
-    """Lab dimensions from config/manifest.json [lab]. Config is authority."""
     path = Path(__file__).parent / "config" / "manifest.json"
     raw  = json.load(open(path)).get("lab", {})
     return {
         "ground_z":    raw.get("ground_z",    5.0),
-        "ceiling_z":   raw.get("ceiling_z",  16.0),
         "extent_x":    raw.get("extent_x",   10.0),
         "extent_y_n":  raw.get("extent_y_n", 14.0),
         "extent_y_s":  raw.get("extent_y_s",-14.0),
@@ -38,40 +36,24 @@ def _load_lab_config():
     }
 
 
-_CFG = _load_lab_config()
-
+_CFG        = _load_lab_config()
 GROUND_Z    = _CFG["ground_z"]
-LAB_CEILING = _CFG["ceiling_z"]
 LAB_X       = _CFG["extent_x"]
 LAB_Y_N     = _CFG["extent_y_n"]
 LAB_Y_S     = _CFG["extent_y_s"]
 _WALL_MARGIN = _CFG["wall_margin"]
 _MOVE_SPEED  = _CFG["move_speed"]
 
-# Weight by role -- material truth, not database field.
-# The Long Dark model: what a thing is determines how much it costs to carry.
 _ROLE_WEIGHT = {
-    "handle":    0.3,
-    "edge":      0.4,
-    "cover":     0.2,
-    "material":  0.8,
-    "surface":   2.0,
-    "container": 0.3,
-    "blank":     1.0,
-    "marker":    0.6,
-    "fuel":      0.5,
+    "handle": 0.3, "edge": 0.4, "cover": 0.2,
+    "material": 0.8, "surface": 2.0, "container": 0.3,
+    "blank": 1.0, "marker": 0.6, "fuel": 0.5,
 }
 _DEFAULT_WEIGHT = 0.5
 
 
 def clamp_to_lab(x: float, y: float, z: float) -> tuple:
-    """
-    Pure function -- no ShowBase dependency. Fully testable headless.
-    Returns (x, y, z) clamped to lab bounds.
-    Z is always GROUND_Z -- no flying, no crouching.
-    Pattern: extract logic, test the function, method delegates.
-    AtmosphereModule will follow the same extraction when lighting lifts.
-    """
+    """Pure fn -- no ShowBase dep. _clamp_camera delegates here."""
     return (
         max(-LAB_X + _WALL_MARGIN, min(LAB_X - _WALL_MARGIN, x)),
         max(LAB_Y_S + _WALL_MARGIN, min(LAB_Y_N - _WALL_MARGIN, y)),
@@ -81,18 +63,14 @@ def clamp_to_lab(x: float, y: float, z: float) -> tuple:
 
 class CreationLab(ShowBase):
     """
-    White void creation lab -- bounded, layered, entered intentionally.
-    Dimensions driven by config/manifest.json [lab].
-    Scene graph follows signal_map.json [scene_graph] layer convention:
+    Creation lab -- four walls, floor, workbench, objects.
+    Nothing else. Feel the mechanics, not the room.
 
-        layer_structure    -- walls, floor, ceiling (static, collision)
-        layer_interactable -- shelf objects, workbench (pickupable, craftable)
-        layer_fx           -- glow, labels, state indicators (coming)
+    Scene graph layers (signal_map.json [scene_graph]):
+        layer_structure    -- walls, floor, collision
+        layer_interactable -- workbench, objects
+        layer_fx           -- glow, labels (coming)
         layer_hud          -- screen-space UI
-
-    This layer model is the contract InteractionEngine will depend on.
-    SignalRouter will own layer creation at boot when built.
-    For now, CreationLab bootstraps the convention.
 
     [E] lift/stow  [G] drop  [C] craft  [X] clear  Shift+ESC quit
     """
@@ -117,31 +95,21 @@ class CreationLab(ShowBase):
         self._last_my  = None
         self.key_map   = {"w": False, "s": False, "a": False, "d": False}
 
-        self.engine  = CraftingEngine()
-        self.factory = PrimitiveFactory()
-        self.slot_a  = None
-        self.slot_b  = None
-        self._hud    = []
+        self.engine   = CraftingEngine()
+        self.factory  = PrimitiveFactory()
+        self._objects  = self.engine.get_all_objects()
+        self._obj_keys = list(self._objects.keys())
+        self.slot_a   = None
+        self.slot_b   = None
+        self._hud     = []
         self._spawned = []
+        self._walls   = []
+        self._floor   = None
 
-        # -- Scene graph layers (signal_map.json [scene_graph] convention)
-        # Structure first -- geometry owned here never fights interactables.
-        # FX layer renders over world so glow/labels always read clearly.
-        # HUD layer is screen-space, always on top.
+        # -- Scene graph layers
         self.layer_structure    = self.render.attachNewNode("layer_structure")
         self.layer_interactable = self.render.attachNewNode("layer_interactable")
         self.layer_fx           = self.render.attachNewNode("layer_fx")
-        self.layer_hud          = self.render.attachNewNode("layer_hud")
-
-        # Draw order -- structure renders first, hud renders last
-        self.layer_structure.setBin("opaque", 0)
-        self.layer_interactable.setBin("opaque", 1)
-        self.layer_fx.setBin("transparent", 0)
-
-        # Geometry handles -- tests verify these exist
-        self._walls   = []
-        self._ceiling = None
-        self._floor   = None
 
         self.inventory = Inventory()
         self.pickup    = PickupSystem(
@@ -156,7 +124,7 @@ class CreationLab(ShowBase):
 
         self.disableMouse()
         self.camLens.setFov(75)
-        self.cam.setPos(0, -8, GROUND_Z)
+        self.cam.setPos(0, -6, GROUND_Z)
         self.cam.setHpr(0, 0, 0)
         self.render.setShaderAuto()
         self.render.setAntialias(AntialiasAttrib.MMultisample)
@@ -172,135 +140,70 @@ class CreationLab(ShowBase):
             self.accept("shift-escape", self.exit_app)
             self.accept("mouse1",       self.enable_mouse_look)
             console.log("[bold cyan]CREATION LAB[/bold cyan]")
-            console.log("WSAD move | mouse look | [E] lift/stow | [G] drop")
-            console.log("1-9 spawn | [C] craft | [X] clear | Shift+ESC quit")
+            console.log("[E] lift/stow  [G] drop  [C] craft  [X] clear  Shift+ESC quit")
 
-    # -- Scene graph layers ----------------------------------------------------
+    # -- Build -----------------------------------------------------------------
 
     def _build_lab(self):
-        """
-        Builds lab geometry into the correct scene graph layers.
-        layer_structure owns all static geometry and collision planes.
-        layer_interactable owns all spawned objects.
-        No geometry attaches directly to render -- layer is always the parent.
-        """
-        self._build_structure()
-        self._build_workbench()
-        self._spawn_shelf()
-
-    def _build_structure(self):
-        """
-        Static geometry and collision -- all owned by layer_structure.
-        Collision planes and visual geometry share the same parent,
-        guaranteeing they stay aligned even if the layer moves.
-        """
-        S     = self.layer_structure
+        S = self.layer_structure
+        I = self.layer_interactable
         depth = abs(LAB_Y_S - LAB_Y_N)
         width = LAB_X * 2
-        wc    = (0.82, 0.80, 0.78)   # wall color
-        wt    = 0.3                   # wall thickness
+        wc    = (0.82, 0.80, 0.78)
+        wt    = 0.3
 
         # Floor
         fn = _make_plane_geom(int(width), int(depth), (0.88, 0.86, 0.84))
         self._floor = S.attachNewNode(fn)
         self._floor.setPos(0, 0, 0)
 
-        # Grid -- 2m cells, orientation within bounded space
+        # Grid -- 2m cells
         for i in range(-5, 6):
             gn = _make_box_geom(0.04, 0.01, width, (0.78, 0.76, 0.74))
             S.attachNewNode(gn).setPos(i * 2, 0, 0.005)
             gn2 = _make_box_geom(depth, 0.01, 0.04, (0.78, 0.76, 0.74))
             S.attachNewNode(gn2).setPos(0, i * 2, 0.005)
 
-        # North wall (behind shelf)
-        nw = _make_box_geom(width, wt, LAB_CEILING, wc)
-        S.attachNewNode(nw).setPos(0, LAB_Y_N, LAB_CEILING / 2)
+        # Four walls -- no door, no ceiling, no shelf slab
+        wall_defs = [
+            ((width, wt,    8.0), ( 0,      LAB_Y_N, 4.0)),  # north
+            ((width, wt,    8.0), ( 0,      LAB_Y_S, 4.0)),  # south
+            ((wt,    depth, 8.0), ( LAB_X,  0,       4.0)),  # east
+            ((wt,    depth, 8.0), (-LAB_X,  0,       4.0)),  # west
+        ]
+        for dims, pos in wall_defs:
+            wn = _make_box_geom(*dims, wc)
+            S.attachNewNode(wn).setPos(*pos)
 
-        # South wall -- door gap centred, 3m wide
-        door_w   = 3.0
-        panel_w  = (width - door_w) / 2
-        for sign in (-1, 1):
-            pw = _make_box_geom(panel_w, wt, LAB_CEILING, wc)
-            xpos = sign * (panel_w / 2 + door_w / 2)
-            S.attachNewNode(pw).setPos(xpos, LAB_Y_S, LAB_CEILING / 2)
-
-        # East wall
-        ew = _make_box_geom(wt, depth, LAB_CEILING, wc)
-        S.attachNewNode(ew).setPos(LAB_X, 0, LAB_CEILING / 2)
-
-        # West wall
-        ww = _make_box_geom(wt, depth, LAB_CEILING, wc)
-        S.attachNewNode(ww).setPos(-LAB_X, 0, LAB_CEILING / 2)
-
-        # Ceiling -- thin slab well above camera
-        cn = _make_box_geom(width, depth, wt, wc)
-        self._ceiling = S.attachNewNode(cn)
-        self._ceiling.setPos(0, 0, LAB_CEILING)
-
-        # Collision planes -- four inward-facing, owned by layer_structure
-        # Geometry and collision share parent: they cannot drift apart
+        # Collision planes -- owned by layer_structure, aligned with visual walls
         for name, plane in [
             ("wall_n", Plane(Vec3( 0, -1, 0), Point3(0,      LAB_Y_N, 0))),
             ("wall_s", Plane(Vec3( 0,  1, 0), Point3(0,      LAB_Y_S, 0))),
             ("wall_e", Plane(Vec3(-1,  0, 0), Point3(LAB_X,  0,       0))),
             ("wall_w", Plane(Vec3( 1,  0, 0), Point3(-LAB_X, 0,       0))),
         ]:
-            cn2 = CollisionNode(name)
-            cn2.addSolid(CollisionPlane(plane))
-            self._walls.append(S.attachNewNode(cn2))
+            cn = CollisionNode(name)
+            cn.addSolid(CollisionPlane(plane))
+            self._walls.append(S.attachNewNode(cn))
 
-        # Shelf -- north wall, 2m from wall face
-        sn = _make_box_geom(width * 0.9, 0.3, 1.5, (0.55, 0.52, 0.48))
-        S.attachNewNode(sn).setPos(0, LAB_Y_N - 2.0, 0.75)
-
-    def _build_workbench(self):
-        """
-        Workbench lives in layer_interactable -- it is an interactive surface.
-        Slot markers are children of the workbench node for correct alignment.
-        """
-        I = self.layer_interactable
-
-        bench = _make_box_geom(3.0, 1.5, 1.0, (0.22, 0.18, 0.14))
+        # Workbench -- dark slab, centred, interactive surface
+        bench = _make_box_geom(3.0, 1.2, 1.0, (0.22, 0.18, 0.14))
         bench_np = I.attachNewNode(bench)
-        bench_np.setPos(0, 0, 0.5)
+        bench_np.setPos(0, 2, 0.5)
 
-        # Slot A -- left
-        an = _make_box_geom(0.8, 0.05, 0.8, (0.4, 0.35, 0.28))
-        bench_np.attachNewNode(an).setPos(-0.8, 0, 0.53)
-
-        # Slot B -- right
-        bn = _make_box_geom(0.8, 0.05, 0.8, (0.4, 0.35, 0.28))
-        bench_np.attachNewNode(bn).setPos(0.8, 0, 0.53)
-
-        # Output slot -- slightly forward and elevated
-        on2 = _make_box_geom(0.8, 0.05, 0.8, (0.3, 0.45, 0.35))
-        bench_np.attachNewNode(on2).setPos(0, -1.0, 0.58)
-
-    def _spawn_shelf(self):
-        """Spawn first 9 catalog objects onto shelf, owned by layer_interactable."""
-        objs = self.engine.get_all_objects()
-        keys = list(objs.keys())
-        self._objects  = objs
-        self._obj_keys = keys
-        for i, key in enumerate(keys[:9]):
-            self._spawn_on_shelf(key, i)
-
-    # -- Camera clamping -------------------------------------------------------
-
-    def _clamp_camera(self):
-        """Delegates to pure clamp_to_lab. Called every frame."""
-        x, y, z = clamp_to_lab(self.cam.getX(), self.cam.getY(), self.cam.getZ())
-        self.cam.setPos(x, y, z)
+        # Objects -- line along north wall, on the floor, spaced 2m apart
+        for i, key in enumerate(self._obj_keys[:9]):
+            self._spawn_at(key, ((i - 4) * 2.0, LAB_Y_N - 3.0, 0.5))
 
     # -- Spawn -----------------------------------------------------------------
 
-    def _make_obj_dict(self, obj_key):
-        obj = dict(self._objects[obj_key])
-        obj["id"]     = obj_key
+    def _make_obj_dict(self, key):
+        obj = dict(self._objects[key])
+        obj["id"]     = key
         obj["weight"] = _ROLE_WEIGHT.get(obj.get("role", ""), _DEFAULT_WEIGHT)
         return obj
 
-    def _spawn_on_shelf(self, obj_key, index):
+    def _spawn_at(self, obj_key, pos):
         raw = self._objects.get(obj_key)
         if not raw:
             return
@@ -311,8 +214,7 @@ class CreationLab(ShowBase):
                 tuple(raw["color"]), role=raw["role"]
             )
             np = self.layer_interactable.attachNewNode(p.geom_node)
-            np.setPos((index - 4) * 2.2, LAB_Y_N - 2.0, 1.5)
-            np.setHpr(index * 15, 0, 0)
+            np.setPos(*pos)
             np.setPythonTag("pickupable", True)
             np.setPythonTag("obj", obj)
             self._spawned.append({"node": np, "key": obj_key, "obj": obj})
@@ -322,7 +224,6 @@ class CreationLab(ShowBase):
     def _spawn_object(self, obj_key):
         raw = self._objects.get(obj_key)
         if not raw:
-            console.log(f"[red]Unknown:[/red] {obj_key}")
             return
         obj = self._make_obj_dict(obj_key)
         try:
@@ -331,18 +232,16 @@ class CreationLab(ShowBase):
                 tuple(raw["color"]), role=raw["role"]
             )
             np = self.layer_interactable.attachNewNode(p.geom_node)
-            np.setPos(0, -4, 1.0)
+            np.setPos(0, 0, 0.5)
             np.setPythonTag("pickupable", True)
             np.setPythonTag("obj", obj)
             self._spawned.append({"node": np, "key": obj_key, "obj": obj})
             if self.slot_a is None:
                 self.slot_a = obj_key
-                np.setPos(-0.8, 0, 1.5)
-                console.log(f"[green]Slot A:[/green] {obj_key}")
+                np.setPos(-0.8, 2, 1.5)
             elif self.slot_b is None:
                 self.slot_b = obj_key
-                np.setPos(0.8, 0, 1.5)
-                console.log(f"[green]Slot B:[/green] {obj_key}")
+                np.setPos(0.8, 2, 1.5)
             self._update_hud()
         except Exception as e:
             console.log(f"[red]SPAWN ERROR:[/red] {e}")
@@ -350,11 +249,6 @@ class CreationLab(ShowBase):
     # -- Nearest pickupable ----------------------------------------------------
 
     def _nearest_pickupable(self):
-        """
-        Scans layer_interactable only -- not all of render.
-        This is the InteractionEngine contract: interactive objects
-        live in layer_interactable, engine scans that layer.
-        """
         cam_pos   = self.cam.getPos(self.render)
         best      = None
         best_dist = PICKUP_RADIUS
@@ -372,17 +266,11 @@ class CreationLab(ShowBase):
     # -- Pickup callbacks ------------------------------------------------------
 
     def _on_held(self, obj):
-        console.log(
-            f"[cyan]holding[/cyan]  {obj['id']}  "
-            f"[dim]{obj.get('description', '')}[/dim]"
-        )
+        console.log(f"[cyan]holding[/cyan]  {obj['id']}  [dim]{obj.get('description', '')}[/dim]")
         self._update_hud()
 
     def _on_stowed(self, obj):
-        console.log(
-            f"[green]stowed[/green]   {obj['id']}  "
-            f"[dim]{self.inventory.count()}/{self.inventory.max_slots} slots[/dim]"
-        )
+        console.log(f"[green]stowed[/green]   {obj['id']}  [dim]{self.inventory.count()}/{self.inventory.max_slots} slots[/dim]")
         self._update_hud()
 
     def _on_dropped(self, obj):
@@ -402,13 +290,10 @@ class CreationLab(ShowBase):
             console.log("[yellow]need two objects in slots to craft[/yellow]")
             return
         result = self.engine.craft(self.slot_a, self.slot_b)
-        console.log(f"[bold green]CRAFTED:[/bold green] {result['name']}")
-        console.log(f"  {result['description']}")
-        console.log(f"  ability: {result['ability']}")
-        console.log(f"  hash: {result['provenance_hash']}")
-        # Output lands in layer_interactable -- it is a world object
+        console.log(f"[bold green]CRAFTED:[/bold green] {result['name']}  {result['provenance_hash']}")
+        console.log(f"  {result['description']}  ability: {result['ability']}")
         rn = _make_box_geom(0.6, 0.6, 0.6, (0.6, 0.8, 0.5))
-        self.layer_interactable.attachNewNode(rn).setPos(0, -1.0, 1.6)
+        self.layer_interactable.attachNewNode(rn).setPos(0, 2, 1.5)
         self.slot_a = None
         self.slot_b = None
         self._update_hud(result)
@@ -417,13 +302,12 @@ class CreationLab(ShowBase):
         self.slot_a = None
         self.slot_b = None
         self._update_hud()
-        console.log("[dim]slots cleared[/dim]")
 
     # -- HUD -------------------------------------------------------------------
 
     def _update_hud(self, result=None):
-        for node in self._hud:
-            try: node.destroy()
+        for n in self._hud:
+            try: n.destroy()
             except: pass
         self._hud = []
         held  = self.pickup.held_obj
@@ -432,17 +316,12 @@ class CreationLab(ShowBase):
             f"SLOT B: {self.slot_b or 'empty'}",
             "",
             f"HELD:   {held['id'] if held else '--'}",
-            f"BAG:    {self.inventory.count()}/{self.inventory.max_slots}"
-            f"  {self.inventory.current_weight():.1f}kg",
+            f"BAG:    {self.inventory.count()}/{self.inventory.max_slots}  {self.inventory.current_weight():.1f}kg",
             "",
             "[E] lift/stow  [G] drop  [C] craft  [X] clear",
         ]
         if result:
-            lines += [
-                "", f">> {result['name']}",
-                result["description"],
-                f"ability: {result['ability']}",
-            ]
+            lines += ["", f">> {result['name']}", result["description"]]
         y = 0.85
         for line in lines:
             t = OnscreenText(
@@ -453,11 +332,7 @@ class CreationLab(ShowBase):
             self._hud.append(t)
             y -= 0.07
 
-    # -- Lighting --------------------------------------------------------------
-    # Prepped for AtmosphereModule lift.
-    # setup_lighting() is the wiring point -- logic will move to AtmosphereModule.
-    # Inputs: render node. Outputs: three light nodes attached to scene.
-    # When AtmosphereModule exists, this becomes: self.atmosphere.mount(self.render)
+    # -- Lighting (prepped for AtmosphereModule lift) --------------------------
 
     def setup_lighting(self):
         sun = DirectionalLight("sun")
@@ -465,13 +340,11 @@ class CreationLab(ShowBase):
         sn = self.render.attachNewNode(sun)
         sn.setHpr(30, -50, 0)
         self.render.setLight(sn)
-
         fill = DirectionalLight("fill")
         fill.setColor(Vec4(0.5, 0.55, 0.65, 1))
         fn = self.render.attachNewNode(fill)
         fn.setHpr(210, -30, 0)
         self.render.setLight(fn)
-
         amb = AmbientLight("amb")
         amb.setColor(Vec4(0.55, 0.52, 0.48, 1))
         self.render.setLight(self.render.attachNewNode(amb))
@@ -496,8 +369,6 @@ class CreationLab(ShowBase):
     def update_key_map(self, key, val):
         self.key_map[key] = val
 
-    # -- Mouse look ------------------------------------------------------------
-
     def enable_mouse_look(self):
         self.mouse_look_active = True
         self._last_mx = None
@@ -516,11 +387,16 @@ class CreationLab(ShowBase):
             props.setMouseMode(WindowProperties.M_absolute)
             self.win.requestProperties(props)
 
+    # -- Clamp -----------------------------------------------------------------
+
+    def _clamp_camera(self):
+        x, y, z = clamp_to_lab(self.cam.getX(), self.cam.getY(), self.cam.getZ())
+        self.cam.setPos(x, y, z)
+
     # -- Game loop -------------------------------------------------------------
 
     def game_loop(self, task):
         dt = globalClock.getDt()
-
         if self.mouse_look_active and self.win and self.mouseWatcherNode.hasMouse():
             md = self.win.getPointer(0)
             mx, my = md.getX(), md.getY()
@@ -533,12 +409,10 @@ class CreationLab(ShowBase):
                     self.cam_pitch  = max(-PITCH_CLAMP, min(PITCH_CLAMP, self.cam_pitch))
                     self.cam.setHpr(self.cam_yaw, self.cam_pitch, 0)
             self._last_mx, self._last_my = mx, my
-
         if self.key_map["w"]: self.cam.setPos(self.cam, 0,  _MOVE_SPEED * dt, 0)
         if self.key_map["s"]: self.cam.setPos(self.cam, 0, -_MOVE_SPEED * dt, 0)
         if self.key_map["a"]: self.cam.setPos(self.cam, -_MOVE_SPEED * dt, 0, 0)
         if self.key_map["d"]: self.cam.setPos(self.cam,  _MOVE_SPEED * dt, 0, 0)
-
         self._clamp_camera()
         self.pickup.update(dt)
         return task.cont
