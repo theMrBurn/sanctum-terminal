@@ -560,6 +560,59 @@
     "extent_y_s": -14.0,
     "wall_margin": 0.6,
     "move_speed": 12.0,
-    "headless": false
+    "headless": false,
+    "atmosphere": {
+      "background": [
+        0.05,
+        0.04,
+        0.04
+      ],
+      "floor_color": [
+        0.14,
+        0.12,
+        0.1
+      ],
+      "wall_color": [
+        0.18,
+        0.16,
+        0.14
+      ],
+      "grid_color": [
+        0.2,
+        0.18,
+        0.15
+      ],
+      "light_sun": [
+        1.0,
+        0.94,
+        0.82
+      ],
+      "light_fill": [
+        0.08,
+        0.1,
+        0.16
+      ],
+      "light_amb": [
+        0.04,
+        0.04,
+        0.04
+      ],
+      "sun_hpr": [
+        15,
+        -65,
+        0
+      ],
+      "bench_color": [
+        0.08,
+        0.06,
+        0.05
+      ],
+      "specular": [
+        0.4,
+        0.38,
+        0.32
+      ],
+      "shininess": 18.0
+    }
   }
 }
