@@ -1,0 +1,706 @@
+{
+  "version": 1,
+  "philosophy": "The architecture declares itself. The engine reads and routes. No hardwired connections in Python.",
+  "nodes": {
+    "InterviewEngine": {
+      "emits": [
+        "seed_params",
+        "depth_score",
+        "archetype",
+        "first_relic",
+        "torch"
+      ],
+      "consumes": [],
+      "ambient": null,
+      "status": "built"
+    },
+    "GhostProfileEngine": {
+      "emits": [
+        "ghost_blend",
+        "combat_style",
+        "world_modifiers",
+        "resolution_bias"
+      ],
+      "consumes": [
+        "seed_params",
+        "fingerprint_delta"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
+    "FingerprintEngine": {
+      "emits": [
+        "fingerprint_delta",
+        "dominant_activity"
+      ],
+      "consumes": [
+        "player_action",
+        "player_position",
+        "session_tick"
+      ],
+      "ambient": {
+        "source": "dominant_activity",
+        "targets": [
+          "GhostProfileEngine"
+        ],
+        "rate": "per_session",
+        "decay": 0.0001
+      },
+      "status": "built"
+    },
+    "AtmosphereEngine": {
+      "emits": [
+        "moisture",
+        "heat",
+        "clarity_radius",
+        "entropy_jitter",
+        "dither_depth",
+        "specular_bleed",
+        "friction",
+        "time_of_day",
+        "encounter_density",
+        "karma"
+      ],
+      "consumes": [
+        "seed_params",
+        "ghost_modifiers",
+        "chrono_drift",
+        "fingerprint_delta"
+      ],
+      "ambient": {
+        "source": "entropy_jitter",
+        "targets": [
+          "BiomeRenderer",
+          "AudioEngine",
+          "HUDEngine"
+        ],
+        "rate": "continuous",
+        "decay": 0.001
+      },
+      "status": "built"
+    },
+    "EntropyEngine": {
+      "emits": [
+        "attunement",
+        "presence_tier",
+        "species_placement"
+      ],
+      "consumes": [
+        "moisture",
+        "heat",
+        "seed_params"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
+    "SessionBoundary": {
+      "emits": [
+        "world_age",
+        "elapsed_seconds",
+        "position",
+        "drift",
+        "is_first"
+      ],
+      "consumes": [
+        "player_position",
+        "atmosphere_snapshot",
+        "fingerprint_snapshot"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
+    "GraceHandler": {
+      "emits": [
+        "checkpoint",
+        "restore_state"
+      ],
+      "consumes": [
+        "atmosphere_snapshot",
+        "fingerprint_snapshot",
+        "position"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
+    "TerrainGenerator": {
+      "emits": [
+        "height_at",
+        "slope_direction"
+      ],
+      "consumes": [
+        "seed_params"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
+    "CavernBuilder": {
+      "emits": [
+        "spawn_position"
+      ],
+      "consumes": [
+        "height_at",
+        "slope_direction",
+        "seed_params"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
+    "TreeBuilder": {
+      "emits": [
+        "tree_geometry"
+      ],
+      "consumes": [
+        "species_placement",
+        "height_at",
+        "moisture",
+        "heat"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
+    "CraftingEngine": {
+      "emits": [
+        "craft_result",
+        "provenance_hash"
+      ],
+      "consumes": [
+        "inventory_slot_a",
+        "inventory_slot_b"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
+    "ChronoMeter": {
+      "emits": [
+        "chrono_drift",
+        "world_age",
+        "session_depth",
+        "encounter_heat",
+        "torch_burns"
+      ],
+      "consumes": [
+        "elapsed_seconds",
+        "player_action",
+        "encounter_resolved"
+      ],
+      "ambient": {
+        "source": "session_depth",
+        "targets": [
+          "AtmosphereEngine"
+        ],
+        "rate": "continuous",
+        "decay": 1e-05
+      },
+      "status": "designed"
+    },
+    "ResolutionEngine": {
+      "emits": [
+        "resolution_outcome",
+        "absorption_result",
+        "consequence"
+      ],
+      "consumes": [
+        "player_resolve",
+        "encounter_weight",
+        "discipline_style"
+      ],
+      "ambient": null,
+      "status": "designed"
+    },
+    "DisciplineEngine": {
+      "emits": [
+        "combat_style",
+        "timing_window",
+        "mastery_tier"
+      ],
+      "consumes": [
+        "fingerprint_delta",
+        "ghost_blend",
+        "encounter_heat"
+      ],
+      "ambient": null,
+      "status": "designed"
+    },
+    "HUDEngine": {
+      "emits": [],
+      "consumes": [
+        "resolve",
+        "presence",
+        "resonance",
+        "entropy_gauge",
+        "entropy_jitter",
+        "torch_burns",
+        "time_of_day"
+      ],
+      "ambient": null,
+      "status": "designed"
+    },
+    "AudioEngine": {
+      "emits": [
+        "midi_cc",
+        "trigger_event"
+      ],
+      "consumes": [
+        "moisture",
+        "heat",
+        "entropy_jitter",
+        "clarity_radius",
+        "encounter_heat",
+        "elevation",
+        "torch_burns"
+      ],
+      "ambient": {
+        "source": "moisture",
+        "targets": [
+          "midi_drone_warmth"
+        ],
+        "rate": "continuous",
+        "decay": 0.0
+      },
+      "status": "designed"
+    },
+    "NarrativeMilestoneEngine": {
+      "emits": [
+        "act_transition",
+        "king_in_yellow_event"
+      ],
+      "consumes": [
+        "world_age",
+        "objects_found",
+        "encounters_resolved",
+        "craft_result",
+        "distance_from_cavern"
+      ],
+      "ambient": null,
+      "status": "designed"
+    },
+    "DailyEventEngine": {
+      "emits": [
+        "drift_event",
+        "growth_event",
+        "appear_event"
+      ],
+      "consumes": [
+        "chrono_drift",
+        "world_age",
+        "moisture",
+        "heat"
+      ],
+      "ambient": null,
+      "status": "designed"
+    },
+    "ScoutEngine": {
+      "emits": [
+        "scout_invitation"
+      ],
+      "consumes": [
+        "checkin_response",
+        "world_age",
+        "ghost_blend",
+        "fingerprint_delta",
+        "objects_found"
+      ],
+      "ambient": null,
+      "status": "designed"
+    }
+  },
+  "connections": [
+    {
+      "from": "InterviewEngine",
+      "signal": "seed_params",
+      "to": "AtmosphereEngine",
+      "method": "from_seed_params",
+      "type": "active",
+      "timing": "on_complete",
+      "status": "wired"
+    },
+    {
+      "from": "InterviewEngine",
+      "signal": "seed_params",
+      "to": "GhostProfileEngine",
+      "method": "map_interview",
+      "type": "active",
+      "timing": "on_complete",
+      "status": "wired"
+    },
+    {
+      "from": "GhostProfileEngine",
+      "signal": "world_modifiers",
+      "to": "AtmosphereEngine",
+      "method": "from_ghost_modifiers",
+      "type": "active",
+      "timing": "on_blend_update",
+      "status": "wired"
+    },
+    {
+      "from": "AtmosphereEngine",
+      "signal": "moisture",
+      "to": "EntropyEngine",
+      "method": "attune_to_seed",
+      "type": "passive",
+      "timing": "on_change",
+      "threshold": 0.05,
+      "status": "partial"
+    },
+    {
+      "from": "FingerprintEngine",
+      "signal": "fingerprint_delta",
+      "to": "GhostProfileEngine",
+      "method": "update_from_fingerprint",
+      "type": "passive",
+      "timing": "per_session",
+      "status": "partial"
+    },
+    {
+      "from": "SessionBoundary",
+      "signal": "elapsed_seconds",
+      "to": "ChronoMeter",
+      "method": "apply_drift",
+      "type": "passive",
+      "timing": "on_load",
+      "status": "designed"
+    },
+    {
+      "from": "ChronoMeter",
+      "signal": "chrono_drift",
+      "to": "AtmosphereEngine",
+      "method": "set",
+      "type": "passive",
+      "timing": "continuous",
+      "status": "designed"
+    },
+    {
+      "from": "AtmosphereEngine",
+      "signal": "entropy_jitter",
+      "to": "AudioEngine",
+      "method": "set_glitch_layer",
+      "type": "ambient",
+      "timing": "continuous",
+      "status": "designed"
+    },
+    {
+      "from": "AtmosphereEngine",
+      "signal": "moisture",
+      "to": "AudioEngine",
+      "method": "set_drone_warmth",
+      "type": "ambient",
+      "timing": "continuous",
+      "status": "designed"
+    },
+    {
+      "from": "AtmosphereEngine",
+      "signal": "entropy_jitter",
+      "to": "HUDEngine",
+      "method": "set_glitch",
+      "type": "ambient",
+      "timing": "continuous",
+      "status": "designed"
+    },
+    {
+      "from": "ResolutionEngine",
+      "signal": "resolution_outcome",
+      "to": "FingerprintEngine",
+      "method": "record",
+      "type": "active",
+      "timing": "on_resolve",
+      "status": "designed"
+    },
+    {
+      "from": "ResolutionEngine",
+      "signal": "absorption_result",
+      "to": "CraftingEngine",
+      "method": "add_to_pool",
+      "type": "active",
+      "timing": "on_absorb",
+      "status": "designed"
+    },
+    {
+      "from": "CraftingEngine",
+      "signal": "craft_result",
+      "to": "NarrativeMilestoneEngine",
+      "method": "check_yellow_sign",
+      "type": "active",
+      "timing": "on_craft",
+      "status": "designed"
+    },
+    {
+      "from": "NarrativeMilestoneEngine",
+      "signal": "act_transition",
+      "to": "AtmosphereEngine",
+      "method": "set",
+      "type": "active",
+      "timing": "on_act",
+      "status": "designed"
+    }
+  ],
+  "entropic_events": {
+    "black_star_event": {
+      "description": "The faithful see them. New arrivals do not.",
+      "conditions": {
+        "world_age": {
+          "in": [
+            7,
+            13,
+            30,
+            52
+          ]
+        },
+        "time_of_day": {
+          "lt": 0.2
+        }
+      },
+      "effect": {
+        "entropy_jitter": {
+          "delta": 0.1,
+          "duration": 180
+        },
+        "clarity_radius": {
+          "delta": -0.1,
+          "duration": 180
+        }
+      },
+      "status": "designed"
+    },
+    "kings_attention": {
+      "description": "When entropy is high and the torch is dim.",
+      "conditions": {
+        "entropy_jitter": {
+          "gt": 0.8
+        },
+        "torch_burns": {
+          "lt": 3
+        }
+      },
+      "effect": {
+        "encounter_density": {
+          "multiply": 2.0
+        },
+        "friction": {
+          "delta": -0.2
+        }
+      },
+      "status": "designed"
+    },
+    "carcosa_glimpse": {
+      "description": "The horizon resolves. Then it does not.",
+      "conditions": {
+        "entropy_drift": {
+          "gt": 0.3
+        },
+        "dither_depth": {
+          "gt": 0.5
+        }
+      },
+      "effect": {
+        "clarity_radius": {
+          "delta": 0.2,
+          "duration": 5
+        },
+        "then": {
+          "clarity_radius": {
+            "delta": -0.2,
+            "duration": 10
+          }
+        }
+      },
+      "status": "designed"
+    },
+    "yellow_sign_moment": {
+      "description": "The mark is made. The object carries it now.",
+      "conditions": {
+        "first_relic_received": true,
+        "depth_score": {
+          "gte": 3
+        }
+      },
+      "effect": {
+        "provenance_prefix": "MARKED",
+        "entropy_jitter": {
+          "delta": 0.05,
+          "duration": 10
+        }
+      },
+      "status": "designed"
+    },
+    "silence_detector": {
+      "description": "The world rewards stillness with clarity.",
+      "conditions": {
+        "player_velocity": {
+          "lt": 0.1
+        },
+        "session_depth": {
+          "gt": 60
+        }
+      },
+      "effect": {
+        "clarity_radius": {
+          "delta": 0.05,
+          "duration": 30
+        },
+        "entropy_gauge_fill_rate": {
+          "multiply": 1.2
+        }
+      },
+      "status": "designed"
+    }
+  },
+  "surface_materials": {
+    "VERDANT_DRY": {
+      "color": [
+        0.12,
+        0.28,
+        0.1
+      ],
+      "friction": 0.85,
+      "sound_id": "grass_dry"
+    },
+    "VERDANT_WET": {
+      "color": [
+        0.08,
+        0.22,
+        0.12
+      ],
+      "friction": 0.7,
+      "sound_id": "grass_wet"
+    },
+    "MUD_BOG": {
+      "color": [
+        0.28,
+        0.22,
+        0.14
+      ],
+      "friction": 0.45,
+      "sound_id": "mud"
+    },
+    "SHALLOW_WATER": {
+      "color": [
+        0.15,
+        0.35,
+        0.55
+      ],
+      "friction": 0.3,
+      "sound_id": "water_shallow"
+    },
+    "DEEP_WATER": {
+      "color": [
+        0.08,
+        0.18,
+        0.38
+      ],
+      "friction": 0.2,
+      "sound_id": "water_deep"
+    },
+    "STONE": {
+      "color": [
+        0.38,
+        0.36,
+        0.34
+      ],
+      "friction": 0.9,
+      "sound_id": "stone"
+    },
+    "SAND_DUST": {
+      "color": [
+        0.62,
+        0.54,
+        0.38
+      ],
+      "friction": 0.6,
+      "sound_id": "sand"
+    },
+    "EARTH": {
+      "color": [
+        0.32,
+        0.24,
+        0.16
+      ],
+      "friction": 0.75,
+      "sound_id": "earth"
+    }
+  },
+  "lod_thresholds": {
+    "focus_dist": 10.0,
+    "midfield_dist": 30.0,
+    "horizon_dist": 40.0,
+    "far_plane": 800.0,
+    "fog_density": 0.004,
+    "fog_color": [
+      0.72,
+      0.76,
+      0.82
+    ]
+  },
+  "walk_speeds": {
+    "walk": 1.67,
+    "jog": 3.0,
+    "sprint": 5.0,
+    "crouch": 0.8
+  },
+  "placement_engine": {
+    "philosophy": "Nature uses phyllotaxis. So do we.",
+    "golden_angle_degrees": 137.5077640500378,
+    "methods": {
+      "GOLDEN_SPIRAL": {
+        "description": "Fibonacci phyllotaxis \u2014 densest aperiodic packing",
+        "seed_influence": "phase offset from interview depth_score",
+        "attunement_gate": true,
+        "use_for": [
+          "trees",
+          "rocks",
+          "flora",
+          "ruins"
+        ]
+      },
+      "PERLIN_FIELD": {
+        "description": "Fractal noise modulation over spiral candidates",
+        "octaves": 4,
+        "persistence": 0.5,
+        "lacunarity": 2.0,
+        "seed_influence": "full seed hash as noise seed",
+        "use_for": [
+          "moisture_patches",
+          "moss",
+          "nerve_growth"
+        ]
+      },
+      "GAUSSIAN_ATTUNEMENT": {
+        "description": "Existing system \u2014 ecological correctness",
+        "use_for": [
+          "species_selection",
+          "placement_gate"
+        ]
+      },
+      "COMBINED": {
+        "description": "Spiral candidates filtered by Perlin then gated by Gaussian",
+        "pipeline": [
+          "GOLDEN_SPIRAL",
+          "PERLIN_FIELD",
+          "GAUSSIAN_ATTUNEMENT"
+        ],
+        "result": "ecologically correct, spatially inevitable, truly bespoke"
+      }
+    },
+    "object_categories": {
+      "flora": {
+        "density": 0.8,
+        "method": "COMBINED"
+      },
+      "geology": {
+        "density": 0.3,
+        "method": "GOLDEN_SPIRAL"
+      },
+      "fauna": {
+        "density": 0.2,
+        "method": "PERLIN_FIELD"
+      },
+      "remnant": {
+        "density": 0.1,
+        "method": "GAUSSIAN_ATTUNEMENT"
+      },
+      "relic": {
+        "density": 0.05,
+        "method": "GAUSSIAN_ATTUNEMENT"
+      }
+    }
+  }
+}
