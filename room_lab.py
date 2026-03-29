@@ -172,20 +172,56 @@ class RoomLab(ShowBase):
             _rp = self.render.attachNewNode(_rk)
             _rp.setPos(_ox, _oy, _gz + 0.2)
             self._world_objects[_so['id']] = {'node': _rp, 'data': _so}
-        # TARGET OBJECT -- bright, right in front of spawn, pickup test
+        # QUEST OBJECTS -- three objects near cavern
         from core.systems.biome_renderer import _make_box_geom as _mbg
         _cx, _cy, _ = self._spawn_pos
-        _tz = self._terrain.height_at(_cx, _cy - 3)
-        _tn = _mbg(1.5, 1.5, 1.5, (0.9, 0.7, 0.1))  # bright yellow
-        _tp = self.render.attachNewNode(_tn)
-        _tp.setPos(_cx, _cy - 3, _tz + 0.75)
-        self._world_objects['TARGET'] = {
-            'node': _tp,
-            'data': {'id': 'TARGET', 'name': 'The Book',
-                     'weight': 0.5, 'category': 'relic',
-                     'description': 'You brought it with you. You forgot.'}
-        }
-        console.log(f'[bold yellow]TARGET[/bold yellow] placed at ({_cx:.1f}, {_cy-3:.1f})')
+        self._quest_objects = {'dark_flint', 'ghost_flower', 'sanctum_key'}
+        self._found_objects = set()
+        _quest_defs = [
+            {
+                'id': 'dark_flint',
+                'name': 'Dark Flint',
+                'weight': 0.4,
+                'category': 'geology',
+                'description': 'Black as obsidian. Sharp enough to draw light.',
+                'color': (0.08, 0.06, 0.10),
+                'size': (0.5, 0.3, 0.7),
+                'offset': (6, -4)
+            },
+            {
+                'id': 'ghost_flower',
+                'name': 'Ghost Flower',
+                'weight': 0.1,
+                'category': 'flora',
+                'description': 'White petals. No root. Grows where something ended.',
+                'color': (0.92, 0.92, 0.88),
+                'size': (0.3, 0.8, 0.3),
+                'offset': (-5, -6)
+            },
+            {
+                'id': 'sanctum_key',
+                'name': 'Sanctum Key',
+                'weight': 0.6,
+                'category': 'relic',
+                'description': 'You do not know what it opens. You recognize it anyway.',
+                'color': (0.65, 0.50, 0.15),
+                'size': (0.2, 0.6, 0.15),
+                'offset': (2, -8)
+            },
+        ]
+        for _qd in _quest_defs:
+            _ox = _cx + _qd['offset'][0]
+            _oy = _cy + _qd['offset'][1]
+            _gz = self._terrain.height_at(_ox, _oy)
+            _s  = _qd['size']
+            _rk = _mbg(_s[0], _s[1], _s[2], _qd['color'])
+            _rp = self.render.attachNewNode(_rk)
+            _rp.setPos(_ox, _oy, _gz + _s[1]/2)
+            self._world_objects[_qd['id']] = {
+                'node': _rp,
+                'data': {k: v for k, v in _qd.items() if k not in ('color','size','offset')}
+            }
+        console.log('[bold yellow]QUEST[/bold yellow] — find: Dark Flint | Ghost Flower | Sanctum Key')
         console.log('[dim]World built — 4 sectors, stream, creatures, transitions[/dim]')
         self._session_state = self._session.begin(seed=self._seed)
         self._restore_position()
@@ -610,10 +646,27 @@ class RoomLab(ShowBase):
                 entry['node'] = None
                 name = entry['data']['name']
                 console.log(f'[bold cyan]PICKED UP[/bold cyan] {name} — {self._inventory.count()}/8 slots')
-                if nearest_id == 'TARGET':
-                    console.log('[bold green]SUCCESS — pickup system working[/bold green]')
-                    console.log(f'[dim]Inventory: {self._inventory.list()}[/dim]')
-                    self.exit_app()
+                if hasattr(self, '_quest_objects') and nearest_id in self._quest_objects:
+                    self._found_objects.add(nearest_id)
+                    remaining = self._quest_objects - self._found_objects
+                    found_names = [self._world_objects.get(k, {}).get('data', {}).get('name', k)
+                                   for k in self._found_objects]
+                    remain_names = [self._world_objects.get(k, {}).get('data', {}).get('name', k)
+                                    for k in remaining]
+                    console.log(f'[bold green]FOUND[/bold green] {name}')
+                    console.log(f'[green]  ✓ {" | ".join(found_names)}[/green]')
+                    if remain_names:
+                        console.log(f'[dim]  still seeking: {" | ".join(remain_names)}[/dim]')
+                    if not remaining:
+                        console.log('')
+                        console.log('[bold yellow]═══ QUEST COMPLETE ═══[/bold yellow]')
+                        console.log(f'[bold green]All three found. The world acknowledged.[/bold green]')
+                        console.log(f'[dim]Inventory:[/dim]')
+                        for item in self._inventory.list():
+                            console.log(f'[dim]  {item["name"]} — {item["description"]}[/dim]')
+                        console.log(f'[dim]World age: {self._session_state["world_age"]}[/dim]')
+                        console.log(f'[dim]Session depth: {self._session_state["elapsed_seconds"]:.1f}s[/dim]')
+                        self.exit_app()
             else:
                 console.log('[dim]Inventory full[/dim]')
         else:
@@ -744,7 +797,7 @@ class RoomLab(ShowBase):
                     tn.setCardAsMargin(0.1, 0.1, 0.05, 0.05)
                     tn.setCardDecal(True)
                     lnp = entry['node'].attachNewNode(tn)
-                    lnp.setScale(0.8)
+                    lnp.setScale(0.35)
                     lnp.setPos(0, 0, 2.5)
                     lnp.setBillboardPointEye()
                     entry['label_node'] = lnp
