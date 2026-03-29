@@ -724,6 +724,40 @@ class RoomLab(ShowBase):
         x, y = self.cam.getX(), self.cam.getY()
         self.cam.setZ(self._terrain.height_at(x, y) + GROUND_Z)
 
+        # Proximity labels -- floating world-space identification
+        import math as _math2
+        cx, cy, _ = self.cam.getPos()
+        for obj_id, entry in self._world_objects.items():
+            if entry['node'] is None:
+                continue
+            ox, oy, oz = entry['node'].getPos()
+            dist = _math2.sqrt((cx-ox)**2 + (cy-oy)**2)
+            label_node = entry.get('label_node')
+            if dist < 8.0:
+                if label_node is None:
+                    from panda3d.core import TextNode, NodePath
+                    tn = TextNode(f'label_{obj_id}')
+                    tn.setText(entry['data']['name'])
+                    tn.setAlign(TextNode.ACenter)
+                    tn.setTextColor(1, 1, 1, min(1.0, (8.0-dist)/4.0))
+                    tn.setCardColor(0, 0, 0, 0.4)
+                    tn.setCardAsMargin(0.1, 0.1, 0.05, 0.05)
+                    tn.setCardDecal(True)
+                    lnp = entry['node'].attachNewNode(tn)
+                    lnp.setScale(0.8)
+                    lnp.setPos(0, 0, 2.5)
+                    lnp.setBillboardPointEye()
+                    entry['label_node'] = lnp
+                else:
+                    # Update opacity by distance
+                    alpha = min(1.0, max(0.2, (8.0-dist)/4.0))
+                    tn = label_node.node()
+                    tn.setTextColor(1, 1, 1, alpha)
+            else:
+                if label_node is not None:
+                    label_node.removeNode()
+                    entry['label_node'] = None
+
         # World bounds
         x, y, z = self.cam.getPos()
         hw = self.WORLD_W/2 - 5
