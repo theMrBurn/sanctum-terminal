@@ -551,5 +551,15 @@
         "default": null
       }
     ]
+  },
+  "lab": {
+    "ground_z": 5.0,
+    "ceiling_z": 16.0,
+    "extent_x": 10.0,
+    "extent_y_n": 14.0,
+    "extent_y_s": -14.0,
+    "wall_margin": 0.6,
+    "move_speed": 12.0,
+    "headless": false
   }
 }

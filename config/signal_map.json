@@ -702,5 +702,37 @@
         "method": "GAUSSIAN_ATTUNEMENT"
       }
     }
+  },
+  "scene_graph": {
+    "layers": [
+      {
+        "name": "layer_structure",
+        "desc": "Static geometry -- walls, floor, ceiling. Renders first. No interaction.",
+        "draw_order": 0,
+        "collision": true,
+        "interactive": false
+      },
+      {
+        "name": "layer_interactable",
+        "desc": "World objects -- pickupable, craftable, activatable. Scanned by InteractionEngine.",
+        "draw_order": 1,
+        "collision": false,
+        "interactive": true
+      },
+      {
+        "name": "layer_fx",
+        "desc": "Glow, proximity labels, state indicators. Renders over world, under HUD.",
+        "draw_order": 2,
+        "collision": false,
+        "interactive": false
+      },
+      {
+        "name": "layer_hud",
+        "desc": "Screen-space UI. Renders last.",
+        "draw_order": 3,
+        "collision": false,
+        "interactive": false
+      }
+    ]
   }
 }
