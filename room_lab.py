@@ -1,10 +1,12 @@
 import sys, math, random
+import pygame
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import AmbientLight, AntialiasAttrib, DirectionalLight, Vec4, WindowProperties, LVector3
 from rich.console import Console
 from core.systems.biome_renderer import _make_box_geom, _make_plane_geom, BIOME_PALETTE
 from core.systems.terrain_generator import TerrainGenerator
-from core.systems.cavern_builder import CavernBuilder, CAVERN_X, CAVERN_Y
+from core.systems.cavern_builder import CavernBuilder
+from core.systems.session_boundary import SessionBoundary
 
 console = Console()
 MOUSE_SENSITIVITY = 0.15
@@ -40,20 +42,31 @@ class RoomLab(ShowBase):
             'w':False,'s':False,'a':False,'d':False,
             'shift':False,'space':False,
         }
+        self._session = SessionBoundary()
+        self._seed    = 'BURN'  # Philosopher Monk
+        # Controller
+        pygame.init()
+        pygame.joystick.init()
+        self._pad = None
+        self._jump_ready = True
+        if pygame.joystick.get_count() > 0:
+            self._pad = pygame.joystick.Joystick(0)
+            self._pad.init()
+            console.log(f'[bold cyan]CONTROLLER:[/bold cyan] {self._pad.get_name()}')
+        else:
+            console.log('[dim]No controller found — keyboard only[/dim]')
         self.disableMouse()
         self.camLens.setFov(80)
-        self.camLens.setFar(4000)
-        # Start inside cavern facing the mouth (south)
-        self.cam.setPos(CAVERN_X, CAVERN_Y + 6, GROUND_Z)
-        self.cam.setHpr(180, 0, 0)  # facing south toward mouth
+        self.camLens.setFar(800)
+        self.cam.setPos(0, 0, GROUND_Z)
         self.cam.setHpr(0, 0, 0)
         self.setup_lighting()
         self.render.setShaderAuto()
         # Atmospheric fog
         from panda3d.core import Fog
         fog = Fog('atm_fog')
-        fog.setColor(0.50, 0.55, 0.62)  # Desaturated fog
-        fog.setExpDensity(0.0008)
+        fog.setColor(0.72, 0.76, 0.82)  # Sky-matched atmospheric haze
+        fog.setExpDensity(0.004)   # Dense enough to eat the horizon
         self.render.setFog(fog)
         self.render.setAntialias(AntialiasAttrib.MMultisample)
         self.setup_controls()
@@ -131,10 +144,15 @@ class RoomLab(ShowBase):
             sector='verdant'
         )
         self.render.attachNewNode(node)
-        # Build spawn cavern
+        # Build spawn cavern — move camera immediately, no origin flash
         cavern = CavernBuilder(self.render, self._terrain)
         self._spawn_pos = cavern.build()
+        sx, sy, sz = self._spawn_pos
+        self.cam.setPos(sx, sy, sz)
+        self.cam.setHpr(180, 0, 0)
         console.log('[dim]World built — 4 sectors, stream, creatures, transitions[/dim]')
+        self._session_state = self._session.begin(seed=self._seed)
+        self._restore_position()
 
     def _ground_plane(self, cx, cy, w, d, color):
         gn = _make_plane_geom(w, d, color)
@@ -166,17 +184,18 @@ class RoomLab(ShowBase):
             dy = math.cos(math.radians(angle)) * seg_len
             # Widen as stream progresses south-east
             width = 8 + (i / 80) * 20
+            gz = self._terrain.height_at(sx + dx/2, sy + dy/2)
             wn = _make_plane_geom(width, seg_len, stream_c)
             wp = self.render.attachNewNode(wn)
-            wp.setPos(sx + dx/2, sy + dy/2, 0.05)
+            wp.setPos(sx + dx/2, sy + dy/2, gz + 0.15)
             wp.setHpr(-angle, 0, 0)
             sn = _make_plane_geom(width + 8, seg_len, shallow_c)
             sp = self.render.attachNewNode(sn)
-            sp.setPos(sx + dx/2, sy + dy/2, 0.02)
+            sp.setPos(sx + dx/2, sy + dy/2, gz + 0.08)
             sp.setHpr(-angle, 0, 0)
             bn = _make_box_geom(width + 12, 0.4, seg_len, bank_c)
             bp = self.render.attachNewNode(bn)
-            bp.setPos(sx + dx/2, sy + dy/2, 0.15)
+            bp.setPos(sx + dx/2, sy + dy/2, gz + 0.25)
             bp.setHpr(-angle, 0, 0)
             sx += dx
             sy += dy
@@ -506,6 +525,65 @@ class RoomLab(ShowBase):
 
     # ── Game loop ─────────────────────────────────────────────────────────
 
+    def _restore_position(self):
+        """Restore last position or spawn at cavern on first session."""
+        state = self._session_state
+        if state['is_first'] or state['position'] is None:
+            console.log(f"[bold cyan]FIRST SESSION[/bold cyan] — world age: {state['world_age']}")
+            console.log(f"[dim]drift: {state['drift']:.4f} — the world was quiet[/dim]")
+        else:
+            x, y, z = state['position']
+            self.cam.setPos(x, y, z)
+            console.log(f"[bold cyan]RETURNING[/bold cyan] — world age: {state['world_age']}")
+            elapsed = state['elapsed_seconds']
+            hours = elapsed / 3600
+            console.log(f"[dim]{hours:.1f} real hours since last session — drift: {state['drift']:.4f}[/dim]")
+
+
+    def _auto_capture(self, task):
+        """Auto-capture mouse on launch — no click required."""
+        self.enable_mouse_look()
+        return task.done
+
+    def toggle_mouse_look(self):
+        """[ key — dev escape hatch."""
+        if self.mouse_look_active:
+            self.disable_mouse_look()
+        else:
+            self.enable_mouse_look()
+
+    def _interact(self):
+        """X — interact with nearest object."""
+        console.log('[dim]X — interact (not yet implemented)[/dim]')
+
+    def _drop(self):
+        """LB — drop held object."""
+        console.log('[dim]LB — drop (not yet implemented)[/dim]')
+
+    def _use(self):
+        """RB — use / activate."""
+        console.log('[dim]RB — use (not yet implemented)[/dim]')
+
+    def _torch_toggle(self):
+        """Y — toggle torch."""
+        console.log('[dim]Y — torch toggle (not yet implemented)[/dim]')
+
+    def _inventory(self):
+        """Menu — open inventory."""
+        console.log('[dim]Menu — inventory (not yet implemented)[/dim]')
+
+    def _debug_toggle(self):
+        """F1 — toggle debug overlay."""
+        console.log('[dim]F1 — debug (not yet implemented)[/dim]')
+
+    def _crouch(self):
+        """B — crouch toggle."""
+        console.log('[dim]B — crouch (not yet implemented)[/dim]')
+
+    def _quickslot(self, slot):
+        """1-5 — quick slot selection."""
+        console.log(f'[dim]Slot {slot}[/dim]')
+
     def game_loop(self, task):
         dt    = globalClock.getDt()
         speed = RUN_SPEED if self.key_map['shift'] else WALK_SPEED
@@ -524,6 +602,38 @@ class RoomLab(ShowBase):
                     self.cam.setHpr(self.cam_yaw, self.cam_pitch, 0)
             self._last_mx, self._last_my = mx, my
 
+        # Controller input
+        if self._pad:
+            pygame.event.pump()
+            DEAD = 0.15
+            lx = self._pad.get_axis(0)
+            ly = self._pad.get_axis(1)
+            rx = self._pad.get_axis(2)
+            ry = self._pad.get_axis(3)
+            running = self._pad.get_button(8)
+            pad_speed = (RUN_SPEED if running else WALK_SPEED) * dt
+            if abs(lx) > DEAD:
+                self.cam.setPos(self.cam,  lx * pad_speed, 0, 0)
+            if abs(ly) > DEAD:
+                self.cam.setPos(self.cam, 0, -ly * pad_speed, 0)
+            if abs(rx) > DEAD:
+                self.cam_yaw  -= rx * MOUSE_SENSITIVITY * 3.0
+            if abs(ry) > DEAD:
+                self.cam_pitch -= ry * MOUSE_SENSITIVITY * 3.0
+                self.cam_pitch  = max(-PITCH_CLAMP, min(PITCH_CLAMP, self.cam_pitch))
+            self.cam.setHpr(self.cam_yaw, self.cam_pitch, 0)
+            # Buttons
+            if self._pad.get_button(0) and self._jump_ready:
+                self.do_jump()
+                self._jump_ready = False
+            elif not self._pad.get_button(0):
+                self._jump_ready = True
+            if self._pad.get_button(2):
+                self._interact()
+            if self._pad.get_button(3):
+                self._torch_toggle()
+            if self._pad.get_button(7):
+                self._inventory()
         # Movement
         if self.key_map['w']: self.cam.setPos(self.cam, 0,  speed*dt, 0)
         if self.key_map['s']: self.cam.setPos(self.cam, 0, -speed*dt, 0)
@@ -544,7 +654,8 @@ class RoomLab(ShowBase):
         else:
             x, y, z = self.cam.getPos()
             ground = self._terrain.height_at(x, y) + GROUND_Z
-            self.cam.setPos(x, y, ground)
+            if getattr(self, '_position_restored', False):
+                self.cam.setPos(x, y, ground)
 
         # World bounds
         x, y, z = self.cam.getPos()
@@ -554,7 +665,11 @@ class RoomLab(ShowBase):
         self.cam.setY(max(-hd, min(hd, y)))
         return task.cont
 
-    def exit_app(self): sys.exit(0)
+    def exit_app(self):
+        x, y, z = self.cam.getPos()
+        self._session.end(position=(float(x), float(y), float(z)))
+        console.log(f"[dim]Session ended — position saved ({x:.1f}, {y:.1f}, {z:.1f})[/dim]")
+        sys.exit(0)
 
 if __name__ == '__main__':
     RoomLab().run()
