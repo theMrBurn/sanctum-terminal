@@ -18,9 +18,6 @@ def test_proximity_logic():
 
 
 # -- PickupSystem --------------------------------------------------------------
-# TDD: these tests define the contract. Run make test -> Red.
-# Then wire core/systems/pickup_system.py -> Green.
-#
 # The Philosopher Monk lifts a book.
 # First [E]: object detaches from world, floats held.
 # Second [E]: flies into inventory. World notices.
@@ -29,7 +26,6 @@ def test_proximity_logic():
 class TestPickupSystemContract:
 
     def _make_sim_with_item(self):
-        """Headless sim, one pickupable object near camera."""
         sim = Simulation(headless=True)
         node = sim.app.spawn("TOOL_Minor_V1", (1, 0, 0))
         node.setPythonTag("pickupable", True)
@@ -43,13 +39,11 @@ class TestPickupSystemContract:
         return sim, node
 
     def test_pickup_system_importable(self):
-        """PickupSystem exists and can be instantiated."""
         from core.systems.pickup_system import PickupSystem
         assert PickupSystem is not None
 
     def test_pickup_state_idle_on_init(self):
         from core.systems.pickup_system import PickupSystem, PickupState
-        from core.systems.inventory import Inventory
         sim, node = self._make_sim_with_item()
         inv = Inventory()
         ps  = PickupSystem(
@@ -60,7 +54,6 @@ class TestPickupSystemContract:
         assert ps.state is PickupState.IDLE
 
     def test_first_e_lifts_object(self):
-        """E press while near object -> HELD state, node reparented to camera."""
         from core.systems.pickup_system import PickupSystem, PickupState
         sim, node = self._make_sim_with_item()
         inv = Inventory()
@@ -75,7 +68,6 @@ class TestPickupSystemContract:
         assert node.getParent() == sim.app.camera
 
     def test_held_object_has_no_world_position(self):
-        """Once held, node is camera-relative -- world pos is HOLD_OFFSET."""
         from core.systems.pickup_system import PickupSystem, HOLD_OFFSET
         sim, node = self._make_sim_with_item()
         inv = Inventory()
@@ -91,7 +83,6 @@ class TestPickupSystemContract:
         assert abs(pos.z - HOLD_OFFSET[2]) < 0.01
 
     def test_second_e_begins_stow(self):
-        """Second E -> STOWING state."""
         from core.systems.pickup_system import PickupSystem, PickupState
         sim, node = self._make_sim_with_item()
         inv = Inventory()
@@ -106,7 +97,6 @@ class TestPickupSystemContract:
         assert ps.state is PickupState.STOWING
 
     def test_stow_completes_into_inventory(self):
-        """After tween completes, item is in inventory and node is hidden."""
         from core.systems.pickup_system import PickupSystem, STOW_DURATION
         sim, node = self._make_sim_with_item()
         inv = Inventory()
@@ -126,7 +116,6 @@ class TestPickupSystemContract:
         assert node.isHidden()
 
     def test_drop_returns_object_to_world(self):
-        """[G] while held -> IDLE, node back at original world pos."""
         from core.systems.pickup_system import PickupSystem, PickupState
         sim, node = self._make_sim_with_item()
         original_pos = node.getPos(sim.app.render)
@@ -145,7 +134,6 @@ class TestPickupSystemContract:
         assert abs(restored.y - original_pos.y) < 0.01
 
     def test_nothing_nearby_returns_status(self):
-        """E with nothing in range -> nothing_nearby, stays IDLE."""
         from core.systems.pickup_system import PickupSystem, PickupState
         sim, node = self._make_sim_with_item()
         inv = Inventory()
@@ -159,7 +147,6 @@ class TestPickupSystemContract:
         assert ps.state is PickupState.IDLE
 
     def test_inventory_full_blocks_lift(self):
-        """Cannot lift when inventory is at capacity."""
         from core.systems.pickup_system import PickupSystem, PickupState
         sim, node = self._make_sim_with_item()
         inv = Inventory()
@@ -175,7 +162,6 @@ class TestPickupSystemContract:
         assert ps.state is PickupState.IDLE
 
     def test_e_during_stow_is_ignored(self):
-        """Extra E presses during stow tween do nothing."""
         from core.systems.pickup_system import PickupSystem, PickupState
         sim, node = self._make_sim_with_item()
         inv = Inventory()
@@ -191,10 +177,6 @@ class TestPickupSystemContract:
         assert ps.state is PickupState.STOWING
 
     def test_weight_blocks_stow_not_lift(self):
-        """
-        Item lifted fine, then inventory fills externally before second E.
-        Stow returns inventory_full. Item stays held -- not lost.
-        """
         from core.systems.pickup_system import PickupSystem, PickupState
         sim, node = self._make_sim_with_item()
         inv = Inventory(max_slots=8, max_weight=1.0)
@@ -208,3 +190,47 @@ class TestPickupSystemContract:
         result = ps.on_e_pressed()
         assert result == "inventory_full"
         assert ps.state is PickupState.HELD
+
+
+# -- LabHarness boundaries ----------------------------------------------------
+# Pure-math tests use clamp_to_lab() directly -- no ShowBase instantiation.
+# ShowBase tests share one instance via module-level fixture to avoid
+# Panda3D global state conflicts across multiple instantiations in one process.
+# Pattern carries forward: any logic testable without a window gets extracted
+# to a pure function first. _clamp_camera delegates to clamp_to_lab.
+# AtmosphereModule will follow the same extraction pattern for lighting.
+
+from creation_lab import (
+    GROUND_Z, LAB_X, LAB_Y_N, LAB_Y_S, LAB_CEILING,
+    _WALL_MARGIN, clamp_to_lab,
+)
+
+
+class TestLabBoundaryConstants:
+    """Pure imports -- no ShowBase needed."""
+
+    def test_lab_has_boundary_constants(self):
+        assert LAB_X > 0
+        assert LAB_Y_N > 0
+        assert LAB_Y_S < 0
+        assert LAB_CEILING > GROUND_Z
+
+    def test_camera_clamped_at_north_wall(self):
+        x, y, z = clamp_to_lab(0.0, LAB_Y_N + 10.0, 0.0)
+        assert y <= LAB_Y_N - _WALL_MARGIN
+
+    def test_camera_clamped_at_south_wall(self):
+        x, y, z = clamp_to_lab(0.0, LAB_Y_S - 10.0, 0.0)
+        assert y >= LAB_Y_S + _WALL_MARGIN
+
+    def test_camera_clamped_at_east_wall(self):
+        x, y, z = clamp_to_lab(LAB_X + 10.0, 0.0, 0.0)
+        assert x <= LAB_X - _WALL_MARGIN
+
+    def test_camera_clamped_at_west_wall(self):
+        x, y, z = clamp_to_lab(-LAB_X - 10.0, 0.0, 0.0)
+        assert x >= -LAB_X + _WALL_MARGIN
+
+    def test_z_always_ground(self):
+        _, _, z = clamp_to_lab(0.0, 0.0, 999.0)
+        assert abs(z - GROUND_Z) < 0.01
