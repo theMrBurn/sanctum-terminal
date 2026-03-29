@@ -250,3 +250,197 @@ class TestBuildRelicDict:
             engine.build_relic_dict(high)["u_exp"]
             > engine.build_relic_dict(low)["u_exp"]
         )
+
+
+# ── Scenario Array ------------------------------------------------------------
+# TDD: five quest types as instantiable templates.
+# fetch   -- go get a specific object, bring it back
+# escort  -- keep an entity within range until destination reached
+# hunt    -- find and interact with a hidden/marked target
+# key     -- acquire object A to unlock/enable object B
+# switch  -- activate N triggers in the world (order may matter)
+#
+# Every scenario has:
+#   type        -- one of the five
+#   state       -- PENDING / ACTIVE / COMPLETE / FAILED
+#   objective   -- human-readable, world-legible (not UI text)
+#   win_fn      -- callable that returns True when complete
+#   on_complete -- callback fired on completion
+
+class TestScenarioArray:
+
+    def test_scenario_engine_importable(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        assert ScenarioEngine is not None
+
+    def test_scenario_state_importable(self):
+        from core.systems.scenario_engine import ScenarioState
+        assert ScenarioState is not None
+
+    def test_five_scenario_types_defined(self):
+        from core.systems.scenario_engine import SCENARIO_TYPES
+        assert set(SCENARIO_TYPES) == {"fetch", "escort", "hunt", "key", "switch"}
+
+    def test_create_fetch_scenario(self):
+        from core.systems.scenario_engine import ScenarioEngine, ScenarioState
+        se  = ScenarioEngine()
+        sid = se.create("fetch", {
+            "target_id":  "river_stone_01",
+            "return_pos": (0, 0, 0),
+            "objective":  "Bring the river stone to the workbench.",
+        })
+        assert sid is not None
+        assert se.get_state(sid) is ScenarioState.PENDING
+
+    def test_create_escort_scenario(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        se  = ScenarioEngine()
+        sid = se.create("escort", {
+            "entity_id":   "wanderer_01",
+            "destination": (50, 50, 0),
+            "radius":      5.0,
+            "objective":   "Keep the wanderer close until the waypoint.",
+        })
+        assert sid is not None
+
+    def test_create_hunt_scenario(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        se  = ScenarioEngine()
+        sid = se.create("hunt", {
+            "target_id": "flint_shard_01",
+            "objective": "Find the flint shard somewhere in the sector.",
+        })
+        assert sid is not None
+
+    def test_create_key_scenario(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        se  = ScenarioEngine()
+        sid = se.create("key", {
+            "key_id":  "iron_key_01",
+            "lock_id": "sealed_door_01",
+            "objective": "Find the key. The door will know.",
+        })
+        assert sid is not None
+
+    def test_create_switch_scenario(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        se  = ScenarioEngine()
+        sid = se.create("switch", {
+            "trigger_ids": ["switch_a", "switch_b", "switch_c"],
+            "ordered":     False,
+            "objective":   "Activate all three markers.",
+        })
+        assert sid is not None
+
+    def test_activate_moves_to_active(self):
+        from core.systems.scenario_engine import ScenarioEngine, ScenarioState
+        se  = ScenarioEngine()
+        sid = se.create("fetch", {
+            "target_id":  "river_stone_01",
+            "return_pos": (0, 0, 0),
+            "objective":  "Bring the river stone to the workbench.",
+        })
+        se.activate(sid)
+        assert se.get_state(sid) is ScenarioState.ACTIVE
+
+    def test_complete_fires_callback(self):
+        from core.systems.scenario_engine import ScenarioEngine, ScenarioState
+        log = []
+        se  = ScenarioEngine()
+        sid = se.create("fetch", {
+            "target_id":  "river_stone_01",
+            "return_pos": (0, 0, 0),
+            "objective":  "Bring the river stone to the workbench.",
+        }, on_complete=lambda s: log.append(s))
+        se.activate(sid)
+        se.complete(sid)
+        assert se.get_state(sid) is ScenarioState.COMPLETE
+        assert sid in log
+
+    def test_fail_moves_to_failed(self):
+        from core.systems.scenario_engine import ScenarioEngine, ScenarioState
+        se  = ScenarioEngine()
+        sid = se.create("fetch", {
+            "target_id":  "river_stone_01",
+            "return_pos": (0, 0, 0),
+            "objective":  "Bring the river stone to the workbench.",
+        })
+        se.activate(sid)
+        se.fail(sid)
+        assert se.get_state(sid) is ScenarioState.FAILED
+
+    def test_cannot_complete_pending_scenario(self):
+        from core.systems.scenario_engine import ScenarioEngine, ScenarioState
+        se  = ScenarioEngine()
+        sid = se.create("fetch", {
+            "target_id":  "river_stone_01",
+            "return_pos": (0, 0, 0),
+            "objective":  "Bring the river stone to the workbench.",
+        })
+        se.complete(sid)
+        assert se.get_state(sid) is ScenarioState.PENDING
+
+    def test_get_active_scenarios(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        se   = ScenarioEngine()
+        sid1 = se.create("fetch",  {"target_id": "a", "return_pos": (0,0,0), "objective": "x"})
+        sid2 = se.create("hunt",   {"target_id": "b", "objective": "y"})
+        sid3 = se.create("switch", {"trigger_ids": ["t1"], "ordered": False, "objective": "z"})
+        se.activate(sid1)
+        se.activate(sid2)
+        active = se.get_active()
+        assert sid1 in active
+        assert sid2 in active
+        assert sid3 not in active
+
+    def test_get_objective(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        se  = ScenarioEngine()
+        sid = se.create("fetch", {
+            "target_id":  "river_stone_01",
+            "return_pos": (0, 0, 0),
+            "objective":  "Bring the river stone to the workbench.",
+        })
+        assert se.get_objective(sid) == "Bring the river stone to the workbench."
+
+    def test_win_fn_triggers_complete(self):
+        from core.systems.scenario_engine import ScenarioEngine, ScenarioState
+        resolved = [False]
+        se  = ScenarioEngine()
+        sid = se.create("fetch", {
+            "target_id":  "river_stone_01",
+            "return_pos": (0, 0, 0),
+            "objective":  "Bring the river stone to the workbench.",
+        }, win_fn=lambda: resolved[0])
+        se.activate(sid)
+        se.tick()
+        assert se.get_state(sid) is ScenarioState.ACTIVE
+        resolved[0] = True
+        se.tick()
+        assert se.get_state(sid) is ScenarioState.COMPLETE
+
+    def test_switch_scenario_tracks_triggers(self):
+        from core.systems.scenario_engine import ScenarioEngine, ScenarioState
+        se  = ScenarioEngine()
+        sid = se.create("switch", {
+            "trigger_ids": ["sw_a", "sw_b", "sw_c"],
+            "ordered":     False,
+            "objective":   "Activate all three.",
+        })
+        se.activate(sid)
+        se.trigger(sid, "sw_a")
+        se.trigger(sid, "sw_b")
+        assert se.get_state(sid) is ScenarioState.ACTIVE
+        se.trigger(sid, "sw_c")
+        assert se.get_state(sid) is ScenarioState.COMPLETE
+
+    def test_unknown_scenario_id_returns_none(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        se = ScenarioEngine()
+        assert se.get_state("nonexistent_id") is None
+
+    def test_invalid_scenario_type_raises(self):
+        from core.systems.scenario_engine import ScenarioEngine
+        se = ScenarioEngine()
+        with pytest.raises(ValueError):
+            se.create("kidnap", {"objective": "nope"})
