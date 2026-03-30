@@ -28,6 +28,8 @@ from panda3d.core import SamplerState, Vec4
 # Scale factor brings Kenney units (~1m models) to game scale.
 
 KENNEY_PATH = Path(__file__).parent.parent.parent / "assets" / "kenney" / "nature-kit" / "Models" / "GLTF format"
+KENNEY_BLOCKY_PATH = Path(__file__).parent.parent.parent / "assets" / "kenney" / "characters" / "blocky" / "Models" / "GLB format"
+QUATERNIUS_RPG_PATH = Path(__file__).parent.parent.parent / "assets" / "quaternius" / "rpg-characters" / "Humanoid Rig Versions" / "FBX"
 
 ASSET_CATALOG = {
     # Trees
@@ -76,6 +78,17 @@ ASSET_CATALOG = {
     "fuel_canister":    {"file": "campfire_planks.glb",   "scale": 2.0,  "category": "remnant"},
     "concrete_fragment": {"file": "rock_largeB.glb",      "scale": 2.0,  "category": "remnant"},
     "faded_sign_panel": {"file": "fence_planks.glb",      "scale": 2.0,  "category": "remnant"},
+    # RPG Characters (Quaternius) -- FBX, scale 0.03 (cm → m)
+    "char_monk":    {"file": "Wizard.fbx",  "scale": 0.03, "category": "character", "path": "quaternius_rpg"},
+    "char_wizard":  {"file": "Wizard.fbx",  "scale": 0.03, "category": "character", "path": "quaternius_rpg"},
+    "char_warrior": {"file": "Warrior.fbx", "scale": 0.03, "category": "character", "path": "quaternius_rpg"},
+    "char_cleric":  {"file": "Cleric.fbx",  "scale": 0.03, "category": "character", "path": "quaternius_rpg"},
+    "char_ranger":  {"file": "Ranger.fbx",  "scale": 0.03, "category": "character", "path": "quaternius_rpg"},
+    "char_rogue":   {"file": "Rogue.fbx",   "scale": 0.03, "category": "character", "path": "quaternius_rpg"},
+    # Blocky Characters (Kenney) -- GLB, scale 1.0
+    "char_blocky_a": {"file": "character-a.glb", "scale": 1.0, "category": "character", "path": "kenney_blocky"},
+    "char_blocky_b": {"file": "character-b.glb", "scale": 1.0, "category": "character", "path": "kenney_blocky"},
+    "char_blocky_c": {"file": "character-c.glb", "scale": 1.0, "category": "character", "path": "kenney_blocky"},
 }
 
 # Register tints -- applied via setColorScale to shift model colors
@@ -109,7 +122,15 @@ class ModelLoader:
         if not entry:
             return None
 
-        file_path = KENNEY_PATH / entry["file"]
+        # Resolve path based on asset source
+        path_key = entry.get("path", "kenney")
+        if path_key == "quaternius_rpg":
+            file_path = QUATERNIUS_RPG_PATH / entry["file"]
+        elif path_key == "kenney_blocky":
+            file_path = KENNEY_BLOCKY_PATH / entry["file"]
+        else:
+            file_path = KENNEY_PATH / entry["file"]
+
         if not file_path.exists():
             return None
 

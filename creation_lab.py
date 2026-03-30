@@ -423,10 +423,12 @@ class CreationLab(ShowBase):
         self._spawn_compound("torch_lit", (-3.0, 0.0, 0.0))
         self._spawn_compound("tome",      ( 3.0, 0.0, 0.0))
 
-        # The Monk -- 2D sprite in 3D world
-        self._monk_sprite = self.sprites.spawn_sprite(
-            "monk", pos=(0, 8, 0), scale=2.0
-        )
+        # The Monk -- 3D character model (Quaternius Wizard as Philosopher Monk)
+        self._monk_sprite = self._model_loader.load("char_monk")
+        if self._monk_sprite:
+            self._monk_sprite.reparentTo(self.render)
+            self._monk_sprite.setPos(0, 8, 0)
+            self._model_loader.apply_register(self._monk_sprite, self._register)
 
     def _build_environment(self):
         """Build floor, walls, grid from current register. Delegates to lab_environment."""
@@ -947,19 +949,18 @@ class CreationLab(ShowBase):
                     f"verb={verb}  [dim]{obj.get('id', '')}[/dim]"
                 )
 
-        # Monk sprite -- follows camera, animates with movement
+        # Monk model -- follows camera, faces movement direction
         if self._monk_sprite and not self._monk_sprite.isEmpty():
             cam_pos = self.cam.getPos()
-            # Place monk 8 units ahead of camera at ground level
             forward = self.cam.getQuat().getForward()
-            self._monk_sprite.setPos(
-                cam_pos.x + forward.x * 8,
-                cam_pos.y + forward.y * 8,
-                0,
-            )
-            moving = any(self.key_map.values())
-            anim = "monk_walk" if moving else "monk_idle"
-            self.sprites.animate(self._monk_sprite, anim, dt)
+            mx = cam_pos.x + forward.x * 8
+            my = cam_pos.y + forward.y * 8
+            self._monk_sprite.setPos(mx, my, 0)
+            # Face the direction of movement
+            if any(self.key_map.values()):
+                import math
+                angle = math.degrees(math.atan2(-forward.x, forward.y))
+                self._monk_sprite.setH(angle)
 
         # Fingerprint tick -- accumulate behavioral time
         activity = self._infer_activity()
