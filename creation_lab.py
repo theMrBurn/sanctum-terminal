@@ -233,6 +233,23 @@ class CreationLab(ShowBase):
         self.setup_lighting()
         self.setup_controls()
         self._build_lab()
+
+        # FIRST FIVE SECONDS: boot into biome, not lab
+        self._biome = "VERDANT"
+        self.layer_interactable.hide()
+        for np in self._env_nodes:
+            try:
+                np.removeNode()
+            except Exception:
+                pass
+        self._env_nodes = []
+        self._biome_builder.build(self._biome, register=self._register)
+        # Set atmosphere for biome
+        from core.systems.biome_renderer import BIOME_PALETTE
+        pal = BIOME_PALETTE.get(self._biome, BIOME_PALETTE["VOID"])
+        fc = pal["floor"]
+        self.setBackgroundColor(fc[0] * 0.4, fc[1] * 0.4, fc[2] * 0.3, 1)
+
         self._update_hud()
         self._pulse_elapsed = 0.0
         self.taskMgr.add(self._glow_pulse_task, "GlowPulse")
@@ -242,9 +259,8 @@ class CreationLab(ShowBase):
             self.accept("escape",       self.disable_mouse_look)
             self.accept("shift-escape", self.exit_app)
             self.accept("mouse1",       self.enable_mouse_look)
-            console.log("[bold cyan]CREATION LAB -- SCENARIO TESTBED[/bold cyan]")
-            console.log("[E] lift/stow  [G] drop  [C] craft  [X] clear")
-            console.log("[R] register  [B] biome  [Q] fetch  Shift+ESC quit")
+            console.log("[bold cyan]SANCTUM TERMINAL[/bold cyan]")
+            console.log("[dim]Click to look. WASD to move. Shift+ESC to leave.[/dim]")
 
     # -- Interaction state -> layer_fx glow ------------------------------------
 
@@ -753,31 +769,26 @@ class CreationLab(ShowBase):
         self._hud = []
         held  = self.pickup.held_obj
 
-        lines = [
-            f"SLOT A: {self.slot_a or 'empty'}",
-            f"SLOT B: {self.slot_b or 'empty'}",
-            "",
-            f"HELD:   {held['id'] if held else '--'}",
-            f"BAG:    {self.inventory.count()}/{self.inventory.max_slots}"
-            f"  {self.inventory.current_weight():.1f}kg",
-            "",
-        ]
+        lines = []
 
-        # Active scenario
-        if self._active_sid:
-            state = self.se.get_state(self._active_sid)
-            obj   = self.se.get_objective(self._active_sid)
-            lines += [
-                f"QUEST:  [{state.name}]",
-                f"  {obj}",
-                "",
-            ]
+        # Campaign quests -- the player's world
+        if hasattr(self, '_campaign') and self._campaign._session_quests:
+            for q in self._campaign._session_quests:
+                state = self.se.get_state(q["scenario_id"])
+                state_name = state.name if state else "?"
+                marker = ">" if state_name == "ACTIVE" else " " if state_name == "PENDING" else "+"
+                lines.append(f" {marker} {q['objective']}")
+            lines.append("")
 
-        lines += [f"REGISTER: {self._register}  BIOME: {self._biome}"]
-        lines += ["[E] lift/stow  [G] drop  [Q] fetch  [R] register  [B] biome  [C] craft"]
-
-        if result:
-            lines += ["", f">> {result['name']}", result["description"]]
+        # Held item + inventory
+        if held:
+            lines.append(f"HELD: {held['id']}")
+        lines.append(
+            f"BAG: {self.inventory.count()}/{self.inventory.max_slots}"
+            f"  {self.inventory.current_weight():.1f}kg"
+        )
+        lines.append("")
+        lines.append(f"{self._biome}  depth: {self._consolidation.depth:.3f}")
 
         y = 0.92
         for line in lines:
