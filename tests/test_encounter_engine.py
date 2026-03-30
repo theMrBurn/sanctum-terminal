@@ -19,8 +19,10 @@ def fingerprint():
     from core.systems.fingerprint_engine import FingerprintEngine
     fp = FingerprintEngine()
     # Philosopher Monk baseline -- precision dominant
-    fp.record("precision_score",    0.8)
-    fp.record("observation_time",   0.7)
+    # Multiple records to build past resonance threshold (0.45)
+    for _ in range(5):
+        fp.record("precision_score",    0.9)
+        fp.record("observation_time",   0.8)
     fp.record("crafting_time",      0.5)
     fp.record("negotiate_count",    0.4)
     fp.record("creature_interactions", 0.2)

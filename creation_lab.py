@@ -874,6 +874,9 @@ class CreationLab(ShowBase):
         activity = self._infer_activity()
         self.pipeline.fingerprint.tick(dt, activity)
 
+        # Encounter cooldown -- world digests before speaking again
+        self.pipeline.encounter.tick_cooldown(dt)
+
         # Blend refresh -- merge interview + fingerprint periodically
         self._blend_refresh_elapsed += dt
         if self._blend_refresh_elapsed >= self._blend_refresh_interval:

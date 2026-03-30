@@ -176,9 +176,10 @@ class TestPipelineIntegration:
 
     def test_pipeline_with_primed_fingerprint(self, pipeline):
         """After behavioral data, encounters resonate."""
-        # Prime the fingerprint with behavior
-        pipeline.fingerprint.record("precision_score", 0.8)
-        pipeline.fingerprint.record("observation_time", 0.7)
+        # Prime the fingerprint with behavior -- multiple records to cross 0.45 threshold
+        for _ in range(5):
+            pipeline.fingerprint.record("precision_score", 0.9)
+            pipeline.fingerprint.record("observation_time", 0.8)
         pipeline.refresh_blend()
 
         worth = pipeline.encounter.begin({

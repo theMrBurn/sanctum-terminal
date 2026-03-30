@@ -65,8 +65,10 @@ def fetch_quest(runner, pipeline, target_obj=None, target_pos=None) -> dict:
     tags = obj.get("tags", [])
 
     # -- 1. Prime fingerprint so encounters can resonate -----------------------
-    pipeline.fingerprint.record("precision_score", 0.6)
-    pipeline.fingerprint.record("objects_inspected", 0.4)
+    # Multiple records to build past resonance threshold (0.45)
+    for _ in range(5):
+        pipeline.fingerprint.record("precision_score", 0.9)
+        pipeline.fingerprint.record("objects_inspected", 0.7)
     pipeline.refresh_blend()
 
     # -- 2. Spawn target -------------------------------------------------------
