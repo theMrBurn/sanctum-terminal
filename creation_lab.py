@@ -427,9 +427,9 @@ class CreationLab(ShowBase):
         for i, key in enumerate(self._obj_keys[:9]):
             self._spawn_at(key, ((i - 4) * 2.0, LAB_Y_N - 3.0, 0.5))
 
-        # Compound objects -- torch and book near the workbench
-        self._spawn_compound("torch_lit", (-2.0, 4.0, 0.5))
-        self._spawn_compound("tome",      ( 2.0, 4.0, 0.5))
+        # Compound objects -- torch and book, visible from camera start
+        self._spawn_compound("torch_lit", (-3.0, 0.0, 0.0))
+        self._spawn_compound("tome",      ( 3.0, 0.0, 0.0))
 
     def _build_environment(self):
         """Build floor, walls, grid from current register palette."""
