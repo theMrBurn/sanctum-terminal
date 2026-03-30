@@ -277,6 +277,8 @@ class TestActivityInference:
     def test_observing_when_still_near_reachable(self, lab):
         if not lab._spawned:
             pytest.skip("no spawned objects")
+        lab._biome = "LAB"
+        lab.layer_interactable.show()
         node = lab._spawned[0]["node"]
         pos = node.getPos(lab.render)
         lab.cam.setPos(pos.x, pos.y, pos.z)
@@ -335,6 +337,9 @@ class TestFingerprintInGameLoop:
     def test_observing_flows_to_fingerprint(self, lab):
         if not lab._spawned:
             pytest.skip("no spawned objects")
+        # Switch to LAB mode so interactables are visible
+        lab._biome = "LAB"
+        lab.layer_interactable.show()
         fp = lab.pipeline.fingerprint
         node = lab._spawned[0]["node"]
         pos = node.getPos(lab.render)
