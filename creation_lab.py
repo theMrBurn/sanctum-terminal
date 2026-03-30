@@ -133,6 +133,7 @@ class CreationLab(ShowBase):
         self._walls    = []
         self._floor    = None
         self._glows    = {}   # node -> glow NodePath on layer_fx
+        self._labels   = {}   # node -> label NodePath on layer_fx
 
         # Scene graph layers
         self.layer_structure    = self.render.attachNewNode("layer_structure")
@@ -204,14 +205,21 @@ class CreationLab(ShowBase):
     def _on_interaction_state(self, node, state: InteractionState) -> None:
         """
         Fires on every state transition.
-        Drives glow indicator on layer_fx.
+        Drives glow indicator + floating label on layer_fx.
         Warm amber = reachable. Cool blue = detectable. None = dormant.
+        Label only on REACHABLE: name + weight + one use.
         """
         # Remove existing glow for this node
         if node in self._glows:
             try: self._glows[node].removeNode()
             except: pass
             del self._glows[node]
+
+        # Remove existing label for this node
+        if node in self._labels:
+            try: self._labels[node].removeNode()
+            except: pass
+            del self._labels[node]
 
         color = _STATE_GLOW.get(state)
         if color is None:
@@ -226,6 +234,10 @@ class CreationLab(ShowBase):
         glow_np.setTransparency(True)
         glow_np.setAlphaScale(0.7)
         self._glows[node] = glow_np
+
+        # Label: only on REACHABLE -- name + weight + one use
+        if state is InteractionState.REACHABLE:
+            self._create_label(node)
 
     # -- Glow pulse (breathing) ------------------------------------------------
 
@@ -245,6 +257,44 @@ class CreationLab(ShowBase):
                 glow.setColorScale(1, 1, 1, alpha)
             except Exception:
                 pass
+
+    # -- Floating labels -------------------------------------------------------
+
+    def _create_label(self, node) -> None:
+        """
+        Create a floating label above the object on layer_fx.
+        Shows: name + weight + one use line.
+        Billboard mode: always faces camera.
+        """
+        obj = node.getPythonTag("obj")
+        if not obj:
+            return
+
+        name   = obj.get("name", obj.get("id", "unknown"))
+        weight = obj.get("weight", 0.0)
+        use    = obj.get("ability", obj.get("use", obj.get("role", "")))
+
+        lines = [name]
+        lines.append(f"{weight:.1f}kg")
+        if use:
+            lines.append(use)
+
+        text = "\n".join(lines)
+
+        tn = TextNode(f"label_{id(node)}")
+        tn.setText(text)
+        tn.setAlign(TextNode.ACenter)
+        tn.setTextColor(0.85, 0.80, 0.72, 0.9)
+        tn.setShadow(0.03, 0.03)
+        tn.setShadowColor(0, 0, 0, 0.6)
+
+        label_np = self.layer_fx.attachNewNode(tn)
+        obj_pos  = node.getPos(self.render)
+        label_np.setPos(obj_pos.x, obj_pos.y, obj_pos.z + 1.2)
+        label_np.setScale(0.3)
+        label_np.setBillboardPointEye()
+
+        self._labels[node] = label_np
 
     # -- Scenario wiring -------------------------------------------------------
 
