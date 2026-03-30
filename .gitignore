@@ -38,3 +38,6 @@ tests/mock_exports/
 # ── Tooling ───────────────────────────────────────────────────────────────────
 .trunk/out/
 *.log
+
+# ── Reference model packs (CC0, downloaded locally) ──────────────────────────
+assets/kenney/

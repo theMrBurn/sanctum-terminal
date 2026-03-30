@@ -201,7 +201,9 @@ class CreationLab(ShowBase):
         self.layer_fx           = self.render.attachNewNode("layer_fx")
 
         # BiomeSceneBuilder -- needs layer_structure to exist
-        self._biome_builder = BiomeSceneBuilder(self.layer_structure, seed=42)
+        self._biome_builder = BiomeSceneBuilder(
+            self.layer_structure, seed=42, panda_loader=self.loader
+        )
 
         # Specular -- Anno wet-stone on all interactables
         mat = Material("interactable")

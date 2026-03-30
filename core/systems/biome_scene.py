@@ -24,6 +24,7 @@ from panda3d.core import Material, Vec4
 from core.systems.biome_renderer import BiomeRenderer, _make_plane_geom, BIOME_PALETTE
 from core.systems.primitive_factory import PrimitiveFactory
 from core.systems.tree_builder import TreeBuilder
+from core.systems.model_loader import ModelLoader, REGISTER_TINTS
 
 
 # Biomes that get trees
@@ -83,7 +84,8 @@ class BiomeSceneBuilder:
     radius      : float -- scene radius in metres
     """
 
-    def __init__(self, render_root, seed: int = 42, radius: float = 50.0):
+    def __init__(self, render_root, seed: int = 42, radius: float = 50.0,
+                 panda_loader=None):
         self.render_root    = render_root
         self.seed           = seed
         self.radius         = radius
@@ -92,6 +94,7 @@ class BiomeSceneBuilder:
         self._compounds     = _load_compounds()
         self._tree_bp       = _load_tree_blueprint()
         self._tree_builder  = TreeBuilder()
+        self._model_loader  = ModelLoader(panda_loader) if panda_loader else None
         self._floor_np      = None
 
     def build(self, biome_key: str, register: str = "survival") -> list:
@@ -136,8 +139,11 @@ class BiomeSceneBuilder:
                     "compound_key": key,
                 })
 
-        # Trees for vegetated biomes
-        if biome_key in _TREE_BIOMES and self._tree_bp.get("trees"):
+        # Trees + environment models (imported when available, fallback to procedural)
+        if self._model_loader and biome_key in _TREE_BIOMES:
+            self._scatter_imported_models(biome_key, register, rng)
+        elif biome_key in _TREE_BIOMES and self._tree_bp.get("trees"):
+            # Fallback: procedural trees
             tree_count = rng.randint(12, 25)
             tree_nodes = self._tree_builder.build_forest(
                 self._tree_bp, rng,
@@ -153,7 +159,70 @@ class BiomeSceneBuilder:
                     "biome": biome_key, "tree_type": tn.get("tree_type", ""),
                 })
 
+        # Imported rock/plant scatter for non-tree biomes
+        if self._model_loader and biome_key not in _TREE_BIOMES:
+            self._scatter_imported_models(biome_key, register, rng)
+
         return self.nodes
+
+    def _scatter_imported_models(self, biome_key, register, rng):
+        """Scatter imported Kenney models appropriate for this biome."""
+        # Pick models by biome category
+        categories = _BIOME_CATEGORIES.get(biome_key, ["geology"])
+        model_ids = []
+        for cat in categories:
+            model_ids.extend(self._model_loader.by_category(cat))
+
+        if not model_ids:
+            return
+
+        # Trees for vegetated biomes
+        if biome_key in _TREE_BIOMES:
+            tree_ids = self._model_loader.by_category("flora")
+            tree_ids = [t for t in tree_ids if "tree" in t]
+            tree_count = rng.randint(10, 20)
+            for _ in range(tree_count):
+                tid = rng.choice(tree_ids) if tree_ids else None
+                if not tid:
+                    continue
+                np = self._model_loader.load(tid)
+                if not np:
+                    continue
+                x = rng.uniform(-self.radius * 0.8, self.radius * 0.8)
+                y = rng.uniform(-self.radius * 0.8, self.radius * 0.8)
+                if abs(x) < 5 and abs(y) < 5:
+                    x += 8 * (1 if x >= 0 else -1)
+                np.reparentTo(self.render_root)
+                np.setPos(x, y, 0)
+                np.setH(rng.uniform(0, 360))
+                self._model_loader.apply_register(np, register)
+                self.nodes.append({
+                    "np": np, "role": "tree", "biome": biome_key,
+                    "model_id": tid,
+                })
+
+        # Ground scatter (rocks, plants, bushes, mushrooms)
+        scatter_ids = [m for m in model_ids if "tree" not in m]
+        scatter_count = rng.randint(8, 18)
+        for _ in range(scatter_count):
+            mid = rng.choice(scatter_ids) if scatter_ids else None
+            if not mid:
+                continue
+            np = self._model_loader.load(mid)
+            if not np:
+                continue
+            x = rng.uniform(-self.radius * 0.7, self.radius * 0.7)
+            y = rng.uniform(-self.radius * 0.7, self.radius * 0.7)
+            if abs(x) < 4 and abs(y) < 4:
+                x += 6 * (1 if x >= 0 else -1)
+            np.reparentTo(self.render_root)
+            np.setPos(x, y, 0)
+            np.setH(rng.uniform(0, 360))
+            self._model_loader.apply_register(np, register)
+            self.nodes.append({
+                "np": np, "role": "scatter", "biome": biome_key,
+                "model_id": mid,
+            })
 
     def _get_scatter_keys(self, biome_key: str) -> list:
         """Get compound keys appropriate for this biome."""
