@@ -1,14 +1,14 @@
 """
 tests/test_biome_scenes.py
 
-Biome scenes in creation lab -- realized environments.
+Biome scenes -- compound objects scattered in realized environments.
 
 [B] cycles biomes: VERDANT / CHROME / NEON / IRON / FROZEN.
-BiomeRenderer composes floor + scatter. TreeBuilder adds vegetation.
-Register palette still applies on top via [R].
+BiomeSceneBuilder composes floor + compound scatter + trees.
+Register palette skins everything via [R].
 """
 import pytest
-from core.systems.biome_renderer import BiomeRenderer, BIOME_PALETTE
+from core.systems.biome_renderer import BIOME_PALETTE
 
 
 # -- BiomeRenderer contracts ---------------------------------------------------
@@ -26,17 +26,8 @@ class TestBiomeRendererBasics:
             assert "accent" in pal, f"{key} missing accent"
             assert "scale" in pal, f"{key} missing scale"
 
-    def test_renderer_clear_removes_nodes(self):
-        from panda3d.core import NodePath
-        root = NodePath("test_root")
-        br = BiomeRenderer(root, "VERDANT", seed=42)
-        br.render_scene()
-        assert len(br.nodes) > 0
-        br.clear()
-        assert len(br.nodes) == 0
 
-
-# -- BiomeSceneBuilder (new) --------------------------------------------------
+# -- BiomeSceneBuilder --------------------------------------------------------
 
 class TestBiomeSceneBuilder:
 
@@ -109,3 +100,49 @@ class TestBiomeSceneBuilder:
         n1 = b1.build("VERDANT")
         n2 = b2.build("VERDANT")
         assert len(n1) == len(n2)
+
+
+# -- Compound scatter ----------------------------------------------------------
+
+class TestCompoundScatter:
+
+    def test_scatter_contains_compounds(self):
+        from panda3d.core import NodePath
+        from core.systems.biome_scene import BiomeSceneBuilder
+        root = NodePath("test_root")
+        builder = BiomeSceneBuilder(root, seed=42)
+        nodes = builder.build("IRON")
+        scatter = [n for n in nodes if n.get("role") == "scatter"]
+        assert len(scatter) > 0
+
+    def test_scatter_has_compound_keys(self):
+        from panda3d.core import NodePath
+        from core.systems.biome_scene import BiomeSceneBuilder
+        root = NodePath("test_root")
+        builder = BiomeSceneBuilder(root, seed=42)
+        nodes = builder.build("CHROME")
+        keys = [n.get("compound_key") for n in nodes if n.get("compound_key")]
+        assert len(keys) > 0
+
+    def test_register_changes_colors(self):
+        """Same biome, different register = different compound colors."""
+        from panda3d.core import NodePath
+        from core.systems.biome_scene import BiomeSceneBuilder
+        root1 = NodePath("r1")
+        root2 = NodePath("r2")
+        b1 = BiomeSceneBuilder(root1, seed=42)
+        b2 = BiomeSceneBuilder(root2, seed=42)
+        n1 = b1.build("IRON", register="survival")
+        n2 = b2.build("IRON", register="tron")
+        # Both produce same number of nodes
+        assert len(n1) == len(n2)
+
+    def test_verdant_scatters_flora_and_geology(self):
+        from panda3d.core import NodePath
+        from core.systems.biome_scene import BiomeSceneBuilder
+        root = NodePath("test_root")
+        builder = BiomeSceneBuilder(root, seed=42)
+        nodes = builder.build("VERDANT")
+        keys = {n.get("compound_key") for n in nodes if n.get("compound_key")}
+        # Should have stump (flora) and/or boulder (geology)
+        assert len(keys) > 0

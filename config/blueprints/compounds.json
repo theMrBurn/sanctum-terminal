@@ -66,5 +66,143 @@
     "description": "Leather-bound. Pages still turn.",
     "silhouette": "horizontal_layered",
     "category": "knowledge"
+  },
+
+  "boulder": {
+    "grammar": [
+      {"primitive": "BLOCK", "role": "base",  "scale": [2.0, 1.4, 1.8], "color": "stone"},
+      {"primitive": "WEDGE", "role": "cap",   "scale": [1.6, 0.8, 1.4], "color": "stone_light", "parent": "base"}
+    ],
+    "registers": {
+      "survival": {
+        "stone":       {"base": [0.38, 0.36, 0.32], "edge": [0.0, 0.0, 0.0], "emission": 0.0},
+        "stone_light": {"base": [0.45, 0.43, 0.38], "edge": [0.0, 0.0, 0.0], "emission": 0.0}
+      },
+      "tron": {
+        "stone":       {"base": [0.04, 0.04, 0.06], "edge": [0.2, 0.3, 0.5], "emission": 0.15},
+        "stone_light": {"base": [0.05, 0.05, 0.07], "edge": [0.3, 0.4, 0.6], "emission": 0.2}
+      },
+      "tolkien": {
+        "stone":       {"base": [0.35, 0.30, 0.22], "edge": [0.0, 0.0, 0.0], "emission": 0.0},
+        "stone_light": {"base": [0.42, 0.38, 0.28], "edge": [0.0, 0.0, 0.0], "emission": 0.0}
+      },
+      "sanrio": {
+        "stone":       {"base": [0.75, 0.68, 0.80], "edge": [0.8, 0.7, 0.85], "emission": 0.1},
+        "stone_light": {"base": [0.82, 0.75, 0.88], "edge": [0.9, 0.8, 0.92], "emission": 0.1}
+      }
+    },
+    "tags": ["exploration_time"],
+    "encounter_verb": "MOVE",
+    "weight": 12.0,
+    "use_line": "Too heavy to carry. Good to sit on.",
+    "description": "Rounded by weather. Warm in the afternoon.",
+    "silhouette": "compact_heavy",
+    "category": "geology",
+    "biome_scatter": true
+  },
+
+  "crystal_spire": {
+    "grammar": [
+      {"primitive": "PILLAR", "role": "base",    "scale": [0.3, 0.6, 0.3],  "color": "crystal_dark"},
+      {"primitive": "SPIKE",  "role": "spire",   "scale": [0.4, 2.2, 0.4],  "color": "crystal",      "parent": "base"},
+      {"primitive": "SPIKE",  "role": "shard",   "scale": [0.25, 1.2, 0.25],"color": "crystal_light", "parent": "base", "offset": [0.3, 0.15, 0.0]}
+    ],
+    "registers": {
+      "survival": {
+        "crystal_dark":  {"base": [0.15, 0.18, 0.22], "edge": [0.0, 0.0, 0.0],   "emission": 0.0},
+        "crystal":       {"base": [0.30, 0.45, 0.55], "edge": [0.4, 0.6, 0.7],   "emission": 0.2},
+        "crystal_light": {"base": [0.40, 0.55, 0.65], "edge": [0.5, 0.7, 0.8],   "emission": 0.15}
+      },
+      "tron": {
+        "crystal_dark":  {"base": [0.02, 0.02, 0.04], "edge": [0.0, 0.3, 0.5],   "emission": 0.2},
+        "crystal":       {"base": [0.02, 0.03, 0.05], "edge": [0.0, 0.8, 1.0],   "emission": 0.9},
+        "crystal_light": {"base": [0.03, 0.04, 0.06], "edge": [0.2, 0.9, 1.0],   "emission": 0.8}
+      },
+      "tolkien": {
+        "crystal_dark":  {"base": [0.18, 0.12, 0.20], "edge": [0.0, 0.0, 0.0],   "emission": 0.0},
+        "crystal":       {"base": [0.35, 0.25, 0.45], "edge": [0.4, 0.3, 0.5],   "emission": 0.1},
+        "crystal_light": {"base": [0.45, 0.35, 0.55], "edge": [0.5, 0.4, 0.6],   "emission": 0.1}
+      },
+      "sanrio": {
+        "crystal_dark":  {"base": [0.70, 0.55, 0.75], "edge": [0.8, 0.6, 0.85],  "emission": 0.2},
+        "crystal":       {"base": [0.85, 0.70, 0.90], "edge": [1.0, 0.85, 1.0],  "emission": 0.4},
+        "crystal_light": {"base": [0.92, 0.80, 0.95], "edge": [1.0, 0.9, 1.0],   "emission": 0.35}
+      }
+    },
+    "tags": ["observation_time", "objects_inspected"],
+    "encounter_verb": "THINK",
+    "weight": 3.0,
+    "use_line": "Hums when you touch it.",
+    "description": "Grew from the ground. Still growing.",
+    "silhouette": "vertical_jagged",
+    "category": "geology",
+    "biome_scatter": true
+  },
+
+  "stump": {
+    "grammar": [
+      {"primitive": "PILLAR", "role": "trunk",  "scale": [0.8, 0.9, 0.8],  "color": "bark"},
+      {"primitive": "SLAB",   "role": "rings",  "scale": [0.9, 0.06, 0.9], "color": "heartwood", "parent": "trunk"},
+      {"primitive": "WEDGE",  "role": "root",   "scale": [0.5, 0.3, 0.4],  "color": "bark",      "parent": "trunk", "offset": [0.4, 0.0, -0.6]}
+    ],
+    "registers": {
+      "survival": {
+        "bark":      {"base": [0.22, 0.16, 0.08], "edge": [0.0, 0.0, 0.0], "emission": 0.0},
+        "heartwood": {"base": [0.45, 0.35, 0.18], "edge": [0.0, 0.0, 0.0], "emission": 0.0}
+      },
+      "tron": {
+        "bark":      {"base": [0.03, 0.03, 0.04], "edge": [0.3, 0.5, 0.2], "emission": 0.2},
+        "heartwood": {"base": [0.04, 0.04, 0.05], "edge": [0.5, 0.8, 0.3], "emission": 0.4}
+      },
+      "tolkien": {
+        "bark":      {"base": [0.25, 0.18, 0.10], "edge": [0.0, 0.0, 0.0], "emission": 0.0},
+        "heartwood": {"base": [0.50, 0.38, 0.20], "edge": [0.0, 0.0, 0.0], "emission": 0.0}
+      },
+      "sanrio": {
+        "bark":      {"base": [0.75, 0.62, 0.70], "edge": [0.8, 0.7, 0.78], "emission": 0.1},
+        "heartwood": {"base": [0.90, 0.80, 0.70], "edge": [1.0, 0.9, 0.8],  "emission": 0.1}
+      }
+    },
+    "tags": ["exploration_time", "crafting_time"],
+    "encounter_verb": "TOOLS",
+    "weight": 8.0,
+    "use_line": "Could be split for fuel.",
+    "description": "Cut clean. Rings say fifty years.",
+    "silhouette": "compact_low",
+    "category": "flora",
+    "biome_scatter": true
+  },
+
+  "metal_shard": {
+    "grammar": [
+      {"primitive": "SLAB",  "role": "plate",  "scale": [1.2, 0.08, 0.6], "color": "metal"},
+      {"primitive": "WEDGE", "role": "edge",   "scale": [0.8, 0.15, 0.3], "color": "metal_bright", "parent": "plate", "offset": [0.3, 0.0, 0.0]}
+    ],
+    "registers": {
+      "survival": {
+        "metal":        {"base": [0.40, 0.38, 0.35], "edge": [0.0, 0.0, 0.0],   "emission": 0.0},
+        "metal_bright": {"base": [0.55, 0.52, 0.48], "edge": [0.0, 0.0, 0.0],   "emission": 0.0}
+      },
+      "tron": {
+        "metal":        {"base": [0.05, 0.05, 0.07], "edge": [0.6, 0.6, 0.8],   "emission": 0.3},
+        "metal_bright": {"base": [0.06, 0.06, 0.08], "edge": [0.8, 0.8, 1.0],   "emission": 0.5}
+      },
+      "tolkien": {
+        "metal":        {"base": [0.35, 0.28, 0.20], "edge": [0.0, 0.0, 0.0],   "emission": 0.0},
+        "metal_bright": {"base": [0.50, 0.42, 0.30], "edge": [0.0, 0.0, 0.0],   "emission": 0.0}
+      },
+      "sanrio": {
+        "metal":        {"base": [0.80, 0.75, 0.85], "edge": [0.9, 0.85, 0.95], "emission": 0.15},
+        "metal_bright": {"base": [0.90, 0.88, 0.95], "edge": [1.0, 0.95, 1.0],  "emission": 0.2}
+      }
+    },
+    "tags": ["precision_score", "crafting_time"],
+    "encounter_verb": "ACT",
+    "weight": 1.5,
+    "use_line": "Sharp enough to cut with.",
+    "description": "Broken clean. One edge still holds.",
+    "silhouette": "horizontal_angular",
+    "category": "remnant",
+    "biome_scatter": true
   }
 }

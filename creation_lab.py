@@ -669,7 +669,7 @@ class CreationLab(ShowBase):
                 except Exception:
                     pass
             self._env_nodes = []
-            self._biome_builder.build(self._biome)
+            self._biome_builder.build(self._biome, register=self._register)
             # Update background from biome palette
             from core.systems.biome_renderer import BIOME_PALETTE
             pal = BIOME_PALETTE.get(self._biome, BIOME_PALETTE["VOID"])
