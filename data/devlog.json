@@ -1,0 +1,50 @@
+[
+  {
+    "ts": "2026-03-29T21:58:41",
+    "hash": "9229ddbc7763384f",
+    "type": "milestone",
+    "note": "Session 10: 558->737 tests, AvatarPipeline, compounds, biomes, Kenney models",
+    "context": "massive session",
+    "prev": "genesis"
+  },
+  {
+    "ts": "2026-03-29T21:58:41",
+    "hash": "a8a77d1e42e6e84e",
+    "type": "decision",
+    "note": "Encounter pacing: 0.45 resonance threshold + 60s cooldown",
+    "context": "Frieren model, not JRPG grind",
+    "prev": "9229ddbc7763384f"
+  },
+  {
+    "ts": "2026-03-29T21:58:41",
+    "hash": "41ec6f5f0b07098a",
+    "type": "decision",
+    "note": "Poly objects for environment, 2D billboard sprites for characters",
+    "context": "Anno Mutationem register",
+    "prev": "a8a77d1e42e6e84e"
+  },
+  {
+    "ts": "2026-03-29T21:58:41",
+    "hash": "b8c729cbcd8bc3d2",
+    "type": "decision",
+    "note": "Audio is last priority",
+    "context": "Max for Live OSC spec exists in separate repo",
+    "prev": "41ec6f5f0b07098a"
+  },
+  {
+    "ts": "2026-03-29T21:58:41",
+    "hash": "956dbd49d6858e7c",
+    "type": "decision",
+    "note": "Base-7 floor: 7 verbs x 7 scenarios = 49 space, ~35 valid, ~20-25 per session",
+    "context": "",
+    "prev": "b8c729cbcd8bc3d2"
+  },
+  {
+    "ts": "2026-03-29T21:58:41",
+    "hash": "8fb69096fc63aac7",
+    "type": "brainstorm",
+    "note": "DevLog tool for chained hash audit between sessions",
+    "context": "",
+    "prev": "956dbd49d6858e7c"
+  }
+]
