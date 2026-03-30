@@ -10,6 +10,9 @@ from panda3d.core import (
 )
 from rich.console import Console
 from core.systems.geometry import make_box as _make_box_geom, make_plane as _make_plane_geom
+from core.systems.lab_environment import (
+    ENVIRONMENT_REGISTERS, build_environment, update_lighting, update_fog,
+)
 from core.systems.crafting_engine import CraftingEngine
 from core.systems.primitive_factory import PrimitiveFactory
 from core.systems.inventory import Inventory
@@ -75,55 +78,6 @@ _STATE_GLOW = {
     InteractionState.DORMANT:    None,                    # no glow
 }
 
-
-# -- Environment registers -- whole room transforms with [R] ------------------
-
-ENVIRONMENT_REGISTERS = {
-    "survival": {
-        "background": _CFG["bg"],
-        "floor":      _CFG["floor_color"],
-        "wall":       _CFG["wall_color"],
-        "grid":       _CFG["grid_color"],
-        "ambient":    _CFG["light_amb"],
-        "sun":        _CFG["light_sun"],
-        "fill":       _CFG["light_fill"],
-        "fog":        (0.06, 0.05, 0.05),
-        "fog_range":  (20.0, 80.0),
-    },
-    "tron": {
-        "background": (0.0,  0.0,  0.02),
-        "floor":      (0.02, 0.02, 0.04),
-        "wall":       (0.03, 0.03, 0.06),
-        "grid":       (0.0,  0.35, 0.55),
-        "ambient":    (0.01, 0.03, 0.06),
-        "sun":        (0.2,  0.5,  0.8),
-        "fill":       (0.0,  0.08, 0.18),
-        "fog":        (0.0,  0.02, 0.04),
-        "fog_range":  (15.0, 60.0),
-    },
-    "tolkien": {
-        "background": (0.04, 0.03, 0.02),
-        "floor":      (0.18, 0.14, 0.08),
-        "wall":       (0.25, 0.20, 0.14),
-        "grid":       (0.22, 0.18, 0.12),
-        "ambient":    (0.08, 0.06, 0.04),
-        "sun":        (1.2,  0.85, 0.55),
-        "fill":       (0.06, 0.05, 0.03),
-        "fog":        (0.05, 0.04, 0.03),
-        "fog_range":  (25.0, 90.0),
-    },
-    "sanrio": {
-        "background": (0.35, 0.28, 0.32),
-        "floor":      (0.85, 0.70, 0.78),
-        "wall":       (0.75, 0.62, 0.72),
-        "grid":       (0.90, 0.75, 0.82),
-        "ambient":    (0.25, 0.20, 0.28),
-        "sun":        (1.0,  0.85, 0.90),
-        "fill":       (0.30, 0.25, 0.35),
-        "fog":        (0.40, 0.32, 0.38),
-        "fog_range":  (30.0, 100.0),
-    },
-}
 
 
 def clamp_to_lab(x: float, y: float, z: float) -> tuple:
@@ -442,64 +396,24 @@ class CreationLab(ShowBase):
         self._spawn_compound("tome",      ( 3.0, 0.0, 0.0))
 
     def _build_environment(self):
-        """Build floor, walls, grid from current register palette."""
-        S     = self.layer_structure
-        reg   = ENVIRONMENT_REGISTERS.get(self._register, ENVIRONMENT_REGISTERS["survival"])
-        depth = abs(LAB_Y_S - LAB_Y_N)
-        width = LAB_X * 2
-        fc    = reg["floor"]
-        wc    = reg["wall"]
-        gc    = reg["grid"]
-        wt    = 0.3
-        wh    = _CFG["wall_height"]
-
-        # Floor
-        fn = _make_plane_geom(int(width), int(depth), fc)
-        floor_np = S.attachNewNode(fn)
-        floor_np.setPos(0, 0, 0)
-        self._floor = floor_np
-        self._env_nodes.append(floor_np)
-
-        # Grid lines
-        for i in range(-5, 6):
-            gn = _make_box_geom(0.03, 0.008, width, gc)
-            np = S.attachNewNode(gn)
-            np.setPos(i * 2, 0, 0.003)
-            self._env_nodes.append(np)
-            gn2 = _make_box_geom(depth, 0.008, 0.03, gc)
-            np2 = S.attachNewNode(gn2)
-            np2.setPos(0, i * 2, 0.003)
-            self._env_nodes.append(np2)
-
-        # Walls (visual, not collision)
-        for dims, pos in [
-            ((width, wt, wh), (0,      LAB_Y_N, wh/2)),
-            ((width, wt, wh), (0,      LAB_Y_S, wh/2)),
-            ((wt, depth, wh), (LAB_X,  0,       wh/2)),
-            ((wt, depth, wh), (-LAB_X, 0,       wh/2)),
-        ]:
-            np = S.attachNewNode(_make_box_geom(*dims, wc))
-            np.setPos(*pos)
-            self._env_nodes.append(np)
-
-        # Apply background + lighting
+        """Build floor, walls, grid from current register. Delegates to lab_environment."""
+        nodes, reg = build_environment(
+            self.layer_structure, self._register, LAB_X, LAB_Y_N, LAB_Y_S
+        )
+        self._env_nodes.extend(nodes)
+        self._floor = nodes[0] if nodes else None
         bg = reg["background"]
         self.setBackgroundColor(bg[0], bg[1], bg[2], 1)
 
     def _apply_environment_register(self):
         """Rebuild environment surfaces and update lighting for current register."""
-        # Remove old environment geometry
         for np in self._env_nodes:
             try:
                 np.removeNode()
             except Exception:
                 pass
         self._env_nodes = []
-
-        # Rebuild with current register palette
         self._build_environment()
-
-        # Update lighting
         reg = ENVIRONMENT_REGISTERS.get(self._register, ENVIRONMENT_REGISTERS["survival"])
         self._update_lighting(reg)
 
@@ -854,28 +768,12 @@ class CreationLab(ShowBase):
         # Fog -- initial setup from current register
         self._fog = None
         reg = ENVIRONMENT_REGISTERS.get(self._register, ENVIRONMENT_REGISTERS["survival"])
-        self._update_fog(reg)
+        self._fog = update_fog(self._fog, self.render, reg)
 
     def _update_lighting(self, reg):
-        """Update light colors and fog from register palette."""
-        s = reg["sun"]
-        self._sun_light.setColor(Vec4(s[0], s[1], s[2], 1))
-        f = reg["fill"]
-        self._fill_light.setColor(Vec4(f[0], f[1], f[2], 1))
-        a = reg["ambient"]
-        self._amb_light.setColor(Vec4(a[0], a[1], a[2], 1))
-        # Fog
-        self._update_fog(reg)
-
-    def _update_fog(self, reg):
-        """Set linear fog from register palette."""
-        fc = reg.get("fog", (0.05, 0.05, 0.05))
-        fr = reg.get("fog_range", (20.0, 80.0))
-        if not hasattr(self, "_fog") or self._fog is None:
-            self._fog = Fog("scene_fog")
-            self.render.setFog(self._fog)
-        self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1.0))
-        self._fog.setLinearRange(fr[0], fr[1])
+        """Delegate to lab_environment."""
+        update_lighting(self._sun_light, self._fill_light, self._amb_light, reg)
+        self._fog = update_fog(self._fog, self.render, reg)
 
     # -- Controls --------------------------------------------------------------
 
