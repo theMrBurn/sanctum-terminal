@@ -26,7 +26,11 @@ from typing import Optional
 VERBS = {"THINK", "ACT", "MOVE", "DEFEND", "TOOLS"}
 
 # Resonance threshold -- below this, encounter leaves no trace
-RESONANCE_THRESHOLD = 0.15
+# 0.45 = ~25% pass rate. Less frequent, more meaningful. Frieren model.
+RESONANCE_THRESHOLD = 0.45
+
+# Minimum seconds between encounters -- prevents clustering
+ENCOUNTER_COOLDOWN = 60.0
 
 # XP per resonant encounter, scaled by resonance score
 XP_BASE = 1.0
@@ -77,6 +81,7 @@ class EncounterEngine:
         self.active_encounter  = None
         self._chosen_verb      = None
         self._consolidation_count = 0
+        self._cooldown_remaining = 0.0        # seconds until next encounter allowed
 
     # -- Resonance -------------------------------------------------------------
 
@@ -97,17 +102,28 @@ class EncounterEngine:
 
     # -- Encounter lifecycle ---------------------------------------------------
 
+    def tick_cooldown(self, dt: float) -> None:
+        """Advance cooldown timer. Call every frame."""
+        if self._cooldown_remaining > 0:
+            self._cooldown_remaining = max(0.0, self._cooldown_remaining - dt)
+
+    @property
+    def on_cooldown(self) -> bool:
+        """True if the engine is in post-encounter cooldown."""
+        return self._cooldown_remaining > 0
+
     def begin(self, entity: dict) -> bool:
         """
         Begin an encounter with an entity.
         entity: {"id": str, "tags": list, "type": str}
 
-        Returns True if WORTH_KNOWING (resonance > threshold).
-        Sets active_encounter.
+        Returns True if WORTH_KNOWING (resonance > threshold AND not on cooldown).
+        Cooldown prevents encounter clustering -- the world digests before speaking again.
+        Sets active_encounter regardless (for tracking), but worth_knowing is False on cooldown.
         """
         tags         = entity.get("tags", [])
         r            = self.resonance(tags)
-        worth        = r > RESONANCE_THRESHOLD
+        worth        = r > RESONANCE_THRESHOLD and not self.on_cooldown
 
         self.active_encounter = {
             "entity":       entity,
@@ -191,6 +207,10 @@ class EncounterEngine:
 
         self.active_encounter = None
         self._chosen_verb     = None
+
+        # Start cooldown after a resonant encounter
+        if worth:
+            self._cooldown_remaining = ENCOUNTER_COOLDOWN
 
         return {
             "outcome":       "resolved",
