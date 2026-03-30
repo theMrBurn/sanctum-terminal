@@ -187,6 +187,8 @@ class CreationLab(ShowBase):
         self.setup_controls()
         self._build_lab()
         self._update_hud()
+        self._pulse_elapsed = 0.0
+        self.taskMgr.add(self._glow_pulse_task, "GlowPulse")
         self.taskMgr.add(self.game_loop, "GameLoop")
 
         if not self.headless:
@@ -224,6 +226,25 @@ class CreationLab(ShowBase):
         glow_np.setTransparency(True)
         glow_np.setAlphaScale(0.7)
         self._glows[node] = glow_np
+
+    # -- Glow pulse (breathing) ------------------------------------------------
+
+    def _glow_pulse_task(self, task):
+        """Breathe glow alpha between 0.4 and 0.8. Runs every frame."""
+        import math
+        self._pulse_elapsed += globalClock.getDt()
+        self._update_glow_pulse()
+        return task.cont
+
+    def _update_glow_pulse(self):
+        """Set glow alpha based on sine wave. Called from task or test."""
+        import math
+        alpha = 0.6 + 0.2 * math.sin(self._pulse_elapsed * 2.5)
+        for glow in self._glows.values():
+            try:
+                glow.setColorScale(1, 1, 1, alpha)
+            except Exception:
+                pass
 
     # -- Scenario wiring -------------------------------------------------------
 
