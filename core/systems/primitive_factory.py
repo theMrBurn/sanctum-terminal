@@ -66,11 +66,15 @@ class Primitive:
     scale:           Tuple[float, float, float]
     color:           Tuple[float, float, float]
     geom_node:       object
+    offset_x:        float = 0.0
+    offset_y:        float = 0.0
     offset_z:        float = 0.0
     rotation:        Tuple[float, float, float] = (0.0, 0.0, 0.0)
     detail_level:    int = 0
     vibe:            str = ''
     provenance_hash: str = ''
+    emission:        float = 0.0
+    edge_color:      Tuple[float, float, float] = (0.0, 0.0, 0.0)
     relic:           dict = field(default_factory=dict)
     profile:         dict = field(default_factory=dict)
 
@@ -95,7 +99,8 @@ class PrimitiveFactory:
     """
 
     def build(self, primitive_type, scale, color,
-              role='', relic=None, profile=None):
+              role='', relic=None, profile=None,
+              emission=0.0, edge_color=None):
         if primitive_type not in PRIMITIVES:
             raise ValueError(
                 f'PrimitiveFactory: unknown primitive {primitive_type!r}. '
@@ -127,6 +132,8 @@ class PrimitiveFactory:
             detail_level    = detail,
             vibe            = relic.get('vibe', ''),
             provenance_hash = ph,
+            emission        = emission,
+            edge_color      = tuple(edge_color) if edge_color else (0.0, 0.0, 0.0),
             relic           = relic,
             profile         = profile,
         )
@@ -134,7 +141,8 @@ class PrimitiveFactory:
     def from_blueprint(self, blueprint, palette):
         """
         Build a list of Primitives from a blueprint grammar.
-        Handles parent/child relationships (trunk -> canopy).
+        Handles parent/child relationships with XYZ offsets.
+        If entry has "offset": [x, y, z], uses that instead of auto-stacking.
         """
         grammar  = blueprint.get('grammar', [])
         built    = []
@@ -147,18 +155,92 @@ class PrimitiveFactory:
             c_key  = entry.get('color', 'floor')
             color  = palette.get(c_key, (0.5, 0.5, 0.5))
             parent = entry.get('parent')
+            offset = entry.get('offset')
 
-            # Resolve parent offset
-            offset_z = 0.0
+            # Resolve offsets
+            ox, oy, oz = 0.0, 0.0, 0.0
             if parent and parent in by_role:
-                offset_z = by_role[parent].scale[1]
+                if offset is not None:
+                    ox, oy, oz = offset[0], offset[1], offset[2]
+                else:
+                    oz = by_role[parent].scale[1]
 
             p = self.build(ptype, tuple(scale), color, role=role)
-            p.offset_z = offset_z
+            p.offset_x = ox
+            p.offset_y = oy
+            p.offset_z = oz
             built.append(p)
             by_role[role] = p
 
         return built
+
+    def from_blueprint_full(self, blueprint, full_palette):
+        """
+        Build compound object with full register data (base + edge + emission).
+        full_palette: {color_key: {"base": [r,g,b], "edge": [r,g,b], "emission": float}}
+        """
+        grammar = blueprint.get('grammar', [])
+        built   = []
+        by_role = {}
+
+        for entry in grammar:
+            ptype  = entry['primitive']
+            role   = entry.get('role', '')
+            scale  = list(entry.get('scale', PRIMITIVES[ptype]['default_scale']))
+            c_key  = entry.get('color', 'floor')
+            parent = entry.get('parent')
+            offset = entry.get('offset')
+
+            color_data = full_palette.get(c_key, {"base": [0.5, 0.5, 0.5], "edge": [0.0, 0.0, 0.0], "emission": 0.0})
+            base       = tuple(color_data["base"])
+            edge       = tuple(color_data.get("edge", [0.0, 0.0, 0.0]))
+            emission   = color_data.get("emission", 0.0)
+
+            ox, oy, oz = 0.0, 0.0, 0.0
+            if parent and parent in by_role:
+                if offset is not None:
+                    ox, oy, oz = offset[0], offset[1], offset[2]
+                else:
+                    oz = by_role[parent].scale[1]
+
+            p = self.build(ptype, tuple(scale), base, role=role,
+                           emission=emission, edge_color=edge)
+            p.offset_x = ox
+            p.offset_y = oy
+            p.offset_z = oz
+            built.append(p)
+            by_role[role] = p
+
+        return built
+
+    # -- Register resolution --------------------------------------------------
+
+    @staticmethod
+    def resolve_register(registers, register_name):
+        """
+        Extract flat palette (color_key -> RGB tuple) from a named register.
+        For use with from_blueprint().
+        """
+        if register_name not in registers:
+            raise KeyError(
+                f"Unknown register: {register_name!r}. "
+                f"Available: {list(registers.keys())}"
+            )
+        reg = registers[register_name]
+        return {key: tuple(val["base"]) for key, val in reg.items()}
+
+    @staticmethod
+    def resolve_register_full(registers, register_name):
+        """
+        Extract full palette (color_key -> {base, edge, emission}) from register.
+        For use with from_blueprint_full().
+        """
+        if register_name not in registers:
+            raise KeyError(
+                f"Unknown register: {register_name!r}. "
+                f"Available: {list(registers.keys())}"
+            )
+        return registers[register_name]
 
     # -- Private ----------------------------------------------------------
 
