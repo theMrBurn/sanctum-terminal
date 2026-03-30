@@ -21,6 +21,8 @@ from core.systems.interaction_engine import InteractionEngine, InteractionState
 from core.systems.scenario_engine import ScenarioEngine, ScenarioState
 from core.systems.avatar_pipeline import AvatarPipeline
 from core.systems.biome_scene import BiomeSceneBuilder
+from core.systems.sprite_renderer import SpriteRenderer
+from core.systems.atmosphere_engine import AtmosphereEngine
 
 console = Console()
 
@@ -187,6 +189,11 @@ class CreationLab(ShowBase):
         self._blend_refresh_elapsed = 0.0
         self._blend_refresh_interval = 10.0  # seconds between ghost blend refresh
 
+        # AtmosphereEngine -- world responds to who you are
+        self.atmosphere = AtmosphereEngine()
+        self.atmosphere.subscribe("heat", self._on_heat_change)
+        self.atmosphere.subscribe("moisture", self._on_moisture_change)
+
         # PickupSystem -- delegates nearest lookup to InteractionEngine
         self.pickup = PickupSystem(
             camera         = self.cam,
@@ -197,6 +204,9 @@ class CreationLab(ShowBase):
             on_dropped_fn  = self._on_dropped,
             on_fail_fn     = self._on_pickup_fail,
         )
+
+        # Sprite renderer -- 2D characters in 3D world
+        self.sprites = SpriteRenderer(self.render, self.loader)
 
         self.disableMouse()
         self.camLens.setFov(75)
@@ -394,6 +404,11 @@ class CreationLab(ShowBase):
         # Compound objects -- torch and book, visible from camera start
         self._spawn_compound("torch_lit", (-3.0, 0.0, 0.0))
         self._spawn_compound("tome",      ( 3.0, 0.0, 0.0))
+
+        # The Monk -- 2D sprite in 3D world
+        self._monk_sprite = self.sprites.spawn_sprite(
+            "monk", pos=(0, 4, 0), scale=4.0
+        )
 
     def _build_environment(self):
         """Build floor, walls, grid from current register. Delegates to lab_environment."""
@@ -816,6 +831,25 @@ class CreationLab(ShowBase):
             props.setMouseMode(WindowProperties.M_absolute)
             self.win.requestProperties(props)
 
+    # -- Atmosphere callbacks --------------------------------------------------
+
+    def _on_heat_change(self, value):
+        """Heat rises → fog tightens, sun warms. The world pressures you."""
+        if hasattr(self, "_fog") and self._fog:
+            base_near, base_far = 20.0, 80.0
+            # Higher heat = tighter fog (closer far plane)
+            self._fog.setLinearRange(base_near, base_far * (1.0 - value * 0.4))
+
+    def _on_moisture_change(self, value):
+        """Moisture rises → fog thickens (lower alpha), world softens."""
+        if hasattr(self, "_fog") and self._fog:
+            from panda3d.core import Vec4
+            reg = ENVIRONMENT_REGISTERS.get(self._register, ENVIRONMENT_REGISTERS["survival"])
+            fc = reg.get("fog", (0.05, 0.05, 0.05))
+            # Higher moisture = denser fog (brighter fog color = more visible)
+            m = 1.0 + value * 0.5
+            self._fog.setColor(Vec4(fc[0] * m, fc[1] * m, fc[2] * m, 1.0))
+
     # -- Activity inference ----------------------------------------------------
 
     def _infer_activity(self) -> str:
@@ -877,11 +911,24 @@ class CreationLab(ShowBase):
         # Encounter cooldown -- world digests before speaking again
         self.pipeline.encounter.tick_cooldown(dt)
 
+        # Atmosphere tick -- lerp all active transitions
+        self.atmosphere.tick(dt)
+
         # Blend refresh -- merge interview + fingerprint periodically
+        # Also push ghost modifiers to atmosphere so world responds
         self._blend_refresh_elapsed += dt
         if self._blend_refresh_elapsed >= self._blend_refresh_interval:
             self._blend_refresh_elapsed = 0.0
             self.pipeline.refresh_blend()
+            # Ghost profile → atmosphere: world responds to who you are
+            modifiers = self.pipeline.ghost.get_world_modifiers(
+                self.pipeline.ghost_blend
+            )
+            self.atmosphere.from_ghost_modifiers(modifiers)
+            # Push atmosphere values with smooth lerp
+            for key, val in modifiers.items():
+                if key in self.atmosphere.state and isinstance(val, (int, float)):
+                    self.atmosphere.set(key, float(val), duration=3.0)
 
         return task.cont
 
