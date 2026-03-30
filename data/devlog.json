@@ -398,5 +398,53 @@
     "note": "Window title still says Creation Lab \u2014 should say Sanctum Terminal",
     "context": "",
     "prev": "4f8bfcb1c94914a3"
+  },
+  {
+    "ts": "2026-03-30T09:12:38",
+    "hash": "a0f42f815d109622",
+    "type": "decision",
+    "note": "7-Door Dungeon: 8 doors, 7 attempts, minute detail reveals correct door. Wizardry grid-based.",
+    "context": "The Garden of Forking Paths as game mechanic",
+    "prev": "66118a757967f278"
+  },
+  {
+    "ts": "2026-03-30T09:12:38",
+    "hash": "34d34af29c65ee68",
+    "type": "decision",
+    "note": "Progressive difficulty: Tier 1 visual, Tier 2 spatial, Tier 3 temporal, Tier 4 behavioral",
+    "context": "",
+    "prev": "a0f42f815d109622"
+  },
+  {
+    "ts": "2026-03-30T09:12:38",
+    "hash": "5f64c939e344213f",
+    "type": "decision",
+    "note": "Failure mode A: corridor resets, detail changes, depth preserved. Consequence not death.",
+    "context": "",
+    "prev": "34d34af29c65ee68"
+  },
+  {
+    "ts": "2026-03-30T09:12:38",
+    "hash": "3c228b61730cd836",
+    "type": "decision",
+    "note": "Base-7 natural: 7 attempts, 7 corridors per tier, 49 corridors per cycle",
+    "context": "",
+    "prev": "5f64c939e344213f"
+  },
+  {
+    "ts": "2026-03-30T09:12:38",
+    "hash": "ff493ced3d5b2fa1",
+    "type": "open",
+    "note": "Build DungeonGrid (grid movement ~30 lines), CorridorScene (~80 lines), DungeonCampaign (~60 lines)",
+    "context": "",
+    "prev": "3c228b61730cd836"
+  },
+  {
+    "ts": "2026-03-30T09:12:38",
+    "hash": "6247e5526fbde959",
+    "type": "open",
+    "note": "Final goal state after corridor 49 \u2014 TBD (interview? terminal? silence?)",
+    "context": "",
+    "prev": "ff493ced3d5b2fa1"
   }
 ]
