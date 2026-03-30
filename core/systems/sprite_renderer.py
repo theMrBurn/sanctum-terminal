@@ -42,10 +42,9 @@ SPRITE_SHEETS = {
 
 # Named sprite definitions -- column, row on the sheet
 SPRITE_CATALOG = {
-    # Player characters
+    # Player characters (row 0: cols 0-8 are character variants)
     "monk":         {"sheet": "roguelike", "col": 0,  "row": 0},
-    "monk_walk1":   {"sheet": "roguelike", "col": 1,  "row": 0},
-    "monk_walk2":   {"sheet": "roguelike", "col": 2,  "row": 0},
+    "monk_alt":     {"sheet": "roguelike", "col": 1,  "row": 0},
     # NPCs / creatures
     "knight":       {"sheet": "roguelike", "col": 0,  "row": 1},
     "mage":         {"sheet": "roguelike", "col": 0,  "row": 2},
@@ -56,6 +55,16 @@ SPRITE_CATALOG = {
     "demon":        {"sheet": "roguelike", "col": 0,  "row": 7},
     "ghost":        {"sheet": "roguelike", "col": 0,  "row": 8},
     "slime":        {"sheet": "roguelike", "col": 0,  "row": 9},
+}
+
+# Animation sequences -- list of (col, row) frames
+SPRITE_ANIMATIONS = {
+    "monk_idle":  [(0, 0)],
+    "monk_walk":  [(0, 0), (1, 0), (0, 0), (2, 0)],  # 4-frame walk cycle
+    "skeleton_idle": [(0, 4)],
+    "skeleton_walk": [(0, 4), (1, 4), (0, 4), (2, 4)],
+    "goblin_idle":   [(0, 5)],
+    "goblin_walk":   [(0, 5), (1, 5), (0, 5), (2, 5)],
 }
 
 # Register tints for sprites (same system as models)
@@ -161,6 +170,33 @@ class SpriteRenderer:
             if not sp.isEmpty():
                 sp.removeNode()
         self._sprites = []
+
+    def animate(self, sprite_np: NodePath, anim_id: str, dt: float,
+                frame_rate: float = 6.0) -> None:
+        """
+        Advance sprite animation. Call every frame.
+        frame_rate: frames per second (6 = retro feel).
+        """
+        anim = SPRITE_ANIMATIONS.get(anim_id)
+        if not anim or len(anim) < 2:
+            # Single frame or unknown -- just show first frame
+            if anim:
+                info = sprite_np.getPythonTag("sheet_info")
+                if info:
+                    self._set_uv(sprite_np, info, anim[0][0], anim[0][1])
+            return
+
+        # Track animation state on the node
+        elapsed = sprite_np.getPythonTag("anim_elapsed") or 0.0
+        elapsed += dt
+        sprite_np.setPythonTag("anim_elapsed", elapsed)
+
+        frame_idx = int(elapsed * frame_rate) % len(anim)
+        col, row = anim[frame_idx]
+
+        info = sprite_np.getPythonTag("sheet_info")
+        if info:
+            self._set_uv(sprite_np, info, col, row)
 
     def _set_uv(self, sprite_np, info, col, row):
         """Set UV coordinates to display a specific tile from the sheet."""
