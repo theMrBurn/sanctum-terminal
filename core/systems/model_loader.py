@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from panda3d.core import Vec4
+from panda3d.core import SamplerState, Vec4
 
 
 # -- Asset catalog -------------------------------------------------------------
@@ -121,6 +121,14 @@ class ModelLoader:
         model.setScale(s)
         model.setPythonTag("asset_id", asset_id)
         model.setPythonTag("category", entry.get("category", "misc"))
+
+        # Force nearest-neighbor filtering on all textures for pixel-crisp look
+        for tex_stage in model.findAllTextureStages():
+            tex = model.findTexture(tex_stage)
+            if tex:
+                tex.setMagfilter(SamplerState.FT_nearest)
+                tex.setMinfilter(SamplerState.FT_nearest)
+
         return model
 
     def apply_register(self, node, register: str) -> None:

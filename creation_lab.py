@@ -411,7 +411,7 @@ class CreationLab(ShowBase):
 
         # The Monk -- 2D sprite in 3D world
         self._monk_sprite = self.sprites.spawn_sprite(
-            "monk", pos=(0, 4, 0), scale=4.0
+            "monk", pos=(0, 8, 0), scale=2.0
         )
 
     def _build_environment(self):
@@ -925,11 +925,11 @@ class CreationLab(ShowBase):
         # Monk sprite -- follows camera, animates with movement
         if self._monk_sprite and not self._monk_sprite.isEmpty():
             cam_pos = self.cam.getPos()
-            # Place monk slightly ahead of camera
+            # Place monk 8 units ahead of camera at ground level
             forward = self.cam.getQuat().getForward()
             self._monk_sprite.setPos(
-                cam_pos.x + forward.x * 3,
-                cam_pos.y + forward.y * 3,
+                cam_pos.x + forward.x * 8,
+                cam_pos.y + forward.y * 8,
                 0,
             )
             moving = any(self.key_map.values())
