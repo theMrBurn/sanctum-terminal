@@ -29,10 +29,17 @@ class TestModelLoaderContract:
         assert KENNEY_PATH.exists(), f"Kenney assets not found at {KENNEY_PATH}"
 
     def test_all_catalog_files_exist(self):
-        from core.systems.model_loader import ASSET_CATALOG, KENNEY_PATH
+        from core.systems.model_loader import (
+            ASSET_CATALOG, KENNEY_PATH, KENNEY_BLOCKY_PATH, QUATERNIUS_RPG_PATH
+        )
+        path_map = {
+            "quaternius_rpg": QUATERNIUS_RPG_PATH,
+            "kenney_blocky": KENNEY_BLOCKY_PATH,
+        }
         missing = []
         for name, entry in ASSET_CATALOG.items():
-            path = KENNEY_PATH / entry["file"]
+            base = path_map.get(entry.get("path", "kenney"), KENNEY_PATH)
+            path = base / entry["file"]
             if not path.exists():
                 missing.append(f"{name}: {entry['file']}")
         assert len(missing) == 0, f"Missing files: {missing}"
