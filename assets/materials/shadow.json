@@ -1,0 +1,46 @@
+{
+    "name": "shadow",
+    "category": "effect",
+    "base": {
+        "color": [
+            0.33,
+            0.28600000000000003,
+            0.264
+        ],
+        "texture": "assets/sprites/textures/parts/shadow.png",
+        "emission": 0.0,
+        "opacity": 0.7
+    },
+    "registers": {
+        "survival": {
+            "color": [
+                0.264,
+                0.22000000000000003,
+                0.17600000000000002
+            ]
+        },
+        "tron": {
+            "color": [
+                0.11000000000000001,
+                0.17600000000000002,
+                0.264
+            ],
+            "opacity": 0.5
+        },
+        "tolkien": {
+            "color": [
+                0.30800000000000005,
+                0.264,
+                0.22000000000000003
+            ]
+        },
+        "sanrio": {
+            "color": [
+                0.396,
+                0.33,
+                0.35200000000000004
+            ],
+            "opacity": 0.6
+        }
+    }
+}

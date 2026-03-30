@@ -6,9 +6,11 @@ The 7-Door Dungeon -- playable Wizardry-style corridor crawl.
 8 doors. 7 attempts. 1 minute detail. Find it.
 
 Controls:
-    1-8     Examine door (free, no cost)
-    Shift+1-8  Try door (costs an attempt if wrong)
-    ESC     Quit
+    W/S         Walk forward/back
+    A/D/Arrows  Turn left/right
+    1-8         Examine door (free, no cost)
+    Shift+1-8   Try door (costs an attempt if wrong)
+    ESC         Quit
 
 Usage:
     make dungeon
@@ -20,13 +22,14 @@ from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import (
     AmbientLight, DirectionalLight, Vec4, Vec3,
     WindowProperties, TextNode, AntialiasAttrib,
-    Fog, Material,
+    Fog, Material, Texture, SamplerState,
+    TransparencyAttrib,
 )
 from rich.console import Console
 
 from core.systems.dungeon_campaign import DungeonCampaign
 from core.systems.dungeon_grid import DungeonGrid
-from core.systems.geometry import make_box, make_plane
+from core.systems.geometry import make_box, make_plane, make_textured_quad, make_textured_wall, make_textured_floor
 
 console = Console()
 
@@ -35,10 +38,12 @@ console = Console()
 CORRIDOR_WIDTH  = 16.0
 CORRIDOR_DEPTH  = 24.0
 WALL_HEIGHT     = 6.0
-DOOR_WIDTH      = 1.3
-DOOR_HEIGHT     = 2.8
-DOOR_SPACING    = CORRIDOR_WIDTH / 5.0
+DOOR_WIDTH      = 1.8
+DOOR_HEIGHT     = 3.2
+DOOR_SPACING    = (CORRIDOR_WIDTH - 2.0) / 8.0
 DOOR_Y          = CORRIDOR_DEPTH / 2 - 1.5
+MOVE_SPEED      = 6.0
+TURN_SPEED      = 80.0
 
 # Colors
 WALL_COLOR    = (0.10, 0.08, 0.07)
@@ -84,6 +89,13 @@ class Dungeon(ShowBase):
         fog.setLinearRange(15.0, 50.0)
         self.render.setFog(fog)
 
+        # Load textures
+        self._wall_tex = self._load_texture("assets/sprites/textures/wall_forbidden.png")
+        self._door_tex = self._load_texture("assets/sprites/textures/door_forbidden.png")
+        # Floor/ceiling — use wall as placeholder until dedicated textures land
+        self._floor_tex = self._wall_tex
+        self._ceil_tex = self._wall_tex
+
         # Build corridor
         self._build_corridor()
         self._update_hud()
@@ -92,17 +104,26 @@ class Dungeon(ShowBase):
         self.cam.setPos(0, -CORRIDOR_DEPTH / 2 + 1, 2.5)
         self.cam.lookAt(0, DOOR_Y, 2.8)
 
+        # Movement state
+        self._keys = {"w": False, "s": False, "a": False, "d": False,
+                       "arrow_left": False, "arrow_right": False}
+        self._cam_h = 0.0
+
         # Controls
         for i in range(8):
             self.accept(str(i + 1), self._examine, [i])
             self.accept(f"shift-{i + 1}", self._try_door, [i])
         self.accept("escape", sys.exit)
 
+        for key in self._keys:
+            self.accept(key, self._set_key, [key, True])
+            self.accept(f"{key}-up", self._set_key, [key, False])
+
         self.taskMgr.add(self._loop, "DungeonLoop")
 
         console.log("[bold cyan]THE GARDEN OF FORKING PATHS[/bold cyan]")
         console.log("8 doors. 7 attempts. Find the detail.")
-        console.log("[1-8] examine  [Shift+1-8] try door  [ESC] quit")
+        console.log("[WASD] move  [1-8] examine  [Shift+1-8] try door  [ESC] quit")
 
     def _setup_lighting(self):
         from panda3d.core import PointLight
@@ -140,6 +161,14 @@ class Dungeon(ShowBase):
                 bn.setPos(x_side, y, WALL_HEIGHT * 0.65)
                 self._sconce_nodes.append(bn)
 
+    def _load_texture(self, path):
+        tex = self.loader.loadTexture(path)
+        tex.setMagfilter(SamplerState.FT_nearest)
+        tex.setMinfilter(SamplerState.FT_nearest)
+        tex.setWrapU(SamplerState.WM_repeat)
+        tex.setWrapV(SamplerState.WM_repeat)
+        return tex
+
     def _clear_scene(self):
         for np in self._scene_nodes + self._door_nodes:
             try:
@@ -154,48 +183,61 @@ class Dungeon(ShowBase):
 
         hw = CORRIDOR_WIDTH / 2
         hd = CORRIDOR_DEPTH / 2
+        tile_x = CORRIDOR_DEPTH / WALL_HEIGHT  # tile proportionally
 
-        # Floor
-        floor = make_plane(int(CORRIDOR_WIDTH), int(CORRIDOR_DEPTH), FLOOR_COLOR)
-        fn = self.render.attachNewNode(floor)
+        # Floor — textured
+        floor_tile = max(CORRIDOR_WIDTH, CORRIDOR_DEPTH) / 4.0
+        floor_geom = make_textured_floor(CORRIDOR_WIDTH, CORRIDOR_DEPTH, tile_x=floor_tile, tile_y=floor_tile, name="floor")
+        fn = self.render.attachNewNode(floor_geom)
         fn.setPos(0, 0, 0)
+        fn.setTexture(self._floor_tex)
+        fn.setTwoSided(True)
         self._scene_nodes.append(fn)
 
-        # Ceiling
-        ceil = make_plane(int(CORRIDOR_WIDTH), int(CORRIDOR_DEPTH), CEILING_COLOR)
-        cn = self.render.attachNewNode(ceil)
+        # Ceiling — textured
+        ceil_geom = make_textured_floor(CORRIDOR_WIDTH, CORRIDOR_DEPTH, tile_x=floor_tile, tile_y=floor_tile, name="ceiling")
+        cn = self.render.attachNewNode(ceil_geom)
         cn.setPos(0, 0, WALL_HEIGHT)
         cn.setP(180)
+        cn.setTexture(self._ceil_tex)
+        cn.setTwoSided(True)
         self._scene_nodes.append(cn)
 
-        # Left wall
-        lw = make_box(0.3, WALL_HEIGHT, CORRIDOR_DEPTH, WALL_COLOR)
-        ln = self.render.attachNewNode(lw)
-        ln.setPos(-hw, 0, WALL_HEIGHT / 2)
-        self._scene_nodes.append(ln)
+        # Left wall — textured quad facing +X (into corridor)
+        lw_geom = make_textured_wall(CORRIDOR_DEPTH, WALL_HEIGHT, tile_x=tile_x, tile_y=1.0, name="left_wall")
+        lw = self.render.attachNewNode(lw_geom)
+        lw.setPos(-hw, 0, WALL_HEIGHT / 2)
+        lw.setH(90)  # rotate to face inward
+        lw.setTexture(self._wall_tex)
+        lw.setTwoSided(True)
+        self._scene_nodes.append(lw)
 
-        # Right wall
-        rw = make_box(0.3, WALL_HEIGHT, CORRIDOR_DEPTH, WALL_COLOR)
-        rn = self.render.attachNewNode(rw)
-        rn.setPos(hw, 0, WALL_HEIGHT / 2)
-        self._scene_nodes.append(rn)
+        # Right wall — textured quad facing -X (into corridor)
+        rw_geom = make_textured_wall(CORRIDOR_DEPTH, WALL_HEIGHT, tile_x=tile_x, tile_y=1.0, name="right_wall")
+        rw = self.render.attachNewNode(rw_geom)
+        rw.setPos(hw, 0, WALL_HEIGHT / 2)
+        rw.setH(-90)  # rotate to face inward
+        rw.setTexture(self._wall_tex)
+        rw.setTwoSided(True)
+        self._scene_nodes.append(rw)
 
-        # Far wall (behind doors)
-        bw = make_box(CORRIDOR_WIDTH, WALL_HEIGHT, 0.3, WALL_COLOR)
-        bn = self.render.attachNewNode(bw)
-        bn.setPos(0, DOOR_Y + 1.5, WALL_HEIGHT / 2)
-        self._scene_nodes.append(bn)
+        # Far wall (behind doors) — textured, facing camera (-Y)
+        fw_geom = make_textured_wall(CORRIDOR_WIDTH, WALL_HEIGHT, tile_x=CORRIDOR_WIDTH / WALL_HEIGHT, tile_y=1.0, name="far_wall")
+        fw = self.render.attachNewNode(fw_geom)
+        fw.setPos(0, DOOR_Y + 1.5, WALL_HEIGHT / 2)
+        fw.setTexture(self._wall_tex)
+        fw.setTwoSided(True)
+        self._scene_nodes.append(fw)
 
-        # 8 doors along far wall
+        # 8 doors along far wall — textured quads
         self._door_nodes = []
         for i in range(8):
             x = (i - 3.5) * DOOR_SPACING
-            door = self._campaign.scene.doors[i]
-
-            color = DOOR_COLOR
-            geom = make_box(DOOR_WIDTH, DOOR_HEIGHT, 0.15, color)
-            np = self.render.attachNewNode(geom)
+            door_geom = make_textured_quad(DOOR_WIDTH, DOOR_HEIGHT, name=f"door_{i}")
+            np = self.render.attachNewNode(door_geom)
             np.setPos(x, DOOR_Y, DOOR_HEIGHT / 2)
+            np.setTexture(self._door_tex)
+            np.setTransparency(TransparencyAttrib.MAlpha)
             self._door_nodes.append(np)
 
             # Door number
@@ -249,6 +291,9 @@ class Dungeon(ShowBase):
 
         self._update_hud()
 
+    def _set_key(self, key, value):
+        self._keys[key] = value
+
     def _show_message(self, text, duration=2.0):
         self._message = text
         self._message_timer = duration
@@ -286,6 +331,36 @@ class Dungeon(ShowBase):
 
     def _loop(self, task):
         dt = globalClock.getDt()
+
+        # Turning
+        if self._keys["arrow_left"] or self._keys["a"]:
+            self._cam_h += TURN_SPEED * dt
+        if self._keys["arrow_right"] or self._keys["d"]:
+            self._cam_h -= TURN_SPEED * dt
+
+        # Forward / backward relative to heading
+        import math
+        heading_rad = math.radians(self._cam_h)
+        forward_x = -math.sin(heading_rad)
+        forward_y = math.cos(heading_rad)
+
+        dx, dy = 0.0, 0.0
+        if self._keys["w"]:
+            dx += forward_x * MOVE_SPEED * dt
+            dy += forward_y * MOVE_SPEED * dt
+        if self._keys["s"]:
+            dx -= forward_x * MOVE_SPEED * dt
+            dy -= forward_y * MOVE_SPEED * dt
+
+        pos = self.cam.getPos()
+        hw = CORRIDOR_WIDTH / 2 - 0.5
+        hd = CORRIDOR_DEPTH / 2 - 0.5
+        new_x = max(-hw, min(hw, pos.getX() + dx))
+        new_y = max(-hd, min(hd, pos.getY() + dy))
+        self.cam.setPos(new_x, new_y, pos.getZ())
+        self.cam.setH(self._cam_h)
+
+        # Message timer
         if self._message_timer > 0:
             self._message_timer -= dt
             if self._message_timer <= 0:

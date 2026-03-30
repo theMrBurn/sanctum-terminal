@@ -1,0 +1,33 @@
+{
+    "name": "object_small",
+    "category": "object",
+    "size_class": "small",
+    "root": {
+        "name": "base",
+        "primitive": "BLOCK",
+        "scale": [0.30, 0.30, 0.08],
+        "offset": [0, 0, 0.04],
+        "color": "dark",
+        "children": [
+            {
+                "name": "body",
+                "primitive": "BLOCK",
+                "scale": [0.25, 0.25, 0.30],
+                "offset": [0, 0, 0.19],
+                "color": "base",
+                "socket": true,
+                "children": [
+                    {
+                        "name": "detail_top",
+                        "primitive": "SPIKE",
+                        "scale": [0.12, 0.12, 0.12],
+                        "offset": [0, 0, 0.21],
+                        "color": "accent",
+                        "socket": true,
+                        "children": []
+                    }
+                ]
+            }
+        ]
+    }
+}

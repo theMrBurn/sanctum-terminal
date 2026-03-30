@@ -1,0 +1,45 @@
+{
+    "name": "bone",
+    "category": "organic",
+    "base": {
+        "color": [
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": null,
+        "emission": 0.0,
+        "opacity": 1.0
+    },
+    "registers": {
+        "survival": {
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ]
+        },
+        "tron": {
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "emission": 0.1
+        },
+        "tolkien": {
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ]
+        },
+        "sanrio": {
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ]
+        }
+    }
+}

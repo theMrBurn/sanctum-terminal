@@ -316,6 +316,408 @@ def make_arch(w, h, d, color, segments=8):
 # -- Legacy aliases (backward compatibility) -----------------------------------
 # These maintain the old _make_*_geom names so existing imports don't break.
 
+def make_textured_quad(w, h, name="tquad"):
+    """
+    Builds a single textured quad (two triangles) with UV coords.
+    Centered at origin, facing -Y (toward camera in corridor view).
+    """
+    fmt = GeomVertexFormat.getV3t2()
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vdata.setNumRows(4)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    tw = GeomVertexWriter(vdata, "texcoord")
+
+    hw, hh = w / 2, h / 2
+    # Quad corners: bottom-left, bottom-right, top-right, top-left
+    vw.addData3(-hw, 0, -hh)
+    tw.addData2(0, 0)
+    vw.addData3(hw, 0, -hh)
+    tw.addData2(1, 0)
+    vw.addData3(hw, 0, hh)
+    tw.addData2(1, 1)
+    vw.addData3(-hw, 0, hh)
+    tw.addData2(0, 1)
+
+    tris = GeomTriangles(Geom.UHStatic)
+    tris.addVertices(0, 1, 2)
+    tris.addVertices(0, 2, 3)
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node
+
+
+def make_textured_wall(w, h, tile_x=1.0, tile_y=1.0, name="twall"):
+    """
+    Builds a textured quad with tiling UV coords.
+    Facing -Y. tile_x/tile_y control how many times texture repeats.
+    """
+    fmt = GeomVertexFormat.getV3t2()
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vdata.setNumRows(4)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    tw = GeomVertexWriter(vdata, "texcoord")
+
+    hw, hh = w / 2, h / 2
+    vw.addData3(-hw, 0, -hh)
+    tw.addData2(0, 0)
+    vw.addData3(hw, 0, -hh)
+    tw.addData2(tile_x, 0)
+    vw.addData3(hw, 0, hh)
+    tw.addData2(tile_x, tile_y)
+    vw.addData3(-hw, 0, hh)
+    tw.addData2(0, tile_y)
+
+    tris = GeomTriangles(Geom.UHStatic)
+    tris.addVertices(0, 1, 2)
+    tris.addVertices(0, 2, 3)
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node
+
+
+def make_textured_floor(w, d, tile_x=1.0, tile_y=1.0, name="tfloor"):
+    """
+    Builds a horizontal textured quad (floor or ceiling).
+    Lies flat in the XY plane at z=0, facing +Z (upward).
+    """
+    fmt = GeomVertexFormat.getV3t2()
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vdata.setNumRows(4)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    tw = GeomVertexWriter(vdata, "texcoord")
+
+    hw, hd = w / 2, d / 2
+    vw.addData3(-hw, -hd, 0)
+    tw.addData2(0, 0)
+    vw.addData3(hw, -hd, 0)
+    tw.addData2(tile_x, 0)
+    vw.addData3(hw, hd, 0)
+    tw.addData2(tile_x, tile_y)
+    vw.addData3(-hw, hd, 0)
+    tw.addData2(0, tile_y)
+
+    tris = GeomTriangles(Geom.UHStatic)
+    tris.addVertices(0, 1, 2)
+    tris.addVertices(0, 2, 3)
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node
+
+
+# ==============================================================================
+# TEXTURED 3D PRIMITIVES — V3n3t2 format (vertex + normal + texcoord)
+# These are the manufacturing primitives. Any PNG maps onto any part.
+# ==============================================================================
+
+def _add_vert_nt(vw, nw, tw, pos, normal, uv):
+    """Helper: add one vertex with position, normal, and texcoord."""
+    vw.addData3(*pos)
+    nw.addData3(*normal)
+    tw.addData2(*uv)
+
+
+def make_textured_box(w, h, d, name="tbox"):
+    """
+    UV-mapped box with normals on all 6 faces.
+    Each face gets the full [0,1] UV range — texture maps per-face.
+    """
+    fmt = GeomVertexFormat.getV3n3t2()
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vdata.setNumRows(24)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    nw = GeomVertexWriter(vdata, "normal")
+    tw = GeomVertexWriter(vdata, "texcoord")
+
+    hw, hh, hd = w / 2, h / 2, d / 2
+
+    # 6 faces: (4 verts each, normal, UV corners)
+    # Front (-Y face, toward camera)
+    faces = [
+        {
+            "normal": (0, -1, 0),
+            "verts": [(-hw, -hd, -hh), (hw, -hd, -hh), (hw, -hd, hh), (-hw, -hd, hh)],
+        },
+        {
+            "normal": (0, 1, 0),
+            "verts": [(hw, hd, -hh), (-hw, hd, -hh), (-hw, hd, hh), (hw, hd, hh)],
+        },
+        {
+            "normal": (-1, 0, 0),
+            "verts": [(-hw, hd, -hh), (-hw, -hd, -hh), (-hw, -hd, hh), (-hw, hd, hh)],
+        },
+        {
+            "normal": (1, 0, 0),
+            "verts": [(hw, -hd, -hh), (hw, hd, -hh), (hw, hd, hh), (hw, -hd, hh)],
+        },
+        {
+            "normal": (0, 0, -1),
+            "verts": [(-hw, hd, -hh), (hw, hd, -hh), (hw, -hd, -hh), (-hw, -hd, -hh)],
+        },
+        {
+            "normal": (0, 0, 1),
+            "verts": [(-hw, -hd, hh), (hw, -hd, hh), (hw, hd, hh), (-hw, hd, hh)],
+        },
+    ]
+
+    uvs = [(0, 0), (1, 0), (1, 1), (0, 1)]
+
+    tris = GeomTriangles(Geom.UHStatic)
+    idx = 0
+    for face in faces:
+        n = face["normal"]
+        for v, uv in zip(face["verts"], uvs):
+            _add_vert_nt(vw, nw, tw, v, n, uv)
+        tris.addVertices(idx, idx + 1, idx + 2)
+        tris.addVertices(idx, idx + 2, idx + 3)
+        idx += 4
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node
+
+
+def make_textured_wedge(w, h, d, name="twedge"):
+    """
+    UV-mapped triangular prism (wedge) with normals.
+    Full width at base, tapers to ridge at top.
+    """
+    fmt = GeomVertexFormat.getV3n3t2()
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vdata.setNumRows(18)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    nw = GeomVertexWriter(vdata, "normal")
+    tw = GeomVertexWriter(vdata, "texcoord")
+
+    hw, hh, hd = w / 2, h / 2, d / 2
+
+    # Quad faces (bottom, left slope, right slope)
+    quad_faces = [
+        {   # Bottom
+            "normal": (0, 0, -1),
+            "verts": [(-hw, -hd, -hh), (hw, -hd, -hh), (hw, hd, -hh), (-hw, hd, -hh)],
+        },
+        {   # Left slope
+            "normal": (-0.707, 0, 0.707),
+            "verts": [(-hw, -hd, -hh), (-hw, hd, -hh), (0, hd, hh), (0, -hd, hh)],
+        },
+        {   # Right slope
+            "normal": (0.707, 0, 0.707),
+            "verts": [(hw, hd, -hh), (hw, -hd, -hh), (0, -hd, hh), (0, hd, hh)],
+        },
+    ]
+
+    # Triangle faces (front, back)
+    tri_faces = [
+        {   # Front
+            "normal": (0, -1, 0),
+            "verts": [(-hw, -hd, -hh), (hw, -hd, -hh), (0, -hd, hh)],
+        },
+        {   # Back
+            "normal": (0, 1, 0),
+            "verts": [(hw, hd, -hh), (-hw, hd, -hh), (0, hd, hh)],
+        },
+    ]
+
+    uvs_quad = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    uvs_tri = [(0, 0), (1, 0), (0.5, 1)]
+
+    tris = GeomTriangles(Geom.UHStatic)
+    idx = 0
+
+    for face in quad_faces:
+        n = face["normal"]
+        for v, uv in zip(face["verts"], uvs_quad):
+            _add_vert_nt(vw, nw, tw, v, n, uv)
+        tris.addVertices(idx, idx + 1, idx + 2)
+        tris.addVertices(idx, idx + 2, idx + 3)
+        idx += 4
+
+    for face in tri_faces:
+        n = face["normal"]
+        for v, uv in zip(face["verts"], uvs_tri):
+            _add_vert_nt(vw, nw, tw, v, n, uv)
+        tris.addVertices(idx, idx + 1, idx + 2)
+        idx += 3
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node
+
+
+def make_textured_spike(w, h, d, name="tspike"):
+    """
+    UV-mapped square-base pyramid with normals.
+    Base at z=-h/2, apex at z=+h/2.
+    """
+    fmt = GeomVertexFormat.getV3n3t2()
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vdata.setNumRows(16)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    nw = GeomVertexWriter(vdata, "normal")
+    tw = GeomVertexWriter(vdata, "texcoord")
+
+    hw, hh, hd = w / 2, h / 2, d / 2
+    apex = (0, 0, hh)
+    base = [(-hw, -hd, -hh), (hw, -hd, -hh), (hw, hd, -hh), (-hw, hd, -hh)]
+
+    tris = GeomTriangles(Geom.UHStatic)
+    idx = 0
+
+    # Base face
+    n = (0, 0, -1)
+    for v, uv in zip(base, [(0, 0), (1, 0), (1, 1), (0, 1)]):
+        _add_vert_nt(vw, nw, tw, v, n, uv)
+    tris.addVertices(idx, idx + 1, idx + 2)
+    tris.addVertices(idx, idx + 2, idx + 3)
+    idx += 4
+
+    # 4 triangular side faces
+    # Approximate normals pointing outward from each face
+    side_normals = [
+        (0, -1, 0.5),   # front
+        (1, 0, 0.5),    # right
+        (0, 1, 0.5),    # back
+        (-1, 0, 0.5),   # left
+    ]
+    for i in range(4):
+        v0 = base[i]
+        v1 = base[(i + 1) % 4]
+        sn = side_normals[i]
+        # Normalize
+        mag = (sn[0]**2 + sn[1]**2 + sn[2]**2) ** 0.5
+        sn = (sn[0]/mag, sn[1]/mag, sn[2]/mag)
+
+        _add_vert_nt(vw, nw, tw, v0, sn, (0, 0))
+        _add_vert_nt(vw, nw, tw, v1, sn, (1, 0))
+        _add_vert_nt(vw, nw, tw, apex, sn, (0.5, 1))
+        tris.addVertices(idx, idx + 1, idx + 2)
+        idx += 3
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node
+
+
+def make_textured_arch(w, h, d, segments=8, name="tarch"):
+    """
+    UV-mapped arch (half-ring) with normals.
+    w = span width, h = thickness, d = arch height (rise).
+    """
+    fmt = GeomVertexFormat.getV3n3t2()
+    num_verts = segments * 8 + 8
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vdata.setNumRows(num_verts)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    nw = GeomVertexWriter(vdata, "normal")
+    tw = GeomVertexWriter(vdata, "texcoord")
+
+    hw, hh, hd = w / 2, h / 2, d / 2
+    inner_radius = hw * 0.7
+    outer_radius = hw
+
+    tris = GeomTriangles(Geom.UHStatic)
+    idx = 0
+
+    for i in range(segments):
+        a0 = math.pi * i / segments
+        a1 = math.pi * (i + 1) / segments
+
+        ox0 = -math.cos(a0) * outer_radius
+        oz0 = math.sin(a0) * d
+        ox1 = -math.cos(a1) * outer_radius
+        oz1 = math.sin(a1) * d
+
+        ix0 = -math.cos(a0) * inner_radius
+        iz0 = math.sin(a0) * d * 0.85
+        ix1 = -math.cos(a1) * inner_radius
+        iz1 = math.sin(a1) * d * 0.85
+
+        u0 = i / segments
+        u1 = (i + 1) / segments
+
+        # Normal pointing outward from center
+        mid_a = (a0 + a1) / 2
+        on = (-math.cos(mid_a), 0, math.sin(mid_a))
+
+        # Outer face
+        for v, uv in zip(
+            [(ox0, -hh, oz0), (ox1, -hh, oz1), (ox1, hh, oz1), (ox0, hh, oz0)],
+            [(u0, 0), (u1, 0), (u1, 1), (u0, 1)],
+        ):
+            _add_vert_nt(vw, nw, tw, v, on, uv)
+        tris.addVertices(idx, idx+1, idx+2)
+        tris.addVertices(idx, idx+2, idx+3)
+        idx += 4
+
+        # Inner face (normal points inward)
+        in_ = (math.cos(mid_a), 0, -math.sin(mid_a))
+        for v, uv in zip(
+            [(ix1, -hh, iz1), (ix0, -hh, iz0), (ix0, hh, iz0), (ix1, hh, iz1)],
+            [(u1, 0), (u0, 0), (u0, 1), (u1, 1)],
+        ):
+            _add_vert_nt(vw, nw, tw, v, in_, uv)
+        tris.addVertices(idx, idx+1, idx+2)
+        tris.addVertices(idx, idx+2, idx+3)
+        idx += 4
+
+    # End caps
+    for side, sign in [(-1, -1), (1, 1)]:
+        a = 0.0 if side == -1 else math.pi
+        ox = -math.cos(a) * outer_radius
+        oz = math.sin(a) * d
+        ix = -math.cos(a) * inner_radius
+        iz = math.sin(a) * d * 0.85
+        n = (sign, 0, 0)
+        for v, uv in zip(
+            [(ox, -hh, oz), (ix, -hh, iz), (ix, hh, iz), (ox, hh, oz)],
+            [(0, 0), (1, 0), (1, 1), (0, 1)],
+        ):
+            _add_vert_nt(vw, nw, tw, v, n, uv)
+        tris.addVertices(idx, idx+1, idx+2)
+        tris.addVertices(idx, idx+2, idx+3)
+        idx += 4
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node
+
+
+# -- Textured primitive dispatch -----------------------------------------------
+
+TEXTURED_BUILDERS = {
+    "BLOCK":  make_textured_box,
+    "SLAB":   make_textured_box,
+    "PILLAR": make_textured_box,
+    "WEDGE":  make_textured_wedge,
+    "SPIKE":  make_textured_spike,
+    "ARCH":   make_textured_arch,
+}
+
+
 _make_box_geom   = make_box
 _make_plane_geom = make_plane
 _make_wedge_geom = make_wedge

@@ -1,0 +1,416 @@
+{
+    "name": "humanoid",
+    "category": "avatar",
+    "size_class": "medium",
+    "root": {
+        "name": "hip",
+        "primitive": "BLOCK",
+        "scale": [
+            0.5,
+            0.25,
+            0.2
+        ],
+        "offset": [
+            0,
+            0,
+            0.95
+        ],
+        "color": "dark",
+        "socket": true,
+        "children": [
+            {
+                "name": "robe_lower",
+                "primitive": "BLOCK",
+                "scale": [
+                    0.7,
+                    0.3,
+                    0.7
+                ],
+                "offset": [
+                    0,
+                    0,
+                    -0.1
+                ],
+                "color": "dark",
+                "children": [],
+                "material": "monk_robe"
+            },
+            {
+                "name": "torso",
+                "primitive": "BLOCK",
+                "scale": [
+                    0.55,
+                    0.28,
+                    0.5
+                ],
+                "offset": [
+                    0,
+                    0,
+                    0.4
+                ],
+                "color": "dark",
+                "children": [
+                    {
+                        "name": "robe_upper",
+                        "primitive": "BLOCK",
+                        "scale": [
+                            0.68,
+                            0.3,
+                            0.52
+                        ],
+                        "offset": [
+                            0,
+                            0,
+                            0.0
+                        ],
+                        "color": "dark",
+                        "children": [],
+                        "material": "monk_robe"
+                    },
+                    {
+                        "name": "sash",
+                        "primitive": "BLOCK",
+                        "scale": [
+                            0.6,
+                            0.26,
+                            0.08
+                        ],
+                        "offset": [
+                            0,
+                            0,
+                            -0.15
+                        ],
+                        "color": "accent",
+                        "children": [],
+                        "material": "accent"
+                    },
+                    {
+                        "name": "neck",
+                        "primitive": "BLOCK",
+                        "scale": [
+                            0.14,
+                            0.14,
+                            0.12
+                        ],
+                        "offset": [
+                            0,
+                            0,
+                            0.32
+                        ],
+                        "color": "flesh",
+                        "children": [
+                            {
+                                "name": "head",
+                                "primitive": "BLOCK",
+                                "scale": [
+                                    0.34,
+                                    0.32,
+                                    0.36
+                                ],
+                                "offset": [
+                                    0,
+                                    0,
+                                    0.24
+                                ],
+                                "color": "flesh",
+                                "socket": true,
+                                "children": [
+                                    {
+                                        "name": "eyes",
+                                        "primitive": "BLOCK",
+                                        "scale": [
+                                            0.2,
+                                            0.06,
+                                            0.05
+                                        ],
+                                        "offset": [
+                                            0,
+                                            -0.16,
+                                            0.06
+                                        ],
+                                        "color": "shadow",
+                                        "children": [],
+                                        "material": "shadow"
+                                    },
+                                    {
+                                        "name": "hood",
+                                        "primitive": "BLOCK",
+                                        "scale": [
+                                            0.48,
+                                            0.42,
+                                            0.44
+                                        ],
+                                        "offset": [
+                                            0,
+                                            0.02,
+                                            0.04
+                                        ],
+                                        "color": "dark",
+                                        "children": [],
+                                        "material": "monk_robe"
+                                    }
+                                ],
+                                "material": "monk_flesh"
+                            }
+                        ],
+                        "material": "monk_flesh"
+                    },
+                    {
+                        "name": "shoulder_l",
+                        "primitive": "BLOCK",
+                        "scale": [
+                            0.2,
+                            0.2,
+                            0.16
+                        ],
+                        "offset": [
+                            -0.4,
+                            0,
+                            0.22
+                        ],
+                        "color": "metal",
+                        "socket": true,
+                        "children": [
+                            {
+                                "name": "arm_l",
+                                "primitive": "BLOCK",
+                                "scale": [
+                                    0.16,
+                                    0.16,
+                                    0.5
+                                ],
+                                "offset": [
+                                    0,
+                                    0,
+                                    -0.34
+                                ],
+                                "color": "dark",
+                                "children": [
+                                    {
+                                        "name": "hand_l",
+                                        "primitive": "BLOCK",
+                                        "scale": [
+                                            0.12,
+                                            0.08,
+                                            0.14
+                                        ],
+                                        "offset": [
+                                            0,
+                                            0,
+                                            -0.32
+                                        ],
+                                        "color": "flesh",
+                                        "socket": true,
+                                        "children": [],
+                                        "material": "monk_flesh"
+                                    }
+                                ],
+                                "material": "monk_robe"
+                            }
+                        ],
+                        "material": "metal_plate"
+                    },
+                    {
+                        "name": "shoulder_r",
+                        "primitive": "BLOCK",
+                        "scale": [
+                            0.2,
+                            0.2,
+                            0.16
+                        ],
+                        "offset": [
+                            0.4,
+                            0,
+                            0.22
+                        ],
+                        "color": "metal",
+                        "socket": true,
+                        "children": [
+                            {
+                                "name": "arm_r",
+                                "primitive": "BLOCK",
+                                "scale": [
+                                    0.16,
+                                    0.16,
+                                    0.5
+                                ],
+                                "offset": [
+                                    0,
+                                    0,
+                                    -0.34
+                                ],
+                                "color": "dark",
+                                "children": [
+                                    {
+                                        "name": "hand_r",
+                                        "primitive": "BLOCK",
+                                        "scale": [
+                                            0.12,
+                                            0.08,
+                                            0.14
+                                        ],
+                                        "offset": [
+                                            0,
+                                            0,
+                                            -0.32
+                                        ],
+                                        "color": "flesh",
+                                        "socket": true,
+                                        "children": [
+                                            {
+                                                "name": "staff",
+                                                "primitive": "PILLAR",
+                                                "scale": [
+                                                    0.06,
+                                                    1.8,
+                                                    0.06
+                                                ],
+                                                "offset": [
+                                                    0,
+                                                    0,
+                                                    0.6
+                                                ],
+                                                "color": "wood",
+                                                "children": [
+                                                    {
+                                                        "name": "staff_gem",
+                                                        "primitive": "SPIKE",
+                                                        "scale": [
+                                                            0.16,
+                                                            0.16,
+                                                            0.16
+                                                        ],
+                                                        "offset": [
+                                                            0,
+                                                            0,
+                                                            0.95
+                                                        ],
+                                                        "color": "crystal",
+                                                        "children": [],
+                                                        "material": "crystal"
+                                                    }
+                                                ],
+                                                "material": "wood"
+                                            }
+                                        ],
+                                        "material": "monk_flesh"
+                                    }
+                                ],
+                                "material": "monk_robe"
+                            }
+                        ],
+                        "material": "metal_plate"
+                    }
+                ],
+                "material": "monk_robe"
+            },
+            {
+                "name": "leg_l",
+                "primitive": "BLOCK",
+                "scale": [
+                    0.16,
+                    0.16,
+                    0.48
+                ],
+                "offset": [
+                    -0.14,
+                    0,
+                    -0.48
+                ],
+                "color": "dark",
+                "children": [
+                    {
+                        "name": "shin_l",
+                        "primitive": "BLOCK",
+                        "scale": [
+                            0.14,
+                            0.14,
+                            0.46
+                        ],
+                        "offset": [
+                            0,
+                            0,
+                            -0.48
+                        ],
+                        "color": "dark",
+                        "children": [
+                            {
+                                "name": "foot_l",
+                                "primitive": "BLOCK",
+                                "scale": [
+                                    0.16,
+                                    0.26,
+                                    0.08
+                                ],
+                                "offset": [
+                                    0,
+                                    0.04,
+                                    -0.26
+                                ],
+                                "color": "dark",
+                                "children": [],
+                                "material": "monk_robe"
+                            }
+                        ],
+                        "material": "monk_robe"
+                    }
+                ],
+                "material": "monk_robe"
+            },
+            {
+                "name": "leg_r",
+                "primitive": "BLOCK",
+                "scale": [
+                    0.16,
+                    0.16,
+                    0.48
+                ],
+                "offset": [
+                    0.14,
+                    0,
+                    -0.48
+                ],
+                "color": "dark",
+                "children": [
+                    {
+                        "name": "shin_r",
+                        "primitive": "BLOCK",
+                        "scale": [
+                            0.14,
+                            0.14,
+                            0.46
+                        ],
+                        "offset": [
+                            0,
+                            0,
+                            -0.48
+                        ],
+                        "color": "dark",
+                        "children": [
+                            {
+                                "name": "foot_r",
+                                "primitive": "BLOCK",
+                                "scale": [
+                                    0.16,
+                                    0.26,
+                                    0.08
+                                ],
+                                "offset": [
+                                    0,
+                                    0.04,
+                                    -0.26
+                                ],
+                                "color": "dark",
+                                "children": [],
+                                "material": "monk_robe"
+                            }
+                        ],
+                        "material": "monk_robe"
+                    }
+                ],
+                "material": "monk_robe"
+            }
+        ],
+        "material": "monk_robe"
+    }
+}

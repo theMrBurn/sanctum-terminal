@@ -1,0 +1,45 @@
+{
+    "name": "metal_plate",
+    "category": "metal",
+    "base": {
+        "color": [
+            0.8800000000000001,
+            0.924,
+            0.9900000000000001
+        ],
+        "texture": "assets/sprites/textures/parts/monk_torso_c.png",
+        "emission": 0.0,
+        "opacity": 1.0
+    },
+    "registers": {
+        "survival": {
+            "color": [
+                0.77,
+                0.7260000000000001,
+                0.66
+            ]
+        },
+        "tron": {
+            "color": [
+                0.66,
+                0.9900000000000001,
+                1.0
+            ],
+            "emission": 0.2
+        },
+        "tolkien": {
+            "color": [
+                0.9900000000000001,
+                0.8800000000000001,
+                0.77
+            ]
+        },
+        "sanrio": {
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ]
+        }
+    }
+}

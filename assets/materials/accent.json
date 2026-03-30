@@ -1,0 +1,45 @@
+{
+    "name": "accent",
+    "category": "fabric",
+    "base": {
+        "color": [
+            1.0,
+            0.44000000000000006,
+            0.264
+        ],
+        "texture": "assets/sprites/textures/parts/monk_torso.png",
+        "emission": 0.0,
+        "opacity": 1.0
+    },
+    "registers": {
+        "survival": {
+            "color": [
+                1.0,
+                0.396,
+                0.22000000000000003
+            ]
+        },
+        "tron": {
+            "color": [
+                1.0,
+                0.44000000000000006,
+                0.66
+            ],
+            "emission": 0.15
+        },
+        "tolkien": {
+            "color": [
+                0.9900000000000001,
+                0.48400000000000004,
+                0.264
+            ]
+        },
+        "sanrio": {
+            "color": [
+                1.0,
+                0.77,
+                0.9900000000000001
+            ]
+        }
+    }
+}

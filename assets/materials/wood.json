@@ -1,0 +1,45 @@
+{
+    "name": "wood",
+    "category": "organic",
+    "base": {
+        "color": [
+            1.0,
+            0.77,
+            0.48400000000000004
+        ],
+        "texture": "assets/sprites/textures/parts/wood.png",
+        "emission": 0.0,
+        "opacity": 1.0
+    },
+    "registers": {
+        "survival": {
+            "color": [
+                0.9900000000000001,
+                0.7040000000000001,
+                0.44000000000000006
+            ]
+        },
+        "tron": {
+            "color": [
+                0.66,
+                0.6160000000000001,
+                0.55
+            ],
+            "emission": 0.05
+        },
+        "tolkien": {
+            "color": [
+                1.0,
+                0.8360000000000001,
+                0.528
+            ]
+        },
+        "sanrio": {
+            "color": [
+                1.0,
+                0.924,
+                0.7040000000000001
+            ]
+        }
+    }
+}

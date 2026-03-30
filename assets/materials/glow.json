@@ -1,0 +1,48 @@
+{
+    "name": "glow",
+    "category": "energy",
+    "base": {
+        "color": [
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": null,
+        "emission": 0.7,
+        "opacity": 0.9
+    },
+    "registers": {
+        "survival": {
+            "color": [
+                1.0,
+                1.0,
+                0.77
+            ],
+            "emission": 0.5
+        },
+        "tron": {
+            "color": [
+                0.8800000000000001,
+                1.0,
+                1.0
+            ],
+            "emission": 1.0
+        },
+        "tolkien": {
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "emission": 0.6
+        },
+        "sanrio": {
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "emission": 0.8
+        }
+    }
+}
