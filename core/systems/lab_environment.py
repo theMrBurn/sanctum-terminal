@@ -42,9 +42,9 @@ ENVIRONMENT_REGISTERS = {
         "floor":      _CFG["floor_color"],
         "wall":       _CFG["wall_color"],
         "grid":       _CFG["grid_color"],
-        "ambient":    _CFG["light_amb"],
-        "sun":        _CFG["light_sun"],
-        "fill":       _CFG["light_fill"],
+        "ambient":    (0.05, 0.04, 0.06),           # slightly purple ambient
+        "sun":        (1.3, 0.85, 0.55),             # warm golden sun (pushed)
+        "fill":       (0.06, 0.12, 0.20),            # cool blue fill (contrasts sun)
         "fog":        (0.06, 0.05, 0.05),
         "fog_range":  (20.0, 80.0),
     },

@@ -33,50 +33,93 @@ from panda3d.core import (
 # Proportions based on: robed monk, staff in right hand, level 45 experience.
 
 MONK_PARTS = {
+    # Anno lesson: contrast between parts, not similarity.
+    # Dark robe, light skin, one accent color (gem).
+    # Shadow anchors to ground. Silhouette must read.
     "shadow": {
-        "w": 1.2, "h": 0.3, "color": (0.0, 0.0, 0.0, 0.3),
-        "ox": 0.0, "oz": 0.0, "layer": 0.0,
+        "w": 1.4, "h": 0.25, "color": (0.0, 0.0, 0.0, 0.35),
+        "ox": 0.0, "oz": -0.02, "layer": 0.0,
     },
     "legs": {
-        "w": 0.5, "h": 0.6, "color": (0.18, 0.14, 0.10, 1.0),
+        "w": 0.45, "h": 0.55, "color": (0.08, 0.06, 0.05, 1.0),  # near-black
         "ox": 0.0, "oz": 0.05, "layer": 0.01,
     },
     "robe_lower": {
-        "w": 0.7, "h": 0.7, "color": (0.22, 0.18, 0.14, 1.0),
-        "ox": 0.0, "oz": 0.5, "layer": 0.02,
+        "w": 0.75, "h": 0.75, "color": (0.10, 0.08, 0.07, 1.0),  # very dark
+        "ox": 0.0, "oz": 0.45, "layer": 0.02,
     },
     "torso": {
-        "w": 0.6, "h": 0.5, "color": (0.25, 0.20, 0.16, 1.0),
+        "w": 0.55, "h": 0.5, "color": (0.12, 0.10, 0.08, 1.0),   # dark
         "ox": 0.0, "oz": 1.1, "layer": 0.03,
     },
     "robe_upper": {
-        "w": 0.7, "h": 0.55, "color": (0.28, 0.22, 0.17, 1.0),
-        "ox": 0.0, "oz": 1.05, "layer": 0.04,
+        "w": 0.72, "h": 0.55, "color": (0.10, 0.08, 0.07, 1.0),  # matches lower
+        "ox": 0.0, "oz": 1.0, "layer": 0.04,
+    },
+    "sash": {
+        "w": 0.65, "h": 0.1, "color": (0.35, 0.15, 0.10, 1.0),   # dark red accent
+        "ox": 0.0, "oz": 1.15, "layer": 0.045,
     },
     "arm_back": {
-        "w": 0.2, "h": 0.5, "color": (0.22, 0.17, 0.13, 1.0),
-        "ox": -0.3, "oz": 1.0, "layer": 0.005,
+        "w": 0.18, "h": 0.55, "color": (0.08, 0.06, 0.05, 1.0),  # dark sleeve
+        "ox": -0.32, "oz": 0.95, "layer": 0.005,
+    },
+    "hand_back": {
+        "w": 0.12, "h": 0.12, "color": (0.65, 0.50, 0.38, 1.0),  # skin
+        "ox": -0.32, "oz": 0.88, "layer": 0.006,
     },
     "arm_front": {
-        "w": 0.2, "h": 0.5, "color": (0.24, 0.19, 0.15, 1.0),
-        "ox": 0.3, "oz": 1.0, "layer": 0.05,
+        "w": 0.18, "h": 0.55, "color": (0.09, 0.07, 0.06, 1.0),  # dark sleeve
+        "ox": 0.32, "oz": 0.95, "layer": 0.05,
+    },
+    "hand_front": {
+        "w": 0.12, "h": 0.12, "color": (0.65, 0.50, 0.38, 1.0),  # skin
+        "ox": 0.32, "oz": 0.88, "layer": 0.051,
     },
     "staff": {
-        "w": 0.08, "h": 1.8, "color": (0.35, 0.25, 0.12, 1.0),
-        "ox": 0.35, "oz": 0.3, "layer": 0.06,
+        "w": 0.07, "h": 2.0, "color": (0.30, 0.20, 0.10, 1.0),   # warm wood
+        "ox": 0.38, "oz": 0.2, "layer": 0.06,
     },
     "staff_gem": {
-        "w": 0.15, "h": 0.15, "color": (0.5, 0.8, 0.9, 1.0),
-        "ox": 0.35, "oz": 2.05, "layer": 0.065,
+        "w": 0.18, "h": 0.18, "color": (0.4, 0.75, 0.85, 1.0),   # ACCENT: identity color
+        "ox": 0.38, "oz": 2.15, "layer": 0.065,
+    },
+    "staff_glow": {
+        "w": 0.3, "h": 0.3, "color": (0.3, 0.6, 0.7, 0.25),      # soft glow halo
+        "ox": 0.38, "oz": 2.1, "layer": 0.064,
     },
     "head": {
-        "w": 0.4, "h": 0.4, "color": (0.72, 0.58, 0.45, 1.0),
-        "ox": 0.0, "oz": 1.55, "layer": 0.07,
+        "w": 0.35, "h": 0.35, "color": (0.72, 0.55, 0.42, 1.0),  # warm skin — POP
+        "ox": 0.0, "oz": 1.58, "layer": 0.07,
+    },
+    "eyes": {
+        "w": 0.2, "h": 0.06, "color": (0.15, 0.12, 0.10, 1.0),   # dark slit
+        "ox": 0.0, "oz": 1.68, "layer": 0.075,
     },
     "hood": {
-        "w": 0.5, "h": 0.45, "color": (0.20, 0.16, 0.12, 1.0),
-        "ox": 0.0, "oz": 1.6, "layer": 0.08,
+        "w": 0.52, "h": 0.5, "color": (0.08, 0.06, 0.05, 1.0),   # near-black hood
+        "ox": 0.0, "oz": 1.62, "layer": 0.08,
     },
+}
+
+# Walk animation: per-part transforms over 4 frames
+# Each entry: [(ox_offset, oz_offset, rotation), ...]
+_WALK_PARTS = {
+    "legs":       [(0.0, 0.0, 0), (0.02, 0.02, 4), (0.0, 0.0, 0), (-0.02, 0.02, -4)],
+    "arm_front":  [(0.0, 0.0, 0), (0.04, 0.02, 10), (0.0, 0.0, 0), (-0.04, 0.02, -10)],
+    "hand_front": [(0.0, 0.0, 0), (0.04, 0.02, 10), (0.0, 0.0, 0), (-0.04, 0.02, -10)],
+    "arm_back":   [(0.0, 0.0, 0), (-0.04, 0.02, -10), (0.0, 0.0, 0), (0.04, 0.02, 10)],
+    "hand_back":  [(0.0, 0.0, 0), (-0.04, 0.02, -10), (0.0, 0.0, 0), (0.04, 0.02, 10)],
+    "staff":      [(0.0, 0.0, 0), (0.02, 0.0, 4), (0.0, 0.0, 0), (-0.02, 0.0, -4)],
+    "staff_gem":  [(0.0, 0.0, 0), (0.02, 0.0, 4), (0.0, 0.0, 0), (-0.02, 0.0, -4)],
+    "staff_glow": [(0.0, 0.0, 0), (0.02, 0.0, 4), (0.0, 0.0, 0), (-0.02, 0.0, -4)],
+    "torso":      [(0.0, 0.0, 0), (0.0, 0.01, 0), (0.0, 0.0, 0), (0.0, 0.01, 0)],
+    "robe_upper": [(0.0, 0.0, 0), (0.0, 0.01, 1), (0.0, 0.0, 0), (0.0, 0.01, -1)],
+    "robe_lower": [(0.0, 0.0, 0), (0.0, 0.005, 0), (0.0, 0.0, 0), (0.0, 0.005, 0)],
+    "sash":       [(0.0, 0.0, 0), (0.01, 0.01, 1), (0.0, 0.0, 0), (-0.01, 0.01, -1)],
+    "head":       [(0.0, 0.0, 0), (0.0, 0.015, 0), (0.0, 0.0, 0), (0.0, 0.015, 0)],
+    "eyes":       [(0.0, 0.0, 0), (0.0, 0.015, 0), (0.0, 0.0, 0), (0.0, 0.015, 0)],
+    "hood":       [(0.0, 0.0, 0), (0.0, 0.015, 0), (0.0, 0.0, 0), (0.0, 0.015, 0)],
 }
 
 # Walk animation: per-part transforms over 4 frames
@@ -167,7 +210,7 @@ class PaperDollRenderer:
         elapsed += dt
         doll.setPythonTag("anim_elapsed", elapsed)
 
-        anim_data = WALK_ANIM if anim_id == "walk" else {}
+        anim_data = _WALK_PARTS if anim_id == "walk" else {}
 
         for name, frames in anim_data.items():
             if name not in parts:
