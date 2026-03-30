@@ -17,6 +17,7 @@ from core.systems.pickup_system import PickupSystem, PICKUP_RADIUS
 from core.systems.interaction_engine import InteractionEngine, InteractionState
 from core.systems.scenario_engine import ScenarioEngine, ScenarioState
 from core.systems.avatar_pipeline import AvatarPipeline
+from core.systems.biome_scene import BiomeSceneBuilder
 
 console = Console()
 
@@ -182,11 +183,17 @@ class CreationLab(ShowBase):
         self._compound_nodes = []  # [{"key": str, "root": NodePath, "obj": dict, "pos": tuple}]
         self._register       = "survival"
         self._registers      = ["survival", "tron", "tolkien", "sanrio"]
+        self._biome          = "LAB"   # LAB = box room, others = biome scene
+        self._biomes         = ["LAB", "VERDANT", "CHROME", "NEON", "IRON", "FROZEN"]
+        self._biome_builder  = None  # initialized after layer_structure exists
 
         # Scene graph layers
         self.layer_structure    = self.render.attachNewNode("layer_structure")
         self.layer_interactable = self.render.attachNewNode("layer_interactable")
         self.layer_fx           = self.render.attachNewNode("layer_fx")
+
+        # BiomeSceneBuilder -- needs layer_structure to exist
+        self._biome_builder = BiomeSceneBuilder(self.layer_structure, seed=42)
 
         # Specular -- Anno wet-stone on all interactables
         mat = Material("interactable")
@@ -248,7 +255,7 @@ class CreationLab(ShowBase):
             self.accept("mouse1",       self.enable_mouse_look)
             console.log("[bold cyan]CREATION LAB -- SCENARIO TESTBED[/bold cyan]")
             console.log("[E] lift/stow  [G] drop  [C] craft  [X] clear")
-            console.log("[Q] fetch scenario  [R] cycle register  Shift+ESC quit")
+            console.log("[R] register  [B] biome  [Q] fetch  Shift+ESC quit")
 
     # -- Interaction state -> layer_fx glow ------------------------------------
 
@@ -643,6 +650,38 @@ class CreationLab(ShowBase):
         self._rebuild_compounds()
         self._update_hud()
 
+    def _cycle_biome(self):
+        """[B] -- cycle biome scene: LAB → VERDANT → CHROME → NEON → IRON → FROZEN."""
+        idx = self._biomes.index(self._biome)
+        self._biome = self._biomes[(idx + 1) % len(self._biomes)]
+
+        # Clear biome scene
+        self._biome_builder.clear()
+
+        if self._biome == "LAB":
+            # Rebuild the box room environment
+            self._apply_environment_register()
+        else:
+            # Remove lab environment, build biome scene
+            for np in self._env_nodes:
+                try:
+                    np.removeNode()
+                except Exception:
+                    pass
+            self._env_nodes = []
+            self._biome_builder.build(self._biome)
+            # Update background from biome palette
+            from core.systems.biome_renderer import BIOME_PALETTE
+            pal = BIOME_PALETTE.get(self._biome, BIOME_PALETTE["VOID"])
+            fc = pal["floor"]
+            # Background slightly darker than floor
+            self.setBackgroundColor(fc[0] * 0.3, fc[1] * 0.3, fc[2] * 0.3, 1)
+
+        console.log(
+            f"[bold magenta]BIOME[/bold magenta]  {self._biome}  "
+        )
+        self._update_hud()
+
     # -- Pickup callbacks ------------------------------------------------------
 
     def _on_held(self, obj):
@@ -742,8 +781,8 @@ class CreationLab(ShowBase):
                 "",
             ]
 
-        lines += [f"REGISTER: {self._register}"]
-        lines += ["[E] lift/stow  [G] drop  [Q] fetch  [R] register  [C] craft  [X] clear"]
+        lines += [f"REGISTER: {self._register}  BIOME: {self._biome}"]
+        lines += ["[E] lift/stow  [G] drop  [Q] fetch  [R] register  [B] biome  [C] craft"]
 
         if result:
             lines += ["", f">> {result['name']}", result["description"]]
@@ -813,6 +852,7 @@ class CreationLab(ShowBase):
         self.accept("g", self.pickup.on_drop_pressed)
         self.accept("q", self._create_fetch_scenario)
         self.accept("r", self._cycle_register)
+        self.accept("b", self._cycle_biome)
         self.accept("c", self._craft)
         self.accept("x", self._clear)
         for i in range(9):
