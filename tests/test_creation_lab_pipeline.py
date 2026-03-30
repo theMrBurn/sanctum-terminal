@@ -5,9 +5,12 @@ Creation lab as live scenario testbed -- AvatarPipeline wired in.
 
 Encounter begins on pickup (on_held), resolves on stow (on_stowed).
 Ghost profile drives verb selection. Fingerprint updates from play.
+Proximity glow on layer_fx tied to REACHABLE state.
+Breathing pulse scales alpha over time.
 Lab is the live testbed for the full pipeline.
 """
 import pytest
+from core.systems.interaction_engine import InteractionState
 
 
 @pytest.fixture
@@ -79,3 +82,106 @@ class TestLabEncounterOnPickup:
         enc = lab.pipeline.encounter.active_encounter
         assert enc is not None
         assert enc["entity"]["tags"] == ["crafting_time", "precision_score"]
+
+
+# -- Glow lifecycle ------------------------------------------------------------
+
+class TestGlowLifecycle:
+
+    def test_no_glow_initially(self, lab):
+        assert len(lab._glows) == 0
+
+    def test_glow_created_on_reachable(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        assert node in lab._glows
+
+    def test_glow_removed_on_dormant(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        lab._on_interaction_state(node, InteractionState.DORMANT)
+        assert node not in lab._glows
+
+    def test_glow_replaced_on_state_change(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.DETECTABLE)
+        glow_det = lab._glows.get(node)
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        glow_reach = lab._glows.get(node)
+        assert glow_reach is not glow_det
+
+
+# -- Glow placement ------------------------------------------------------------
+
+class TestGlowPlacement:
+
+    def test_glow_on_layer_fx(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        glow = lab._glows[node]
+        assert glow.getParent() == lab.layer_fx
+
+    def test_glow_at_object_xy(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        glow = lab._glows[node]
+        obj_pos = node.getPos(lab.render)
+        assert abs(glow.getX() - obj_pos.x) < 0.01
+        assert abs(glow.getY() - obj_pos.y) < 0.01
+
+    def test_glow_near_ground(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        glow = lab._glows[node]
+        assert glow.getZ() < 0.1
+
+
+# -- Glow color ----------------------------------------------------------------
+
+class TestGlowColor:
+
+    def test_state_glow_map_has_reachable(self):
+        from creation_lab import _STATE_GLOW
+        assert InteractionState.REACHABLE in _STATE_GLOW
+        assert _STATE_GLOW[InteractionState.REACHABLE] is not None
+
+    def test_state_glow_map_has_detectable(self):
+        from creation_lab import _STATE_GLOW
+        assert InteractionState.DETECTABLE in _STATE_GLOW
+        assert _STATE_GLOW[InteractionState.DETECTABLE] is not None
+
+    def test_dormant_has_no_glow(self):
+        from creation_lab import _STATE_GLOW
+        assert _STATE_GLOW[InteractionState.DORMANT] is None
+
+
+# -- Breathing pulse -----------------------------------------------------------
+
+class TestGlowPulse:
+
+    def test_glow_pulse_task_registered(self, lab):
+        task_names = [t.name for t in lab.taskMgr.getTasks()]
+        assert "GlowPulse" in task_names
+
+    def test_pulse_varies_alpha(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        glow = lab._glows[node]
+        lab._pulse_elapsed = 1.5
+        lab._update_glow_pulse()
+        new_alpha = glow.getColorScale().getW()
+        assert 0.2 <= new_alpha <= 1.0
