@@ -182,8 +182,10 @@ class BiomeSceneBuilder:
             self._scatter_imported_models(biome_key, register, rng)
 
         # Creature sprites
-        if self._sprite_renderer:
-            self._scatter_creatures(biome_key, register, rng)
+        # Creature sprites disabled -- 16x16 roguelike tiles don't work in 3D.
+        # Re-enable when 3D creature models (Quaternius monsters) are available.
+        # if self._sprite_renderer:
+        #     self._scatter_creatures(biome_key, register, rng)
 
         return self.nodes
 
