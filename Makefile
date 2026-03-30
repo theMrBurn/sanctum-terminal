@@ -58,3 +58,6 @@ creation:
 
 theater:
 	PYTHONPATH=. ./.venv/bin/python simulation_theater.py
+
+dungeon:
+	PYTHONPATH=. ./.venv/bin/python dungeon.py
