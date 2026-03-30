@@ -423,12 +423,15 @@ class CreationLab(ShowBase):
         self._spawn_compound("torch_lit", (-3.0, 0.0, 0.0))
         self._spawn_compound("tome",      ( 3.0, 0.0, 0.0))
 
-        # The Monk -- 3D character model (Quaternius Wizard as Philosopher Monk)
+        # The Monk -- try Quaternius Wizard, fall back to Kenney blocky
         self._monk_sprite = self._model_loader.load("char_monk")
+        if not self._monk_sprite:
+            self._monk_sprite = self._model_loader.load("char_blocky_a")
         if self._monk_sprite:
             self._monk_sprite.reparentTo(self.render)
             self._monk_sprite.setPos(0, 8, 0)
             self._model_loader.apply_register(self._monk_sprite, self._register)
+            console.log(f"[cyan]MONK[/cyan] loaded: {self._monk_sprite.getPythonTag('asset_id')}")
 
     def _build_environment(self):
         """Build floor, walls, grid from current register. Delegates to lab_environment."""
