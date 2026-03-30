@@ -12,6 +12,23 @@ from panda3d.core import (
     NodePath,
 )
 
+# -- Vertex color noise --------------------------------------------------------
+# System-wide surface variation. Breaks up flat faces.
+# Applied per-vertex in all geometry functions.
+
+_NOISE_RNG = random.Random(0)
+VERTEX_NOISE = 0.12  # ±12% brightness variation per vertex
+
+
+def _noisy_color(r, g, b, shade, noise=VERTEX_NOISE):
+    """Apply face shading + per-vertex noise to a base color."""
+    n = 1.0 + _NOISE_RNG.uniform(-noise, noise)
+    return (
+        max(0.0, min(1.0, r * shade * n)),
+        max(0.0, min(1.0, g * shade * n)),
+        max(0.0, min(1.0, b * shade * n)),
+    )
+
 # ── Biome visual signatures ───────────────────────────────────────────────────
 
 BIOME_PALETTE = {
@@ -62,9 +79,9 @@ def _make_box_geom(w, h, d, color):
     tris = GeomTriangles(Geom.UHStatic)
     idx = 0
     for face, shade in zip(faces, face_shading):
-        cr, cg, cb = r * shade, g * shade, b * shade
         for v in face:
             vwriter.addData3(*v)
+            cr, cg, cb = _noisy_color(r, g, b, shade)
             cwriter.addData4(cr, cg, cb, 1.0)
         tris.addVertices(idx, idx + 1, idx + 2)
         tris.addVertices(idx, idx + 2, idx + 3)
@@ -77,25 +94,42 @@ def _make_box_geom(w, h, d, color):
     return node
 
 
-def _make_plane_geom(w, d, color):
-    """Builds a flat colored ground plane."""
+def _make_plane_geom(w, d, color, subdivisions=12):
+    """
+    Builds a subdivided ground plane with per-vertex color/height noise.
+    Gives the ground subtle variation -- not flat, not tiled.
+    """
     fmt = GeomVertexFormat.getV3c4()
+    cols = subdivisions
+    rows = subdivisions
+    num_verts = (cols + 1) * (rows + 1)
     vdata = GeomVertexData("plane", fmt, Geom.UHStatic)
-    vdata.setNumRows(4)
+    vdata.setNumRows(num_verts)
 
     vw = GeomVertexWriter(vdata, "vertex")
     cw = GeomVertexWriter(vdata, "color")
 
     hw, hd = w / 2, d / 2
     r, g, b = color
+    rng = random.Random(int(r * 1000 + g * 100 + b * 10))
 
-    for v in [(-hw, -hd, 0), (hw, -hd, 0), (hw, hd, 0), (-hw, hd, 0)]:
-        vw.addData3(*v)
-        cw.addData4(r, g, b, 1.0)
+    for row in range(rows + 1):
+        for col in range(cols + 1):
+            x = -hw + (col / cols) * w
+            y = -hd + (row / rows) * d
+            # Subtle height variation
+            z = rng.uniform(-0.08, 0.08)
+            vw.addData3(x, y, z)
+            # Per-vertex color noise
+            cr, cg, cb = _noisy_color(r, g, b, 1.0, noise=0.15)
+            cw.addData4(cr, cg, cb, 1.0)
 
     tris = GeomTriangles(Geom.UHStatic)
-    tris.addVertices(0, 1, 2)
-    tris.addVertices(0, 2, 3)
+    for row in range(rows):
+        for col in range(cols):
+            i = row * (cols + 1) + col
+            tris.addVertices(i, i + 1, i + cols + 2)
+            tris.addVertices(i, i + cols + 2, i + cols + 1)
 
     geom = Geom(vdata)
     geom.addPrimitive(tris)
@@ -146,18 +180,18 @@ def _make_wedge_geom(w, h, d, color):
     idx = 0
 
     for face, shade in faces_quads:
-        cr, cg, cb = r * shade, g * shade, b * shade
         for v in face:
             vw.addData3(*v)
+            cr, cg, cb = _noisy_color(r, g, b, shade)
             cw.addData4(cr, cg, cb, 1.0)
         tris.addVertices(idx, idx + 1, idx + 2)
         tris.addVertices(idx, idx + 2, idx + 3)
         idx += 4
 
     for face, shade in faces_tris:
-        cr, cg, cb = r * shade, g * shade, b * shade
         for v in face:
             vw.addData3(*v)
+            cr, cg, cb = _noisy_color(r, g, b, shade)
             cw.addData4(cr, cg, cb, 1.0)
         tris.addVertices(idx, idx + 1, idx + 2)
         idx += 3
@@ -211,9 +245,9 @@ def _make_spike_geom(w, h, d, color):
     ]
 
     for face, shade in side_faces:
-        cr, cg, cb = r * shade, g * shade, b * shade
         for v in face:
             vw.addData3(*v)
+            cr, cg, cb = _noisy_color(r, g, b, shade)
             cw.addData4(cr, cg, cb, 1.0)
         tris.addVertices(idx, idx + 1, idx + 2)
         idx += 3
@@ -267,9 +301,9 @@ def _make_arch_geom(w, h, d, color, segments=8):
 
         # Outer face (front)
         shade = 0.8
-        cr, cg, cb = r * shade, g * shade, b * shade
         for v in [(ox0, -hh, oz0), (ox1, -hh, oz1), (ox1, hh, oz1), (ox0, hh, oz0)]:
             vw.addData3(*v)
+            cr, cg, cb = _noisy_color(r, g, b, shade)
             cw.addData4(cr, cg, cb, 1.0)
         tris.addVertices(idx, idx+1, idx+2)
         tris.addVertices(idx, idx+2, idx+3)
@@ -277,9 +311,9 @@ def _make_arch_geom(w, h, d, color, segments=8):
 
         # Inner face (underside of arch)
         shade = 0.4
-        cr, cg, cb = r * shade, g * shade, b * shade
         for v in [(ix1, -hh, iz1), (ix0, -hh, iz0), (ix0, hh, iz0), (ix1, hh, iz1)]:
             vw.addData3(*v)
+            cr, cg, cb = _noisy_color(r, g, b, shade)
             cw.addData4(cr, cg, cb, 1.0)
         tris.addVertices(idx, idx+1, idx+2)
         tris.addVertices(idx, idx+2, idx+3)
@@ -292,9 +326,9 @@ def _make_arch_geom(w, h, d, color, segments=8):
         oz = math.sin(a) * d
         ix = -math.cos(a) * inner_radius
         iz = math.sin(a) * d * 0.85
-        cr, cg, cb = r * shade, g * shade, b * shade
         for v in [(ox, -hh, oz), (ix, -hh, iz), (ix, hh, iz), (ox, hh, oz)]:
             vw.addData3(*v)
+            cr, cg, cb = _noisy_color(r, g, b, shade)
             cw.addData4(cr, cg, cb, 1.0)
         tris.addVertices(idx, idx+1, idx+2)
         tris.addVertices(idx, idx+2, idx+3)

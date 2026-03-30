@@ -6,7 +6,7 @@ from panda3d.core import (
     AmbientLight, DirectionalLight, PointLight, Vec4,
     WindowProperties, TextNode, AntialiasAttrib,
     CollisionNode, CollisionPlane,
-    Plane, Point3, Vec3, Material,
+    Plane, Point3, Vec3, Material, Fog,
 )
 from rich.console import Console
 from core.systems.biome_renderer import _make_box_geom, _make_plane_geom
@@ -87,6 +87,8 @@ ENVIRONMENT_REGISTERS = {
         "ambient":    _CFG["light_amb"],
         "sun":        _CFG["light_sun"],
         "fill":       _CFG["light_fill"],
+        "fog":        (0.06, 0.05, 0.05),
+        "fog_range":  (20.0, 80.0),
     },
     "tron": {
         "background": (0.0,  0.0,  0.02),
@@ -96,6 +98,8 @@ ENVIRONMENT_REGISTERS = {
         "ambient":    (0.01, 0.03, 0.06),
         "sun":        (0.2,  0.5,  0.8),
         "fill":       (0.0,  0.08, 0.18),
+        "fog":        (0.0,  0.02, 0.04),
+        "fog_range":  (15.0, 60.0),
     },
     "tolkien": {
         "background": (0.04, 0.03, 0.02),
@@ -105,6 +109,8 @@ ENVIRONMENT_REGISTERS = {
         "ambient":    (0.08, 0.06, 0.04),
         "sun":        (1.2,  0.85, 0.55),
         "fill":       (0.06, 0.05, 0.03),
+        "fog":        (0.05, 0.04, 0.03),
+        "fog_range":  (25.0, 90.0),
     },
     "sanrio": {
         "background": (0.35, 0.28, 0.32),
@@ -114,6 +120,8 @@ ENVIRONMENT_REGISTERS = {
         "ambient":    (0.25, 0.20, 0.28),
         "sun":        (1.0,  0.85, 0.90),
         "fill":       (0.30, 0.25, 0.35),
+        "fog":        (0.40, 0.32, 0.38),
+        "fog_range":  (30.0, 100.0),
     },
 }
 
@@ -833,14 +841,31 @@ class CreationLab(ShowBase):
         post = _make_box_geom(0.12, 0.12, 4.0, (0.10, 0.08, 0.07))
         self.render.attachNewNode(post).setPos(-6, LAB_Y_N - 4, 2.0)
 
+        # Fog -- initial setup from current register
+        self._fog = None
+        reg = ENVIRONMENT_REGISTERS.get(self._register, ENVIRONMENT_REGISTERS["survival"])
+        self._update_fog(reg)
+
     def _update_lighting(self, reg):
-        """Update light colors from register palette."""
+        """Update light colors and fog from register palette."""
         s = reg["sun"]
         self._sun_light.setColor(Vec4(s[0], s[1], s[2], 1))
         f = reg["fill"]
         self._fill_light.setColor(Vec4(f[0], f[1], f[2], 1))
         a = reg["ambient"]
         self._amb_light.setColor(Vec4(a[0], a[1], a[2], 1))
+        # Fog
+        self._update_fog(reg)
+
+    def _update_fog(self, reg):
+        """Set linear fog from register palette."""
+        fc = reg.get("fog", (0.05, 0.05, 0.05))
+        fr = reg.get("fog_range", (20.0, 80.0))
+        if not hasattr(self, "_fog") or self._fog is None:
+            self._fog = Fog("scene_fog")
+            self.render.setFog(self._fog)
+        self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1.0))
+        self._fog.setLinearRange(fr[0], fr[1])
 
     # -- Controls --------------------------------------------------------------
 
