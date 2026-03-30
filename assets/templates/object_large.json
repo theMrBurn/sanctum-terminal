@@ -1,0 +1,74 @@
+{
+    "name": "object_large",
+    "category": "object",
+    "size_class": "large",
+    "root": {
+        "name": "foundation",
+        "primitive": "SLAB",
+        "scale": [2.00, 2.00, 0.15],
+        "offset": [0, 0, 0.08],
+        "color": "stone",
+        "children": [
+            {
+                "name": "body_lower",
+                "primitive": "BLOCK",
+                "scale": [1.60, 1.60, 1.00],
+                "offset": [0, 0, 0.58],
+                "color": "base",
+                "children": [
+                    {
+                        "name": "body_upper",
+                        "primitive": "BLOCK",
+                        "scale": [1.40, 1.40, 0.80],
+                        "offset": [0, 0, 0.90],
+                        "color": "base",
+                        "socket": true,
+                        "children": [
+                            {
+                                "name": "crown",
+                                "primitive": "SPIKE",
+                                "scale": [0.80, 0.60, 0.80],
+                                "offset": [0, 0, 0.70],
+                                "color": "accent",
+                                "socket": true,
+                                "children": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "name": "pillar_fl",
+                "primitive": "PILLAR",
+                "scale": [0.20, 1.80, 0.20],
+                "offset": [-0.80, 0.80, 0.98],
+                "color": "stone",
+                "children": []
+            },
+            {
+                "name": "pillar_fr",
+                "primitive": "PILLAR",
+                "scale": [0.20, 1.80, 0.20],
+                "offset": [0.80, 0.80, 0.98],
+                "color": "stone",
+                "children": []
+            },
+            {
+                "name": "pillar_bl",
+                "primitive": "PILLAR",
+                "scale": [0.20, 1.80, 0.20],
+                "offset": [-0.80, -0.80, 0.98],
+                "color": "stone",
+                "children": []
+            },
+            {
+                "name": "pillar_br",
+                "primitive": "PILLAR",
+                "scale": [0.20, 1.80, 0.20],
+                "offset": [0.80, -0.80, 0.98],
+                "color": "stone",
+                "children": []
+            }
+        ]
+    }
+}

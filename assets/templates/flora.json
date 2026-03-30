@@ -1,0 +1,80 @@
+{
+    "name": "flora",
+    "category": "flora",
+    "size_class": "medium",
+    "root": {
+        "name": "roots",
+        "primitive": "BLOCK",
+        "scale": [0.60, 0.60, 0.15],
+        "offset": [0, 0, 0.08],
+        "color": "bark",
+        "children": [
+            {
+                "name": "trunk",
+                "primitive": "PILLAR",
+                "scale": [0.30, 1.80, 0.30],
+                "offset": [0, 0, 0.98],
+                "color": "bark",
+                "socket": true,
+                "children": [
+                    {
+                        "name": "branch_l",
+                        "primitive": "BLOCK",
+                        "scale": [0.60, 0.10, 0.10],
+                        "offset": [-0.35, 0, 0.50],
+                        "rotation": [0, 0, -25],
+                        "color": "bark",
+                        "socket": true,
+                        "children": [
+                            {
+                                "name": "leaf_cluster_l",
+                                "primitive": "BLOCK",
+                                "scale": [0.50, 0.40, 0.35],
+                                "offset": [-0.30, 0, 0.15],
+                                "color": "leaf",
+                                "children": []
+                            }
+                        ]
+                    },
+                    {
+                        "name": "branch_r",
+                        "primitive": "BLOCK",
+                        "scale": [0.55, 0.10, 0.10],
+                        "offset": [0.32, 0, 0.60],
+                        "rotation": [0, 0, 20],
+                        "color": "bark",
+                        "socket": true,
+                        "children": [
+                            {
+                                "name": "leaf_cluster_r",
+                                "primitive": "BLOCK",
+                                "scale": [0.45, 0.38, 0.30],
+                                "offset": [0.28, 0, 0.12],
+                                "color": "leaf",
+                                "children": []
+                            }
+                        ]
+                    },
+                    {
+                        "name": "canopy",
+                        "primitive": "BLOCK",
+                        "scale": [1.20, 1.00, 0.80],
+                        "offset": [0, 0, 0.90],
+                        "color": "leaf",
+                        "socket": true,
+                        "children": [
+                            {
+                                "name": "canopy_top",
+                                "primitive": "SPIKE",
+                                "scale": [0.80, 0.50, 0.60],
+                                "offset": [0, 0, 0.55],
+                                "color": "leaf",
+                                "children": []
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

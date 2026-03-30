@@ -1,0 +1,102 @@
+{
+    "name": "fauna",
+    "category": "fauna",
+    "size_class": "small",
+    "root": {
+        "name": "body",
+        "primitive": "BLOCK",
+        "scale": [0.25, 0.40, 0.22],
+        "offset": [0, 0, 0.30],
+        "color": "base",
+        "socket": true,
+        "children": [
+            {
+                "name": "head",
+                "primitive": "BLOCK",
+                "scale": [0.18, 0.20, 0.16],
+                "offset": [0, 0.22, 0.06],
+                "color": "base",
+                "socket": true,
+                "children": [
+                    {
+                        "name": "eye_l",
+                        "primitive": "BLOCK",
+                        "scale": [0.04, 0.04, 0.04],
+                        "offset": [-0.06, 0.10, 0.04],
+                        "color": "glow",
+                        "children": []
+                    },
+                    {
+                        "name": "eye_r",
+                        "primitive": "BLOCK",
+                        "scale": [0.04, 0.04, 0.04],
+                        "offset": [0.06, 0.10, 0.04],
+                        "color": "glow",
+                        "children": []
+                    }
+                ]
+            },
+            {
+                "name": "tail",
+                "primitive": "BLOCK",
+                "scale": [0.06, 0.30, 0.06],
+                "offset": [0, -0.28, 0.06],
+                "rotation": [0, 20, 0],
+                "color": "accent",
+                "children": []
+            },
+            {
+                "name": "leg_fl",
+                "primitive": "BLOCK",
+                "scale": [0.06, 0.06, 0.18],
+                "offset": [-0.10, 0.14, -0.18],
+                "color": "dark",
+                "children": []
+            },
+            {
+                "name": "leg_fr",
+                "primitive": "BLOCK",
+                "scale": [0.06, 0.06, 0.18],
+                "offset": [0.10, 0.14, -0.18],
+                "color": "dark",
+                "children": []
+            },
+            {
+                "name": "leg_bl",
+                "primitive": "BLOCK",
+                "scale": [0.06, 0.06, 0.18],
+                "offset": [-0.10, -0.14, -0.18],
+                "color": "dark",
+                "children": []
+            },
+            {
+                "name": "leg_br",
+                "primitive": "BLOCK",
+                "scale": [0.06, 0.06, 0.18],
+                "offset": [0.10, -0.14, -0.18],
+                "color": "dark",
+                "children": []
+            },
+            {
+                "name": "wing_l",
+                "primitive": "WEDGE",
+                "scale": [0.30, 0.20, 0.04],
+                "offset": [-0.22, 0, 0.10],
+                "rotation": [0, 0, -15],
+                "color": "accent",
+                "socket": true,
+                "children": []
+            },
+            {
+                "name": "wing_r",
+                "primitive": "WEDGE",
+                "scale": [0.30, 0.20, 0.04],
+                "offset": [0.22, 0, 0.10],
+                "rotation": [0, 0, 15],
+                "color": "accent",
+                "socket": true,
+                "children": []
+            }
+        ]
+    }
+}

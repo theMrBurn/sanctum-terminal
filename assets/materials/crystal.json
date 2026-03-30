@@ -1,0 +1,48 @@
+{
+    "name": "crystal",
+    "category": "mineral",
+    "base": {
+        "color": [
+            0.8800000000000001,
+            1.0,
+            1.0
+        ],
+        "texture": "assets/sprites/textures/parts/crystal.png",
+        "emission": 0.3,
+        "opacity": 0.85
+    },
+    "registers": {
+        "survival": {
+            "color": [
+                0.77,
+                1.0,
+                1.0
+            ],
+            "emission": 0.15
+        },
+        "tron": {
+            "color": [
+                0.44000000000000006,
+                1.0,
+                1.0
+            ],
+            "emission": 0.8
+        },
+        "tolkien": {
+            "color": [
+                0.9900000000000001,
+                1.0,
+                1.0
+            ],
+            "emission": 0.2
+        },
+        "sanrio": {
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "emission": 0.4
+        }
+    }
+}

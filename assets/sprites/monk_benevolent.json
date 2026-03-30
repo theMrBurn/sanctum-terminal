@@ -1,0 +1,11 @@
+{
+    "head":       "assets/sprites/textures/parts/monk_head.png",
+    "hood":       "assets/sprites/textures/parts/monk_head.png",
+    "torso":      "assets/sprites/textures/parts/monk_torso.png",
+    "robe_upper": "assets/sprites/textures/parts/monk_torso.png",
+    "robe_lower": "assets/sprites/textures/parts/monk_torso.png",
+    "shoulder_l": "assets/sprites/textures/parts/monk_arm_l.png",
+    "shoulder_r": "assets/sprites/textures/parts/monk_arm_r.png",
+    "arm_l":      "assets/sprites/textures/parts/monk_arm_l.png",
+    "arm_r":      "assets/sprites/textures/parts/monk_arm_r.png"
+}

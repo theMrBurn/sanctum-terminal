@@ -1,0 +1,78 @@
+{
+    "name": "building_module",
+    "category": "building",
+    "size_class": "large",
+    "root": {
+        "name": "floor",
+        "primitive": "SLAB",
+        "scale": [4.00, 4.00, 0.15],
+        "offset": [0, 0, 0.08],
+        "color": "stone",
+        "socket": true,
+        "children": [
+            {
+                "name": "wall_north",
+                "primitive": "BLOCK",
+                "scale": [4.00, 0.20, 3.00],
+                "offset": [0, 2.00, 1.58],
+                "color": "stone",
+                "socket": true,
+                "children": [
+                    {
+                        "name": "window_n",
+                        "primitive": "BLOCK",
+                        "scale": [0.80, 0.10, 0.80],
+                        "offset": [0, -0.10, 0.30],
+                        "color": "crystal",
+                        "socket": true,
+                        "children": []
+                    }
+                ]
+            },
+            {
+                "name": "wall_south",
+                "primitive": "BLOCK",
+                "scale": [4.00, 0.20, 3.00],
+                "offset": [0, -2.00, 1.58],
+                "color": "stone",
+                "socket": true,
+                "children": [
+                    {
+                        "name": "door_slot",
+                        "primitive": "BLOCK",
+                        "scale": [1.00, 0.10, 2.20],
+                        "offset": [0, -0.10, -0.40],
+                        "color": "wood",
+                        "socket": true,
+                        "children": []
+                    }
+                ]
+            },
+            {
+                "name": "wall_east",
+                "primitive": "BLOCK",
+                "scale": [0.20, 4.00, 3.00],
+                "offset": [2.00, 0, 1.58],
+                "color": "stone",
+                "children": []
+            },
+            {
+                "name": "wall_west",
+                "primitive": "BLOCK",
+                "scale": [0.20, 4.00, 3.00],
+                "offset": [-2.00, 0, 1.58],
+                "color": "stone",
+                "children": []
+            },
+            {
+                "name": "ceiling",
+                "primitive": "SLAB",
+                "scale": [4.20, 4.20, 0.12],
+                "offset": [0, 0, 3.14],
+                "color": "dark",
+                "socket": true,
+                "children": []
+            }
+        ]
+    }
+}

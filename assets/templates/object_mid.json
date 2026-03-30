@@ -1,0 +1,41 @@
+{
+    "name": "object_mid",
+    "category": "object",
+    "size_class": "medium",
+    "root": {
+        "name": "foundation",
+        "primitive": "SLAB",
+        "scale": [0.80, 0.80, 0.10],
+        "offset": [0, 0, 0.05],
+        "color": "stone",
+        "children": [
+            {
+                "name": "body",
+                "primitive": "BLOCK",
+                "scale": [0.65, 0.65, 0.70],
+                "offset": [0, 0, 0.40],
+                "color": "base",
+                "socket": true,
+                "children": [
+                    {
+                        "name": "detail_front",
+                        "primitive": "BLOCK",
+                        "scale": [0.40, 0.08, 0.30],
+                        "offset": [0, -0.36, 0.0],
+                        "color": "accent",
+                        "children": []
+                    },
+                    {
+                        "name": "detail_top",
+                        "primitive": "BLOCK",
+                        "scale": [0.55, 0.55, 0.06],
+                        "offset": [0, 0, 0.38],
+                        "color": "dark",
+                        "socket": true,
+                        "children": []
+                    }
+                ]
+            }
+        ]
+    }
+}
