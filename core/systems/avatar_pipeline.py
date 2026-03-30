@@ -124,7 +124,7 @@ class AvatarPipeline:
         archetypes = {k: v / arch_total for k, v in archetypes.items()}
 
         # -- Verb emphasis from ghost blend ---
-        verbs = {"THINK": 0.0, "ACT": 0.0, "MOVE": 0.0, "DEFEND": 0.0, "TOOLS": 0.0}
+        verbs = {"THINK": 0.0, "ACT": 0.0, "MOVE": 0.0, "DEFEND": 0.0, "TOOLS": 0.0, "CRAFT": 0.0, "OBSERVE": 0.0}
         for profile, weight in self.ghost_blend.items():
             affinity = _PROFILE_VERB_AFFINITY.get(profile, {})
             for verb, vw in affinity.items():

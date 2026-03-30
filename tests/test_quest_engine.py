@@ -277,9 +277,9 @@ class TestScenarioArray:
         from core.systems.scenario_engine import ScenarioState
         assert ScenarioState is not None
 
-    def test_five_scenario_types_defined(self):
+    def test_seven_scenario_types_defined(self):
         from core.systems.scenario_engine import SCENARIO_TYPES
-        assert set(SCENARIO_TYPES) == {"fetch", "escort", "hunt", "key", "switch"}
+        assert set(SCENARIO_TYPES) == {"fetch", "escort", "hunt", "key", "switch", "defend", "trade"}
 
     def test_create_fetch_scenario(self):
         from core.systems.scenario_engine import ScenarioEngine, ScenarioState
