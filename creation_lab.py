@@ -16,6 +16,7 @@ from core.systems.inventory import Inventory
 from core.systems.pickup_system import PickupSystem, PICKUP_RADIUS
 from core.systems.interaction_engine import InteractionEngine, InteractionState
 from core.systems.scenario_engine import ScenarioEngine, ScenarioState
+from core.systems.avatar_pipeline import AvatarPipeline
 
 console = Console()
 
@@ -159,6 +160,10 @@ class CreationLab(ShowBase):
         # ScenarioEngine -- owns quest state, provenance hash per scenario
         self.se           = ScenarioEngine(seed="BURN")
         self._active_sid  = None   # currently displayed scenario
+
+        # AvatarPipeline -- ghost profile + encounter engine, default answers
+        # In production, answers come from InterviewEngine. Lab uses defaults.
+        self.pipeline = AvatarPipeline(answers={}, age=30, seed="BURN")
 
         # PickupSystem -- delegates nearest lookup to InteractionEngine
         self.pickup = PickupSystem(
@@ -381,6 +386,17 @@ class CreationLab(ShowBase):
             f"[cyan]holding[/cyan]  {obj['id']}  "
             f"[dim]{obj.get('description', '')}[/dim]"
         )
+        # Begin encounter -- ghost profile drives resonance
+        tags   = obj.get("tags", [])
+        entity = {"id": obj["id"], "tags": tags, "type": "object"}
+        worth  = self.pipeline.encounter.begin(entity)
+        if worth:
+            verb = self.pipeline.encounter.dominant_verb()
+            self.pipeline.encounter.choose(verb)
+            console.log(
+                f"[bold magenta]ENCOUNTER[/bold magenta]  resonant  "
+                f"verb={verb}  [dim]{obj['id']}[/dim]"
+            )
         self._update_hud()
 
     def _on_stowed(self, obj):
@@ -388,6 +404,16 @@ class CreationLab(ShowBase):
             f"[green]stowed[/green]   {obj['id']}  "
             f"[dim]{self.inventory.count()}/{self.inventory.max_slots} slots[/dim]"
         )
+        # Resolve encounter on stow -- silence if not resonant
+        result = self.pipeline.encounter.resolve()
+        if result["worth_knowing"]:
+            console.log(
+                f"[bold green]RESOLVED[/bold green]  "
+                f"xp={result['xp_staged']:.2f}  "
+                f"verb={result['verb_used']}  "
+                f"r={result['resonance']:.2f}"
+            )
+            self.pipeline.fingerprint.record("objects_inspected", 0.2)
         self._update_hud()
 
     def _on_dropped(self, obj):
