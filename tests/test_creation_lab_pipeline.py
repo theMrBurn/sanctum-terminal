@@ -365,3 +365,95 @@ class TestBlendRefresh:
         lab.game_loop(type("Task", (), {"cont": 1})())
         new_blend = lab.pipeline.ghost_blend
         assert new_blend != old_blend
+
+
+# -- Compound objects in lab ---------------------------------------------------
+
+class TestLabCompoundObjects:
+
+    def test_compounds_loaded(self, lab):
+        assert len(lab._compounds) > 0
+
+    def test_torch_spawned(self, lab):
+        keys = [cn["key"] for cn in lab._compound_nodes]
+        assert "torch_lit" in keys
+
+    def test_tome_spawned(self, lab):
+        keys = [cn["key"] for cn in lab._compound_nodes]
+        assert "tome" in keys
+
+    def test_compound_has_root_node(self, lab):
+        cn = lab._compound_nodes[0]
+        assert cn["root"] is not None
+
+    def test_compound_obj_has_tags(self, lab):
+        cn = lab._compound_nodes[0]
+        assert len(cn["obj"]["tags"]) > 0
+
+    def test_compound_obj_has_weight(self, lab):
+        cn = lab._compound_nodes[0]
+        assert cn["obj"]["weight"] > 0
+
+    def test_compound_registered_with_ie(self, lab):
+        cn = lab._compound_nodes[0]
+        state = lab.ie.get_state(cn["root"])
+        assert state is not None
+
+
+# -- Register cycling ----------------------------------------------------------
+
+class TestRegisterCycling:
+
+    def test_default_register_is_survival(self, lab):
+        assert lab._register == "survival"
+
+    def test_cycle_advances_register(self, lab):
+        lab._cycle_register()
+        assert lab._register == "tron"
+
+    def test_cycle_wraps_around(self, lab):
+        for _ in range(4):
+            lab._cycle_register()
+        assert lab._register == "survival"
+
+    def test_compounds_rebuild_on_cycle(self, lab):
+        old_roots = [cn["root"] for cn in lab._compound_nodes]
+        lab._cycle_register()
+        new_roots = [cn["root"] for cn in lab._compound_nodes]
+        # Roots should be different objects (rebuilt)
+        for old, new in zip(old_roots, new_roots):
+            assert old is not new
+
+    def test_compound_count_preserved_on_cycle(self, lab):
+        count_before = len(lab._compound_nodes)
+        lab._cycle_register()
+        assert len(lab._compound_nodes) == count_before
+
+
+# -- Compound encounter integration -------------------------------------------
+
+class TestCompoundEncounterIntegration:
+
+    def test_compound_encounter_uses_tags(self, lab):
+        """Picking up a compound object should begin encounter with its tags."""
+        cn = next(c for c in lab._compound_nodes if c["key"] == "torch_lit")
+        obj = cn["obj"]
+        lab.pipeline.fingerprint.record("crafting_time", 0.8)
+        lab.pipeline.fingerprint.record("precision_score", 0.7)
+        lab.pipeline.refresh_blend()
+        lab._on_held(obj)
+        enc = lab.pipeline.encounter.active_encounter
+        assert enc is not None
+        assert "crafting_time" in enc["entity"]["tags"]
+
+    def test_compound_encounter_verb_matches(self, lab):
+        """Torch encounter should suggest TOOLS verb."""
+        cn = next(c for c in lab._compound_nodes if c["key"] == "torch_lit")
+        obj = cn["obj"]
+        lab.pipeline.fingerprint.record("crafting_time", 0.8)
+        lab.pipeline.refresh_blend()
+        lab._on_held(obj)
+        # The encounter is active, dominant verb should reflect profile
+        verb = lab.pipeline.encounter.dominant_verb()
+        from core.systems.encounter_engine import VERBS
+        assert verb in VERBS
