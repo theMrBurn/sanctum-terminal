@@ -283,10 +283,18 @@ class PrimitiveFactory:
         return tuple(scale), rotation, detail
 
     def _make_geom(self, ptype, scale, color):
-        from core.systems.biome_renderer import _make_box_geom
+        from core.systems.biome_renderer import (
+            _make_box_geom, _make_wedge_geom, _make_spike_geom, _make_arch_geom,
+        )
         w, h, d = scale[0], scale[1], scale[2]
-        r, g, b = color[0], color[1], color[2]
-        return _make_box_geom(w, h, d, (r, g, b))
+        c = (color[0], color[1], color[2])
+        if ptype == 'WEDGE':
+            return _make_wedge_geom(w, h, d, c)
+        if ptype == 'SPIKE':
+            return _make_spike_geom(w, h, d, c)
+        if ptype == 'ARCH':
+            return _make_arch_geom(w, h, d, c)
+        return _make_box_geom(w, h, d, c)
 
     def _make_hash(self, ptype, scale, color, relic, profile):
         raw = json.dumps({

@@ -104,6 +104,209 @@ def _make_plane_geom(w, d, color):
     return node
 
 
+def _make_wedge_geom(w, h, d, color):
+    """
+    Builds a flat-shaded triangular prism (wedge) GeomNode.
+    Triangular cross-section: full width at base, tapers to ridge at top.
+    w = width, h = height (taper direction), d = depth.
+    """
+    import math
+    fmt = GeomVertexFormat.getV3c4()
+    vdata = GeomVertexData("wedge", fmt, Geom.UHStatic)
+    vdata.setNumRows(18)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    cw = GeomVertexWriter(vdata, "color")
+
+    hw, hh, hd = w / 2, h / 2, d / 2
+    r, g, b = color
+
+    # 6 vertices: rectangular base + ridge on top
+    #   base: 4 corners at z = -hh
+    #   ridge: 2 points at z = +hh, x = 0
+    # Faces: bottom (quad), front (tri), back (tri), left (quad), right (quad)
+
+    faces_quads = [
+        # bottom
+        ([(-hw, -hd, -hh), (hw, -hd, -hh), (hw, hd, -hh), (-hw, hd, -hh)], 0.3),
+        # left slope
+        ([(-hw, -hd, -hh), (-hw, hd, -hh), (0, hd, hh), (0, -hd, hh)], 0.6),
+        # right slope
+        ([(hw, hd, -hh), (hw, -hd, -hh), (0, -hd, hh), (0, hd, hh)], 0.8),
+    ]
+
+    faces_tris = [
+        # front triangle
+        ([(-hw, -hd, -hh), (hw, -hd, -hh), (0, -hd, hh)], 0.5),
+        # back triangle
+        ([(hw, hd, -hh), (-hw, hd, -hh), (0, hd, hh)], 0.5),
+    ]
+
+    tris = GeomTriangles(Geom.UHStatic)
+    idx = 0
+
+    for face, shade in faces_quads:
+        cr, cg, cb = r * shade, g * shade, b * shade
+        for v in face:
+            vw.addData3(*v)
+            cw.addData4(cr, cg, cb, 1.0)
+        tris.addVertices(idx, idx + 1, idx + 2)
+        tris.addVertices(idx, idx + 2, idx + 3)
+        idx += 4
+
+    for face, shade in faces_tris:
+        cr, cg, cb = r * shade, g * shade, b * shade
+        for v in face:
+            vw.addData3(*v)
+            cw.addData4(cr, cg, cb, 1.0)
+        tris.addVertices(idx, idx + 1, idx + 2)
+        idx += 3
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode("wedge")
+    node.addGeom(geom)
+    return node
+
+
+def _make_spike_geom(w, h, d, color):
+    """
+    Builds a flat-shaded pyramid GeomNode.
+    Square base at z=-h/2, apex at z=+h/2.
+    w = base width, h = height, d = base depth.
+    """
+    fmt = GeomVertexFormat.getV3c4()
+    vdata = GeomVertexData("spike", fmt, Geom.UHStatic)
+    vdata.setNumRows(16)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    cw = GeomVertexWriter(vdata, "color")
+
+    hw, hh, hd = w / 2, h / 2, d / 2
+    r, g, b = color
+    apex = (0, 0, hh)
+
+    # Base quad + 4 triangular faces
+    base = [(-hw, -hd, -hh), (hw, -hd, -hh), (hw, hd, -hh), (-hw, hd, -hh)]
+
+    tris = GeomTriangles(Geom.UHStatic)
+    idx = 0
+
+    # Base (quad)
+    shade = 0.3
+    cr, cg, cb = r * shade, g * shade, b * shade
+    for v in base:
+        vw.addData3(*v)
+        cw.addData4(cr, cg, cb, 1.0)
+    tris.addVertices(idx, idx + 1, idx + 2)
+    tris.addVertices(idx, idx + 2, idx + 3)
+    idx += 4
+
+    # 4 triangular faces
+    side_faces = [
+        ([base[0], base[1], apex], 0.7),   # front
+        ([base[1], base[2], apex], 0.5),   # right
+        ([base[2], base[3], apex], 0.7),   # back
+        ([base[3], base[0], apex], 1.0),   # left
+    ]
+
+    for face, shade in side_faces:
+        cr, cg, cb = r * shade, g * shade, b * shade
+        for v in face:
+            vw.addData3(*v)
+            cw.addData4(cr, cg, cb, 1.0)
+        tris.addVertices(idx, idx + 1, idx + 2)
+        idx += 3
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode("spike")
+    node.addGeom(geom)
+    return node
+
+
+def _make_arch_geom(w, h, d, color, segments=8):
+    """
+    Builds a flat-shaded arch (half-ring) GeomNode.
+    w = span width, h = thickness, d = arch height (rise).
+    The arch curves from (-w/2, 0) to (+w/2, 0) rising to d at center.
+    """
+    import math
+    fmt = GeomVertexFormat.getV3c4()
+    # Each segment = 4 verts (outer quad) + 4 verts (inner quad) + side caps
+    num_verts = segments * 8 + 8
+    vdata = GeomVertexData("arch", fmt, Geom.UHStatic)
+    vdata.setNumRows(num_verts)
+
+    vw = GeomVertexWriter(vdata, "vertex")
+    cw = GeomVertexWriter(vdata, "color")
+
+    hw, hh, hd = w / 2, h / 2, d / 2
+    r, g, b = color
+    inner_radius = hw * 0.7
+    outer_radius = hw
+
+    tris = GeomTriangles(Geom.UHStatic)
+    idx = 0
+
+    for i in range(segments):
+        a0 = math.pi * i / segments
+        a1 = math.pi * (i + 1) / segments
+
+        # Outer edge points
+        ox0 = -math.cos(a0) * outer_radius
+        oz0 = math.sin(a0) * d
+        ox1 = -math.cos(a1) * outer_radius
+        oz1 = math.sin(a1) * d
+
+        # Inner edge points
+        ix0 = -math.cos(a0) * inner_radius
+        iz0 = math.sin(a0) * d * 0.85
+        ix1 = -math.cos(a1) * inner_radius
+        iz1 = math.sin(a1) * d * 0.85
+
+        # Outer face (front)
+        shade = 0.8
+        cr, cg, cb = r * shade, g * shade, b * shade
+        for v in [(ox0, -hh, oz0), (ox1, -hh, oz1), (ox1, hh, oz1), (ox0, hh, oz0)]:
+            vw.addData3(*v)
+            cw.addData4(cr, cg, cb, 1.0)
+        tris.addVertices(idx, idx+1, idx+2)
+        tris.addVertices(idx, idx+2, idx+3)
+        idx += 4
+
+        # Inner face (underside of arch)
+        shade = 0.4
+        cr, cg, cb = r * shade, g * shade, b * shade
+        for v in [(ix1, -hh, iz1), (ix0, -hh, iz0), (ix0, hh, iz0), (ix1, hh, iz1)]:
+            vw.addData3(*v)
+            cw.addData4(cr, cg, cb, 1.0)
+        tris.addVertices(idx, idx+1, idx+2)
+        tris.addVertices(idx, idx+2, idx+3)
+        idx += 4
+
+    # End caps (left and right pillars of the arch)
+    for side, shade in [(-1, 0.6), (1, 0.6)]:
+        a = 0.0 if side == -1 else math.pi
+        ox = -math.cos(a) * outer_radius
+        oz = math.sin(a) * d
+        ix = -math.cos(a) * inner_radius
+        iz = math.sin(a) * d * 0.85
+        cr, cg, cb = r * shade, g * shade, b * shade
+        for v in [(ox, -hh, oz), (ix, -hh, iz), (ix, hh, iz), (ox, hh, oz)]:
+            vw.addData3(*v)
+            cw.addData4(cr, cg, cb, 1.0)
+        tris.addVertices(idx, idx+1, idx+2)
+        tris.addVertices(idx, idx+2, idx+3)
+        idx += 4
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode("arch")
+    node.addGeom(geom)
+    return node
+
+
 class BiomeRenderer:
     """
     Procedural Panda3D geometry renderer for biome scenes.
