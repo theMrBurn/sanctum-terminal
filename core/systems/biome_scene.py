@@ -26,6 +26,7 @@ from core.systems.geometry import make_plane as _make_plane_geom
 from core.systems.primitive_factory import PrimitiveFactory
 from core.systems.tree_builder import TreeBuilder
 from core.systems.model_loader import ModelLoader, REGISTER_TINTS
+from core.systems.sprite_renderer import SpriteRenderer, SPRITE_REGISTER_TINTS
 
 
 # Biomes that get trees
@@ -57,6 +58,21 @@ _BIOME_CATEGORIES = {
     "SULPHUR":  ["geology"],
     "BASALT":   ["geology"],
     "VOID":     ["remnant"],
+}
+
+
+# Creature sprites per biome
+_BIOME_CREATURES = {
+    "VERDANT":  {"sprites": ["goblin", "slime"],      "count": (2, 5)},
+    "MYCELIUM": {"sprites": ["slime", "ghost"],       "count": (3, 6)},
+    "CHROME":   {"sprites": ["skeleton", "ghost"],    "count": (1, 3)},
+    "NEON":     {"sprites": ["demon", "ghost"],       "count": (2, 4)},
+    "IRON":     {"sprites": ["skeleton", "orc"],      "count": (2, 4)},
+    "FROZEN":   {"sprites": ["ghost", "skeleton"],    "count": (1, 3)},
+    "SILICA":   {"sprites": ["slime"],                "count": (1, 2)},
+    "SULPHUR":  {"sprites": ["demon"],                "count": (1, 3)},
+    "BASALT":   {"sprites": ["demon", "orc"],         "count": (2, 5)},
+    "VOID":     {"sprites": ["ghost"],                "count": (0, 2)},
 }
 
 
@@ -96,6 +112,7 @@ class BiomeSceneBuilder:
         self._tree_bp       = _load_tree_blueprint()
         self._tree_builder  = TreeBuilder()
         self._model_loader  = ModelLoader(panda_loader) if panda_loader else None
+        self._sprite_renderer = SpriteRenderer(render_root, panda_loader) if panda_loader else None
         self._floor_np      = None
 
     def build(self, biome_key: str, register: str = "survival") -> list:
@@ -163,6 +180,10 @@ class BiomeSceneBuilder:
         # Imported rock/plant scatter for non-tree biomes
         if self._model_loader and biome_key not in _TREE_BIOMES:
             self._scatter_imported_models(biome_key, register, rng)
+
+        # Creature sprites
+        if self._sprite_renderer:
+            self._scatter_creatures(biome_key, register, rng)
 
         return self.nodes
 
@@ -265,6 +286,33 @@ class BiomeSceneBuilder:
                 child.setMaterial(mat, 1)
 
         return root
+
+    def _scatter_creatures(self, biome_key, register, rng):
+        """Scatter creature sprites appropriate for this biome."""
+        creature_config = _BIOME_CREATURES.get(biome_key)
+        if not creature_config:
+            return
+
+        sprite_ids = creature_config["sprites"]
+        count_min, count_max = creature_config["count"]
+        count = rng.randint(count_min, count_max)
+
+        for _ in range(count):
+            sid = rng.choice(sprite_ids)
+            x = rng.uniform(-self.radius * 0.6, self.radius * 0.6)
+            y = rng.uniform(-self.radius * 0.6, self.radius * 0.6)
+            if abs(x) < 6 and abs(y) < 6:
+                x += 8 * (1 if x >= 0 else -1)
+
+            sprite_np = self._sprite_renderer.spawn_sprite(
+                sid, pos=(x, y, 0), scale=3.5
+            )
+            if sprite_np:
+                self._sprite_renderer.apply_register(sprite_np, register)
+                self.nodes.append({
+                    "np": sprite_np, "role": "creature",
+                    "biome": biome_key, "sprite_id": sid,
+                })
 
     def clear(self):
         """Remove all scene nodes."""
