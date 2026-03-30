@@ -35,14 +35,19 @@ XP_BASE = 1.0
 DEPTH_PER_XP = 0.01
 
 # Ghost profile -> verb affinity mapping
-# PRECISION_HAND -> ACT/THINK, SEEKER -> THINK/MOVE, etc.
+# All 10 profiles from ghost_profiles.json mapped to encounter verbs.
+# Each row sums to 1.0. Dominant verbs reflect the profile's nature.
 _PROFILE_VERB_AFFINITY = {
-    "PRECISION_HAND": {"THINK": 0.4, "ACT":    0.4, "MOVE":   0.1, "DEFEND": 0.05, "TOOLS": 0.05},
-    "SEEKER":         {"THINK": 0.5, "MOVE":   0.25, "ACT":   0.15, "DEFEND": 0.05, "TOOLS": 0.05},
-    "RHYTHM_KEEPER":  {"ACT":   0.4, "THINK":  0.3,  "MOVE":  0.15, "DEFEND": 0.10, "TOOLS": 0.05},
-    "BUILDER":        {"TOOLS": 0.4, "ACT":    0.3,  "THINK": 0.2,  "DEFEND": 0.05, "MOVE":  0.05},
-    "ENDURER":        {"DEFEND":0.5, "THINK":  0.2,  "MOVE":  0.15, "ACT":   0.10, "TOOLS": 0.05},
-    "NEGOTIATOR":     {"THINK": 0.5, "TOOLS":  0.2,  "MOVE":  0.15, "ACT":   0.10, "DEFEND":0.05},
+    "PRECISION_HAND":   {"THINK": 0.40, "ACT":   0.40, "MOVE":  0.10, "DEFEND": 0.05, "TOOLS": 0.05},
+    "SEEKER":           {"THINK": 0.50, "MOVE":  0.25, "ACT":   0.15, "DEFEND": 0.05, "TOOLS": 0.05},
+    "RHYTHM_KEEPER":    {"ACT":   0.40, "THINK": 0.30, "MOVE":  0.15, "DEFEND": 0.10, "TOOLS": 0.05},
+    "MAKER":            {"TOOLS": 0.40, "ACT":   0.30, "THINK": 0.20, "DEFEND": 0.05, "MOVE":  0.05},
+    "ENDURANCE_BODY":   {"DEFEND":0.50, "THINK": 0.20, "MOVE":  0.15, "ACT":    0.10, "TOOLS": 0.05},
+    "GUARDIAN":         {"DEFEND":0.40, "THINK": 0.25, "ACT":   0.20, "MOVE":   0.10, "TOOLS": 0.05},
+    "SYSTEMS_THINKER":  {"THINK": 0.50, "TOOLS": 0.25, "ACT":   0.15, "MOVE":   0.05, "DEFEND":0.05},
+    "NATURALIST":       {"THINK": 0.35, "MOVE":  0.30, "ACT":   0.15, "TOOLS":  0.10, "DEFEND":0.10},
+    "PERFORMER":        {"ACT":   0.45, "MOVE":  0.25, "THINK": 0.15, "DEFEND": 0.10, "TOOLS": 0.05},
+    "FORCE_MULTIPLIER": {"ACT":   0.45, "DEFEND":0.20, "THINK": 0.15, "MOVE":   0.15, "TOOLS": 0.05},
 }
 
 _DEFAULT_VERB_WEIGHTS = {
