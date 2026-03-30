@@ -278,5 +278,53 @@
     "note": "Code evaluation sandbox (learning archetype, Phase 3)",
     "context": "",
     "prev": "55fd38924b4abd28"
+  },
+  {
+    "ts": "2026-03-30T00:46:39",
+    "hash": "06584f1e7444ef69",
+    "type": "milestone",
+    "note": "Session 10 final: 785 tests, CampaignEngine live, paper doll Monk, 4 bridges wired",
+    "context": "",
+    "prev": "9e3073f18562c649"
+  },
+  {
+    "ts": "2026-03-30T00:46:39",
+    "hash": "9c2b174eace6c7b9",
+    "type": "decision",
+    "note": "Next session: first five seconds of player experience. Boot into biome, not lab.",
+    "context": "",
+    "prev": "06584f1e7444ef69"
+  },
+  {
+    "ts": "2026-03-30T00:46:39",
+    "hash": "bd82ea5381b2a9eb",
+    "type": "decision",
+    "note": "Anno analysis applied: high contrast paper doll, three-hue lighting, colored fog",
+    "context": "",
+    "prev": "9c2b174eace6c7b9"
+  },
+  {
+    "ts": "2026-03-30T00:46:39",
+    "hash": "998b9f984436d6d5",
+    "type": "open",
+    "note": "First-five-seconds: interview \u2192 biome boot \u2192 quest visible \u2192 Monk walks \u2192 world responds",
+    "context": "",
+    "prev": "bd82ea5381b2a9eb"
+  },
+  {
+    "ts": "2026-03-30T00:46:39",
+    "hash": "f69b471443babc80",
+    "type": "open",
+    "note": "Camera: first-person IS the Monk, paper doll for third-person/cutscenes",
+    "context": "",
+    "prev": "998b9f984436d6d5"
+  },
+  {
+    "ts": "2026-03-30T00:46:39",
+    "hash": "7691a137d1d2b805",
+    "type": "open",
+    "note": "Quest visibility: objective markers, world-space indicators, not just console logs",
+    "context": "",
+    "prev": "f69b471443babc80"
   }
 ]
