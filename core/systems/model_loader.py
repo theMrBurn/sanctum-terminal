@@ -58,6 +58,24 @@ ASSET_CATALOG = {
     "fence":            {"file": "fence_simple.glb",      "scale": 3.0,  "category": "remnant"},
     "bed":              {"file": "bed.glb",               "scale": 3.0,  "category": "remnant"},
     "canoe":            {"file": "canoe.glb",             "scale": 4.0,  "category": "remnant"},
+    # Object mappings -- shelf objects from objects.json → Kenney models
+    "stripped_branch":  {"file": "log.glb",               "scale": 2.0,  "category": "flora"},
+    "canopy_leaf_bundle": {"file": "plant_bushSmall.glb", "scale": 2.5,  "category": "flora"},
+    "root_cluster":     {"file": "stump_old.glb",         "scale": 2.0,  "category": "flora"},
+    "fallen_log_section": {"file": "log_large.glb",       "scale": 2.5,  "category": "flora"},
+    "sap_vessel":       {"file": "mushroom_tan.glb",      "scale": 2.0,  "category": "flora"},
+    "river_stone":      {"file": "rock_smallA.glb",       "scale": 2.5,  "category": "geology"},
+    "flint_shard":      {"file": "rock_smallFlatA.glb",   "scale": 2.0,  "category": "geology"},
+    "clay_deposit":     {"file": "rock_smallFlatB.glb",   "scale": 2.5,  "category": "geology"},
+    "chalk_outcrop":    {"file": "rock_smallB.glb",       "scale": 2.5,  "category": "geology"},
+    "shed_antler":      {"file": "log.glb",               "scale": 1.5,  "category": "fauna"},
+    "small_bone":       {"file": "log.glb",               "scale": 1.0,  "category": "fauna"},
+    "creature_hide":    {"file": "plant_flatShort.glb",   "scale": 2.5,  "category": "fauna"},
+    "rusted_pipe":      {"file": "fence_simple.glb",      "scale": 2.0,  "category": "remnant"},
+    "glass_shard":      {"file": "rock_smallFlatC.glb",   "scale": 2.0,  "category": "remnant"},
+    "fuel_canister":    {"file": "campfire_planks.glb",   "scale": 2.0,  "category": "remnant"},
+    "concrete_fragment": {"file": "rock_largeB.glb",      "scale": 2.0,  "category": "remnant"},
+    "faded_sign_panel": {"file": "fence_planks.glb",      "scale": 2.0,  "category": "remnant"},
 }
 
 # Register tints -- applied via setColorScale to shift model colors
