@@ -326,5 +326,77 @@
     "note": "Quest visibility: objective markers, world-space indicators, not just console logs",
     "context": "",
     "prev": "f69b471443babc80"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "7a42316eb5038371",
+    "type": "milestone",
+    "note": "Torch pixel art sprite pipeline PROVEN: PNG \u2192 billboard \u2192 transparent \u2192 in-world",
+    "context": "",
+    "prev": "7691a137d1d2b805"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "10fc51839772c518",
+    "type": "milestone",
+    "note": "First five seconds: boot into VERDANT, quests in HUD, Monk walks, campaign generates",
+    "context": "",
+    "prev": "7a42316eb5038371"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "c587ef9c62230a7d",
+    "type": "decision",
+    "note": "All foreground objects will be pixel art sprites on billboards, not compounds or 3D models",
+    "context": "",
+    "prev": "10fc51839772c518"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "ed57dde6e14cf267",
+    "type": "decision",
+    "note": "Paper doll colored rectangles are placeholder \u2014 replace with concept art PNGs",
+    "context": "",
+    "prev": "c587ef9c62230a7d"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "db146f62517bbfc6",
+    "type": "decision",
+    "note": "AI-generated PNGs need checkerboard removal (brightness > 450 \u2192 alpha 0)",
+    "context": "",
+    "prev": "ed57dde6e14cf267"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "375650dbd3347566",
+    "type": "open",
+    "note": "Generate Monk full-body pixel art sprite from concept sheets (masked + unmasked variants)",
+    "context": "",
+    "prev": "db146f62517bbfc6"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "5f86291f841f8c2b",
+    "type": "open",
+    "note": "Generate object sprites: tome, crystals, relics, creatures at concept sheet quality",
+    "context": "",
+    "prev": "375650dbd3347566"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "4f8bfcb1c94914a3",
+    "type": "open",
+    "note": "Bit-crush shader pass \u2014 visual + audio at same degradation rate",
+    "context": "",
+    "prev": "5f86291f841f8c2b"
+  },
+  {
+    "ts": "2026-03-30T01:23:01",
+    "hash": "66118a757967f278",
+    "type": "open",
+    "note": "Window title still says Creation Lab \u2014 should say Sanctum Terminal",
+    "context": "",
+    "prev": "4f8bfcb1c94914a3"
   }
 ]
