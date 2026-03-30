@@ -440,9 +440,17 @@ class CreationLab(ShowBase):
         for i, key in enumerate(self._obj_keys[:9]):
             self._spawn_at(key, ((i - 4) * 2.0, LAB_Y_N - 3.0, 0.5))
 
-        # Compound objects -- torch and book, visible from camera start
-        self._spawn_compound("torch_lit", (-3.0, 0.0, 0.0))
+        # Compound objects -- book (still compound for now)
         self._spawn_compound("tome",      ( 3.0, 0.0, 0.0))
+
+        # Pixel art sprite objects -- the quality bar
+        self._spawn_sprite_object(
+            "assets/sprites/torch_lit.png",
+            pos=(-3.0, 2.0, 0.0), scale=3.0,
+            obj={"id": "torch_lit", "weight": 0.4, "tags": ["crafting_time", "precision_score"],
+                 "encounter_verb": "TOOLS", "use_line": "Lights what needs seeing.",
+                 "name": "Ominous Torch", "category": "tool"},
+        )
 
         # The Monk -- paper doll (layered 2D parts, Anno Mutationem style)
         self._paper_doll = PaperDollRenderer(self.render)
@@ -544,6 +552,45 @@ class CreationLab(ShowBase):
             self._update_hud()
         except Exception as e:
             console.log(f"[red]SPAWN ERROR:[/red] {e}")
+
+    # -- Sprite objects (pixel art billboard) ------------------------------------
+
+    def _spawn_sprite_object(self, texture_path, pos, scale=3.0, obj=None):
+        """
+        Spawn a pixel art sprite as a billboard quad.
+        This is the quality bar — concept art rendered in-world.
+        """
+        from panda3d.core import CardMaker, SamplerState, TransparencyAttrib
+        from pathlib import Path
+
+        path = Path(texture_path)
+        if not path.exists():
+            console.log(f"[yellow]SPRITE:[/yellow] {texture_path} not found")
+            return
+
+        tex = self.loader.loadTexture(str(path))
+        if not tex:
+            return
+        tex.setMagfilter(SamplerState.FT_nearest)
+        tex.setMinfilter(SamplerState.FT_nearest)
+
+        cm = CardMaker(f"sprite_{obj.get('id', 'unknown') if obj else 'sprite'}")
+        # Aspect ratio from texture
+        aspect = tex.getXSize() / max(1, tex.getYSize())
+        hw = scale * aspect / 2
+        cm.setFrame(-hw, hw, 0, scale)
+
+        np = self.render.attachNewNode(cm.generate())
+        np.setTexture(tex)
+        np.setTransparency(TransparencyAttrib.MAlpha)
+        np.setBillboardPointEye()
+        np.setPos(*pos)
+
+        if obj:
+            np.setPythonTag("pickupable", True)
+            np.setPythonTag("obj", obj)
+            self._spawned.append({"node": np, "key": obj.get("id", ""), "obj": obj})
+            self.ie.register(np, "pickup", obj=obj)
 
     # -- Compound objects ------------------------------------------------------
 
