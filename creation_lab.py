@@ -24,6 +24,7 @@ from core.systems.biome_scene import BiomeSceneBuilder
 from core.systems.sprite_renderer import SpriteRenderer
 from core.systems.model_loader import ModelLoader
 from core.systems.atmosphere_engine import AtmosphereEngine
+from core.systems.paper_doll import PaperDollRenderer
 from core.systems.encounter_generator import EncounterGenerator
 from core.systems.consolidation import ConsolidationTrigger
 
@@ -423,15 +424,10 @@ class CreationLab(ShowBase):
         self._spawn_compound("torch_lit", (-3.0, 0.0, 0.0))
         self._spawn_compound("tome",      ( 3.0, 0.0, 0.0))
 
-        # The Monk -- try Quaternius Wizard, fall back to Kenney blocky
-        self._monk_sprite = self._model_loader.load("char_monk")
-        if not self._monk_sprite:
-            self._monk_sprite = self._model_loader.load("char_blocky_a")
-        if self._monk_sprite:
-            self._monk_sprite.reparentTo(self.render)
-            self._monk_sprite.setPos(0, 8, 0)
-            self._model_loader.apply_register(self._monk_sprite, self._register)
-            console.log(f"[cyan]MONK[/cyan] loaded: {self._monk_sprite.getPythonTag('asset_id')}")
+        # The Monk -- paper doll (layered 2D parts, Anno Mutationem style)
+        self._paper_doll = PaperDollRenderer(self.render)
+        self._monk_sprite = self._paper_doll.create_monk(pos=(0, 8, 0), scale=1.5)
+        self._paper_doll.apply_register(self._monk_sprite, self._register)
 
     def _build_environment(self):
         """Build floor, walls, grid from current register. Delegates to lab_environment."""
@@ -626,9 +622,9 @@ class CreationLab(ShowBase):
             bg = reg["background"]
             self.setBackgroundColor(bg[0], bg[1], bg[2], 1)
         self._rebuild_compounds()
-        # Tint Monk sprite
+        # Tint Monk paper doll
         if self._monk_sprite and not self._monk_sprite.isEmpty():
-            self.sprites.apply_register(self._monk_sprite, self._register)
+            self._paper_doll.apply_register(self._monk_sprite, self._register)
         self._update_hud()
 
     def _cycle_biome(self):
@@ -952,18 +948,17 @@ class CreationLab(ShowBase):
                     f"verb={verb}  [dim]{obj.get('id', '')}[/dim]"
                 )
 
-        # Monk model -- follows camera, faces movement direction
+        # Monk paper doll -- follows camera, animates walk
         if self._monk_sprite and not self._monk_sprite.isEmpty():
             cam_pos = self.cam.getPos()
             forward = self.cam.getQuat().getForward()
             mx = cam_pos.x + forward.x * 8
             my = cam_pos.y + forward.y * 8
             self._monk_sprite.setPos(mx, my, 0)
-            # Face the direction of movement
-            if any(self.key_map.values()):
-                import math
-                angle = math.degrees(math.atan2(-forward.x, forward.y))
-                self._monk_sprite.setH(angle)
+            moving = any(self.key_map.values())
+            self._paper_doll.animate(
+                self._monk_sprite, "walk" if moving else "idle", dt
+            )
 
         # Fingerprint tick -- accumulate behavioral time
         activity = self._infer_activity()
