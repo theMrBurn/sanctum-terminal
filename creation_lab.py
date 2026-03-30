@@ -22,6 +22,7 @@ from core.systems.scenario_engine import ScenarioEngine, ScenarioState
 from core.systems.avatar_pipeline import AvatarPipeline
 from core.systems.biome_scene import BiomeSceneBuilder
 from core.systems.sprite_renderer import SpriteRenderer
+from core.systems.model_loader import ModelLoader
 from core.systems.atmosphere_engine import AtmosphereEngine
 
 console = Console()
@@ -207,6 +208,9 @@ class CreationLab(ShowBase):
 
         # Sprite renderer -- 2D characters in 3D world
         self.sprites = SpriteRenderer(self.render, self.loader)
+
+        # Model loader -- Kenney reference models for shelf objects
+        self._model_loader = ModelLoader(self.loader)
 
         self.disableMouse()
         self.camLens.setFov(75)
@@ -452,16 +456,22 @@ class CreationLab(ShowBase):
             return
         obj = self._make_obj_dict(obj_key)
         try:
-            p  = self.factory.build(
-                raw["primitive"], tuple(raw["scale"]),
-                tuple(raw["color"]), role=raw["role"]
-            )
-            np = self.layer_interactable.attachNewNode(p.geom_node)
-            np.setPos(*pos)
+            # Try Kenney model first, fall back to primitive
+            np = self._model_loader.load(obj_key)
+            if np:
+                np.reparentTo(self.layer_interactable)
+                np.setPos(*pos)
+                self._model_loader.apply_register(np, self._register)
+            else:
+                p = self.factory.build(
+                    raw["primitive"], tuple(raw["scale"]),
+                    tuple(raw["color"]), role=raw["role"]
+                )
+                np = self.layer_interactable.attachNewNode(p.geom_node)
+                np.setPos(*pos)
             np.setPythonTag("pickupable", True)
             np.setPythonTag("obj", obj)
             self._spawned.append({"node": np, "key": obj_key, "obj": obj})
-            # Register with InteractionEngine
             self.ie.register(np, "pickup", obj=obj)
         except Exception as e:
             console.log(f"[yellow]SPAWN:[/yellow] {obj_key} -- {e}")
