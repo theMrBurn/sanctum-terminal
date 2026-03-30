@@ -55,3 +55,6 @@ room:
 
 creation:
 	PYTHONPATH=. ./.venv/bin/python creation_lab.py
+
+theater:
+	PYTHONPATH=. ./.venv/bin/python simulation_theater.py
