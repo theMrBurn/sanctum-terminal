@@ -14,6 +14,8 @@ from core.systems.crafting_engine import CraftingEngine
 from core.systems.primitive_factory import PrimitiveFactory
 from core.systems.inventory import Inventory
 from core.systems.pickup_system import PickupSystem, PICKUP_RADIUS
+from core.systems.interaction_engine import InteractionEngine, InteractionState
+from core.systems.scenario_engine import ScenarioEngine, ScenarioState
 
 console = Console()
 
@@ -64,6 +66,13 @@ _ROLE_WEIGHT = {
 }
 _DEFAULT_WEIGHT = 0.5
 
+# Glow colors per interaction state -- layer_fx visual language
+_STATE_GLOW = {
+    InteractionState.REACHABLE:  (0.9, 0.85, 0.4, 1),   # warm amber -- touchable
+    InteractionState.DETECTABLE: (0.3, 0.4,  0.6, 1),   # cool blue  -- sensed
+    InteractionState.DORMANT:    None,                    # no glow
+}
+
 
 def clamp_to_lab(x: float, y: float, z: float) -> tuple:
     """Pure fn -- no ShowBase dep. _clamp_camera delegates here."""
@@ -76,19 +85,19 @@ def clamp_to_lab(x: float, y: float, z: float) -> tuple:
 
 class CreationLab(ShowBase):
     """
-    Creation lab -- dark room, two light sources, shadows, objects.
-    All visual values from manifest.json [lab][atmosphere].
-
-    Light sources:
-        sun  -- directional key light, casts shadows (overhead-ish)
-        lamp -- point light, warm, low, casts long shadows from objects
+    Creation lab -- live scenario testbed.
+    InteractionEngine owns proximity state.
+    ScenarioEngine owns quest state.
+    PickupSystem delegates to InteractionEngine.nearest().
 
     Scene graph layers (signal_map.json [scene_graph]):
         layer_structure    -- walls, floor, collision
         layer_interactable -- workbench, objects
-        layer_fx           -- glow, labels (coming)
+        layer_fx           -- glow, labels, state indicators
 
-    [E] lift/stow  [G] drop  [C] craft  [X] clear  Shift+ESC quit
+    [E] lift/stow  [G] drop  [C] craft  [X] clear
+    [Q] new fetch scenario from nearest object
+    Shift+ESC quit
     """
 
     def __init__(self, headless=None):
@@ -122,25 +131,40 @@ class CreationLab(ShowBase):
         self._spawned  = []
         self._walls    = []
         self._floor    = None
+        self._glows    = {}   # node -> glow NodePath on layer_fx
 
         # Scene graph layers
         self.layer_structure    = self.render.attachNewNode("layer_structure")
         self.layer_interactable = self.render.attachNewNode("layer_interactable")
         self.layer_fx           = self.render.attachNewNode("layer_fx")
 
-        # Specular material on interactable layer
-        # Anno Mutationem: surfaces catch light like wet stone
+        # Specular -- Anno wet-stone on all interactables
         mat = Material("interactable")
         sp  = _CFG["specular"]
         mat.setSpecular(Vec4(sp[0], sp[1], sp[2], 1))
         mat.setShininess(_CFG["shininess"])
         self.layer_interactable.setMaterial(mat, 1)
 
+        # Inventory
         self.inventory = Inventory()
-        self.pickup    = PickupSystem(
+
+        # InteractionEngine -- owns proximity state for all world objects
+        # on_state_change drives layer_fx glow
+        self.ie = InteractionEngine(
+            camera          = self.cam,
+            render          = self.render,
+            on_state_change = self._on_interaction_state,
+        )
+
+        # ScenarioEngine -- owns quest state, provenance hash per scenario
+        self.se           = ScenarioEngine(seed="BURN")
+        self._active_sid  = None   # currently displayed scenario
+
+        # PickupSystem -- delegates nearest lookup to InteractionEngine
+        self.pickup = PickupSystem(
             camera         = self.cam,
             inventory      = self.inventory,
-            get_nearest_fn = self._nearest_pickupable,
+            get_nearest_fn = lambda: self.ie.nearest("pickup"),
             on_held_fn     = self._on_held,
             on_stowed_fn   = self._on_stowed,
             on_dropped_fn  = self._on_dropped,
@@ -164,59 +188,84 @@ class CreationLab(ShowBase):
             self.accept("escape",       self.disable_mouse_look)
             self.accept("shift-escape", self.exit_app)
             self.accept("mouse1",       self.enable_mouse_look)
-            console.log("[bold cyan]CREATION LAB[/bold cyan]")
-            console.log("[E] lift/stow  [G] drop  [C] craft  [X] clear  Shift+ESC quit")
+            console.log("[bold cyan]CREATION LAB -- SCENARIO TESTBED[/bold cyan]")
+            console.log("[E] lift/stow  [G] drop  [C] craft  [X] clear")
+            console.log("[Q] new fetch scenario  Shift+ESC quit")
 
-    # -- Lighting --------------------------------------------------------------
-    # Two deliberate sources. Prepped for AtmosphereModule lift.
-    # When AtmosphereModule exists: self.atmosphere.mount(self.render)
+    # -- Interaction state -> layer_fx glow ------------------------------------
 
-    def setup_lighting(self):
-        ls  = _CFG["light_sun"]
-        lf  = _CFG["light_fill"]
-        la  = _CFG["light_amb"]
-        hpr = _CFG["sun_hpr"]
+    def _on_interaction_state(self, node, state: InteractionState) -> None:
+        """
+        Fires on every state transition.
+        Drives glow indicator on layer_fx.
+        Warm amber = reachable. Cool blue = detectable. None = dormant.
+        """
+        # Remove existing glow for this node
+        if node in self._glows:
+            try: self._glows[node].removeNode()
+            except: pass
+            del self._glows[node]
 
-        # Key light -- directional, warm, casts shadows
-        sun = DirectionalLight("sun")
-        sun.setColor(Vec4(ls[0], ls[1], ls[2], 1))
-        sun.setShadowCaster(True, 1024, 1024)
-        sn = self.render.attachNewNode(sun)
-        sn.setHpr(*hpr)
-        self.render.setLight(sn)
+        color = _STATE_GLOW.get(state)
+        if color is None:
+            return
 
-        # Fill -- cool, low intensity, opposite direction
-        fill = DirectionalLight("fill")
-        fill.setColor(Vec4(lf[0], lf[1], lf[2], 1))
-        fn = self.render.attachNewNode(fill)
-        fn.setHpr(hpr[0] + 180, -20, 0)
-        self.render.setLight(fn)
+        # Glow: small flat slab beneath the object, on layer_fx
+        # Reads as ground contact light -- not UI, world-space
+        glow_geom = _make_box_geom(0.6, 0.6, 0.04, color[:3])
+        glow_np   = self.layer_fx.attachNewNode(glow_geom)
+        obj_pos   = node.getPos(self.render)
+        glow_np.setPos(obj_pos.x, obj_pos.y, 0.01)
+        glow_np.setTransparency(True)
+        glow_np.setAlphaScale(0.7)
+        self._glows[node] = glow_np
 
-        # Ambient -- barely there, prevents pure black
-        amb = AmbientLight("amb")
-        amb.setColor(Vec4(la[0], la[1], la[2], 1))
-        self.render.setLight(self.render.attachNewNode(amb))
+    # -- Scenario wiring -------------------------------------------------------
 
-        # Lamp -- point light, warm, low, west side of room
-        # Deliberate second source. Objects between lamp and floor
-        # cast long shadows east. You can see where light lives.
-        lamp = PointLight("lamp")
-        lamp.setColor(Vec4(1.0, 0.75, 0.4, 1))
-        lamp.setShadowCaster(True, 512, 512)
-        lamp.setAttenuation((0.5, 0.0, 0.02))
-        ln = self.render.attachNewNode(lamp)
-        ln.setPos(-6, LAB_Y_N - 4, 4.0)
-        self.render.setLight(ln)
+    def _create_fetch_scenario(self) -> None:
+        """
+        [Q] -- create a fetch scenario from the nearest reachable object.
+        Win condition: object lands in inventory.
+        Demonstrates live scenario creation from world state.
+        """
+        nearest = self.ie.nearest("pickup")
+        if nearest is None:
+            console.log("[dim]no reachable object for fetch scenario[/dim]")
+            return
 
-        # Lamp post -- thin dark pillar marking the light source
-        # Sits in layer_structure so it casts on interactables
-        post = _make_box_geom(0.12, 0.12, 4.0, (0.10, 0.08, 0.07))
-        self.render.attachNewNode(post).setPos(-6, LAB_Y_N - 4, 2.0)
+        obj = nearest["obj"]
+        obj_id = obj["id"]
 
-        # Blocker -- opaque slab between lamp and objects
-        # Demonstrates shadow casting. Remove once proven.
-        blocker = _make_box_geom(1.5, 0.2, 2.0, (0.15, 0.12, 0.10))
-        self.render.attachNewNode(blocker).setPos(-4, LAB_Y_N - 5, 1.0)
+        # Win when object is in inventory
+        def win_fn():
+            return self.inventory.get(obj_id) is not None
+
+        sid = self.se.create(
+            "fetch",
+            {
+                "target_id":  obj_id,
+                "return_pos": (0, 2, 0),
+                "objective":  f"Pick up the {obj_id.replace('_', ' ')} "
+                              f"and bring it to the workbench.",
+            },
+            win_fn      = win_fn,
+            on_complete = self._on_scenario_complete,
+        )
+        self.se.activate(sid)
+        self._active_sid = sid
+        console.log(
+            f"[bold yellow]SCENARIO[/bold yellow]  fetch  "
+            f"[dim]{self.se.get_provenance(sid)}[/dim]"
+        )
+        console.log(f"  {self.se.get_objective(sid)}")
+        self._update_hud()
+
+    def _on_scenario_complete(self, sid: str) -> None:
+        console.log(f"[bold green]COMPLETE[/bold green]  {sid[:8]}  "
+                    f"[dim]{self.se.get_provenance(sid)}[/dim]")
+        if self._active_sid == sid:
+            self._active_sid = None
+        self._update_hud()
 
     # -- Build -----------------------------------------------------------------
 
@@ -231,19 +280,16 @@ class CreationLab(ShowBase):
         wt    = 0.3
         wh    = _CFG["wall_height"]
 
-        # Floor
         fn = _make_plane_geom(int(width), int(depth), fc)
         self._floor = S.attachNewNode(fn)
         self._floor.setPos(0, 0, 0)
 
-        # Grid -- subtle amber, 2m cells
         for i in range(-5, 6):
             gn = _make_box_geom(0.03, 0.008, width, gc)
             S.attachNewNode(gn).setPos(i * 2, 0, 0.003)
             gn2 = _make_box_geom(depth, 0.008, 0.03, gc)
             S.attachNewNode(gn2).setPos(0, i * 2, 0.003)
 
-        # Four walls
         for dims, pos in [
             ((width, wt, wh), (0,      LAB_Y_N, wh/2)),
             ((width, wt, wh), (0,      LAB_Y_S, wh/2)),
@@ -252,7 +298,6 @@ class CreationLab(ShowBase):
         ]:
             S.attachNewNode(_make_box_geom(*dims, wc)).setPos(*pos)
 
-        # Collision planes
         for name, plane in [
             ("wall_n", Plane(Vec3( 0, -1, 0), Point3(0,      LAB_Y_N, 0))),
             ("wall_s", Plane(Vec3( 0,  1, 0), Point3(0,      LAB_Y_S, 0))),
@@ -263,11 +308,9 @@ class CreationLab(ShowBase):
             cn.addSolid(CollisionPlane(plane))
             self._walls.append(S.attachNewNode(cn))
 
-        # Workbench -- darkest thing in the room, anchor
         bench = _make_box_geom(3.0, 1.2, 1.0, _CFG["bench_color"])
         I.attachNewNode(bench).setPos(0, 2, 0.5)
 
-        # Objects -- line along north wall
         for i, key in enumerate(self._obj_keys[:9]):
             self._spawn_at(key, ((i - 4) * 2.0, LAB_Y_N - 3.0, 0.5))
 
@@ -300,6 +343,8 @@ class CreationLab(ShowBase):
             np.setPythonTag("pickupable", True)
             np.setPythonTag("obj", obj)
             self._spawned.append({"node": np, "key": obj_key, "obj": obj})
+            # Register with InteractionEngine
+            self.ie.register(np, "pickup", obj=obj)
         except Exception as e:
             console.log(f"[yellow]SPAWN:[/yellow] {obj_key} -- {e}")
 
@@ -318,6 +363,7 @@ class CreationLab(ShowBase):
             np.setPythonTag("pickupable", True)
             np.setPythonTag("obj", obj)
             self._spawned.append({"node": np, "key": obj_key, "obj": obj})
+            self.ie.register(np, "pickup", obj=obj)
             if self.slot_a is None:
                 self.slot_a = obj_key
                 np.setPos(-0.8, 2, 1.5)
@@ -327,23 +373,6 @@ class CreationLab(ShowBase):
             self._update_hud()
         except Exception as e:
             console.log(f"[red]SPAWN ERROR:[/red] {e}")
-
-    # -- Nearest pickupable ----------------------------------------------------
-
-    def _nearest_pickupable(self):
-        cam_pos   = self.cam.getPos(self.render)
-        best      = None
-        best_dist = PICKUP_RADIUS
-        for entry in self._spawned:
-            np = entry["node"]
-            if np.isHidden() or not np.getPythonTag("pickupable"):
-                continue
-            p    = np.getPos(self.render)
-            dist = ((p.x - cam_pos.x)**2 + (p.y - cam_pos.y)**2) ** 0.5
-            if dist < best_dist:
-                best      = entry
-                best_dist = dist
-        return {"obj": best["obj"], "node": best["node"]} if best else None
 
     # -- Pickup callbacks ------------------------------------------------------
 
@@ -402,6 +431,7 @@ class CreationLab(ShowBase):
             except: pass
         self._hud = []
         held  = self.pickup.held_obj
+
         lines = [
             f"SLOT A: {self.slot_a or 'empty'}",
             f"SLOT B: {self.slot_b or 'empty'}",
@@ -410,19 +440,68 @@ class CreationLab(ShowBase):
             f"BAG:    {self.inventory.count()}/{self.inventory.max_slots}"
             f"  {self.inventory.current_weight():.1f}kg",
             "",
-            "[E] lift/stow  [G] drop  [C] craft  [X] clear",
         ]
+
+        # Active scenario
+        if self._active_sid:
+            state = self.se.get_state(self._active_sid)
+            obj   = self.se.get_objective(self._active_sid)
+            lines += [
+                f"QUEST:  [{state.name}]",
+                f"  {obj}",
+                "",
+            ]
+
+        lines += ["[E] lift/stow  [G] drop  [Q] fetch quest  [C] craft  [X] clear"]
+
         if result:
             lines += ["", f">> {result['name']}", result["description"]]
-        y = 0.85
+
+        y = 0.92
         for line in lines:
             t = OnscreenText(
-                text=line, pos=(-1.5, y), scale=0.048,
+                text=line, pos=(-1.5, y), scale=0.044,
                 fg=(0.85, 0.80, 0.72, 1),
                 align=TextNode.ALeft, mayChange=True
             )
             self._hud.append(t)
-            y -= 0.07
+            y -= 0.065
+
+    # -- Lighting --------------------------------------------------------------
+
+    def setup_lighting(self):
+        ls  = _CFG["light_sun"]
+        lf  = _CFG["light_fill"]
+        la  = _CFG["light_amb"]
+        hpr = _CFG["sun_hpr"]
+
+        sun = DirectionalLight("sun")
+        sun.setColor(Vec4(ls[0], ls[1], ls[2], 1))
+        sun.setShadowCaster(True, 1024, 1024)
+        sn = self.render.attachNewNode(sun)
+        sn.setHpr(*hpr)
+        self.render.setLight(sn)
+
+        fill = DirectionalLight("fill")
+        fill.setColor(Vec4(lf[0], lf[1], lf[2], 1))
+        fn = self.render.attachNewNode(fill)
+        fn.setHpr(hpr[0] + 180, -20, 0)
+        self.render.setLight(fn)
+
+        amb = AmbientLight("amb")
+        amb.setColor(Vec4(la[0], la[1], la[2], 1))
+        self.render.setLight(self.render.attachNewNode(amb))
+
+        lamp = PointLight("lamp")
+        lamp.setColor(Vec4(1.0, 0.75, 0.4, 1))
+        lamp.setShadowCaster(True, 512, 512)
+        lamp.setAttenuation((0.5, 0.0, 0.02))
+        ln = self.render.attachNewNode(lamp)
+        ln.setPos(-6, LAB_Y_N - 4, 4.0)
+        self.render.setLight(ln)
+
+        post = _make_box_geom(0.12, 0.12, 4.0, (0.10, 0.08, 0.07))
+        self.render.attachNewNode(post).setPos(-6, LAB_Y_N - 4, 2.0)
 
     # -- Controls --------------------------------------------------------------
 
@@ -432,6 +511,7 @@ class CreationLab(ShowBase):
             self.accept(f"{key}-up", self.update_key_map, [key, False])
         self.accept("e", self.pickup.on_e_pressed)
         self.accept("g", self.pickup.on_drop_pressed)
+        self.accept("q", self._create_fetch_scenario)
         self.accept("c", self._craft)
         self.accept("x", self._clear)
         for i in range(9):
@@ -466,6 +546,7 @@ class CreationLab(ShowBase):
 
     def game_loop(self, task):
         dt = globalClock.getDt()
+
         if self.mouse_look_active and self.win and self.mouseWatcherNode.hasMouse():
             md = self.win.getPointer(0)
             mx, my = md.getX(), md.getY()
@@ -478,12 +559,17 @@ class CreationLab(ShowBase):
                     self.cam_pitch  = max(-PITCH_CLAMP, min(PITCH_CLAMP, self.cam_pitch))
                     self.cam.setHpr(self.cam_yaw, self.cam_pitch, 0)
             self._last_mx, self._last_my = mx, my
+
         if self.key_map["w"]: self.cam.setPos(self.cam, 0,  _MOVE_SPEED * dt, 0)
         if self.key_map["s"]: self.cam.setPos(self.cam, 0, -_MOVE_SPEED * dt, 0)
         if self.key_map["a"]: self.cam.setPos(self.cam, -_MOVE_SPEED * dt, 0, 0)
         if self.key_map["d"]: self.cam.setPos(self.cam,  _MOVE_SPEED * dt, 0, 0)
+
         self._clamp_camera()
         self.pickup.update(dt)
+        self.ie.tick()
+        self.se.tick()
+
         return task.cont
 
     def exit_app(self):
