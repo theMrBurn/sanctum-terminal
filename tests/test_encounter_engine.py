@@ -59,7 +59,7 @@ class TestEncounterEngineInit:
 
     def test_verbs_defined(self):
         from core.systems.encounter_engine import VERBS
-        assert set(VERBS) == {"THINK", "ACT", "MOVE", "DEFEND", "TOOLS"}
+        assert set(VERBS) == {"THINK", "ACT", "MOVE", "DEFEND", "TOOLS", "CRAFT", "OBSERVE"}
 
     def test_boots_with_fingerprint_and_ghost(self, engine):
         assert engine is not None

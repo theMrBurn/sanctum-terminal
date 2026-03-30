@@ -40,7 +40,7 @@ class TestDesignKeyContract:
     def test_key_has_verb_emphasis(self, pipeline):
         key = pipeline.design_key()
         assert "verb_emphasis" in key
-        for verb in ("THINK", "ACT", "MOVE", "DEFEND", "TOOLS"):
+        for verb in ("THINK", "ACT", "MOVE", "DEFEND", "TOOLS", "CRAFT", "OBSERVE"):
             assert verb in key["verb_emphasis"]
 
     def test_verb_emphasis_sums_to_one(self, pipeline):

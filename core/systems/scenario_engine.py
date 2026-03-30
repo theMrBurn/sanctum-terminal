@@ -43,7 +43,7 @@ from typing import Callable, Dict, List, Optional, Set
 
 # -- Constants -----------------------------------------------------------------
 
-SCENARIO_TYPES = {"fetch", "escort", "hunt", "key", "switch"}
+SCENARIO_TYPES = {"fetch", "escort", "hunt", "key", "switch", "defend", "trade"}
 
 
 # -- State ---------------------------------------------------------------------
