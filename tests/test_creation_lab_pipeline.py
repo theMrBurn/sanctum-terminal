@@ -185,3 +185,73 @@ class TestGlowPulse:
         lab._update_glow_pulse()
         new_alpha = glow.getColorScale().getW()
         assert 0.2 <= new_alpha <= 1.0
+
+
+# -- Floating labels on REACHABLE ----------------------------------------------
+
+class TestFloatingLabels:
+
+    def test_no_labels_initially(self, lab):
+        assert len(lab._labels) == 0
+
+    def test_label_created_on_reachable(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        assert node in lab._labels
+
+    def test_label_removed_on_dormant(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        lab._on_interaction_state(node, InteractionState.DORMANT)
+        assert node not in lab._labels
+
+    def test_label_not_created_on_detectable(self, lab):
+        """Labels only appear on REACHABLE, not DETECTABLE."""
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.DETECTABLE)
+        assert node not in lab._labels
+
+    def test_label_on_layer_fx(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        label = lab._labels[node]
+        assert label.getParent() == lab.layer_fx
+
+    def test_label_above_object(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        label = lab._labels[node]
+        obj_pos = node.getPos(lab.render)
+        assert label.getZ() > obj_pos.z
+
+    def test_label_shows_name(self, lab):
+        """Label text should contain the object name or id."""
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        obj = lab._spawned[0]["obj"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        label = lab._labels[node]
+        text = label.node().getText()
+        obj_name = obj.get("name", obj.get("id", ""))
+        assert obj_name in text or obj["id"] in text
+
+    def test_label_shows_weight(self, lab):
+        """Label text should contain weight."""
+        if not lab._spawned:
+            pytest.skip("no spawned objects in headless lab")
+        node = lab._spawned[0]["node"]
+        lab._on_interaction_state(node, InteractionState.REACHABLE)
+        label = lab._labels[node]
+        text = label.node().getText()
+        assert "kg" in text
