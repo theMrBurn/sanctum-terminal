@@ -591,7 +591,15 @@ class CreationLab(ShowBase):
             # Rebuild biome scene in new register
             self._biome_builder.clear()
             self._biome_builder.build(self._biome, register=self._register)
+            # Update lighting/fog for register
+            reg = ENVIRONMENT_REGISTERS.get(self._register, ENVIRONMENT_REGISTERS["survival"])
+            self._update_lighting(reg)
+            bg = reg["background"]
+            self.setBackgroundColor(bg[0], bg[1], bg[2], 1)
         self._rebuild_compounds()
+        # Tint Monk sprite
+        if self._monk_sprite and not self._monk_sprite.isEmpty():
+            self.sprites.apply_register(self._monk_sprite, self._register)
         self._update_hud()
 
     def _cycle_biome(self):
