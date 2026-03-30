@@ -126,5 +126,53 @@
     "note": "Data-driven theater scripts from scenario definitions",
     "context": "",
     "prev": "852de494755c94f8"
+  },
+  {
+    "ts": "2026-03-29T23:34:07",
+    "hash": "71097bc9f8f69a9f",
+    "type": "decision",
+    "note": "Phase 3 secret: game teaches modding. Concept crafting = real Python/JSON. Terminal was always real.",
+    "context": "the recursive layer",
+    "prev": "25147f5e92eaee99"
+  },
+  {
+    "ts": "2026-03-29T23:34:07",
+    "hash": "9c51fd3bb1cfe609",
+    "type": "decision",
+    "note": "5 archetypes on same engine: survival, mystic quest, garden, souls, learning path",
+    "context": "all JSON configs on 4 bridges",
+    "prev": "71097bc9f8f69a9f"
+  },
+  {
+    "ts": "2026-03-29T23:34:07",
+    "hash": "709d0fb8d60abe75",
+    "type": "decision",
+    "note": "Design key: computed vector from ghost blend, drives procedural generation per archetype",
+    "context": "not configured, derived from play",
+    "prev": "9c51fd3bb1cfe609"
+  },
+  {
+    "ts": "2026-03-29T23:34:07",
+    "hash": "7ddce1c6c48323f3",
+    "type": "decision",
+    "note": "Concept crafting tree: 7 tiers (variable\u2192assignment\u2192expression\u2192condition\u2192loop\u2192function\u2192module\u2192program)",
+    "context": "base-7 naturally",
+    "prev": "709d0fb8d60abe75"
+  },
+  {
+    "ts": "2026-03-29T23:34:07",
+    "hash": "ebc6db92cd0288d5",
+    "type": "decision",
+    "note": "Cross-pollination: learning Python shifts encounters to THINK, atmosphere clears, TRON register surfaces naturally",
+    "context": "",
+    "prev": "7ddce1c6c48323f3"
+  },
+  {
+    "ts": "2026-03-29T23:34:07",
+    "hash": "98846bf228f5d4cb",
+    "type": "decision",
+    "note": "Level 3 integration: player edits compounds.json = game hot-reloads their creation = they made a mod",
+    "context": "Phase 3 unlock",
+    "prev": "ebc6db92cd0288d5"
   }
 ]
