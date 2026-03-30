@@ -135,6 +135,12 @@ class CreationLab(ShowBase):
         self._glows    = {}   # node -> glow NodePath on layer_fx
         self._labels   = {}   # node -> label NodePath on layer_fx
 
+        # Compound objects -- multi-primitive with visual registers
+        self._compounds     = self._load_compounds()
+        self._compound_nodes = []  # [{"key": str, "root": NodePath, "obj": dict, "pos": tuple}]
+        self._register       = "survival"
+        self._registers      = ["survival", "tron", "tolkien", "sanrio"]
+
         # Scene graph layers
         self.layer_structure    = self.render.attachNewNode("layer_structure")
         self.layer_interactable = self.render.attachNewNode("layer_interactable")
@@ -200,7 +206,7 @@ class CreationLab(ShowBase):
             self.accept("mouse1",       self.enable_mouse_look)
             console.log("[bold cyan]CREATION LAB -- SCENARIO TESTBED[/bold cyan]")
             console.log("[E] lift/stow  [G] drop  [C] craft  [X] clear")
-            console.log("[Q] new fetch scenario  Shift+ESC quit")
+            console.log("[Q] fetch scenario  [R] cycle register  Shift+ESC quit")
 
     # -- Interaction state -> layer_fx glow ------------------------------------
 
@@ -392,6 +398,10 @@ class CreationLab(ShowBase):
         for i, key in enumerate(self._obj_keys[:9]):
             self._spawn_at(key, ((i - 4) * 2.0, LAB_Y_N - 3.0, 0.5))
 
+        # Compound objects -- torch and book near the workbench
+        self._spawn_compound("torch_lit", (-2.0, 4.0, 0.5))
+        self._spawn_compound("tome",      ( 2.0, 4.0, 0.5))
+
     # -- Camera ----------------------------------------------------------------
 
     def _clamp_camera(self):
@@ -451,6 +461,102 @@ class CreationLab(ShowBase):
             self._update_hud()
         except Exception as e:
             console.log(f"[red]SPAWN ERROR:[/red] {e}")
+
+    # -- Compound objects ------------------------------------------------------
+
+    @staticmethod
+    def _load_compounds():
+        path = Path(__file__).parent / "config" / "blueprints" / "compounds.json"
+        if path.exists():
+            return json.load(open(path))
+        return {}
+
+    def _spawn_compound(self, compound_key, pos):
+        """
+        Spawn a compound object (multi-primitive) in the current register.
+        Registers with InteractionEngine. Tags flow to encounter system.
+        """
+        bp = self._compounds.get(compound_key)
+        if not bp:
+            return
+
+        full_palette = self.factory.resolve_register_full(
+            bp["registers"], self._register
+        )
+        parts = self.factory.from_blueprint_full(bp, full_palette)
+
+        # Create a root node for the compound
+        root = self.layer_interactable.attachNewNode(f"compound_{compound_key}")
+        root.setPos(*pos)
+
+        for p in parts:
+            child = root.attachNewNode(p.geom_node)
+            child.setPos(p.offset_x, p.offset_y, p.offset_z)
+            # Emission: apply emissive material
+            if p.emission > 0:
+                mat = Material(f"emit_{p.role}")
+                e = p.emission
+                mat.setEmission(Vec4(
+                    p.edge_color[0] * e, p.edge_color[1] * e,
+                    p.edge_color[2] * e, 1.0
+                ))
+                child.setMaterial(mat, 1)
+
+        # Build obj dict from blueprint metadata
+        obj = {
+            "id":             compound_key,
+            "name":           compound_key.replace("_", " ").title(),
+            "weight":         bp.get("weight", 0.5),
+            "tags":           bp.get("tags", []),
+            "encounter_verb": bp.get("encounter_verb", ""),
+            "use_line":       bp.get("use_line", ""),
+            "description":    bp.get("description", ""),
+            "category":       bp.get("category", "misc"),
+            "role":           parts[0].role if parts else "",
+            "ability":        bp.get("use_line", ""),
+        }
+
+        root.setPythonTag("pickupable", True)
+        root.setPythonTag("obj", obj)
+        self._compound_nodes.append({
+            "key": compound_key, "root": root, "obj": obj, "pos": pos,
+        })
+        self._spawned.append({"node": root, "key": compound_key, "obj": obj})
+        self.ie.register(root, "pickup", obj=obj)
+
+    def _rebuild_compounds(self):
+        """
+        Rebuild all compound objects in the current register.
+        Removes old geometry, spawns new with current palette.
+        Preserves positions and interaction state.
+        """
+        # Save positions and unregister
+        saved = []
+        for cn in self._compound_nodes:
+            saved.append({"key": cn["key"], "pos": cn["pos"]})
+            self.ie.unregister(cn["root"])
+            # Remove from _spawned
+            self._spawned = [
+                s for s in self._spawned if s["node"] is not cn["root"]
+            ]
+            cn["root"].removeNode()
+        self._compound_nodes.clear()
+
+        # Respawn in current register
+        for s in saved:
+            self._spawn_compound(s["key"], s["pos"])
+
+        console.log(
+            f"[bold cyan]REGISTER[/bold cyan]  {self._register}  "
+            f"[dim]{len(saved)} compound(s) rebuilt[/dim]"
+        )
+
+    def _cycle_register(self):
+        """[R] -- cycle visual register: survival → tron → tolkien → sanrio."""
+        idx = self._registers.index(self._register)
+        self._register = self._registers[(idx + 1) % len(self._registers)]
+        self._rebuild_compounds()
+        self._update_hud()
 
     # -- Pickup callbacks ------------------------------------------------------
 
@@ -551,7 +657,8 @@ class CreationLab(ShowBase):
                 "",
             ]
 
-        lines += ["[E] lift/stow  [G] drop  [Q] fetch quest  [C] craft  [X] clear"]
+        lines += [f"REGISTER: {self._register}"]
+        lines += ["[E] lift/stow  [G] drop  [Q] fetch  [R] register  [C] craft  [X] clear"]
 
         if result:
             lines += ["", f">> {result['name']}", result["description"]]
@@ -611,6 +718,7 @@ class CreationLab(ShowBase):
         self.accept("e", self.pickup.on_e_pressed)
         self.accept("g", self.pickup.on_drop_pressed)
         self.accept("q", self._create_fetch_scenario)
+        self.accept("r", self._cycle_register)
         self.accept("c", self._craft)
         self.accept("x", self._clear)
         for i in range(9):
