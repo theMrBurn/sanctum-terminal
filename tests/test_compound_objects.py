@@ -276,3 +276,45 @@ class TestBlueprintMetadata:
 
     def test_book_has_think_verb(self, book_blueprint):
         assert book_blueprint["encounter_verb"] == "THINK"
+
+
+# -- Loading from compounds.json file -----------------------------------------
+
+class TestCompoundsFile:
+
+    @pytest.fixture
+    def compounds(self):
+        import json
+        from pathlib import Path
+        path = Path("config/blueprints/compounds.json")
+        return json.load(open(path))
+
+    def test_file_loads(self, compounds):
+        assert isinstance(compounds, dict)
+
+    def test_torch_exists(self, compounds):
+        assert "torch_lit" in compounds
+
+    def test_tome_exists(self, compounds):
+        assert "tome" in compounds
+
+    def test_all_compounds_have_required_fields(self, compounds):
+        required = ["grammar", "registers", "tags", "encounter_verb", "weight", "use_line"]
+        for name, bp in compounds.items():
+            for field in required:
+                assert field in bp, f"{name} missing {field}"
+
+    def test_all_four_registers_on_every_compound(self, compounds):
+        for name, bp in compounds.items():
+            for reg in ("survival", "tron", "tolkien", "sanrio"):
+                assert reg in bp["registers"], f"{name} missing register {reg}"
+
+    def test_build_all_compounds_all_registers(self, compounds, factory):
+        """Every compound builds in every register without error."""
+        for name, bp in compounds.items():
+            for reg in ("survival", "tron", "tolkien", "sanrio"):
+                full = factory.resolve_register_full(bp["registers"], reg)
+                parts = factory.from_blueprint_full(bp, full)
+                assert len(parts) == len(bp["grammar"]), (
+                    f"{name}/{reg}: expected {len(bp['grammar'])} parts, got {len(parts)}"
+                )
