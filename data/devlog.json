@@ -446,5 +446,29 @@
     "note": "Final goal state after corridor 49 \u2014 TBD (interview? terminal? silence?)",
     "context": "",
     "prev": "ff493ced3d5b2fa1"
+  },
+  {
+    "ts": "2026-03-30T11:23:29",
+    "hash": "f73f747ef91d9b21",
+    "type": "milestone",
+    "note": "Session 10 final final: 810 tests, dungeon playable, context limit reached",
+    "context": "",
+    "prev": "6247e5526fbde959"
+  },
+  {
+    "ts": "2026-03-30T11:23:29",
+    "hash": "c4dd48720bc42608",
+    "type": "open",
+    "note": "Split wall_texture.png + door_texture.png from combined image, apply to dungeon",
+    "context": "",
+    "prev": "f73f747ef91d9b21"
+  },
+  {
+    "ts": "2026-03-30T11:23:29",
+    "hash": "883c39a7d62a4f10",
+    "type": "open",
+    "note": "Dungeon needs textured walls and pixel art doors to match concept art",
+    "context": "",
+    "prev": "c4dd48720bc42608"
   }
 ]
