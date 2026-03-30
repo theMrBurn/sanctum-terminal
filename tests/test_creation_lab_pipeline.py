@@ -379,8 +379,9 @@ class TestLabCompoundObjects:
     def test_compounds_loaded(self, lab):
         assert len(lab._compounds) > 0
 
-    def test_torch_spawned(self, lab):
-        keys = [cn["key"] for cn in lab._compound_nodes]
+    def test_torch_spawned_as_sprite(self, lab):
+        """Torch is now a pixel art sprite, not a compound."""
+        keys = [s["key"] for s in lab._spawned]
         assert "torch_lit" in keys
 
     def test_tome_spawned(self, lab):
@@ -441,7 +442,7 @@ class TestCompoundEncounterIntegration:
 
     def test_compound_encounter_uses_tags(self, lab):
         """Picking up a compound object should begin encounter with its tags."""
-        cn = next(c for c in lab._compound_nodes if c["key"] == "torch_lit")
+        cn = next(c for c in lab._compound_nodes if c["key"] == "tome")
         obj = cn["obj"]
         lab.pipeline.fingerprint.record("crafting_time", 0.8)
         lab.pipeline.fingerprint.record("precision_score", 0.7)
@@ -449,11 +450,11 @@ class TestCompoundEncounterIntegration:
         lab._on_held(obj)
         enc = lab.pipeline.encounter.active_encounter
         assert enc is not None
-        assert "crafting_time" in enc["entity"]["tags"]
+        assert "observation_time" in enc["entity"]["tags"]
 
     def test_compound_encounter_verb_matches(self, lab):
         """Torch encounter should suggest TOOLS verb."""
-        cn = next(c for c in lab._compound_nodes if c["key"] == "torch_lit")
+        cn = next(c for c in lab._compound_nodes if c["key"] == "tome")
         obj = cn["obj"]
         lab.pipeline.fingerprint.record("crafting_time", 0.8)
         lab.pipeline.refresh_blend()
