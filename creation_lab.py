@@ -904,6 +904,20 @@ class CreationLab(ShowBase):
         self.ie.tick()
         self.se.tick()
 
+        # Monk sprite -- follows camera, animates with movement
+        if self._monk_sprite and not self._monk_sprite.isEmpty():
+            cam_pos = self.cam.getPos()
+            # Place monk slightly ahead of camera
+            forward = self.cam.getQuat().getForward()
+            self._monk_sprite.setPos(
+                cam_pos.x + forward.x * 3,
+                cam_pos.y + forward.y * 3,
+                0,
+            )
+            moving = any(self.key_map.values())
+            anim = "monk_walk" if moving else "monk_idle"
+            self.sprites.animate(self._monk_sprite, anim, dt)
+
         # Fingerprint tick -- accumulate behavioral time
         activity = self._infer_activity()
         self.pipeline.fingerprint.tick(dt, activity)
