@@ -25,6 +25,7 @@ from core.systems.sprite_renderer import SpriteRenderer
 from core.systems.model_loader import ModelLoader
 from core.systems.atmosphere_engine import AtmosphereEngine
 from core.systems.paper_doll import PaperDollRenderer
+from core.systems.campaign_engine import CampaignEngine
 from core.systems.encounter_generator import EncounterGenerator
 from core.systems.consolidation import ConsolidationTrigger
 
@@ -196,6 +197,9 @@ class CreationLab(ShowBase):
         # Bridges -- connect the islands
         self._encounter_gen = EncounterGenerator(self.pipeline.encounter)
         self._consolidation = ConsolidationTrigger(self.pipeline.encounter)
+
+        # Campaign engine -- Wildermyth conductor
+        self._campaign = CampaignEngine(self.pipeline, self.se)
 
         # AtmosphereEngine -- world responds to who you are
         self.atmosphere = AtmosphereEngine()
@@ -428,6 +432,14 @@ class CreationLab(ShowBase):
         self._paper_doll = PaperDollRenderer(self.render)
         self._monk_sprite = self._paper_doll.create_monk(pos=(0, 8, 0), scale=1.5)
         self._paper_doll.apply_register(self._monk_sprite, self._register)
+
+        # Campaign -- generate this session's quests
+        quests = self._campaign.generate_session()
+        for q in quests:
+            console.log(
+                f"[bold yellow]QUEST[/bold yellow]  [{q['type']:6s}]  "
+                f"{q['objective']}  [dim]({q['archetype']})[/dim]"
+            )
 
     def _build_environment(self):
         """Build floor, walls, grid from current register. Delegates to lab_environment."""
@@ -996,6 +1008,13 @@ class CreationLab(ShowBase):
                 f"[bold blue]CONSOLIDATE[/bold blue]  session_end  "
                 f"xp={report['xp_consumed']:.2f}  depth={report['depth_total']:.3f}"
             )
+        # Campaign report
+        cr = self._campaign.session_report()
+        console.log(
+            f"[bold cyan]SESSION[/bold cyan]  "
+            f"{cr['quests_completed']}/{cr['quests_generated']} quests  "
+            f"depth={self._consolidation.depth:.3f}"
+        )
         sys.exit(0)
 
 
