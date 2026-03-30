@@ -283,8 +283,11 @@ class PrimitiveFactory:
         return tuple(scale), rotation, detail
 
     def _make_geom(self, ptype, scale, color):
-        from core.systems.biome_renderer import (
-            _make_box_geom, _make_wedge_geom, _make_spike_geom, _make_arch_geom,
+        from core.systems.geometry import (
+            make_box as _make_box_geom,
+            make_wedge as _make_wedge_geom,
+            make_spike as _make_spike_geom,
+            make_arch as _make_arch_geom,
         )
         w, h, d = scale[0], scale[1], scale[2]
         c = (color[0], color[1], color[2])

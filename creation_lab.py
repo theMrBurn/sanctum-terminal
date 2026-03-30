@@ -9,7 +9,7 @@ from panda3d.core import (
     Plane, Point3, Vec3, Material, Fog,
 )
 from rich.console import Console
-from core.systems.biome_renderer import _make_box_geom, _make_plane_geom
+from core.systems.geometry import make_box as _make_box_geom, make_plane as _make_plane_geom
 from core.systems.crafting_engine import CraftingEngine
 from core.systems.primitive_factory import PrimitiveFactory
 from core.systems.inventory import Inventory

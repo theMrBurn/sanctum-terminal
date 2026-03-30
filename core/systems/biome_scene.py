@@ -21,7 +21,8 @@ from pathlib import Path
 
 from panda3d.core import Material, Vec4
 
-from core.systems.biome_renderer import BiomeRenderer, _make_plane_geom, BIOME_PALETTE
+from core.systems.biome_renderer import BiomeRenderer, BIOME_PALETTE
+from core.systems.geometry import make_plane as _make_plane_geom
 from core.systems.primitive_factory import PrimitiveFactory
 from core.systems.tree_builder import TreeBuilder
 from core.systems.model_loader import ModelLoader, REGISTER_TINTS
