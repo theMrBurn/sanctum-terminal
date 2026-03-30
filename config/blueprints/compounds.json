@@ -1,9 +1,9 @@
 {
   "torch_lit": {
     "grammar": [
-      {"primitive": "PILLAR", "role": "handle", "scale": [0.08, 0.7, 0.08],  "color": "wood"},
-      {"primitive": "WEDGE",  "role": "wrap",   "scale": [0.12, 0.15, 0.12], "color": "fiber",  "parent": "handle"},
-      {"primitive": "SPIKE",  "role": "flame",  "scale": [0.14, 0.3, 0.14],  "color": "fire",   "parent": "wrap"}
+      {"primitive": "PILLAR", "role": "handle", "scale": [0.25, 1.8, 0.25],  "color": "wood"},
+      {"primitive": "WEDGE",  "role": "wrap",   "scale": [0.4, 0.4, 0.4],    "color": "fiber",  "parent": "handle"},
+      {"primitive": "SPIKE",  "role": "flame",  "scale": [0.5, 0.8, 0.5],    "color": "fire",   "parent": "wrap"}
     ],
     "registers": {
       "survival": {
@@ -37,9 +37,9 @@
   },
   "tome": {
     "grammar": [
-      {"primitive": "SLAB",   "role": "cover", "scale": [0.3, 0.04, 0.4],  "color": "leather"},
-      {"primitive": "SLAB",   "role": "pages", "scale": [0.28, 0.03, 0.38], "color": "paper",   "parent": "cover"},
-      {"primitive": "PILLAR", "role": "spine", "scale": [0.04, 0.07, 0.4],  "color": "leather", "parent": "cover", "offset": [-0.15, 0.0, 0.0]}
+      {"primitive": "SLAB",   "role": "cover", "scale": [0.9, 0.12, 1.2],   "color": "leather"},
+      {"primitive": "SLAB",   "role": "pages", "scale": [0.82, 0.08, 1.1],  "color": "paper",   "parent": "cover"},
+      {"primitive": "PILLAR", "role": "spine", "scale": [0.12, 0.20, 1.2],  "color": "leather", "parent": "cover", "offset": [-0.45, 0.0, 0.0]}
     ],
     "registers": {
       "survival": {
