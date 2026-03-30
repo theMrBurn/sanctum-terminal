@@ -46,5 +46,85 @@
     "note": "DevLog tool for chained hash audit between sessions",
     "context": "",
     "prev": "956dbd49d6858e7c"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "37acd5bd153a6725",
+    "type": "decision",
+    "note": "Sprite pipeline built: Monk + animation, creatures cataloged not spawned",
+    "context": "",
+    "prev": "8fb69096fc63aac7"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "29976ba61496da98",
+    "type": "decision",
+    "note": "AtmosphereEngine wired to ghost blend, heat/moisture drive fog",
+    "context": "",
+    "prev": "37acd5bd153a6725"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "27fd37c7fce139e4",
+    "type": "decision",
+    "note": "Simulation Theater built: scripted fetch quest auto-plays in VERDANT",
+    "context": "",
+    "prev": "29976ba61496da98"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "1ef7d2ad0d212bd7",
+    "type": "open",
+    "note": "Base-7 expansion: CRAFT+OBSERVE verbs, DEFEND+TRADE scenarios -- needs design input",
+    "context": "",
+    "prev": "27fd37c7fce139e4"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "9cfbbbcdf0858ba8",
+    "type": "open",
+    "note": "Convert 17 shelf objects to Kenney models or compounds",
+    "context": "",
+    "prev": "1ef7d2ad0d212bd7"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "9809c061493475ee",
+    "type": "open",
+    "note": "Spawn creatures/NPCs from sprite catalog in biomes",
+    "context": "",
+    "prev": "9cfbbbcdf0858ba8"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "bf93c4716a713783",
+    "type": "open",
+    "note": "Live compound editor for visual object design",
+    "context": "",
+    "prev": "9809c061493475ee"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "cbceeb6ab1c70d7c",
+    "type": "open",
+    "note": "Register tint on Kenney biome scatter -- untested visually",
+    "context": "",
+    "prev": "bf93c4716a713783"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "852de494755c94f8",
+    "type": "open",
+    "note": "Sprite scale/readability at game distance",
+    "context": "",
+    "prev": "cbceeb6ab1c70d7c"
+  },
+  {
+    "ts": "2026-03-29T22:04:43",
+    "hash": "25147f5e92eaee99",
+    "type": "open",
+    "note": "Data-driven theater scripts from scenario definitions",
+    "context": "",
+    "prev": "852de494755c94f8"
   }
 ]
