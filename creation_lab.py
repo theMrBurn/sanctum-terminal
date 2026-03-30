@@ -446,7 +446,7 @@ class CreationLab(ShowBase):
         # Pixel art sprite objects -- the quality bar
         self._spawn_sprite_object(
             "assets/sprites/torch_lit.png",
-            pos=(-3.0, 2.0, 0.0), scale=3.0,
+            pos=(-3.0, 4.0, 0.0), scale=2.5,
             obj={"id": "torch_lit", "weight": 0.4, "tags": ["crafting_time", "precision_score"],
                  "encounter_verb": "TOOLS", "use_line": "Lights what needs seeing.",
                  "name": "Ominous Torch", "category": "tool"},
