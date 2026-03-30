@@ -24,6 +24,8 @@ from core.systems.biome_scene import BiomeSceneBuilder
 from core.systems.sprite_renderer import SpriteRenderer
 from core.systems.model_loader import ModelLoader
 from core.systems.atmosphere_engine import AtmosphereEngine
+from core.systems.encounter_generator import EncounterGenerator
+from core.systems.consolidation import ConsolidationTrigger
 
 console = Console()
 
@@ -189,6 +191,10 @@ class CreationLab(ShowBase):
         self.pipeline = AvatarPipeline(answers={}, age=30, seed="BURN")
         self._blend_refresh_elapsed = 0.0
         self._blend_refresh_interval = 10.0  # seconds between ghost blend refresh
+
+        # Bridges -- connect the islands
+        self._encounter_gen = EncounterGenerator(self.pipeline.encounter)
+        self._consolidation = ConsolidationTrigger(self.pipeline.encounter)
 
         # AtmosphereEngine -- world responds to who you are
         self.atmosphere = AtmosphereEngine()
@@ -376,6 +382,14 @@ class CreationLab(ShowBase):
                     f"[dim]{self.se.get_provenance(sid)}[/dim]")
         if self._active_sid == sid:
             self._active_sid = None
+        # Bridge 4: milestone consolidation on scenario complete
+        report = self._consolidation.milestone("scenario_complete")
+        if report["xp_consumed"] > 0:
+            console.log(
+                f"[bold blue]CONSOLIDATE[/bold blue]  milestone  "
+                f"depth={report['depth_total']:.3f}  "
+                f"abilities={report['ability_count']}"
+            )
         self._update_hud()
 
     # -- Build -----------------------------------------------------------------
@@ -922,6 +936,17 @@ class CreationLab(ShowBase):
         self.ie.tick()
         self.se.tick()
 
+        # Bridge 1: auto-encounter from proximity
+        for item in self.ie.all_reachable():
+            obj = item.get("obj", {})
+            result = self._encounter_gen.try_encounter(obj)
+            if result and result.get("worth_knowing"):
+                verb = result.get("verb_used") or self.pipeline.encounter.dominant_verb()
+                console.log(
+                    f"[bold magenta]ENCOUNTER[/bold magenta]  resonant  "
+                    f"verb={verb}  [dim]{obj.get('id', '')}[/dim]"
+                )
+
         # Monk sprite -- follows camera, animates with movement
         if self._monk_sprite and not self._monk_sprite.isEmpty():
             cam_pos = self.cam.getPos()
@@ -965,6 +990,13 @@ class CreationLab(ShowBase):
         return task.cont
 
     def exit_app(self):
+        # Bridge 4: consolidate on exit
+        report = self._consolidation.session_end()
+        if report["xp_consumed"] > 0:
+            console.log(
+                f"[bold blue]CONSOLIDATE[/bold blue]  session_end  "
+                f"xp={report['xp_consumed']:.2f}  depth={report['depth_total']:.3f}"
+            )
         sys.exit(0)
 
 
