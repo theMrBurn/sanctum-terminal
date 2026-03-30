@@ -654,7 +654,12 @@ class CreationLab(ShowBase):
         """[R] -- cycle visual register: survival → tron → tolkien → sanrio."""
         idx = self._registers.index(self._register)
         self._register = self._registers[(idx + 1) % len(self._registers)]
-        self._apply_environment_register()
+        if self._biome == "LAB":
+            self._apply_environment_register()
+        else:
+            # Rebuild biome scene in new register
+            self._biome_builder.clear()
+            self._biome_builder.build(self._biome, register=self._register)
         self._rebuild_compounds()
         self._update_hud()
 
@@ -667,22 +672,25 @@ class CreationLab(ShowBase):
         self._biome_builder.clear()
 
         if self._biome == "LAB":
-            # Rebuild the box room environment
+            # Restore lab: show interactables, rebuild environment
+            self.layer_interactable.show()
             self._apply_environment_register()
         else:
-            # Remove lab environment, build biome scene
+            # Hide lab interactables (workbench, shelf objects)
+            self.layer_interactable.hide()
+            # Remove lab environment geometry
             for np in self._env_nodes:
                 try:
                     np.removeNode()
                 except Exception:
                     pass
             self._env_nodes = []
+            # Build biome scene with current register
             self._biome_builder.build(self._biome, register=self._register)
-            # Update background from biome palette
+            # Background from biome palette
             from core.systems.biome_renderer import BIOME_PALETTE
             pal = BIOME_PALETTE.get(self._biome, BIOME_PALETTE["VOID"])
             fc = pal["floor"]
-            # Background slightly darker than floor
             self.setBackgroundColor(fc[0] * 0.3, fc[1] * 0.3, fc[2] * 0.3, 1)
 
         console.log(
