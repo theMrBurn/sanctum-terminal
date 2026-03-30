@@ -255,3 +255,113 @@ class TestFloatingLabels:
         label = lab._labels[node]
         text = label.node().getText()
         assert "kg" in text
+
+
+# -- Activity inference --------------------------------------------------------
+
+class TestActivityInference:
+
+    def test_idle_when_nothing_happening(self, lab):
+        assert lab._infer_activity() == "idle"
+
+    def test_exploring_when_moving(self, lab):
+        lab.key_map["w"] = True
+        assert lab._infer_activity() == "exploring"
+
+    def test_exploring_any_direction(self, lab):
+        for key in ("w", "s", "a", "d"):
+            lab.key_map = {"w": False, "s": False, "a": False, "d": False}
+            lab.key_map[key] = True
+            assert lab._infer_activity() == "exploring", f"key={key}"
+
+    def test_observing_when_still_near_reachable(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects")
+        node = lab._spawned[0]["node"]
+        pos = node.getPos(lab.render)
+        lab.cam.setPos(pos.x, pos.y, pos.z)
+        lab.ie.tick()
+        assert lab._infer_activity() == "observing"
+
+    def test_crafting_when_slots_filled(self, lab):
+        lab.slot_a = "some_obj"
+        lab.slot_b = "other_obj"
+        assert lab._infer_activity() == "crafting"
+
+    def test_combat_when_encounter_active(self, lab):
+        lab.pipeline.fingerprint.record("precision_score", 0.5)
+        lab.pipeline.encounter.begin({
+            "id": "test", "tags": ["precision_score"], "type": "object"
+        })
+        assert lab._infer_activity() == "combat"
+
+    def test_moving_overrides_observing(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects")
+        node = lab._spawned[0]["node"]
+        pos = node.getPos(lab.render)
+        lab.cam.setPos(pos.x, pos.y, pos.z)
+        lab.ie.tick()
+        lab.key_map["w"] = True
+        assert lab._infer_activity() == "exploring"
+
+    def test_combat_overrides_everything(self, lab):
+        lab.key_map["w"] = True
+        lab.slot_a = "x"
+        lab.slot_b = "y"
+        lab.pipeline.encounter.begin({
+            "id": "test", "tags": [], "type": "object"
+        })
+        assert lab._infer_activity() == "combat"
+
+
+# -- Fingerprint ticking in game loop -----------------------------------------
+
+class TestFingerprintInGameLoop:
+
+    def test_fingerprint_ticked_on_loop(self, lab):
+        fp = lab.pipeline.fingerprint
+        before = fp._total_time
+        lab.game_loop(type("Task", (), {"cont": 1})())
+        assert fp._total_time > before
+
+    def test_activity_flows_to_fingerprint(self, lab):
+        fp = lab.pipeline.fingerprint
+        lab.key_map["w"] = True
+        for _ in range(60):
+            lab.game_loop(type("Task", (), {"cont": 1})())
+        assert fp.state["exploration_time"] > 0.0
+
+    def test_observing_flows_to_fingerprint(self, lab):
+        if not lab._spawned:
+            pytest.skip("no spawned objects")
+        fp = lab.pipeline.fingerprint
+        node = lab._spawned[0]["node"]
+        pos = node.getPos(lab.render)
+        lab.cam.setPos(pos.x, pos.y, pos.z)
+        lab.ie.tick()
+        for _ in range(60):
+            lab.game_loop(type("Task", (), {"cont": 1})())
+        assert fp.state["observation_time"] > 0.0
+
+
+# -- Blend refresh cadence ----------------------------------------------------
+
+class TestBlendRefresh:
+
+    def test_blend_refresh_timer_exists(self, lab):
+        assert hasattr(lab, "_blend_refresh_elapsed")
+
+    def test_blend_not_refreshed_every_frame(self, lab):
+        old_blend = dict(lab.pipeline.ghost_blend)
+        lab.game_loop(type("Task", (), {"cont": 1})())
+        assert lab.pipeline.ghost_blend == old_blend
+
+    def test_blend_refreshes_after_interval(self, lab):
+        lab.pipeline.fingerprint.record("combat_time", 0.9)
+        lab.pipeline.fingerprint.record("exploration_time", 0.9)
+        old_blend = dict(lab.pipeline.ghost_blend)
+        lab._blend_refresh_elapsed = 11.0
+        lab.game_loop(type("Task", (), {"cont": 1})())
+        new_blend = lab.pipeline.ghost_blend
+        assert new_blend != old_blend

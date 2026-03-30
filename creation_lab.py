@@ -165,6 +165,8 @@ class CreationLab(ShowBase):
         # AvatarPipeline -- ghost profile + encounter engine, default answers
         # In production, answers come from InterviewEngine. Lab uses defaults.
         self.pipeline = AvatarPipeline(answers={}, age=30, seed="BURN")
+        self._blend_refresh_elapsed = 0.0
+        self._blend_refresh_interval = 10.0  # seconds between ghost blend refresh
 
         # PickupSystem -- delegates nearest lookup to InteractionEngine
         self.pickup = PickupSystem(
@@ -639,6 +641,32 @@ class CreationLab(ShowBase):
             props.setMouseMode(WindowProperties.M_absolute)
             self.win.requestProperties(props)
 
+    # -- Activity inference ----------------------------------------------------
+
+    def _infer_activity(self) -> str:
+        """
+        Derive current player activity from world state.
+        Priority: combat > exploring > crafting > observing > idle.
+        Feeds fingerprint.tick() every frame.
+        """
+        # Active encounter = combat (highest priority)
+        if self.pipeline.encounter.active_encounter is not None:
+            return "combat"
+
+        # Movement keys held = exploring
+        if any(self.key_map.values()):
+            return "exploring"
+
+        # Crafting slots filled = crafting
+        if self.slot_a is not None and self.slot_b is not None:
+            return "crafting"
+
+        # Near reachable objects and still = observing
+        if self.ie.all_reachable():
+            return "observing"
+
+        return "idle"
+
     # -- Game loop -------------------------------------------------------------
 
     def game_loop(self, task):
@@ -666,6 +694,16 @@ class CreationLab(ShowBase):
         self.pickup.update(dt)
         self.ie.tick()
         self.se.tick()
+
+        # Fingerprint tick -- accumulate behavioral time
+        activity = self._infer_activity()
+        self.pipeline.fingerprint.tick(dt, activity)
+
+        # Blend refresh -- merge interview + fingerprint periodically
+        self._blend_refresh_elapsed += dt
+        if self._blend_refresh_elapsed >= self._blend_refresh_interval:
+            self._blend_refresh_elapsed = 0.0
+            self.pipeline.refresh_blend()
 
         return task.cont
 
