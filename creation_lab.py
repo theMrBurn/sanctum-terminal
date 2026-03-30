@@ -75,6 +75,48 @@ _STATE_GLOW = {
 }
 
 
+# -- Environment registers -- whole room transforms with [R] ------------------
+
+ENVIRONMENT_REGISTERS = {
+    "survival": {
+        "background": _CFG["bg"],
+        "floor":      _CFG["floor_color"],
+        "wall":       _CFG["wall_color"],
+        "grid":       _CFG["grid_color"],
+        "ambient":    _CFG["light_amb"],
+        "sun":        _CFG["light_sun"],
+        "fill":       _CFG["light_fill"],
+    },
+    "tron": {
+        "background": (0.0,  0.0,  0.02),
+        "floor":      (0.02, 0.02, 0.04),
+        "wall":       (0.03, 0.03, 0.06),
+        "grid":       (0.0,  0.35, 0.55),
+        "ambient":    (0.01, 0.03, 0.06),
+        "sun":        (0.2,  0.5,  0.8),
+        "fill":       (0.0,  0.08, 0.18),
+    },
+    "tolkien": {
+        "background": (0.04, 0.03, 0.02),
+        "floor":      (0.18, 0.14, 0.08),
+        "wall":       (0.25, 0.20, 0.14),
+        "grid":       (0.22, 0.18, 0.12),
+        "ambient":    (0.08, 0.06, 0.04),
+        "sun":        (1.2,  0.85, 0.55),
+        "fill":       (0.06, 0.05, 0.03),
+    },
+    "sanrio": {
+        "background": (0.35, 0.28, 0.32),
+        "floor":      (0.85, 0.70, 0.78),
+        "wall":       (0.75, 0.62, 0.72),
+        "grid":       (0.90, 0.75, 0.82),
+        "ambient":    (0.25, 0.20, 0.28),
+        "sun":        (1.0,  0.85, 0.90),
+        "fill":       (0.30, 0.25, 0.35),
+    },
+}
+
+
 def clamp_to_lab(x: float, y: float, z: float) -> tuple:
     """Pure fn -- no ShowBase dep. _clamp_camera delegates here."""
     return (
@@ -354,34 +396,13 @@ class CreationLab(ShowBase):
     # -- Build -----------------------------------------------------------------
 
     def _build_lab(self):
-        S     = self.layer_structure
         I     = self.layer_interactable
-        depth = abs(LAB_Y_S - LAB_Y_N)
-        width = LAB_X * 2
-        wc    = _CFG["wall_color"]
-        fc    = _CFG["floor_color"]
-        gc    = _CFG["grid_color"]
-        wt    = 0.3
-        wh    = _CFG["wall_height"]
 
-        fn = _make_plane_geom(int(width), int(depth), fc)
-        self._floor = S.attachNewNode(fn)
-        self._floor.setPos(0, 0, 0)
+        # Environment surfaces (rebuildable on register change)
+        self._env_nodes = []
+        self._build_environment()
 
-        for i in range(-5, 6):
-            gn = _make_box_geom(0.03, 0.008, width, gc)
-            S.attachNewNode(gn).setPos(i * 2, 0, 0.003)
-            gn2 = _make_box_geom(depth, 0.008, 0.03, gc)
-            S.attachNewNode(gn2).setPos(0, i * 2, 0.003)
-
-        for dims, pos in [
-            ((width, wt, wh), (0,      LAB_Y_N, wh/2)),
-            ((width, wt, wh), (0,      LAB_Y_S, wh/2)),
-            ((wt, depth, wh), (LAB_X,  0,       wh/2)),
-            ((wt, depth, wh), (-LAB_X, 0,       wh/2)),
-        ]:
-            S.attachNewNode(_make_box_geom(*dims, wc)).setPos(*pos)
-
+        # Collision planes (permanent)
         for name, plane in [
             ("wall_n", Plane(Vec3( 0, -1, 0), Point3(0,      LAB_Y_N, 0))),
             ("wall_s", Plane(Vec3( 0,  1, 0), Point3(0,      LAB_Y_S, 0))),
@@ -390,8 +411,9 @@ class CreationLab(ShowBase):
         ]:
             cn = CollisionNode(name)
             cn.addSolid(CollisionPlane(plane))
-            self._walls.append(S.attachNewNode(cn))
+            self._walls.append(self.layer_structure.attachNewNode(cn))
 
+        # Workbench + objects (permanent)
         bench = _make_box_geom(3.0, 1.2, 1.0, _CFG["bench_color"])
         I.attachNewNode(bench).setPos(0, 2, 0.5)
 
@@ -401,6 +423,68 @@ class CreationLab(ShowBase):
         # Compound objects -- torch and book near the workbench
         self._spawn_compound("torch_lit", (-2.0, 4.0, 0.5))
         self._spawn_compound("tome",      ( 2.0, 4.0, 0.5))
+
+    def _build_environment(self):
+        """Build floor, walls, grid from current register palette."""
+        S     = self.layer_structure
+        reg   = ENVIRONMENT_REGISTERS.get(self._register, ENVIRONMENT_REGISTERS["survival"])
+        depth = abs(LAB_Y_S - LAB_Y_N)
+        width = LAB_X * 2
+        fc    = reg["floor"]
+        wc    = reg["wall"]
+        gc    = reg["grid"]
+        wt    = 0.3
+        wh    = _CFG["wall_height"]
+
+        # Floor
+        fn = _make_plane_geom(int(width), int(depth), fc)
+        floor_np = S.attachNewNode(fn)
+        floor_np.setPos(0, 0, 0)
+        self._floor = floor_np
+        self._env_nodes.append(floor_np)
+
+        # Grid lines
+        for i in range(-5, 6):
+            gn = _make_box_geom(0.03, 0.008, width, gc)
+            np = S.attachNewNode(gn)
+            np.setPos(i * 2, 0, 0.003)
+            self._env_nodes.append(np)
+            gn2 = _make_box_geom(depth, 0.008, 0.03, gc)
+            np2 = S.attachNewNode(gn2)
+            np2.setPos(0, i * 2, 0.003)
+            self._env_nodes.append(np2)
+
+        # Walls (visual, not collision)
+        for dims, pos in [
+            ((width, wt, wh), (0,      LAB_Y_N, wh/2)),
+            ((width, wt, wh), (0,      LAB_Y_S, wh/2)),
+            ((wt, depth, wh), (LAB_X,  0,       wh/2)),
+            ((wt, depth, wh), (-LAB_X, 0,       wh/2)),
+        ]:
+            np = S.attachNewNode(_make_box_geom(*dims, wc))
+            np.setPos(*pos)
+            self._env_nodes.append(np)
+
+        # Apply background + lighting
+        bg = reg["background"]
+        self.setBackgroundColor(bg[0], bg[1], bg[2], 1)
+
+    def _apply_environment_register(self):
+        """Rebuild environment surfaces and update lighting for current register."""
+        # Remove old environment geometry
+        for np in self._env_nodes:
+            try:
+                np.removeNode()
+            except Exception:
+                pass
+        self._env_nodes = []
+
+        # Rebuild with current register palette
+        self._build_environment()
+
+        # Update lighting
+        reg = ENVIRONMENT_REGISTERS.get(self._register, ENVIRONMENT_REGISTERS["survival"])
+        self._update_lighting(reg)
 
     # -- Camera ----------------------------------------------------------------
 
@@ -555,6 +639,7 @@ class CreationLab(ShowBase):
         """[R] -- cycle visual register: survival → tron → tolkien → sanrio."""
         idx = self._registers.index(self._register)
         self._register = self._registers[(idx + 1) % len(self._registers)]
+        self._apply_environment_register()
         self._rebuild_compounds()
         self._update_hud()
 
@@ -681,22 +766,22 @@ class CreationLab(ShowBase):
         la  = _CFG["light_amb"]
         hpr = _CFG["sun_hpr"]
 
-        sun = DirectionalLight("sun")
-        sun.setColor(Vec4(ls[0], ls[1], ls[2], 1))
-        sun.setShadowCaster(True, 1024, 1024)
-        sn = self.render.attachNewNode(sun)
+        self._sun_light = DirectionalLight("sun")
+        self._sun_light.setColor(Vec4(ls[0], ls[1], ls[2], 1))
+        self._sun_light.setShadowCaster(True, 1024, 1024)
+        sn = self.render.attachNewNode(self._sun_light)
         sn.setHpr(*hpr)
         self.render.setLight(sn)
 
-        fill = DirectionalLight("fill")
-        fill.setColor(Vec4(lf[0], lf[1], lf[2], 1))
-        fn = self.render.attachNewNode(fill)
+        self._fill_light = DirectionalLight("fill")
+        self._fill_light.setColor(Vec4(lf[0], lf[1], lf[2], 1))
+        fn = self.render.attachNewNode(self._fill_light)
         fn.setHpr(hpr[0] + 180, -20, 0)
         self.render.setLight(fn)
 
-        amb = AmbientLight("amb")
-        amb.setColor(Vec4(la[0], la[1], la[2], 1))
-        self.render.setLight(self.render.attachNewNode(amb))
+        self._amb_light = AmbientLight("amb")
+        self._amb_light.setColor(Vec4(la[0], la[1], la[2], 1))
+        self.render.setLight(self.render.attachNewNode(self._amb_light))
 
         lamp = PointLight("lamp")
         lamp.setColor(Vec4(1.0, 0.75, 0.4, 1))
@@ -708,6 +793,15 @@ class CreationLab(ShowBase):
 
         post = _make_box_geom(0.12, 0.12, 4.0, (0.10, 0.08, 0.07))
         self.render.attachNewNode(post).setPos(-6, LAB_Y_N - 4, 2.0)
+
+    def _update_lighting(self, reg):
+        """Update light colors from register palette."""
+        s = reg["sun"]
+        self._sun_light.setColor(Vec4(s[0], s[1], s[2], 1))
+        f = reg["fill"]
+        self._fill_light.setColor(Vec4(f[0], f[1], f[2], 1))
+        a = reg["ambient"]
+        self._amb_light.setColor(Vec4(a[0], a[1], a[2], 1))
 
     # -- Controls --------------------------------------------------------------
 
