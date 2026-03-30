@@ -19,22 +19,22 @@ from panda3d.core import GeomNode
 class TestGeometryFunctions:
 
     def test_box_exists(self):
-        from core.systems.biome_renderer import _make_box_geom
+        from core.systems.geometry import make_box as _make_box_geom
         node = _make_box_geom(1, 1, 1, (0.5, 0.5, 0.5))
         assert isinstance(node, GeomNode)
 
     def test_wedge_exists(self):
-        from core.systems.biome_renderer import _make_wedge_geom
+        from core.systems.geometry import make_wedge as _make_wedge_geom
         node = _make_wedge_geom(1, 1, 1, (0.5, 0.5, 0.5))
         assert isinstance(node, GeomNode)
 
     def test_spike_exists(self):
-        from core.systems.biome_renderer import _make_spike_geom
+        from core.systems.geometry import make_spike as _make_spike_geom
         node = _make_spike_geom(1, 1, 1, (0.5, 0.5, 0.5))
         assert isinstance(node, GeomNode)
 
     def test_arch_exists(self):
-        from core.systems.biome_renderer import _make_arch_geom
+        from core.systems.geometry import make_arch as _make_arch_geom
         node = _make_arch_geom(1, 1, 1, (0.5, 0.5, 0.5))
         assert isinstance(node, GeomNode)
 
@@ -44,26 +44,26 @@ class TestGeometryFunctions:
 class TestGeometryContent:
 
     def test_wedge_has_geometry(self):
-        from core.systems.biome_renderer import _make_wedge_geom
+        from core.systems.geometry import make_wedge as _make_wedge_geom
         node = _make_wedge_geom(2, 3, 1, (0.3, 0.3, 0.3))
         geom = node.getGeom(0)
         assert geom.getVertexData().getNumRows() > 0
 
     def test_spike_has_geometry(self):
-        from core.systems.biome_renderer import _make_spike_geom
+        from core.systems.geometry import make_spike as _make_spike_geom
         node = _make_spike_geom(1, 3, 1, (0.5, 0.4, 0.3))
         geom = node.getGeom(0)
         assert geom.getVertexData().getNumRows() > 0
 
     def test_arch_has_geometry(self):
-        from core.systems.biome_renderer import _make_arch_geom
+        from core.systems.geometry import make_arch as _make_arch_geom
         node = _make_arch_geom(4, 0.5, 3, (0.4, 0.4, 0.4))
         geom = node.getGeom(0)
         assert geom.getVertexData().getNumRows() > 0
 
     def test_wedge_fewer_verts_than_box(self):
         """Wedge is a triangular prism -- should have fewer vertices than a box."""
-        from core.systems.biome_renderer import _make_box_geom, _make_wedge_geom
+        from core.systems.geometry import make_box as _make_box_geom, _make_wedge_geom
         box = _make_box_geom(1, 1, 1, (0.5, 0.5, 0.5))
         wedge = _make_wedge_geom(1, 1, 1, (0.5, 0.5, 0.5))
         box_verts = box.getGeom(0).getVertexData().getNumRows()

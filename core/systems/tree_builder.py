@@ -1,5 +1,5 @@
 import random
-from core.systems.biome_renderer import _make_box_geom
+from core.systems.geometry import make_box as _make_box_geom
 
 
 class TreeBuilder:
