@@ -41,10 +41,10 @@ DOOR_SPACING    = CORRIDOR_WIDTH / 5.0
 DOOR_Y          = CORRIDOR_DEPTH / 2 - 1.5
 
 # Colors
-WALL_COLOR    = (0.10, 0.08, 0.07)
-FLOOR_COLOR   = (0.08, 0.06, 0.05)
-CEILING_COLOR = (0.06, 0.05, 0.04)
-DOOR_COLOR    = (0.15, 0.12, 0.10)
+WALL_COLOR    = (0.22, 0.18, 0.14)
+FLOOR_COLOR   = (0.18, 0.14, 0.10)
+CEILING_COLOR = (0.14, 0.11, 0.09)
+DOOR_COLOR    = (0.28, 0.22, 0.18)
 DOOR_CORRECT_HINT = (0.16, 0.13, 0.11)  # barely different — the test
 FOG_COLOR     = (0.04, 0.03, 0.03)
 
@@ -107,14 +107,14 @@ class Dungeon(ShowBase):
     def _setup_lighting(self):
         from panda3d.core import PointLight
 
-        # Dim ambient — just enough to see shapes
+        # Ambient — enough to read walls and floor
         amb = AmbientLight("amb")
-        amb.setColor(Vec4(0.03, 0.025, 0.03, 1))
+        amb.setColor(Vec4(0.10, 0.08, 0.07, 1))
         self.render.setLight(self.render.attachNewNode(amb))
 
-        # Overhead directional — faint, gives top-face shading
+        # Overhead directional — warm, defines surface
         sun = DirectionalLight("sun")
-        sun.setColor(Vec4(0.15, 0.12, 0.08, 1))
+        sun.setColor(Vec4(0.4, 0.3, 0.2, 1))
         sn = self.render.attachNewNode(sun)
         sn.setHpr(0, -70, 0)
         self.render.setLight(sn)
@@ -126,9 +126,9 @@ class Dungeon(ShowBase):
         for y in sconce_y_positions:
             for x_side in [-hw, hw]:
                 lamp = PointLight(f"sconce_{x_side}_{y}")
-                lamp.setColor(Vec4(1.0, 0.7, 0.35, 1))  # warm torch light
+                lamp.setColor(Vec4(1.5, 1.0, 0.5, 1))   # bright warm torch
                 lamp.setShadowCaster(True, 256, 256)
-                lamp.setAttenuation((0.5, 0.08, 0.01))
+                lamp.setAttenuation((0.3, 0.04, 0.005))
                 ln = self.render.attachNewNode(lamp)
                 ln.setPos(x_side, y, WALL_HEIGHT * 0.7)
                 self.render.setLight(ln)
