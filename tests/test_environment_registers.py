@@ -31,8 +31,10 @@ class TestEnvironmentRegisterData:
 
     def test_colors_are_rgb_tuples(self):
         from creation_lab import ENVIRONMENT_REGISTERS
+        color_keys = ["background", "floor", "wall", "grid", "ambient", "sun", "fill", "fog"]
         for reg, palette in ENVIRONMENT_REGISTERS.items():
-            for key, color in palette.items():
+            for key in color_keys:
+                color = palette[key]
                 assert len(color) == 3, f"{reg}.{key} is not RGB: {color}"
 
     def test_tron_is_dark(self):
