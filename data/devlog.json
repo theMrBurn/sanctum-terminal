@@ -174,5 +174,109 @@
     "note": "Level 3 integration: player edits compounds.json = game hot-reloads their creation = they made a mod",
     "context": "Phase 3 unlock",
     "prev": "ebc6db92cd0288d5"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "acbb1370699355b6",
+    "type": "resolved",
+    "note": "Base-7 expansion DONE: 7 verbs x 7 scenarios = 49 space",
+    "context": "",
+    "prev": "98846bf228f5d4cb"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "61c6a4a6fa0b22e2",
+    "type": "resolved",
+    "note": "Convert 17 shelf objects DONE: mapped to Kenney models",
+    "context": "",
+    "prev": "acbb1370699355b6"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "af5632795ac1ea7a",
+    "type": "resolved",
+    "note": "Spawn creatures in biomes DONE: per-biome sprite scatter",
+    "context": "",
+    "prev": "61c6a4a6fa0b22e2"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "1a36b4edf793817a",
+    "type": "resolved",
+    "note": "Register tint on biome scatter DONE: rebuild on [R] cycle",
+    "context": "",
+    "prev": "af5632795ac1ea7a"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "f513038ba97e530b",
+    "type": "resolved",
+    "note": "Sprite scale DONE: Monk 2.0 scale, 8 units ahead",
+    "context": "",
+    "prev": "1a36b4edf793817a"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "6479f60bb1068f59",
+    "type": "decision",
+    "note": "Mathematical foundation: base-7 atoms, base-60 relationships, base-1 naming",
+    "context": "",
+    "prev": "f513038ba97e530b"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "ebe43bb6b8e23411",
+    "type": "open",
+    "note": "Live compound editor -- design objects visually",
+    "context": "",
+    "prev": "6479f60bb1068f59"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "635ec2b3483bcf43",
+    "type": "open",
+    "note": "Data-driven theater scripts from scenario/campaign JSON",
+    "context": "",
+    "prev": "ebe43bb6b8e23411"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "525b7f90d4d942f8",
+    "type": "open",
+    "note": "Expand design_key() to 60 dimensions (true name)",
+    "context": "",
+    "prev": "635ec2b3483bcf43"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "6773e29d473107be",
+    "type": "open",
+    "note": "Ability catalog: 60 possible abilities mapped to concrete effects",
+    "context": "",
+    "prev": "525b7f90d4d942f8"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "15dbbd361a26045b",
+    "type": "open",
+    "note": "Campaign JSON for Phase 1 scenario sequence",
+    "context": "",
+    "prev": "6773e29d473107be"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "55fd38924b4abd28",
+    "type": "open",
+    "note": "Object growth over time (garden archetype)",
+    "context": "",
+    "prev": "15dbbd361a26045b"
+  },
+  {
+    "ts": "2026-03-29T23:58:44",
+    "hash": "9e3073f18562c649",
+    "type": "open",
+    "note": "Code evaluation sandbox (learning archetype, Phase 3)",
+    "context": "",
+    "prev": "55fd38924b4abd28"
   }
 ]
