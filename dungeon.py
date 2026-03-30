@@ -32,13 +32,13 @@ console = Console()
 
 # -- Visual constants ----------------------------------------------------------
 
-CORRIDOR_WIDTH  = 12.0
-CORRIDOR_DEPTH  = 20.0
-WALL_HEIGHT     = 8.0
-DOOR_WIDTH      = 1.2
-DOOR_HEIGHT     = 2.5
-DOOR_SPACING    = CORRIDOR_WIDTH / 4.5
-DOOR_Y          = CORRIDOR_DEPTH / 2 - 1.0
+CORRIDOR_WIDTH  = 16.0
+CORRIDOR_DEPTH  = 24.0
+WALL_HEIGHT     = 6.0
+DOOR_WIDTH      = 1.3
+DOOR_HEIGHT     = 2.8
+DOOR_SPACING    = CORRIDOR_WIDTH / 5.0
+DOOR_Y          = CORRIDOR_DEPTH / 2 - 1.5
 
 # Colors
 WALL_COLOR    = (0.10, 0.08, 0.07)
@@ -81,16 +81,16 @@ class Dungeon(ShowBase):
         # Fog
         fog = Fog("dungeon_fog")
         fog.setColor(Vec4(FOG_COLOR[0], FOG_COLOR[1], FOG_COLOR[2], 1))
-        fog.setLinearRange(5.0, 35.0)
+        fog.setLinearRange(15.0, 50.0)
         self.render.setFog(fog)
 
         # Build corridor
         self._build_corridor()
         self._update_hud()
 
-        # Camera
-        self.cam.setPos(0, -CORRIDOR_DEPTH / 2 + 2, 3.0)
-        self.cam.lookAt(0, DOOR_Y, 3.0)
+        # Camera — far enough back to see all 8 doors
+        self.cam.setPos(0, -CORRIDOR_DEPTH / 2 + 1, 2.5)
+        self.cam.lookAt(0, DOOR_Y, 2.8)
 
         # Controls
         for i in range(8):
@@ -105,22 +105,40 @@ class Dungeon(ShowBase):
         console.log("[1-8] examine  [Shift+1-8] try door  [ESC] quit")
 
     def _setup_lighting(self):
+        from panda3d.core import PointLight
+
+        # Dim ambient — just enough to see shapes
+        amb = AmbientLight("amb")
+        amb.setColor(Vec4(0.03, 0.025, 0.03, 1))
+        self.render.setLight(self.render.attachNewNode(amb))
+
+        # Overhead directional — faint, gives top-face shading
         sun = DirectionalLight("sun")
-        sun.setColor(Vec4(0.6, 0.45, 0.3, 1))
-        sun.setShadowCaster(True, 512, 512)
+        sun.setColor(Vec4(0.15, 0.12, 0.08, 1))
         sn = self.render.attachNewNode(sun)
-        sn.setHpr(0, -60, 0)
+        sn.setHpr(0, -70, 0)
         self.render.setLight(sn)
 
-        fill = DirectionalLight("fill")
-        fill.setColor(Vec4(0.08, 0.10, 0.15, 1))
-        fn = self.render.attachNewNode(fill)
-        fn.setHpr(180, -30, 0)
-        self.render.setLight(fn)
+        # Wall sconces — point lights along both walls
+        hw = CORRIDOR_WIDTH / 2 - 0.5
+        sconce_y_positions = [-6, 0, 6]  # 3 pairs along corridor
+        self._sconce_nodes = []
+        for y in sconce_y_positions:
+            for x_side in [-hw, hw]:
+                lamp = PointLight(f"sconce_{x_side}_{y}")
+                lamp.setColor(Vec4(1.0, 0.7, 0.35, 1))  # warm torch light
+                lamp.setShadowCaster(True, 256, 256)
+                lamp.setAttenuation((0.5, 0.08, 0.01))
+                ln = self.render.attachNewNode(lamp)
+                ln.setPos(x_side, y, WALL_HEIGHT * 0.7)
+                self.render.setLight(ln)
+                self._sconce_nodes.append(ln)
 
-        amb = AmbientLight("amb")
-        amb.setColor(Vec4(0.04, 0.03, 0.04, 1))
-        self.render.setLight(self.render.attachNewNode(amb))
+                # Visual sconce bracket (small box on wall)
+                bracket = make_box(0.15, 0.15, 0.3, (0.2, 0.15, 0.1))
+                bn = self.render.attachNewNode(bracket)
+                bn.setPos(x_side, y, WALL_HEIGHT * 0.65)
+                self._sconce_nodes.append(bn)
 
     def _clear_scene(self):
         for np in self._scene_nodes + self._door_nodes:
