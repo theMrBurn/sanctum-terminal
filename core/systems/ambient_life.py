@@ -703,6 +703,140 @@ def build_twig_scatter(parent, seed=0):
     return root
 
 
+def build_stalagmite(parent, seed=0):
+    """Stalagmite — tall irregular cone rising from floor.
+
+    Uses make_rock with height >> width for the tapered column shape.
+    Roughness breaks the cone regularity. Mineral deposit colors.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"stalagmite_{seed}")
+
+    # Wide variety: stubby thick ones to tall thin spires
+    height = rng.uniform(1.0, 6.0)
+    base_w = height * rng.uniform(0.12, 0.35)  # thin spire to chunky column
+    base_d = base_w * rng.uniform(0.6, 1.0)    # round to oval base
+
+    # Mineral deposit spectrum — cooler/wetter than dry stone
+    # Calcite/limestone: slightly blue-grey shift vs boulder's warm-grey
+    mineral_bases = [
+        (0.11, 0.11, 0.13),  # cool blue-grey
+        (0.13, 0.12, 0.13),  # neutral mineral
+        (0.10, 0.10, 0.12),  # dark slate-blue
+        (0.12, 0.11, 0.11),  # warm mineral
+        (0.09, 0.10, 0.11),  # deep cool
+    ]
+    base = rng.choice(mineral_bases)
+    sv = rng.uniform(-0.02, 0.02)
+    color = (base[0] + sv, base[1] + sv * 0.7, base[2] + sv * 0.5)
+
+    # Tall narrow rock — height dominates
+    rock = root.attachNewNode(make_rock(
+        base_w, height * 0.5, base_d, color,
+        rings=6, segments=7, seed=seed,
+        roughness=rng.uniform(0.2, 0.4),
+    ))
+    rock.setPos(0, 0, 0)
+    rock.setTwoSided(True)
+
+    # Sometimes a smaller one beside it
+    if rng.random() < 0.4:
+        s = rng.uniform(0.3, 0.6)
+        small = root.attachNewNode(make_rock(
+            base_w * s, height * 0.5 * s, base_d * s, color,
+            rings=4, segments=5, seed=seed + 77,
+            roughness=rng.uniform(0.25, 0.5),
+        ))
+        angle = rng.uniform(0, 360)
+        dist = base_w * 1.2
+        small.setPos(
+            math.cos(math.radians(angle)) * dist,
+            math.sin(math.radians(angle)) * dist,
+            0,
+        )
+        small.setTwoSided(True)
+
+    tex = get_material_texture("stone_light", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.2, 0.2)
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
+    return root
+
+
+def build_column(parent, seed=0):
+    """Massive cave column — hourglass shape, floor to darkness.
+
+    Two rock masses: wide base (floor), wide top (vanishes into dark above),
+    narrow waist in the middle. Rare, structural, landmark-scale.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"column_{seed}")
+
+    total_height = rng.uniform(12.0, 20.0)
+    base_radius = rng.uniform(1.5, 3.0)
+    waist_radius = base_radius * rng.uniform(0.3, 0.5)  # narrow middle
+    top_radius = base_radius * rng.uniform(0.8, 1.2)     # widens again at top
+
+    # Mineral color — same cool spectrum as stalagmites
+    mineral_bases = [
+        (0.11, 0.11, 0.13),
+        (0.13, 0.12, 0.13),
+        (0.10, 0.10, 0.12),
+    ]
+    base_color = rng.choice(mineral_bases)
+    sv = rng.uniform(-0.02, 0.02)
+    color = (base_color[0] + sv, base_color[1] + sv * 0.7, base_color[2] + sv * 0.5)
+
+    # Bottom section — wide base tapering to waist
+    bottom_h = total_height * rng.uniform(0.35, 0.45)
+    bottom = root.attachNewNode(make_rock(
+        base_radius, bottom_h * 0.5, base_radius * rng.uniform(0.7, 1.0), color,
+        rings=8, segments=8, seed=seed,
+        roughness=rng.uniform(0.2, 0.35),
+    ))
+    bottom.setPos(0, 0, 0)
+    bottom.setTwoSided(True)
+
+    # Waist section — narrow connecting neck
+    waist_h = total_height * rng.uniform(0.15, 0.25)
+    waist_z = bottom_h * 0.7
+    sv2 = rng.uniform(-0.015, 0.015)
+    waist_color = (color[0] + sv2, color[1] + sv2, color[2] + sv2)
+    waist = root.attachNewNode(make_rock(
+        waist_radius, waist_h * 0.5, waist_radius * rng.uniform(0.7, 1.0), waist_color,
+        rings=5, segments=6, seed=seed + 33,
+        roughness=rng.uniform(0.15, 0.3),
+    ))
+    waist.setPos(0, 0, waist_z + waist_h * 0.3)
+    waist.setTwoSided(True)
+
+    # Top section — widens again, rises into darkness
+    top_h = total_height - bottom_h - waist_h
+    top_z = waist_z + waist_h * 0.5
+    sv3 = rng.uniform(-0.015, 0.015)
+    top_color = (color[0] + sv3, color[1] + sv3, color[2] + sv3)
+    top = root.attachNewNode(make_rock(
+        top_radius, top_h * 0.5, top_radius * rng.uniform(0.7, 1.0), top_color,
+        rings=8, segments=8, seed=seed + 66,
+        roughness=rng.uniform(0.2, 0.35),
+    ))
+    top.setPos(0, 0, top_z + top_h * 0.3)
+    top.setTwoSided(True)
+
+    # Texture + damping
+    tex = get_material_texture("stone_light", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.1, 0.1)
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
+    return root
+
+
 BUILDERS = {
     "rat": (build_rat, "scurry"),
     "leaf": (build_leaf, "drift"),
@@ -713,6 +847,8 @@ BUILDERS = {
     "leaf_pile": (build_leaf_pile, "static"),
     "dead_log": (build_dead_log, "static"),
     "twig_scatter": (build_twig_scatter, "static"),
+    "stalagmite": (build_stalagmite, "static"),
+    "column": (build_column, "static"),
 }
 
 

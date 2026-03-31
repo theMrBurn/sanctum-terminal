@@ -48,6 +48,7 @@ from panda3d.core import (
 from core.systems.geometry import make_box, make_pebble_cluster
 from core.systems.shadowbox_scene import SHADOWBOX_REGISTERS, resolve_palette
 from core.systems.ambient_life import AmbientManager
+from core.systems.chronometer import Chronometer
 
 console = Console()
 
@@ -102,6 +103,8 @@ class Cavern(ShowBase):
         self._entropy = EntropyEngine()
         self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=45.0)
         self._deferred_spawns = []  # ambient spawns queued across frames
+        self._chrono = Chronometer()
+        self._chrono_state = self._chrono.read()
 
         # Native C++ Perlin for texture generation (fast path)
         # Python PlacementEngine Perlin stays for placement/height (still useful)
@@ -461,6 +464,22 @@ void main() {
             sy = world_y + rng.uniform(1, CHUNK_SIZE - 1)
             sz = self._height_at(sx, sy)
             ambient_spawns.append((kind, (sx, sy, sz), rng.uniform(0, 360), chunk_seed + 5000 + si))
+
+        # Columns — rare, massive, structural landmarks
+        if rng.random() < 0.06:  # ~1 per 16 chunks
+            cx_col = world_x + rng.uniform(4, CHUNK_SIZE - 4)
+            cy_col = world_y + rng.uniform(4, CHUNK_SIZE - 4)
+            cz_col = self._height_at(cx_col, cy_col)
+            ambient_spawns.append(("column", (cx_col, cy_col, cz_col), rng.uniform(0, 360), chunk_seed + 8000))
+
+        # Stalagmites — 1-2 per ~3 chunks, defines "cave"
+        if rng.random() < 0.35:
+            stag_count = rng.randint(1, 2)
+            for sti in range(stag_count):
+                stx = world_x + rng.uniform(3, CHUNK_SIZE - 3)
+                sty = world_y + rng.uniform(3, CHUNK_SIZE - 3)
+                stz = self._height_at(stx, sty)
+                ambient_spawns.append(("stalagmite", (stx, sty, stz), rng.uniform(0, 360), chunk_seed + 7000 + sti))
 
         # Dead logs — rare, 1 per ~5 chunks
         if rng.random() < 0.2:
@@ -1121,6 +1140,7 @@ void main() {
             f"probe: {p.get('surface', '?')}  d={p.get('distance', '?')}",
             f"reg={REGISTERS[self._register_index]}  tags={len(self._debug_tags)}  tex={self._tex_size_override}",
             f"ambient: {self._ambient.active_count}/{self._ambient.total_count} awake",
+            f"chrono: {self._chrono_state['day_phase']}  night={self._chrono_state['night_weight']:.2f}  moon={self._chrono_state['moon_approx']:.2f}",
         ]
         self._debug_hud_text.setText("\n".join(lines))
 
@@ -1191,6 +1211,19 @@ void main() {
         # Despawn check: frame 47 only (1× per cycle)
         if fc == 47:
             self._despawn_distant()
+
+        # Chronometer: frame 59 (1× per cycle, ~1 read per second)
+        if fc == 59:
+            self._chrono_state = self._chrono.read()
+            # Fog density shifts with time — denser at night
+            nw = self._chrono_state["night_weight"]
+            fog_near = 15.0 - nw * 4.0   # 15→11 at night
+            fog_far = 42.0 - nw * 8.0    # 42→34 at night
+            self._fog.setLinearRange(fog_near, fog_far)
+            # Ambient light dims at night
+            amb_scale = 1.0 - nw * 0.3   # 30% dimmer at deep night
+            self._amb_np.node().setColor(Vec4(
+                0.10 * amb_scale, 0.08 * amb_scale, 0.06 * amb_scale, 1))
 
         # Orb animation: gentle bob + flicker
         t = globalClock.getFrameTime()
