@@ -220,6 +220,27 @@ BEHAVIORS = {
 }
 
 
+# -- Shared cavern palette (derived from stage_floor) -------------------------
+
+# All objects reference these to stay on the same spectrum.
+# Updated at spawn time if palette changes.
+CAVERN_PALETTE = {
+    "floor": (0.08, 0.06, 0.05),       # stage_floor base
+    "dirt": (0.044, 0.030, 0.023),      # floor * 0.55/0.50/0.45
+    "stone": (0.12, 0.11, 0.10),        # slightly lighter than dirt
+    "dark_stone": (0.08, 0.07, 0.07),   # deep shadow stone
+    "dead_organic": (0.09, 0.07, 0.05), # dead grass, twigs, logs
+    "bone": (0.14, 0.13, 0.11),         # pale but muted
+}
+
+
+def _cavern_color(key, rng, variation=0.02):
+    """Get a color from the shared palette with small random variation."""
+    base = CAVERN_PALETTE.get(key, (0.10, 0.10, 0.10))
+    sv = rng.uniform(-variation, variation)
+    return (base[0] + sv, base[1] + sv * 0.7, base[2] + sv * 0.5)
+
+
 # -- Entity builders ----------------------------------------------------------
 
 def build_rat(parent, seed=0):
@@ -231,8 +252,7 @@ def build_rat(parent, seed=0):
     body_len = rng.uniform(0.15, 0.22) * scale
     body_w = body_len * rng.uniform(0.35, 0.5)
     body_h = body_len * rng.uniform(0.25, 0.35)
-    fs = rng.uniform(-0.02, 0.02)
-    fur = (0.08 + fs, 0.06 + fs, 0.05 + fs)
+    fur = _cavern_color("dead_organic", rng, 0.02)
 
     bn = root.attachNewNode(make_box(body_w, body_h, body_len, fur))
     bn.setPos(0, 0, body_h * 0.5)
@@ -248,6 +268,7 @@ def build_rat(parent, seed=0):
         tn = root.attachNewNode(make_box(thick, thick, body_len * 0.12, (0.12, 0.09, 0.08)))
         tn.setPos(0, -body_len * 0.4 - body_len * 0.12 * t, body_h * 0.3)
 
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
     return root
 
 
@@ -256,10 +277,10 @@ def build_leaf(parent, seed=0):
     rng = random.Random(seed)
     root = parent.attachNewNode(f"leaf_{seed}")
     w = rng.uniform(0.03, 0.06)
-    shade = rng.uniform(-0.02, 0.02)
-    color = (0.12 + shade, 0.10 + shade, 0.06 + shade)
+    color = _cavern_color("dead_organic", rng, 0.02)
     leaf = root.attachNewNode(make_box(w, w * 0.15, w * 0.7, color))
     leaf.setR(rng.uniform(-30, 30))
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
     return root
 
 
@@ -268,7 +289,7 @@ def build_spider(parent, seed=0):
     rng = random.Random(seed)
     root = parent.attachNewNode(f"spider_{seed}")
     s = rng.uniform(0.02, 0.04)
-    color = (0.05, 0.04, 0.03)
+    color = _cavern_color("dark_stone", rng, 0.01)
     body = root.attachNewNode(make_box(s, s * 0.6, s, color))
     # Leg hints — 4 thin bars
     for i in range(4):
@@ -278,7 +299,136 @@ def build_spider(parent, seed=0):
         leg.setPos(math.cos(math.radians(angle)) * s * 0.4,
                     math.sin(math.radians(angle)) * s * 0.3, 0)
         leg.setR(angle)
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
     return root
+
+
+# -- Shared material textures (generated once, cached) -------------------------
+
+_MATERIAL_CACHE = {}
+
+
+def get_material_texture(material, seed=0):
+    """Get or create a cached material texture. Reused across all objects of same type."""
+    cache_key = (material, seed)
+    if cache_key in _MATERIAL_CACHE:
+        return _MATERIAL_CACHE[cache_key]
+
+    if material == "stone_heavy":
+        tex = generate_stone_texture(size=64, seed=seed,
+                                      ground_color=CAVERN_PALETTE["dirt"])
+    elif material == "stone_light":
+        # Lighter stone — more weathered, higher surface exposure
+        tex = _generate_material_texture(size=48, seed=seed,
+            base=CAVERN_PALETTE["stone"],
+            lighten=0.04,  # slightly brighter than heavy stone
+            cell_size=0.10,  # tighter grain — smaller rock = finer fractures
+            mortar_width=0.01,
+            ground_color=CAVERN_PALETTE["dirt"])
+    elif material == "dry_organic":
+        # Dead plant matter — streaky grain, not mineral Voronoi
+        tex = _generate_organic_texture(size=48, seed=seed,
+            base=CAVERN_PALETTE["dead_organic"],
+            ground_color=CAVERN_PALETTE["dirt"])
+    else:
+        tex = generate_stone_texture(size=48, seed=seed)
+
+    _MATERIAL_CACHE[cache_key] = tex
+    return tex
+
+
+def _generate_material_texture(size=48, seed=0, base=(0.12, 0.11, 0.10),
+                                lighten=0.0, cell_size=0.12, mortar_width=0.015,
+                                ground_color=(0.06, 0.05, 0.04)):
+    """Voronoi stone texture variant — configurable for different erosion rates."""
+    rng = random.Random(seed)
+    img = PNMImage(size, size)
+    br, bg, bb = base[0] + lighten, base[1] + lighten, base[2] + lighten
+
+    cells = []
+    cell_colors = []
+    for gx_i in range(int(1.0 / cell_size) + 2):
+        for gy_i in range(int(1.0 / cell_size) + 2):
+            cx = gx_i * cell_size + rng.uniform(-0.04, 0.04)
+            cy = gy_i * cell_size + rng.uniform(-0.04, 0.04)
+            cells.append((cx, cy))
+            sv = rng.uniform(-0.03, 0.03)
+            cell_colors.append((br + sv, bg + sv * 0.7, bb + sv * 0.5))
+
+    gr, gg, gb = ground_color
+    for y in range(size):
+        v = y / size
+        for x in range(size):
+            u = x / size
+            min_d = 999.0
+            min_ci = 0
+            for ci, (ccx, ccy) in enumerate(cells):
+                d = (u - ccx) ** 2 + (v - ccy) ** 2
+                if d < min_d:
+                    min_d = d
+                    min_ci = ci
+            min_d = math.sqrt(min_d)
+            cr, cg, cb = cell_colors[min_ci % len(cell_colors)]
+
+            if min_d < mortar_width:
+                r, g, b = cr * 0.5, cg * 0.5, cb * 0.5
+            else:
+                n = rng.uniform(-0.02, 0.02)
+                r, g, b = cr + n, cg + n * 0.7, cb + n * 0.5
+
+            # Situ blend at bottom
+            if v > 0.65:
+                t = ((v - 0.65) / 0.35) ** 2
+                r = r * (1 - t) + gr * t
+                g = g * (1 - t) + gg * t
+                b = b * (1 - t) + gb * t
+
+            img.setXel(x, y, max(0, min(1, r)), max(0, min(1, g)), max(0, min(1, b)))
+
+    tex = Texture(f"mat_{seed}")
+    tex.load(img)
+    tex.setMagfilter(SamplerState.FT_nearest)
+    tex.setMinfilter(SamplerState.FT_nearest)
+    return tex
+
+
+def _generate_organic_texture(size=48, seed=0, base=(0.09, 0.07, 0.05),
+                               ground_color=(0.06, 0.05, 0.04)):
+    """Streaky fiber grain — dead grass, twigs, bark. Not mineral Voronoi."""
+    rng = random.Random(seed)
+    img = PNMImage(size, size)
+    br, bg, bb = base
+
+    for y in range(size):
+        v = y / size
+        for x in range(size):
+            u = x / size
+            # Streaky grain — horizontal bands with noise
+            streak = math.sin(v * 40 + rng.uniform(-2, 2)) * 0.03
+            fiber = rng.uniform(-0.015, 0.015)
+            knot = 0.0
+            if rng.random() < 0.02:  # occasional dark knot
+                knot = -0.04
+
+            r = br + streak + fiber + knot
+            g = bg + streak * 0.7 + fiber * 0.8 + knot
+            b = bb + streak * 0.4 + fiber * 0.5 + knot
+
+            # Situ blend
+            if v > 0.7:
+                t = ((v - 0.7) / 0.3) ** 2
+                gr, gg, gb = ground_color
+                r = r * (1 - t) + gr * t
+                g = g * (1 - t) + gg * t
+                b = b * (1 - t) + gb * t
+
+            img.setXel(x, y, max(0, min(1, r)), max(0, min(1, g)), max(0, min(1, b)))
+
+    tex = Texture(f"organic_{seed}")
+    tex.load(img)
+    tex.setMagfilter(SamplerState.FT_nearest)
+    tex.setMinfilter(SamplerState.FT_nearest)
+    return tex
 
 
 def generate_stone_texture(size=64, seed=0, ground_color=(0.06, 0.05, 0.04)):
@@ -293,10 +443,11 @@ def generate_stone_texture(size=64, seed=0, ground_color=(0.06, 0.05, 0.04)):
     rng = random.Random(seed)
     img = PNMImage(size, size)
 
-    # Stone base — cooler/darker than ground
-    base_r = rng.uniform(0.12, 0.17)
-    base_g = rng.uniform(0.11, 0.15)
-    base_b = rng.uniform(0.11, 0.15)
+    # Stone base — from shared palette
+    sb = CAVERN_PALETTE["stone"]
+    base_r = sb[0] + rng.uniform(-0.02, 0.02)
+    base_g = sb[1] + rng.uniform(-0.02, 0.02)
+    base_b = sb[2] + rng.uniform(-0.02, 0.02)
 
     # Generate jittered cell centers for Voronoi stone grain
     cell_size = 0.12  # tight cells = fine grain
@@ -394,11 +545,7 @@ def build_boulder(parent, seed=0):
     width = rng.uniform(4.5, 7.5)
     depth = width * rng.uniform(0.6, 0.85)
 
-    color = (
-        rng.uniform(0.10, 0.16),
-        rng.uniform(0.10, 0.14),
-        rng.uniform(0.10, 0.14),
-    )
+    color = _cavern_color("stone", rng, 0.03)
 
     # Single make_rock call — it handles irregularity + flat base internally
     rock = root.attachNewNode(make_rock(
@@ -424,11 +571,148 @@ def build_boulder(parent, seed=0):
     return root
 
 
+def build_grass_tuft(parent, seed=0):
+    """Small cluster of grass blades — thin fins at slight angles."""
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"grass_{seed}")
+    blade_count = rng.randint(3, 7)
+    for i in range(blade_count):
+        h = rng.uniform(0.08, 0.20)
+        w = rng.uniform(0.008, 0.015)
+        sv = rng.uniform(-0.02, 0.02)
+        # Dry, dark grass — derived from shared palette
+        color = _cavern_color("dead_organic", rng, 0.02)
+        blade = root.attachNewNode(make_box(w, h, w * 0.5, color))
+        blade.setPos(rng.uniform(-0.04, 0.04), rng.uniform(-0.04, 0.04), h * 0.5)
+        blade.setH(rng.uniform(0, 360))
+        blade.setP(rng.uniform(-15, 15))  # slight lean
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.5, 0.5)
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
+    root.setScale(5.0)  # user-approved scale
+    return root
+
+
+def build_rubble(parent, seed=0):
+    """Scattered small rocks — broken stone debris."""
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"rubble_{seed}")
+    count = rng.randint(3, 8)
+    for i in range(count):
+        s = rng.uniform(0.04, 0.15)
+        color = _cavern_color("stone", rng, 0.02)
+        piece = make_rock(
+            s * rng.uniform(0.7, 1.3),
+            s * rng.uniform(0.4, 0.8),
+            s * rng.uniform(0.6, 1.2),
+            color, rings=4, segments=5, seed=seed + i,
+            roughness=rng.uniform(0.3, 0.6),
+        )
+        pn = root.attachNewNode(piece)
+        pn.setPos(rng.uniform(-0.3, 0.3), rng.uniform(-0.3, 0.3), 0)
+        pn.setH(rng.uniform(0, 360))
+        pn.setTwoSided(True)
+    tex = get_material_texture("stone_light", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.3, 0.3)
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
+    root.setScale(5.0)  # user-approved scale
+    return root
+
+
+def build_leaf_pile(parent, seed=0):
+    """Small pile of dead leaves — flat boxes at random angles."""
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"leafpile_{seed}")
+    count = rng.randint(5, 12)
+    for i in range(count):
+        w = rng.uniform(0.03, 0.07)
+        color = _cavern_color("dead_organic", rng, 0.02)
+        leaf = root.attachNewNode(make_box(w, w * 0.1, w * rng.uniform(0.6, 1.0), color))
+        leaf.setPos(rng.uniform(-0.15, 0.15), rng.uniform(-0.15, 0.15), rng.uniform(0, 0.04))
+        leaf.setH(rng.uniform(0, 360))
+        leaf.setR(rng.uniform(-30, 30))
+        leaf.setP(rng.uniform(-20, 20))
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.4, 0.4)
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
+    root.setScale(5.0)  # user-approved scale
+    return root
+
+
+def build_dead_log(parent, seed=0):
+    """Decaying log segment — short cylinder-ish shape, dark, on its side."""
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"log_{seed}")
+    length = rng.uniform(0.5, 1.5)
+    radius = rng.uniform(0.06, 0.15)
+    color = _cavern_color("dead_organic", rng, 0.02)
+    # Log body — rock primitive on its side reads as rough cylinder
+    log = make_rock(
+        length * 0.5, radius, radius, color,
+        rings=5, segments=6, seed=seed,
+        roughness=rng.uniform(0.15, 0.35),
+    )
+    ln = root.attachNewNode(log)
+    ln.setP(90)  # lay on side
+    ln.setPos(0, 0, radius * 0.5)
+    ln.setTwoSided(True)
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.3, 0.3)
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
+    root.setScale(5.0)  # user-approved scale
+    return root
+
+
+def build_twig_scatter(parent, seed=0):
+    """Tiny sticks on the ground — minimal geometry."""
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"twigs_{seed}")
+    count = rng.randint(2, 6)
+    for i in range(count):
+        length = rng.uniform(0.05, 0.15)
+        thick = rng.uniform(0.003, 0.008)
+        color = _cavern_color("dead_organic", rng, 0.01)
+        twig = root.attachNewNode(make_box(thick, thick, length, color))
+        twig.setPos(rng.uniform(-0.2, 0.2), rng.uniform(-0.2, 0.2), thick)
+        twig.setH(rng.uniform(0, 360))
+        twig.setP(rng.uniform(-10, 10))
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.4, 0.4)
+    root.setColorScale(0.55, 0.50, 0.48, 1.0)
+    root.setScale(5.0)  # user-approved scale
+    return root
+
+
 BUILDERS = {
     "rat": (build_rat, "scurry"),
     "leaf": (build_leaf, "drift"),
     "spider": (build_spider, "crawl"),
     "boulder": (build_boulder, "static"),
+    "grass_tuft": (build_grass_tuft, "static"),
+    "rubble": (build_rubble, "static"),
+    "leaf_pile": (build_leaf_pile, "static"),
+    "dead_log": (build_dead_log, "static"),
+    "twig_scatter": (build_twig_scatter, "static"),
 }
 
 
