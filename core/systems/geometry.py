@@ -85,6 +85,110 @@ def make_box(w, h, d, color):
     return node
 
 
+# -- Pebble cluster (composite brick from many small stones) -------------------
+
+def make_pebble_cluster(w, h, d, color, count=20, seed=0,
+                        scatter=0.0):
+    """
+    Builds a brick-shaped cluster of tiny pebble boxes.
+
+    When scatter=0.0, pebbles pack tightly into a brick shape (intact).
+    When scatter=1.0, pebbles spread outward from center (crumbled).
+    Intermediate values give partial disintegration.
+
+    Uses golden angle phyllotaxis for natural non-overlapping fill.
+    Each pebble gets gaussian-weighted size: bigger near center, smaller at edges.
+
+    Returns a GeomNode containing all pebbles as one merged mesh (fast render).
+    """
+    PHI_ANGLE = 137.5077640500378
+    angle_rad = math.radians(PHI_ANGLE)
+    phase = math.radians(PHI_ANGLE * seed)
+    rng = random.Random(seed)
+
+    fmt = GeomVertexFormat.getV3c4()
+    vdata = GeomVertexData("pebble_cluster", fmt, Geom.UHStatic)
+    vdata.setNumRows(count * 24)
+
+    vwriter = GeomVertexWriter(vdata, "vertex")
+    cwriter = GeomVertexWriter(vdata, "color")
+    tris = GeomTriangles(Geom.UHStatic)
+    idx = 0
+
+    r, g, b = color
+    hw, hh, hd_half = w / 2, h / 2, d / 2
+
+    for i in range(count):
+        # Golden spiral position within brick footprint
+        t = (i + 0.5) / count
+        radius = math.sqrt(t)  # even density fill
+        theta = i * angle_rad + phase
+        # Map to brick-shaped footprint (elliptical)
+        lx = radius * math.cos(theta) * hw
+        lz = radius * math.sin(theta) * hh
+        ly = rng.uniform(-hd_half, hd_half) * 0.6
+
+        # Gaussian: bigger pebbles near center, smaller at edges
+        dist_from_center = math.sqrt((lx / hw) ** 2 + (lz / hh) ** 2)
+        size_weight = math.exp(-2.0 * dist_from_center * dist_from_center)
+        base_size = 0.3 + size_weight * 0.7  # 0.3-1.0
+
+        # Scatter: push pebbles outward from center
+        if scatter > 0.0:
+            push = scatter * rng.uniform(0.5, 2.0)
+            lx += lx * push
+            lz += lz * push
+            ly += rng.uniform(-0.1, 0.1) * scatter
+            # Scattered pebbles are smaller (broken)
+            base_size *= max(0.3, 1.0 - scatter * 0.5)
+
+        # Pebble dimensions — irregular, never uniform
+        pw = w / count * 2.5 * base_size * rng.uniform(0.6, 1.4)
+        ph = h / count * 2.5 * base_size * rng.uniform(0.6, 1.4)
+        pd = d * 0.4 * base_size * rng.uniform(0.5, 1.3)
+        phw, phh, phd = pw / 2, ph / 2, pd / 2
+
+        # Per-pebble color variation — wider range for natural stone
+        shade_var = rng.uniform(-0.06, 0.06)
+        warm_var = rng.uniform(-0.02, 0.03)  # warm/cool drift
+        pr = max(0.0, r + shade_var + warm_var)
+        pg = max(0.0, g + shade_var)
+        pb = max(0.0, b + shade_var - warm_var * 0.5)
+
+        # Clean box faces — no skew, soft shading (worn stone, not sharp crystal)
+        faces = [
+            [(lx - phw, ly - phd, lz - phh), (lx + phw, ly - phd, lz - phh),
+             (lx + phw, ly - phd, lz + phh), (lx - phw, ly - phd, lz + phh)],
+            [(lx + phw, ly + phd, lz - phh), (lx - phw, ly + phd, lz - phh),
+             (lx - phw, ly + phd, lz + phh), (lx + phw, ly + phd, lz + phh)],
+            [(lx - phw, ly + phd, lz - phh), (lx - phw, ly - phd, lz - phh),
+             (lx - phw, ly - phd, lz + phh), (lx - phw, ly + phd, lz + phh)],
+            [(lx + phw, ly - phd, lz - phh), (lx + phw, ly + phd, lz - phh),
+             (lx + phw, ly + phd, lz + phh), (lx + phw, ly - phd, lz + phh)],
+            [(lx - phw, ly + phd, lz - phh), (lx + phw, ly + phd, lz - phh),
+             (lx + phw, ly - phd, lz - phh), (lx - phw, ly - phd, lz - phh)],
+            [(lx - phw, ly - phd, lz + phh), (lx + phw, ly - phd, lz + phh),
+             (lx + phw, ly + phd, lz + phh), (lx - phw, ly + phd, lz + phh)],
+        ]
+        # Soft shading — narrower range so no face reads as pitch black
+        face_shading = [0.75, 0.75, 0.65, 0.65, 0.55, 1.0]
+
+        for face, shade in zip(faces, face_shading):
+            for v in face:
+                vwriter.addData3(*v)
+                cr, cg, cb = _noisy_color(pr, pg, pb, shade)
+                cwriter.addData4(cr, cg, cb, 1.0)
+            tris.addVertices(idx, idx + 1, idx + 2)
+            tris.addVertices(idx, idx + 2, idx + 3)
+            idx += 4
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode("pebble_cluster")
+    node.addGeom(geom)
+    return node
+
+
 # -- Plane ---------------------------------------------------------------------
 
 def make_plane(w, d, color, subdivisions=12):

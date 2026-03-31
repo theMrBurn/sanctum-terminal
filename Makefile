@@ -62,5 +62,8 @@ theater:
 dungeon:
 	PYTHONPATH=. ./.venv/bin/python dungeon.py
 
+shadowbox:
+	PYTHONPATH=. ./.venv/bin/python shadowbox_dungeon.py
+
 viewer:
 	PYTHONPATH=. ./.venv/bin/python template_viewer.py
