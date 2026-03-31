@@ -214,7 +214,7 @@ class Cavern(ShowBase):
 
         # Main cone: spotlight aimed forward from behind the player
         spot = Spotlight("orb_cone")
-        spot.setColor(Vec4(lc[0] * 3.0, lc[1] * 2.5, lc[2] * 1.5, 1))
+        spot.setColor(Vec4(lc[0] * 1.8, lc[1] * 1.6, lc[2] * 1.4, 1))
         spot.getLens().setFov(60)
         spot.getLens().setNearFar(0.5, 50)
         spot.setAttenuation((0.2, 0.008, 0.002))
@@ -451,6 +451,23 @@ void main() {
             by = world_y + rng.uniform(4, CHUNK_SIZE - 4)
             bz = self._height_at(bx, by)
             ambient_spawns.append(("boulder", (bx, by, bz), rng.uniform(0, 360), chunk_seed + 4000))
+
+        # Ground scatter — passive detritus, sparse to keep frame rate stable
+        scatter_types = ["grass_tuft", "rubble", "leaf_pile", "twig_scatter"]
+        scatter_count = rng.randint(2, 4)
+        for si in range(scatter_count):
+            kind = rng.choice(scatter_types)
+            sx = world_x + rng.uniform(1, CHUNK_SIZE - 1)
+            sy = world_y + rng.uniform(1, CHUNK_SIZE - 1)
+            sz = self._height_at(sx, sy)
+            ambient_spawns.append((kind, (sx, sy, sz), rng.uniform(0, 360), chunk_seed + 5000 + si))
+
+        # Dead logs — rare, 1 per ~5 chunks
+        if rng.random() < 0.2:
+            lx = world_x + rng.uniform(3, CHUNK_SIZE - 3)
+            ly = world_y + rng.uniform(3, CHUNK_SIZE - 3)
+            lz = self._height_at(lx, ly)
+            ambient_spawns.append(("dead_log", (lx, ly, lz), rng.uniform(0, 360), chunk_seed + 6000))
 
         with self._chunk_lock:
             self._ready_chunks[key] = {
@@ -1181,8 +1198,8 @@ void main() {
         lc = self._palette["sconce"]
         flicker = 1.0 + fi * 0.4 * math.sin(t * 5.3) * math.sin(t * 7.7)
         self._orb_np.node().setColor(Vec4(
-            lc[0] * 3.0 * flicker, lc[1] * 2.5 * flicker,
-            lc[2] * 1.5 * flicker, 1,
+            lc[0] * 1.8 * flicker, lc[1] * 1.6 * flicker,
+            lc[2] * 1.4 * flicker, 1,
         ))
         # Gentle drift behind shoulder
         bob_x = 0.3 + math.sin(t * 1.1) * 0.06
