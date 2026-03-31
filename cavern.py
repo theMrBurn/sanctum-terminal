@@ -25,6 +25,7 @@ import sys
 import os
 import math
 import json
+import time
 import threading
 
 from direct.showbase.ShowBase import ShowBase
@@ -42,10 +43,11 @@ from core.systems.placement_engine import PlacementEngine
 from core.systems.entropy_engine import EntropyEngine
 from panda3d.core import (
     Geom, GeomNode, GeomTriangles, GeomVertexData,
-    GeomVertexFormat, GeomVertexWriter,
+    GeomVertexFormat, GeomVertexWriter, PerlinNoise2,
 )
 from core.systems.geometry import make_box, make_pebble_cluster
 from core.systems.shadowbox_scene import SHADOWBOX_REGISTERS, resolve_palette
+from core.systems.ambient_life import AmbientManager
 
 console = Console()
 
@@ -53,8 +55,9 @@ console = Console()
 
 CHUNK_SIZE = 16.0       # meters per chunk edge
 CHUNK_RADIUS = 2        # chunks visible in each direction (5x5 = 25 chunks)
-DESPAWN_RADIUS = 3      # chunks beyond this get cleaned up
-TEX_SIZE = 96           # procedural texture resolution per chunk
+PREGEN_RADIUS = 4       # pre-generate + build this far out (fog hides, never pops)
+DESPAWN_RADIUS = 6      # wide buffer before cleanup
+TEX_SIZE = 120          # 2×60, base-60 aligned — divides by everything, no alignment artifacts
 MOVE_SPEED = 5.0
 MOUSE_SENS = 0.3
 PITCH_LIMIT = 60.0
@@ -70,7 +73,7 @@ class Cavern(ShowBase):
 
         props = WindowProperties()
         props.setTitle("Sanctum — The Endless Floor")
-        props.setSize(1280, 720)
+        props.setSize(960, 540)  # 75% render resolution — natural softness + GPU savings
         props.setCursorHidden(True)
         self.win.requestProperties(props)
 
@@ -79,7 +82,7 @@ class Cavern(ShowBase):
         self.disableMouse()
         self.camLens.setFov(65.0)
         self.camLens.setNear(0.5)
-        self.camLens.setFar(200.0)
+        self.camLens.setFar(45.0)  # match fog end — don't render what you can't see
         self.render.setAntialias(AntialiasAttrib.MMultisample)
         self.render.setShaderAuto()
 
@@ -94,8 +97,24 @@ class Cavern(ShowBase):
         self._ready_chunks = {}     # (cx, cz) -> (tex_data, chunk_seed) ready to build
         self._chunk_lock = threading.Lock()
         self._chunk_seed = 42
+        self._tex_size_override = TEX_SIZE
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
+        self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=45.0)
+        self._deferred_spawns = []  # ambient spawns queued across frames
+
+        # Native C++ Perlin for texture generation (fast path)
+        # Python PlacementEngine Perlin stays for placement/height (still useful)
+        self._noise = {}  # keyed by scale for reuse
+        for scale_name, sx, sy, seed_offset in [
+            ("jitter_x", 1.7, 1.7, 0), ("jitter_y", 1.7, 1.7, 100),
+            ("gate", 0.9, 0.9, 500), ("color", 0.4, 0.4, 0),
+            ("warm", 0.7, 0.7, 50), ("dirt1", 0.8, 0.8, 0),
+            ("dirt2", 2.5, 2.5, 300), ("grit", 1.8, 1.8, 700),
+            ("stone", 5.0, 5.0, 0),
+        ]:
+            n = PerlinNoise2(sx, sy, 256, self._chunk_seed + seed_offset)
+            self._noise[scale_name] = n
 
         # -- Debug telemetry ---------------------------------------------------
         self._debug_mode = False
@@ -113,17 +132,17 @@ class Cavern(ShowBase):
         self._fog = Fog("cavern_fog")
         fc = self._palette["fog"]
         self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
-        self._fog.setLinearRange(20.0, 60.0)
+        self._fog.setLinearRange(15.0, 42.0)  # tighter — nothing visible past 42m
         self.render.setFog(self._fog)
 
         # -- Camera start ------------------------------------------------------
         self.cam.setPos(0, 0, EYE_Z)
         self._mouse_initialized = False
 
-        # -- Generate initial chunks -------------------------------------------
-        self._update_chunks()
+        # -- Stage the immediate area before player sees anything --
+        self._stage_initial_chunks()
 
-        # -- Post-processing ---------------------------------------------------
+        # -- Post-processing: grain + bloom + reduced render resolution ----------
         self._bloom_on = False
         try:
             from direct.filter.CommonFilters import CommonFilters
@@ -137,6 +156,9 @@ class Cavern(ShowBase):
             self._bloom_on = True
         except Exception:
             self._filters = None
+
+        # Film grain overlay — masks frame hitches + adds atmosphere
+        self._setup_grain_shader()
 
         # -- Controls ----------------------------------------------------------
         self.accept("escape", sys.exit)
@@ -216,6 +238,50 @@ class Cavern(ShowBase):
         self._orb_vis.setLightOff()
         self._orb_vis.setColorScale(2.5, 2.0, 1.2, 1.0)
 
+    def _setup_grain_shader(self):
+        """Screen-space film grain — constant visual motion masks frame hitches."""
+        from panda3d.core import Shader, CardMaker
+        grain_glsl_vert = """
+#version 120
+attribute vec4 p3d_Vertex;
+attribute vec2 p3d_MultiTexCoord0;
+varying vec2 uv;
+uniform mat4 p3d_ModelViewProjectionMatrix;
+void main() {
+    gl_Position = p3d_ModelViewProjectionMatrix * p3d_Vertex;
+    uv = p3d_MultiTexCoord0;
+}
+"""
+        grain_glsl_frag = """
+#version 120
+varying vec2 uv;
+uniform float osg_FrameTime;
+
+float hash(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+void main() {
+    float grain = hash(uv * 800.0 + osg_FrameTime * 7.3) * 0.08 - 0.04;
+    vec2 vc = uv - 0.5;
+    float vign = 1.0 - dot(vc, vc) * 0.6;
+    gl_FragColor = vec4(grain * vign, grain * vign, grain * vign * 0.9, 0.12);
+}
+"""
+        try:
+            shader = Shader.make(Shader.SL_GLSL, grain_glsl_vert, grain_glsl_frag)
+            cm = CardMaker("grain_overlay")
+            cm.setFrameFullscreenQuad()
+            self._grain_card = self.render2d.attachNewNode(cm.generate())
+            self._grain_card.setShader(shader)
+            self._grain_card.setTransparency(TransparencyAttrib.MAlpha)
+            self._grain_card.setBin("fixed", 100)  # render on top
+        except Exception as e:
+            console.log(f"[dim]Grain shader skipped: {e}[/dim]")
+            self._grain_card = None
+
     # -- Terrain height --------------------------------------------------------
 
     def _height_at(self, x, y):
@@ -233,54 +299,166 @@ class Cavern(ShowBase):
         return (int(math.floor(world_x / CHUNK_SIZE)),
                 int(math.floor(world_y / CHUNK_SIZE)))
 
-    def _update_chunks(self):
-        """Generate/despawn chunks. Textures built on background threads."""
+    def _stage_initial_chunks(self):
+        """Build the immediate area synchronously before the player sees anything."""
+        cam_pos = self.cam.getPos()
+        cx, cz = self._chunk_key(cam_pos.getX(), cam_pos.getY())
+        console.log("[dim]Staging ground...[/dim]")
+
+        # Build inner ring (3×3 = 9 chunks) — the player's immediate surroundings
+        for dx in range(-1, 2):
+            for dz in range(-1, 2):
+                key = (cx + dx, cz + dz)
+                self._generate_chunk_data(key)
+                with self._chunk_lock:
+                    data = self._ready_chunks.pop(key)
+                self._chunks[key] = self._build_chunk_from_data(key[0], key[1], data)
+
+        # Dispatch the rest to background threads — they'll stream in
+        for dx in range(-PREGEN_RADIUS, PREGEN_RADIUS + 1):
+            for dz in range(-PREGEN_RADIUS, PREGEN_RADIUS + 1):
+                key = (cx + dx, cz + dz)
+                if key not in self._chunks and key not in self._pending_chunks:
+                    self._pending_chunks[key] = True
+                    t = threading.Thread(
+                        target=self._generate_chunk_data, args=(key,), daemon=True,
+                    )
+                    t.start()
+
+        console.log("[bold green]Ground ready.[/bold green]")
+
+    # -- Chunk subsystems (split for 60-frame cycle) ----------------------------
+
+    def _dispatch_chunks(self):
+        """Scan for needed chunks, dispatch background threads. Light."""
         cam_pos = self.cam.getPos()
         center_cx, center_cz = self._chunk_key(cam_pos.getX(), cam_pos.getY())
 
-        # Dispatch missing chunks to background threads
-        for dx in range(-CHUNK_RADIUS, CHUNK_RADIUS + 1):
-            for dz in range(-CHUNK_RADIUS, CHUNK_RADIUS + 1):
+        h_rad = math.radians(self._cam_h)
+        fwd_x = -math.sin(h_rad)
+        fwd_y = math.cos(h_rad)
+
+        max_concurrent = 6
+        active_threads = len(self._pending_chunks)
+
+        needed = []
+        for dx in range(-PREGEN_RADIUS, PREGEN_RADIUS + 1):
+            for dz in range(-PREGEN_RADIUS, PREGEN_RADIUS + 1):
                 key = (center_cx + dx, center_cz + dz)
                 if key not in self._chunks and key not in self._pending_chunks:
                     with self._chunk_lock:
                         if key not in self._ready_chunks:
-                            self._pending_chunks[key] = True
-                            t = threading.Thread(
-                                target=self._generate_chunk_data, args=(key,), daemon=True,
-                            )
-                            t.start()
+                            needed.append(key)
 
-        # Build scene nodes from ready chunks (max 2 per frame to stay smooth)
-        built = 0
+        def chunk_priority(k):
+            dx, dz = k[0] - center_cx, k[1] - center_cz
+            dist2 = dx * dx + dz * dz
+            dot = dx * fwd_x + dz * fwd_y
+            return dist2 - dot * 3.0
+        needed.sort(key=chunk_priority)
+
+        for key in needed:
+            if active_threads >= max_concurrent:
+                break
+            self._pending_chunks[key] = True
+            t = threading.Thread(
+                target=self._generate_chunk_data, args=(key,), daemon=True,
+            )
+            t.start()
+            active_threads += 1
+
+    def _build_ready_chunk(self):
+        """Build exactly ONE ready chunk. Minimal frame impact."""
+        cam_pos = self.cam.getPos()
+        center_cx, center_cz = self._chunk_key(cam_pos.getX(), cam_pos.getY())
+
         with self._chunk_lock:
-            for key in list(self._ready_chunks.keys()):
-                if built >= 2:
-                    break
-                if key not in self._chunks:
-                    tex_pixels, chunk_seed = self._ready_chunks.pop(key)
-                    self._chunks[key] = self._build_chunk_from_data(key[0], key[1], tex_pixels, chunk_seed)
-                    built += 1
-                else:
-                    self._ready_chunks.pop(key)
+            ready_keys = [k for k in self._ready_chunks if k not in self._chunks]
+            if not ready_keys:
+                # Clean stale
+                for key in list(self._ready_chunks.keys()):
+                    if key in self._chunks:
+                        self._ready_chunks.pop(key)
+                return
+            ready_keys.sort(key=lambda k: (k[0] - center_cx) ** 2 + (k[1] - center_cz) ** 2)
+            key = ready_keys[0]
+            data = self._ready_chunks.pop(key)
 
-        # Despawn distant chunks
+        self._chunks[key] = self._build_chunk_from_data(key[0], key[1], data)
+
+    def _despawn_distant(self):
+        """Remove chunks far from camera. Runs once per cycle."""
+        cam_pos = self.cam.getPos()
+        center_cx, center_cz = self._chunk_key(cam_pos.getX(), cam_pos.getY())
         to_remove = []
         for key in self._chunks:
             if (abs(key[0] - center_cx) > DESPAWN_RADIUS or
                     abs(key[1] - center_cz) > DESPAWN_RADIUS):
                 to_remove.append(key)
         for key in to_remove:
+            self._ambient.despawn_chunk(key)
             self._chunks[key].removeNode()
             del self._chunks[key]
 
     def _generate_chunk_data(self, key):
-        """Background thread: generate texture pixel data (no Panda3D calls)."""
+        """Background thread: compute ALL chunk data (texture + mesh + spawns)."""
         cx, cz = key
         chunk_seed = hash((self._chunk_seed, cx, cz)) & 0xFFFFFFFF
-        tex_pixels = self._compute_cobblestone_pixels(cx, cz)
+        tex_size = getattr(self, '_tex_size_override', TEX_SIZE)
+        world_x = cx * CHUNK_SIZE
+        world_y = cz * CHUNK_SIZE
+
+        # Texture bytes (native Perlin)
+        tex_bytes = self._compute_cobblestone_pixels(cx, cz)
+
+        # Mesh data — pre-compute all vertices, normals, UVs
+        subdivs = 7
+        step = CHUNK_SIZE / subdivs
+        verts = []   # (x, y, z) tuples
+        norms = []   # (nx, ny, nz) tuples
+        uvs = []     # (u, v) tuples
+        for gy in range(subdivs + 1):
+            for gx in range(subdivs + 1):
+                wx = world_x + gx * step
+                wy = world_y + gy * step
+                wz = self._height_at(wx, wy)
+                verts.append((wx, wy, wz))
+                dx_h = self._height_at(wx + 0.5, wy) - self._height_at(wx - 0.5, wy)
+                dy_h = self._height_at(wx, wy + 0.5) - self._height_at(wx, wy - 0.5)
+                nmag = math.sqrt(dx_h * dx_h + dy_h * dy_h + 1.0)
+                norms.append((-dx_h / nmag, -dy_h / nmag, 1.0 / nmag))
+                uvs.append((gx / subdivs, gy / subdivs))
+
+        # Ambient spawn positions (pre-roll the RNG off-thread)
+        rng = __import__("random").Random(chunk_seed)
+        ambient_spawns = []
+        rat_count = rng.choices([0, 1, 1, 2], weights=[2, 5, 5, 1])[0]
+        for ri in range(rat_count):
+            rx = world_x + rng.uniform(2, CHUNK_SIZE - 2)
+            ry = world_y + rng.uniform(2, CHUNK_SIZE - 2)
+            rz = self._height_at(rx, ry)
+            ambient_spawns.append(("rat", (rx, ry, rz), rng.uniform(0, 360), chunk_seed + 2000 + ri))
+        leaf_count = rng.choices([0, 0, 1, 2], weights=[4, 3, 2, 1])[0]
+        for li in range(leaf_count):
+            lx = world_x + rng.uniform(1, CHUNK_SIZE - 1)
+            ly = world_y + rng.uniform(1, CHUNK_SIZE - 1)
+            lz = self._height_at(lx, ly) + rng.uniform(2.0, 5.0)
+            ambient_spawns.append(("leaf", (lx, ly, lz), 0, chunk_seed + 3000 + li))
+
+        # Boulder — sparse, ~1 per 4 chunks
+        if rng.random() < 0.25:
+            bx = world_x + rng.uniform(4, CHUNK_SIZE - 4)
+            by = world_y + rng.uniform(4, CHUNK_SIZE - 4)
+            bz = self._height_at(bx, by)
+            ambient_spawns.append(("boulder", (bx, by, bz), rng.uniform(0, 360), chunk_seed + 4000))
+
         with self._chunk_lock:
-            self._ready_chunks[key] = (tex_pixels, chunk_seed)
+            self._ready_chunks[key] = {
+                "tex_bytes": tex_bytes, "tex_size": tex_size,
+                "verts": verts, "norms": norms, "uvs": uvs,
+                "subdivs": subdivs, "seed": chunk_seed,
+                "spawns": ambient_spawns,
+            }
             self._pending_chunks.pop(key, None)
 
     def _build_chunk_OLD(self, cx, cz):
@@ -458,7 +636,7 @@ class Cavern(ShowBase):
         rng = __import__("random").Random(chunk_seed)
 
         # -- Subdivided ground mesh following height function --
-        subdivs = 12
+        subdivs = 7
         if hasattr(self, '_prebuilt_tex') and self._prebuilt_tex is not None:
             tex = self._prebuilt_tex
         else:
@@ -500,166 +678,141 @@ class Cavern(ShowBase):
         ground_np.setTexture(tex)
         ground_np.setTwoSided(True)
 
-        # -- Boulder groups (egg-shaped, sparse) --
-        center_x = world_x + CHUNK_SIZE / 2
-        center_y = world_y + CHUNK_SIZE / 2
-        boulder_count = rng.choices([0, 0, 1, 1, 2], weights=[3, 3, 4, 4, 1])[0]
-        rock_colors = [
-            (0.22, 0.20, 0.18), (0.25, 0.23, 0.20), (0.19, 0.18, 0.16),
-            (0.28, 0.26, 0.22), (0.20, 0.19, 0.17),
-        ]
-
-        if boulder_count > 0:
-            b_pts = self._placer.golden_spiral(
-                boulder_count * 4, CHUNK_SIZE / 3,
-                center_x, center_y, phase=chunk_seed * 3.7,
-            )
-            placed_b = 0
-            for px, py in b_pts:
-                if placed_b >= boulder_count:
-                    break
-                if abs(px - center_x) > CHUNK_SIZE / 2 - 1:
-                    continue
-                if abs(py - center_y) > CHUNK_SIZE / 2 - 1:
-                    continue
-
-                bz = self._height_at(px, py)
-                clr = rng.choice(rock_colors)
-
-                # Large egg boulder (taller than wide)
-                big_h = rng.uniform(0.5, 1.0)
-                big_w = big_h * rng.uniform(0.6, 0.85)
-                big_d = big_h * rng.uniform(0.5, 0.75)
-                big_rock = make_pebble_cluster(
-                    big_w, big_h, big_d, clr,
-                    count=max(14, int(24 * big_h)),
-                    seed=chunk_seed + 800 + placed_b,
-                    scatter=rng.uniform(0.0, 0.05),
-                )
-                brn = chunk_root.attachNewNode(big_rock)
-                brn.setPos(px, py, bz + big_h * 0.25)
-                brn.setH(rng.uniform(0, 360))
-
-                # 1-3 smaller boulders leaning against
-                for li in range(rng.randint(1, 3)):
-                    sm_s = rng.uniform(0.3, 0.6)
-                    sm_h = big_h * sm_s
-                    sm_w = sm_h * rng.uniform(0.6, 0.9)
-                    sm_d = sm_h * rng.uniform(0.5, 0.8)
-                    sm_clr = rng.choice(rock_colors)
-                    sm_rock = make_pebble_cluster(
-                        sm_w, sm_h, sm_d, sm_clr,
-                        count=max(8, int(16 * sm_s)),
-                        seed=chunk_seed + 900 + placed_b * 10 + li,
-                        scatter=rng.uniform(0.0, 0.07),
-                    )
-                    angle = rng.uniform(0, 360)
-                    dist = big_w * 0.5 + sm_w * 0.3
-                    sx = px + math.cos(math.radians(angle)) * dist
-                    sy = py + math.sin(math.radians(angle)) * dist
-                    sz = self._height_at(sx, sy)
-                    srn = chunk_root.attachNewNode(sm_rock)
-                    srn.setPos(sx, sy, sz + sm_h * 0.15)
-                    srn.setH(rng.uniform(0, 360))
-                    srn.setR(rng.uniform(-15, 15))
-
-                placed_b += 1
-
-        # -- Rats --
+        # -- Ambient life (behavior-driven, sleep/wake by proximity) --
+        chunk_key = (cx, cz)
         rat_count = rng.choices([0, 1, 1, 2], weights=[2, 5, 5, 1])[0]
         for ri in range(rat_count):
             rx = world_x + rng.uniform(2, CHUNK_SIZE - 2)
             ry = world_y + rng.uniform(2, CHUNK_SIZE - 2)
             rz = self._height_at(rx, ry)
-            rat_root = chunk_root.attachNewNode(f"rat_{cx}_{cz}_{ri}")
-            rat_root.setPos(rx, ry, rz)
-            rat_root.setH(rng.uniform(0, 360))
+            self._ambient.spawn("rat", pos=(rx, ry, rz),
+                                heading=rng.uniform(0, 360),
+                                seed=chunk_seed + 2000 + ri,
+                                height_fn=self._height_at,
+                                chunk_key=chunk_key)
 
-            scale = rng.uniform(0.7, 1.2)
-            body_len = rng.uniform(0.15, 0.22) * scale
-            body_w = body_len * rng.uniform(0.35, 0.5)
-            body_h = body_len * rng.uniform(0.25, 0.35)
-            fs = rng.uniform(-0.02, 0.02)
-            fur = (0.08 + fs, 0.06 + fs, 0.05 + fs)
-
-            bn = rat_root.attachNewNode(make_box(body_w, body_h, body_len, fur))
-            bn.setPos(0, 0, body_h * 0.5)
-            hs = body_h * 0.8
-            hn = rat_root.attachNewNode(make_box(hs * 1.1, hs, hs * 1.1, fur))
-            hn.setPos(0, body_len * 0.5, body_h * 0.55)
-            sn = rat_root.attachNewNode(make_box(hs * 0.4, hs * 0.3, hs * 0.6,
-                                                  (fur[0] + 0.02, fur[1] + 0.02, fur[2] + 0.01)))
-            sn.setPos(0, body_len * 0.5 + hs * 0.7, body_h * 0.45)
-            for t in range(rng.randint(5, 8)):
-                taper = 1.0 - (t / 8) * 0.7
-                thick = body_h * 0.12 * taper
-                tn = rat_root.attachNewNode(make_box(thick, thick, body_len * 0.12, (0.12, 0.09, 0.08)))
-                tn.setPos(0, -body_len * 0.4 - body_len * 0.12 * t, body_h * 0.3)
+        # Occasional leaf drift from above
+        leaf_count = rng.choices([0, 0, 1, 2], weights=[4, 3, 2, 1])[0]
+        for li in range(leaf_count):
+            lx = world_x + rng.uniform(1, CHUNK_SIZE - 1)
+            ly = world_y + rng.uniform(1, CHUNK_SIZE - 1)
+            lz = self._height_at(lx, ly) + rng.uniform(2.0, 5.0)
+            self._ambient.spawn("leaf", pos=(lx, ly, lz),
+                                seed=chunk_seed + 3000 + li,
+                                height_fn=self._height_at,
+                                chunk_key=chunk_key)
 
         return chunk_root
 
-    def _build_chunk_from_data(self, cx, cz, tex_pixels, chunk_seed):
-        """Build chunk on main thread from pre-computed texture pixels."""
-        tex = self._pixels_to_texture(tex_pixels, f"cobble_{cx}_{cz}")
-        # Reuse the main build method but inject the texture
-        # Quick approach: save/restore to avoid recomputing pixels
-        self._prebuilt_tex = tex
-        result = self._build_chunk(cx, cz)
-        self._prebuilt_tex = None
-        return result
+    def _build_chunk_from_data(self, cx, cz, data):
+        """Main thread: load pre-computed arrays into Panda3D. No math here."""
+        chunk_root = self.render.attachNewNode(f"chunk_{cx}_{cz}")
+
+        # Texture — bulk load (single C++ call)
+        tex = self._bytes_to_texture(data["tex_bytes"], data["tex_size"], f"cobble_{cx}_{cz}")
+
+        # Mesh — load pre-computed verts/norms/uvs
+        subdivs = data["subdivs"]
+        verts, norms, uvs = data["verts"], data["norms"], data["uvs"]
+
+        fmt = GeomVertexFormat.getV3n3t2()
+        vdata = GeomVertexData(f"terrain_{cx}_{cz}", fmt, Geom.UHStatic)
+        vdata.setNumRows(len(verts))
+        vw = GeomVertexWriter(vdata, "vertex")
+        nw = GeomVertexWriter(vdata, "normal")
+        tw = GeomVertexWriter(vdata, "texcoord")
+        for (vx, vy, vz), (nx, ny, nz), (u, v) in zip(verts, norms, uvs):
+            vw.addData3(vx, vy, vz)
+            nw.addData3(nx, ny, nz)
+            tw.addData2(u, v)
+
+        tris = GeomTriangles(Geom.UHStatic)
+        for gy in range(subdivs):
+            for gx in range(subdivs):
+                i = gy * (subdivs + 1) + gx
+                tris.addVertices(i, i + 1, i + subdivs + 2)
+                tris.addVertices(i, i + subdivs + 2, i + subdivs + 1)
+
+        geom = Geom(vdata)
+        geom.addPrimitive(tris)
+        gn = GeomNode(f"ground_{cx}_{cz}")
+        gn.addGeom(geom)
+        ground_np = chunk_root.attachNewNode(gn)
+        ground_np.setTexture(tex)
+        ground_np.setTwoSided(True)
+
+        # Ambient spawns — inside time budget with the mesh
+        chunk_key = (cx, cz)
+        for kind, pos, heading, seed in data["spawns"]:
+            self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
+                                height_fn=self._height_at, chunk_key=chunk_key)
+
+        return chunk_root
+
+    def _bytes_to_texture(self, flat_bytes, tex_size, name):
+        """Bulk texture load — single C++ copy, no pixel loop."""
+        tex = Texture(name)
+        tex.setup2dTexture(tex_size, tex_size, Texture.T_unsigned_byte, Texture.F_rgb8)
+        tex.setRamImage(bytes(flat_bytes))
+        tex.setMagfilter(SamplerState.FT_nearest)
+        tex.setMinfilter(SamplerState.FT_nearest)
+        tex.setWrapU(SamplerState.WM_clamp)
+        tex.setWrapV(SamplerState.WM_clamp)
+        return tex
 
     def _compute_cobblestone_pixels(self, cx, cz):
-        """Pure computation — returns pixel rows. Thread-safe, no Panda3D."""
-        pixels = []  # list of rows, each row = list of (r,g,b)
+        """Dirt-dominant ground — native C++ Perlin, returns flat bytearray."""
+        tex_size = getattr(self, '_tex_size_override', TEX_SIZE)
         pal = self._palette
-        base_r, base_g, base_b = pal.get("stage_floor", (0.08, 0.06, 0.05))
-        base_r, base_g, base_b = base_r + 0.10, base_g + 0.08, base_b + 0.06
-        mortar_r = base_r * 0.2
-        mortar_g = base_g * 0.2
-        mortar_b = base_b * 0.2
+        noise = self._noise
 
-        # Dense cell grid — world-space for seamless tiling across chunks
-        # Use a regular jittered grid instead of spiral for even coverage
-        stone_size = 0.5  # ~0.5m per stone — dense pack
-        overscan = 2.0  # meters past chunk edge for seamless borders
-        cell_rng = __import__("random").Random(self._chunk_seed + 77)
+        floor = pal.get("stage_floor", (0.08, 0.06, 0.05))
+        dirt_r, dirt_g, dirt_b = floor[0] * 0.55, floor[1] * 0.50, floor[2] * 0.45
+
+        stone_size = 0.65
+        jitter_amt = 0.95
+        overscan = 2.5
+        pebble_chance = 0.55
 
         cells = []
         cell_colors = []
+        cell_visible = []
         x_start = cx * CHUNK_SIZE - overscan
         y_start = cz * CHUNK_SIZE - overscan
         x_end = (cx + 1) * CHUNK_SIZE + overscan
         y_end = (cz + 1) * CHUNK_SIZE + overscan
 
-        # Jittered grid: regular spacing + seeded offset per cell
+        # Native Perlin for cell jitter + color (C++ speed)
+        n_jx, n_jy = noise["jitter_x"], noise["jitter_y"]
+        n_gate = noise["gate"]
+        n_color, n_warm = noise["color"], noise["warm"]
+
         gx = x_start
         while gx < x_end:
             gy = y_start
             while gy < y_end:
-                # Deterministic jitter from world position
-                jx = self._placer.perlin(gx * 1.7, gy * 1.7, octaves=1) - 0.5
-                jy = self._placer.perlin(gx * 1.7 + 100, gy * 1.7 + 100, octaves=1) - 0.5
-                wx = gx + jx * stone_size * 0.7
-                wy = gy + jy * stone_size * 0.7
+                jx = n_jx(gx, gy) * 0.5  # native returns -1..1, scale to -0.5..0.5
+                jy = n_jy(gx + 100, gy + 100) * 0.5
+                wx = gx + jx * stone_size * jitter_amt
+                wy = gy + jy * stone_size * jitter_amt
                 cells.append((wx, wy))
 
-                # Per-stone color: wide palette — warm ochres, cool slate, mossy hints
-                n = self._placer.perlin(wx * 0.4, wy * 0.4, octaves=1)
-                v = (n - 0.5) * 0.14  # wider brightness range
-                w = self._placer.perlin(wx * 0.7 + 50, wy * 0.7 + 50, octaves=1)
-                warm = (w - 0.5) * 0.08  # stronger warm/cool swing
-                # Third noise layer for green/moss hints
-                m = self._placer.perlin(wx * 0.3 + 200, wy * 0.3 + 200, octaves=1)
-                moss = max(0, (m - 0.65) * 0.15)  # sparse green tint
+                gate = (n_gate(wx, wy) + 1.0) * 0.5  # normalize to 0..1
+                cell_visible.append(gate > (1.0 - pebble_chance))
+
+                n = (n_color(wx, wy) + 1.0) * 0.5
+                v = (n - 0.5) * 0.10
+                w = (n_warm(wx, wy) + 1.0) * 0.5
+                warm = (w - 0.5) * 0.06
                 cell_colors.append((
-                    max(0, min(1, base_r + v + warm)),
-                    max(0, min(1, base_g + v + moss)),
-                    max(0, min(1, base_b + v - warm * 0.5)),
+                    max(0, min(1, dirt_r + 0.08 + v + warm)),
+                    max(0, min(1, dirt_g + 0.06 + v)),
+                    max(0, min(1, dirt_b + 0.05 + v - warm * 0.3)),
                 ))
                 gy += stone_size
             gx += stone_size
 
-        # Spatial hash: bucket cells into grid for fast nearest-neighbor lookup
+        # Spatial hash
         bucket_size = stone_size * 1.5
         buckets = {}
         for ci, (ccx, ccy) in enumerate(cells):
@@ -670,11 +823,17 @@ class Cavern(ShowBase):
                 buckets[key] = []
             buckets[key].append(ci)
 
-        for y in range(TEX_SIZE):
-            row = []
-            for x in range(TEX_SIZE):
-                px = cx * CHUNK_SIZE + (x / TEX_SIZE) * CHUNK_SIZE
-                py = cz * CHUNK_SIZE + (y / TEX_SIZE) * CHUNK_SIZE
+        # Per-pixel — native Perlin for dirt/grit/stone noise
+        n_dirt1, n_dirt2 = noise["dirt1"], noise["dirt2"]
+        n_grit, n_stone = noise["grit"], noise["stone"]
+        pebble_radius = stone_size * 0.28
+
+        flat = bytearray(tex_size * tex_size * 3)
+        idx = 0
+        for y in range(tex_size):
+            for x in range(tex_size):
+                px = cx * CHUNK_SIZE + (x / tex_size) * CHUNK_SIZE
+                py = cz * CHUNK_SIZE + (y / tex_size) * CHUNK_SIZE
 
                 bx = int(math.floor(px / bucket_size))
                 by = int(math.floor(py / bucket_size))
@@ -695,34 +854,51 @@ class Cavern(ShowBase):
                                 min_d2 = d
 
                 min_d1 = math.sqrt(min_d1)
-                min_d2 = math.sqrt(min_d2)
-                edge = min_d2 - min_d1
 
-                mortar_noise = self._placer.perlin(px * 1.5, py * 1.5, octaves=1)
-                mortar_width = 0.03 + mortar_noise * 0.08
+                # Dirt + grit (native Perlin — fast)
+                dn1 = (n_dirt1(px, py) + 1.0) * 0.5
+                dn2 = (n_dirt2(px, py) + 1.0) * 0.5
+                dirt_var = (dn1 - 0.5) * 0.08 + (dn2 - 0.5) * 0.03
+                grit = (n_grit(px, py) + 1.0) * 0.5
+                grit_boost = max(0, (grit - 0.35)) * 0.12
 
-                if edge < mortar_width:
-                    dirt_n = self._placer.perlin(px * 3.0 + 300, py * 3.0 + 300, octaves=1)
-                    dirt_v = dirt_n * 0.06
-                    row.append((max(0, mortar_r + dirt_v + 0.01),
-                                max(0, mortar_g + dirt_v + 0.005),
-                                max(0, mortar_b + dirt_v)))
-                else:
+                dr = max(0.0, min(1.0, dirt_r + dirt_var + grit_boost + 0.01))
+                dg = max(0.0, min(1.0, dirt_g + dirt_var + grit_boost * 0.8))
+                db = max(0.0, min(1.0, dirt_b + dirt_var + grit_boost * 0.5 - 0.005))
+
+                is_pebble = cell_visible[min_ci % len(cell_visible)] and min_d1 < pebble_radius
+
+                if is_pebble:
                     cr, cg, cb = cell_colors[min_ci % len(cell_colors)]
-                    stone_radius = stone_size * 0.4
-                    center_dist = min(1.0, min_d1 / stone_radius)
-                    shade = 1.0 - center_dist * center_dist * 0.45
-                    sn = self._placer.perlin(px * 4.0, py * 4.0, octaves=1)
-                    sv = (sn - 0.5) * 0.05
-                    row.append((max(0, min(1, cr * shade + sv)),
-                                max(0, min(1, cg * shade + sv)),
-                                max(0, min(1, cb * shade + sv))))
-            pixels.append(row)
-        return pixels
+                    center_dist = min_d1 / pebble_radius
+                    edge_blend = min(1.0, center_dist * 1.4)
+                    shade = 1.0 - center_dist * center_dist * center_dist * 0.65
+                    sv = n_stone(px, py) * 0.04
+                    pr = max(0.0, min(1.0, cr * shade + sv))
+                    pg = max(0.0, min(1.0, cg * shade + sv))
+                    pb = max(0.0, min(1.0, cb * shade + sv))
+                    pr = pr * 0.75 + dr * 0.25
+                    pg = pg * 0.75 + dg * 0.25
+                    pb = pb * 0.75 + db * 0.25
+                    if edge_blend > 0.6:
+                        t = (edge_blend - 0.6) / 0.4
+                        pr = pr * (1 - t) + dr * t
+                        pg = pg * (1 - t) + dg * t
+                        pb = pb * (1 - t) + db * t
+                    flat[idx] = min(255, int(pr * 255))
+                    flat[idx + 1] = min(255, int(pg * 255))
+                    flat[idx + 2] = min(255, int(pb * 255))
+                else:
+                    flat[idx] = min(255, int(dr * 255))
+                    flat[idx + 1] = min(255, int(dg * 255))
+                    flat[idx + 2] = min(255, int(db * 255))
+                idx += 3
+        return flat
 
     def _pixels_to_texture(self, pixels, name):
         """Main thread: convert pixel rows to Panda3D Texture."""
-        img = PNMImage(TEX_SIZE, TEX_SIZE)
+        tex_size = len(pixels)  # matches whatever _tex_size_override was used
+        img = PNMImage(tex_size, tex_size)
         for y, row in enumerate(pixels):
             for x, (r, g, b) in enumerate(row):
                 img.setXel(x, y, r, g, b)
@@ -893,6 +1069,19 @@ class Cavern(ShowBase):
             elif key == "clear_tags":
                 self._clear_tags()
                 applied.append("clear_tags")
+            elif key == "tex_size":
+                self._tex_size_override = int(value)
+                applied.append(f"tex_size={value}")
+            elif key == "rebuild":
+                # Flush all chunks — regenerate with current settings
+                for k, np in list(self._chunks.items()):
+                    np.removeNode()
+                self._chunks.clear()
+                self._pending_chunks.clear()
+                with self._chunk_lock:
+                    self._ready_chunks.clear()
+                self._update_chunks()
+                applied.append("rebuild")
             elif key in pal:
                 if isinstance(value, list):
                     pal[key] = tuple(value)
@@ -913,7 +1102,8 @@ class Cavern(ShowBase):
             f"h={self._cam_h:.0f} p={self._cam_p:.0f}",
             f"chunk=({chunk[0]}, {chunk[1]})  loaded={len(self._chunks)}",
             f"probe: {p.get('surface', '?')}  d={p.get('distance', '?')}",
-            f"reg={REGISTERS[self._register_index]}  tags={len(self._debug_tags)}",
+            f"reg={REGISTERS[self._register_index]}  tags={len(self._debug_tags)}  tex={self._tex_size_override}",
+            f"ambient: {self._ambient.active_count}/{self._ambient.total_count} awake",
         ]
         self._debug_hud_text.setText("\n".join(lines))
 
@@ -962,8 +1152,28 @@ class Cavern(ShowBase):
         self.cam.setPos(new_x, new_y, terrain_z + EYE_Z)
         self.cam.setHpr(self._cam_h, self._cam_p, 0)
 
-        # Chunk generation
-        self._update_chunks()
+        # 60-frame cycle — spread all subsystems across the cycle
+        if not hasattr(self, '_frame_counter'):
+            self._frame_counter = 0
+        self._frame_counter = (self._frame_counter + 1) % 60
+
+        fc = self._frame_counter
+
+        # Chunk scan + dispatch: frames 0, 15, 30, 45 (4× per cycle)
+        if fc % 15 == 0:
+            self._dispatch_chunks()
+
+        # Chunk build: frames 5, 10, 20, 25, 35, 40, 50, 55 (8× per cycle)
+        if fc % 5 == 0 and fc % 15 != 0:
+            self._build_ready_chunk()
+
+        # Ambient life: frames 3, 9, 21, 27, 33, 39, 51, 57 (8× per cycle)
+        if fc % 6 == 3:
+            self._ambient.tick(dt * 6, self.cam.getPos())
+
+        # Despawn check: frame 47 only (1× per cycle)
+        if fc == 47:
+            self._despawn_distant()
 
         # Orb animation: gentle bob + flicker
         t = globalClock.getFrameTime()
