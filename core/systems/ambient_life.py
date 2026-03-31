@@ -19,7 +19,7 @@ Usage:
 import math
 import random
 
-from panda3d.core import Vec3, NodePath
+from panda3d.core import Vec3, NodePath, TexGenAttrib, TextureStage, Texture, PNMImage, SamplerState
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
 
 
@@ -281,6 +281,105 @@ def build_spider(parent, seed=0):
     return root
 
 
+def generate_stone_texture(size=64, seed=0, ground_color=(0.06, 0.05, 0.04)):
+    """Procedural stone texture with height-based situ blending.
+
+    Top rows: lighter weathered stone (exposed to elements)
+    Bottom rows: darker, speckled to match ground (situ blend)
+    Middle: stone grain via tight Voronoi cells
+
+    Returns a Texture object ready to apply.
+    """
+    rng = random.Random(seed)
+    img = PNMImage(size, size)
+
+    # Stone base — cooler/darker than ground
+    base_r = rng.uniform(0.12, 0.17)
+    base_g = rng.uniform(0.11, 0.15)
+    base_b = rng.uniform(0.11, 0.15)
+
+    # Generate jittered cell centers for Voronoi stone grain
+    cell_size = 0.12  # tight cells = fine grain
+    cells = []
+    cell_colors = []
+    for gx_i in range(int(1.0 / cell_size) + 2):
+        for gy_i in range(int(1.0 / cell_size) + 2):
+            cx = gx_i * cell_size + rng.uniform(-0.04, 0.04)
+            cy = gy_i * cell_size + rng.uniform(-0.04, 0.04)
+            cells.append((cx, cy))
+            sv = rng.uniform(-0.03, 0.03)
+            cell_colors.append((base_r + sv, base_g + sv * 0.7, base_b + sv * 0.5))
+
+    gr, gg, gb = ground_color
+
+    for y in range(size):
+        v = y / size  # 0=top, 1=bottom
+        for x in range(size):
+            u = x / size
+
+            # Find nearest Voronoi cell
+            min_d = 999.0
+            min_ci = 0
+            for ci, (cx, cy) in enumerate(cells):
+                dx = u - cx
+                dy = v - cy
+                d = dx * dx + dy * dy
+                if d < min_d:
+                    min_d = d
+                    min_ci = ci
+
+            min_d = math.sqrt(min_d)
+            cr, cg, cb = cell_colors[min_ci % len(cell_colors)]
+
+            # Fracture lines (mortar) — very thin for stone
+            mortar_width = 0.015 + rng.uniform(0, 0.01)
+            edge_d = min_d  # approximate edge distance
+
+            if edge_d < mortar_width:
+                # Fracture line — darker
+                r = cr * 0.5
+                g = cg * 0.5
+                b = cb * 0.5
+            else:
+                # Stone surface with subtle noise
+                noise = rng.uniform(-0.02, 0.02)
+                r = cr + noise
+                g = cg + noise * 0.7
+                b = cb + noise * 0.5
+
+            # Height-based layering:
+            # v=0 (top) = exposed, slightly lighter
+            # v=0.5 (middle) = pure stone
+            # v=1 (bottom) = situ blend, darker, ground-matched
+            if v < 0.3:
+                # Top: weather-lightened
+                weather = (0.3 - v) / 0.3 * 0.06
+                r += weather
+                g += weather * 0.8
+                b += weather * 0.6
+            elif v > 0.65:
+                # Bottom: situ blend — fade toward ground color
+                blend = (v - 0.65) / 0.35  # 0 at v=0.65, 1 at v=1.0
+                blend = blend * blend  # ease in
+                r = r * (1 - blend) + gr * blend
+                g = g * (1 - blend) + gg * blend
+                b = b * (1 - blend) + gb * blend
+                # Add speckle
+                if rng.random() < blend * 0.3:
+                    speck = rng.uniform(-0.03, 0.03)
+                    r += speck
+                    g += speck
+                    b += speck
+
+            img.setXel(x, y, max(0, min(1, r)), max(0, min(1, g)), max(0, min(1, b)))
+
+    tex = Texture(f"stone_{seed}")
+    tex.load(img)
+    tex.setMagfilter(SamplerState.FT_nearest)
+    tex.setMinfilter(SamplerState.FT_nearest)
+    return tex
+
+
 def build_boulder(parent, seed=0):
     """Boulder — noise-displaced rock with flat base, seated in ground.
 
@@ -308,7 +407,16 @@ def build_boulder(parent, seed=0):
         roughness=rng.uniform(0.25, 0.45),
     ))
     rock.setPos(0, 0, 0)
-    rock.setTwoSided(True)  # displaced mesh has inconsistent winding — render both sides
+    rock.setTwoSided(True)
+
+    # Stone texture with situ blend — auto-projected via world position
+    stone_tex = generate_stone_texture(size=64, seed=seed, ground_color=(0.06, 0.05, 0.04))
+    ts = TextureStage("stone")
+    ts.setMode(TextureStage.MModulate)  # multiply with vertex color
+    rock.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    rock.setTexture(ts, stone_tex)
+    # Scale the texture projection to match boulder size
+    rock.setTexScale(ts, 0.15, 0.15)
 
     # Dampen light response
     root.setColorScale(0.55, 0.50, 0.48, 1.0)
