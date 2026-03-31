@@ -330,6 +330,92 @@ void main() {
 
         console.log("[bold green]Ground ready.[/bold green]")
 
+        # Pre-bake object field — baseball lineup of unique tiles
+        self._object_tile_size = CHUNK_SIZE * 6  # ~96m per tile
+        self._object_tile_placed = set()
+        # Generate 7 unique templates — no two adjacent tiles use the same one
+        self._object_templates = [
+            self._generate_object_template(self._chunk_seed + i * 777)
+            for i in range(7)
+        ]
+        self._place_object_tiles()
+
+    def _generate_object_template(self, seed):
+        """Pre-roll a unique object layout for one tile."""
+        tile = self._object_tile_size
+        rng = __import__("random").Random(seed)
+        spawns = []
+
+        for _ in range(rng.randint(6, 10)):
+            spawns.append(("boulder",
+                           (rng.uniform(4, tile - 4), rng.uniform(4, tile - 4)),
+                           rng.uniform(0, 360), rng.randint(0, 99999)))
+
+        for _ in range(rng.randint(20, 35)):
+            kind = rng.choice(["grass_tuft", "rubble", "leaf_pile", "twig_scatter"])
+            spawns.append((kind,
+                           (rng.uniform(1, tile - 1), rng.uniform(1, tile - 1)),
+                           rng.uniform(0, 360), rng.randint(0, 99999)))
+
+        for _ in range(rng.randint(2, 5)):
+            spawns.append(("dead_log",
+                           (rng.uniform(3, tile - 3), rng.uniform(3, tile - 3)),
+                           rng.uniform(0, 360), rng.randint(0, 99999)))
+
+        for _ in range(rng.randint(8, 15)):
+            spawns.append(("stalagmite",
+                           (rng.uniform(3, tile - 3), rng.uniform(3, tile - 3)),
+                           rng.uniform(0, 360), rng.randint(0, 99999)))
+
+        if rng.random() < 0.4:  # not every tile gets a column
+            spawns.append(("column",
+                           (rng.uniform(10, tile - 10), rng.uniform(10, tile - 10)),
+                           rng.uniform(0, 360), rng.randint(0, 99999)))
+
+        for _ in range(rng.randint(6, 12)):
+            spawns.append(("rat",
+                           (rng.uniform(2, tile - 2), rng.uniform(2, tile - 2)),
+                           rng.uniform(0, 360), rng.randint(0, 99999)))
+
+        for _ in range(rng.randint(4, 8)):
+            spawns.append(("leaf",
+                           (rng.uniform(1, tile - 1), rng.uniform(1, tile - 1)),
+                           rng.uniform(0, 360), rng.randint(0, 99999)))
+
+        return spawns
+
+    def _place_object_tiles(self):
+        """Place object tiles around the camera. Tic-tac-toe: 3×3 grid."""
+        cam_pos = self.cam.getPos()
+        tile = self._object_tile_size
+        center_tx = int(math.floor(cam_pos.getX() / tile))
+        center_ty = int(math.floor(cam_pos.getY() / tile))
+
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                tx, ty = center_tx + dx, center_ty + dy
+                if (tx, ty) in self._object_tile_placed:
+                    continue
+                self._object_tile_placed.add((tx, ty))
+                offset_x = tx * tile
+                offset_y = ty * tile
+                tile_key = (tx, ty)
+
+                # Pick template via position hash — adjacent tiles always differ
+                template_idx = (tx * 3 + ty * 5 + tx * ty) % len(self._object_templates)
+                template = self._object_templates[template_idx]
+
+                for kind, (lx, ly), heading, seed in template:
+                    wx = offset_x + lx
+                    wy = offset_y + ly
+                    wz = self._height_at(wx, wy)
+                    if kind == "leaf":
+                        wz += 3.0  # leaves drift from above
+                    self._ambient.spawn(kind, pos=(wx, wy, wz),
+                                        heading=heading, seed=seed + tx * 1000 + ty,
+                                        height_fn=self._height_at,
+                                        chunk_key=tile_key)
+
     # -- Chunk subsystems (split for 60-frame cycle) ----------------------------
 
     def _dispatch_chunks(self):
@@ -432,61 +518,8 @@ void main() {
                 norms.append((-dx_h / nmag, -dy_h / nmag, 1.0 / nmag))
                 uvs.append((gx / subdivs, gy / subdivs))
 
-        # Ambient spawn positions (pre-roll the RNG off-thread)
-        rng = __import__("random").Random(chunk_seed)
+        # Objects are handled by the tile system now — not per-chunk
         ambient_spawns = []
-        rat_count = rng.choices([0, 1, 1, 2], weights=[2, 5, 5, 1])[0]
-        for ri in range(rat_count):
-            rx = world_x + rng.uniform(2, CHUNK_SIZE - 2)
-            ry = world_y + rng.uniform(2, CHUNK_SIZE - 2)
-            rz = self._height_at(rx, ry)
-            ambient_spawns.append(("rat", (rx, ry, rz), rng.uniform(0, 360), chunk_seed + 2000 + ri))
-        leaf_count = rng.choices([0, 0, 1, 2], weights=[4, 3, 2, 1])[0]
-        for li in range(leaf_count):
-            lx = world_x + rng.uniform(1, CHUNK_SIZE - 1)
-            ly = world_y + rng.uniform(1, CHUNK_SIZE - 1)
-            lz = self._height_at(lx, ly) + rng.uniform(2.0, 5.0)
-            ambient_spawns.append(("leaf", (lx, ly, lz), 0, chunk_seed + 3000 + li))
-
-        # Boulder — sparse, ~1 per 4 chunks
-        if rng.random() < 0.25:
-            bx = world_x + rng.uniform(4, CHUNK_SIZE - 4)
-            by = world_y + rng.uniform(4, CHUNK_SIZE - 4)
-            bz = self._height_at(bx, by)
-            ambient_spawns.append(("boulder", (bx, by, bz), rng.uniform(0, 360), chunk_seed + 4000))
-
-        # Ground scatter — passive detritus, sparse to keep frame rate stable
-        scatter_types = ["grass_tuft", "rubble", "leaf_pile", "twig_scatter"]
-        scatter_count = rng.randint(2, 4)
-        for si in range(scatter_count):
-            kind = rng.choice(scatter_types)
-            sx = world_x + rng.uniform(1, CHUNK_SIZE - 1)
-            sy = world_y + rng.uniform(1, CHUNK_SIZE - 1)
-            sz = self._height_at(sx, sy)
-            ambient_spawns.append((kind, (sx, sy, sz), rng.uniform(0, 360), chunk_seed + 5000 + si))
-
-        # Columns — rare, massive, structural landmarks
-        if rng.random() < 0.06:  # ~1 per 16 chunks
-            cx_col = world_x + rng.uniform(4, CHUNK_SIZE - 4)
-            cy_col = world_y + rng.uniform(4, CHUNK_SIZE - 4)
-            cz_col = self._height_at(cx_col, cy_col)
-            ambient_spawns.append(("column", (cx_col, cy_col, cz_col), rng.uniform(0, 360), chunk_seed + 8000))
-
-        # Stalagmites — 1-2 per ~3 chunks, defines "cave"
-        if rng.random() < 0.35:
-            stag_count = rng.randint(1, 2)
-            for sti in range(stag_count):
-                stx = world_x + rng.uniform(3, CHUNK_SIZE - 3)
-                sty = world_y + rng.uniform(3, CHUNK_SIZE - 3)
-                stz = self._height_at(stx, sty)
-                ambient_spawns.append(("stalagmite", (stx, sty, stz), rng.uniform(0, 360), chunk_seed + 7000 + sti))
-
-        # Dead logs — rare, 1 per ~5 chunks
-        if rng.random() < 0.2:
-            lx = world_x + rng.uniform(3, CHUNK_SIZE - 3)
-            ly = world_y + rng.uniform(3, CHUNK_SIZE - 3)
-            lz = self._height_at(lx, ly)
-            ambient_spawns.append(("dead_log", (lx, ly, lz), rng.uniform(0, 360), chunk_seed + 6000))
 
         with self._chunk_lock:
             self._ready_chunks[key] = {
@@ -1211,6 +1244,10 @@ void main() {
         # Despawn check: frame 47 only (1× per cycle)
         if fc == 47:
             self._despawn_distant()
+
+        # Object tile check: frame 29 (1× per cycle) — expand tiles as player moves
+        if fc == 29:
+            self._place_object_tiles()
 
         # Chronometer: frame 59 (1× per cycle, ~1 read per second)
         if fc == 59:

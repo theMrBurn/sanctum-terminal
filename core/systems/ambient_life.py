@@ -767,18 +767,36 @@ def build_stalagmite(parent, seed=0):
 
 
 def build_column(parent, seed=0):
-    """Massive cave column — hourglass shape, floor to darkness.
+    """Massive cave column — 4 profile variants from same make_rock calls.
 
-    Two rock masses: wide base (floor), wide top (vanishes into dark above),
-    narrow waist in the middle. Rare, structural, landmark-scale.
+    Profiles (selected by seed):
+        hourglass: wide-narrow-wide (classical)
+        pillar:    near-uniform, slight taper (structural)
+        curtain:   wide+thin like a wall/drape (flowstone)
+        broken:    base only, abrupt end (collapsed)
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"column_{seed}")
 
+    profile = rng.choice(["hourglass", "pillar", "curtain", "broken"])
     total_height = rng.uniform(12.0, 20.0)
     base_radius = rng.uniform(1.5, 3.0)
-    waist_radius = base_radius * rng.uniform(0.3, 0.5)  # narrow middle
-    top_radius = base_radius * rng.uniform(0.8, 1.2)     # widens again at top
+
+    if profile == "hourglass":
+        waist_radius = base_radius * rng.uniform(0.3, 0.5)
+        top_radius = base_radius * rng.uniform(0.8, 1.2)
+    elif profile == "pillar":
+        waist_radius = base_radius * rng.uniform(0.8, 0.95)  # nearly uniform
+        top_radius = base_radius * rng.uniform(0.7, 0.9)     # slight taper
+    elif profile == "curtain":
+        base_radius *= rng.uniform(1.5, 2.5)  # extra wide
+        waist_radius = base_radius * rng.uniform(0.6, 0.8)
+        top_radius = base_radius * rng.uniform(0.5, 0.7)
+        # Flatten depth for curtain/wall feel
+    elif profile == "broken":
+        total_height *= rng.uniform(0.3, 0.5)  # much shorter — it broke
+        waist_radius = base_radius * rng.uniform(0.7, 0.9)
+        top_radius = base_radius * rng.uniform(0.4, 0.6)  # jagged top
 
     # Mineral color — same cool spectrum as stalagmites
     mineral_bases = [
@@ -790,10 +808,13 @@ def build_column(parent, seed=0):
     sv = rng.uniform(-0.02, 0.02)
     color = (base_color[0] + sv, base_color[1] + sv * 0.7, base_color[2] + sv * 0.5)
 
+    # Curtain profile: flatten the depth axis for wall/drape silhouette
+    depth_scale = 0.3 if profile == "curtain" else rng.uniform(0.7, 1.0)
+
     # Bottom section — wide base tapering to waist
     bottom_h = total_height * rng.uniform(0.35, 0.45)
     bottom = root.attachNewNode(make_rock(
-        base_radius, bottom_h * 0.5, base_radius * rng.uniform(0.7, 1.0), color,
+        base_radius, bottom_h * 0.5, base_radius * depth_scale, color,
         rings=8, segments=8, seed=seed,
         roughness=rng.uniform(0.2, 0.35),
     ))
@@ -806,25 +827,26 @@ def build_column(parent, seed=0):
     sv2 = rng.uniform(-0.015, 0.015)
     waist_color = (color[0] + sv2, color[1] + sv2, color[2] + sv2)
     waist = root.attachNewNode(make_rock(
-        waist_radius, waist_h * 0.5, waist_radius * rng.uniform(0.7, 1.0), waist_color,
+        waist_radius, waist_h * 0.5, waist_radius * depth_scale, waist_color,
         rings=5, segments=6, seed=seed + 33,
         roughness=rng.uniform(0.15, 0.3),
     ))
     waist.setPos(0, 0, waist_z + waist_h * 0.3)
     waist.setTwoSided(True)
 
-    # Top section — widens again, rises into darkness
-    top_h = total_height - bottom_h - waist_h
-    top_z = waist_z + waist_h * 0.5
-    sv3 = rng.uniform(-0.015, 0.015)
-    top_color = (color[0] + sv3, color[1] + sv3, color[2] + sv3)
-    top = root.attachNewNode(make_rock(
-        top_radius, top_h * 0.5, top_radius * rng.uniform(0.7, 1.0), top_color,
-        rings=8, segments=8, seed=seed + 66,
-        roughness=rng.uniform(0.2, 0.35),
-    ))
-    top.setPos(0, 0, top_z + top_h * 0.3)
-    top.setTwoSided(True)
+    # Top section — rises into darkness (skipped for broken profile)
+    if profile != "broken":
+        top_h = total_height - bottom_h - waist_h
+        top_z = waist_z + waist_h * 0.5
+        sv3 = rng.uniform(-0.015, 0.015)
+        top_color = (color[0] + sv3, color[1] + sv3, color[2] + sv3)
+        top = root.attachNewNode(make_rock(
+            top_radius, top_h * 0.5, top_radius * depth_scale, top_color,
+            rings=8, segments=8, seed=seed + 66,
+            roughness=rng.uniform(0.2, 0.35),
+        ))
+        top.setPos(0, 0, top_z + top_h * 0.3)
+        top.setTwoSided(True)
 
     # Texture + damping
     tex = get_material_texture("stone_light", seed=seed)
