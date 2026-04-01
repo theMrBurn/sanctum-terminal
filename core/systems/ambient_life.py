@@ -1640,6 +1640,7 @@ class AmbientManager:
                         cm.setFrame(-gcfg["radius"], gcfg["radius"],
                                     -gcfg["radius"], gcfg["radius"])
                         card = e.node.attachNewNode(cm.generate())
+                        card.setTextureOff()
                         card.setTexture(_get_decal_texture(64))
                         card.setTransparency(TransparencyAttrib.MAlpha)
                         card.setLightOff()

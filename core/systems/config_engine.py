@@ -126,15 +126,19 @@ class ConfigEngine:
             self.load(path)
 
     def load(self, path=None):
-        """Load a TOML file into the config namespace."""
+        """Load a TOML file into the config namespace.
+        Preserves existing watchers across reloads."""
         path = path or self._path
         if tomllib is None:
-            # Fallback: try to read as JSON-ish
             print(f"[config] tomllib not available, skipping {path}")
             return
         with open(path, "rb") as f:
             data = tomllib.load(f)
+        # Preserve watchers from the old config node
+        old_watchers = self._cfg._watchers if self._cfg else {}
         self._cfg = ConfigNode(data)
+        if old_watchers:
+            self._cfg._watchers.update(old_watchers)
         return self._cfg
 
     def save(self, path=None):

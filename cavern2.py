@@ -207,12 +207,12 @@ class Cavern(ShowBase):
         self._cfg = ConfigEngine("config/sanctum.toml")
 
         # -- Rendering setup ---------------------------------------------------
-        bg = self._cfg.camera.background
-        self.setBackgroundColor(bg[0], bg[1], bg[2], 1)
+        cam_cfg = self._cfg.camera
+        self.setBackgroundColor(cam_cfg.background[0], cam_cfg.background[1], cam_cfg.background[2], 1)
         self.disableMouse()
-        self.camLens.setFov(65.0)
-        self.camLens.setNear(0.5)
-        self.camLens.setFar(70.0)  # wider than fog — lets you tune fog_far without clipping
+        self.camLens.setFov(cam_cfg.fov)
+        self.camLens.setNear(cam_cfg.near_clip)
+        self.camLens.setFar(cam_cfg.far_clip)
         self.render.setAntialias(AntialiasAttrib.MMultisample)
         # Per-pixel lighting with light count limit — cap GPU work
         self.render.setShaderAuto()
@@ -236,7 +236,9 @@ class Cavern(ShowBase):
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
         self._membrane = Membrane(self.render)
-        self._ambient = AmbientManager(self.render, wake_radius=44.0, sleep_radius=55.0,
+        self._ambient = AmbientManager(self.render,
+                                        wake_radius=self._cfg.lod.wake_radius,
+                                        sleep_radius=self._cfg.lod.sleep_radius,
                                         membrane=self._membrane)
         self._deferred_spawns = []  # ambient spawns queued across frames
         self._chrono = Chronometer()
@@ -305,11 +307,11 @@ class Cavern(ShowBase):
         try:
             from direct.filter.CommonFilters import CommonFilters
             self._filters = CommonFilters(self.win, self.cam)
-            bloom_int = self._palette.get("bloom_intensity", 0.3)
+            pp = self._cfg.postprocess
             self._filters.setBloom(
-                blend=(0.3, 0.4, 0.3, 0.0),
-                mintrigger=0.6, maxtrigger=1.0,
-                desat=0.6, intensity=bloom_int, size="medium",
+                blend=tuple(pp.bloom_blend),
+                mintrigger=pp.bloom_trigger[0], maxtrigger=pp.bloom_trigger[1],
+                desat=pp.bloom_desat, intensity=pp.bloom_intensity, size=pp.bloom_size,
             )
             self._bloom_on = True
         except Exception:
@@ -354,6 +356,10 @@ class Cavern(ShowBase):
         # Wire config changes to live engine updates
         self._cfg.root.watch("fog", self._on_cfg_fog)
         self._cfg.root.watch("lighting.ambient", self._on_cfg_ambient)
+        self._cfg.root.watch("lighting.torch", self._on_cfg_torch)
+        self._cfg.root.watch("postprocess", self._on_cfg_postprocess)
+        self._cfg.root.watch("camera", self._on_cfg_camera)
+        self._cfg.root.watch("lod", self._on_cfg_lod)
 
         # -- Layer diagnostic mode ------------------------------------------------
         # Press . to add layers one at a time. Identify which layer causes issues.
@@ -439,11 +445,11 @@ class Cavern(ShowBase):
 
         elif layer == 7:  # BLOOM
             if self._filters:
-                bloom_int = self._palette.get("bloom_intensity", 0.3)
+                pp = self._cfg.postprocess
                 self._filters.setBloom(
-                    blend=(0.3, 0.4, 0.3, 0.0),
-                    mintrigger=0.6, maxtrigger=1.0,
-                    desat=0.6, intensity=bloom_int, size="medium",
+                    blend=tuple(pp.bloom_blend),
+                    mintrigger=pp.bloom_trigger[0], maxtrigger=pp.bloom_trigger[1],
+                    desat=pp.bloom_desat, intensity=pp.bloom_intensity, size=pp.bloom_size,
                 )
                 self._bloom_on = True
 
@@ -483,6 +489,72 @@ class Cavern(ShowBase):
         except Exception:
             pass
 
+    def _on_cfg_torch(self, path, value):
+        """Config change in lighting.torch.* → update live torch spotlight."""
+        try:
+            t = self._cfg.lighting.torch
+            spot = self._orb_np.node()
+            lc = self._palette["sconce"]
+            cm = t.color_mult
+            spot.setColor(Vec4(lc[0] * cm[0], lc[1] * cm[1], lc[2] * cm[2], 1))
+            spot.getLens().setFov(t.fov)
+            spot.getLens().setNearFar(t.near, t.far)
+            spot.setAttenuation((t.attenuation[0], t.attenuation[1], t.attenuation[2]))
+            spot.setExponent(t.exponent)
+            self._orb_np.setPos(t.position[0], t.position[1], t.position[2])
+            self._orb_np.lookAt(self.cam, Vec3(t.look_at[0], t.look_at[1], t.look_at[2]))
+            # Fill light
+            f = self._cfg.lighting.fill
+            fill = self._orb_fill.node()
+            fill.setColor(Vec4(lc[0] * f.color_mult[0], lc[1] * f.color_mult[1],
+                               lc[2] * f.color_mult[2], 1))
+            fill.setAttenuation((f.attenuation[0], f.attenuation[1], f.attenuation[2]))
+        except Exception:
+            pass
+
+    def _on_cfg_postprocess(self, path, value):
+        """Config change in postprocess.* → update bloom + grain."""
+        try:
+            pp = self._cfg.postprocess
+            if self._filters and self._bloom_on:
+                self._filters.setBloom(
+                    blend=tuple(pp.bloom_blend),
+                    mintrigger=pp.bloom_trigger[0],
+                    maxtrigger=pp.bloom_trigger[1],
+                    desat=pp.bloom_desat,
+                    intensity=pp.bloom_intensity,
+                    size=pp.bloom_size,
+                )
+        except Exception:
+            pass
+
+    def _on_cfg_camera(self, path, value):
+        """Config change in camera.* → update live camera."""
+        try:
+            c = self._cfg.camera
+            self.camLens.setFov(c.fov)
+            self.camLens.setNear(c.near_clip)
+            self.camLens.setFar(c.far_clip)
+            self.setBackgroundColor(c.background[0], c.background[1], c.background[2], 1)
+        except Exception:
+            pass
+
+    def _on_cfg_lod(self, path, value):
+        """Config change in lod.* → update ambient manager radii."""
+        try:
+            l = self._cfg.lod
+            wr = l.wake_radius
+            sr = l.sleep_radius
+            self._ambient._band_far_r2 = wr * wr
+            self._ambient._band_mid_r2 = (wr * l.band_mid_ratio) ** 2
+            self._ambient._band_near_r2 = (wr * l.band_near_ratio) ** 2
+            self._ambient._sleep_r2 = sr * sr
+            self._ambient._fade_far = wr
+            self._ambient._fade_near = wr * l.fade_near_ratio
+            self._ambient._check_batch = l.check_batch
+        except Exception:
+            pass
+
     # -- Helpers ---------------------------------------------------------------
 
     def _set_key(self, key, value):
@@ -517,30 +589,33 @@ class Cavern(ShowBase):
         lc = pal["sconce"]
 
         # Main cone: spotlight aimed forward — THE player's light, dominant over ambient
+        tc = self._cfg.lighting.torch
         spot = Spotlight("orb_cone")
-        spot.setColor(Vec4(lc[0] * 4.0, lc[1] * 3.5, lc[2] * 2.5, 1))  # cranked warm cone
-        spot.getLens().setFov(55)  # slightly tighter = more focused beam
-        spot.getLens().setNearFar(0.5, 40)
-        spot.setAttenuation((0.15, 0.005, 0.001))  # reaches further, falls off slower
-        spot.setShadowCaster(True, 512, 512)
-        spot.setExponent(12.0)  # tighter hotspot center
+        spot.setColor(Vec4(lc[0] * tc.color_mult[0], lc[1] * tc.color_mult[1], lc[2] * tc.color_mult[2], 1))
+        spot.getLens().setFov(tc.fov)
+        spot.getLens().setNearFar(tc.near, tc.far)
+        spot.setAttenuation(tuple(tc.attenuation))
+        spot.setShadowCaster(True, tc.shadow_size, tc.shadow_size)
+        spot.setExponent(tc.exponent)
         self._orb_np = self.cam.attachNewNode(spot)
-        self._orb_np.setPos(0.3, -0.8, 0.6)  # behind right shoulder
-        self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # aim forward and slightly down
+        self._orb_np.setPos(tc.position[0], tc.position[1], tc.position[2])
+        self._orb_np.lookAt(self.cam, Vec3(tc.look_at[0], tc.look_at[1], tc.look_at[2]))
         self.render.setLight(self._orb_np)
 
         # Fill light: warm halo around the player — you carry warmth into the dark
+        fc = self._cfg.lighting.fill
         fill = PointLight("orb_fill")
-        fill.setColor(Vec4(lc[0] * 1.2, lc[1] * 0.9, lc[2] * 0.5, 1))
-        fill.setAttenuation((0.3, 0.015, 0.004))
+        fill.setColor(Vec4(lc[0] * fc.color_mult[0], lc[1] * fc.color_mult[1], lc[2] * fc.color_mult[2], 1))
+        fill.setAttenuation(tuple(fc.attenuation))
         self._orb_fill = self._orb_np.attachNewNode(fill)
         self.render.setLight(self._orb_fill)
 
         # Tiny glow marker visible in peripheral vision
-        orb_vis = make_box(0.025, 0.025, 0.025, (0.95, 0.8, 0.45))
+        om = self._cfg.lighting.orb_marker
+        orb_vis = make_box(om.size, om.size, om.size, tuple(om.color))
         self._orb_vis = self._orb_np.attachNewNode(orb_vis)
         self._orb_vis.setLightOff()
-        self._orb_vis.setColorScale(4.0, 3.0, 1.8, 1.0)  # bright peripheral torch glow
+        self._orb_vis.setColorScale(om.glow[0], om.glow[1], om.glow[2], 1.0)
 
     def _setup_grain_shader(self):
         """Screen-space film grain — constant visual motion masks frame hitches."""
@@ -1411,7 +1486,8 @@ void main() {
 
         # Update lighting
         lc = self._palette["sconce"]
-        self._orb_np.node().setColor(Vec4(lc[0] * 4.0, lc[1] * 3.5, lc[2] * 2.5, 1))
+        tc = self._cfg.lighting.torch
+        self._orb_np.node().setColor(Vec4(lc[0] * tc.color_mult[0], lc[1] * tc.color_mult[1], lc[2] * tc.color_mult[2], 1))
         fc = self._palette["fog"]
         self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
         bg = self._palette["backdrop"]
@@ -1442,20 +1518,23 @@ void main() {
         self._daylight = not self._daylight
         if self._daylight:
             # Daylight: bright ambient, fog becomes atmospheric haze
-            self._amb_np.node().setColor(Vec4(0.8, 0.75, 0.7, 1))
-            self._fog.setColor(Vec4(0.35, 0.33, 0.30, 1))  # warm grey haze
-            self._fog.setLinearRange(40.0, 120.0)  # push fog way out
-            self.camLens.setFar(130.0)
-            self.setBackgroundColor(0.30, 0.28, 0.26, 1)  # overcast sky
+            dl = self._cfg.daylight
+            self._amb_np.node().setColor(Vec4(dl.ambient[0], dl.ambient[1], dl.ambient[2], 1))
+            self._fog.setColor(Vec4(dl.fog_color[0], dl.fog_color[1], dl.fog_color[2], 1))
+            self._fog.setLinearRange(dl.fog_near, dl.fog_far)
+            self.camLens.setFar(dl.far_clip)
+            self.setBackgroundColor(dl.background[0], dl.background[1], dl.background[2], 1)
             console.log("[bold]DAYLIGHT[/bold] — inspection mode")
         else:
-            # Cave: restore darkness
-            fc = self._palette["fog"]
-            self._amb_np.node().setColor(Vec4(0.10, 0.08, 0.06, 1))
-            self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
-            self._fog.setLinearRange(15.0, 42.0)
-            self.camLens.setFar(45.0)
-            self.setBackgroundColor(0.02, 0.02, 0.03, 1)
+            # Cave: restore darkness from config
+            f = self._cfg.fog
+            a = self._cfg.lighting.ambient
+            c = self._cfg.camera
+            self._amb_np.node().setColor(Vec4(a.color[0], a.color[1], a.color[2], 1))
+            self._fog.setColor(Vec4(f.color[0], f.color[1], f.color[2], 1))
+            self._fog.setLinearRange(f.near, f.far)
+            self.camLens.setFar(c.far_clip)
+            self.setBackgroundColor(c.background[0], c.background[1], c.background[2], 1)
             console.log("[bold]CAVE[/bold] — darkness restored")
 
     def _toggle_debug(self):
@@ -1844,29 +1923,34 @@ void main() {
             self._chrono_state = self._chrono.read()
             # Fog density shifts with time — denser at night
             nw = self._chrono_state["night_weight"]
-            fog_near = 25.0 - nw * 6.0   # 25→19 at night
-            fog_far = 55.0 - nw * 12.0   # 55→43 at night
+            f = self._cfg.fog
+            fog_near = f.near + nw * f.night_near_delta
+            fog_far = f.far + nw * f.night_far_delta
             self._fog.setLinearRange(fog_near, fog_far)
             # Ambient light dims at night
-            amb_scale = 1.0 - nw * 0.3   # 30% dimmer at deep night
+            a = self._cfg.lighting.ambient
+            amb_scale = 1.0 + nw * (a.night_dim - 1.0)
             self._amb_np.node().setColor(Vec4(
-                0.10 * amb_scale, 0.08 * amb_scale, 0.06 * amb_scale, 1))
+                a.color[0] * amb_scale, a.color[1] * amb_scale, a.color[2] * amb_scale, 1))
 
-        # Orb animation: gentle bob + flicker
+        # Orb animation: gentle bob + flicker (all params from config)
         t = globalClock.getFrameTime()
-        fi = self._palette.get("flicker_intensity", 0.15)
+        tc = self._cfg.lighting.torch
+        fl = tc.flicker
         lc = self._palette["sconce"]
-        flicker = 1.0 + fi * 0.4 * math.sin(t * 5.3) * math.sin(t * 7.7)
+        flicker = 1.0 + fl.intensity * fl.amplitude * math.sin(t * fl.freq1) * math.sin(t * fl.freq2)
+        fcm = fl.color_mult
         self._orb_np.node().setColor(Vec4(
-            lc[0] * 1.8 * flicker, lc[1] * 1.6 * flicker,
-            lc[2] * 1.4 * flicker, 1,
+            lc[0] * fcm[0] * flicker, lc[1] * fcm[1] * flicker,
+            lc[2] * fcm[2] * flicker, 1,
         ))
         # Gentle drift behind shoulder
-        bob_x = 0.3 + math.sin(t * 1.1) * 0.06
-        bob_y = -0.8 + math.cos(t * 0.9) * 0.04
-        bob_z = 0.6 + math.sin(t * 1.7) * 0.08
+        bob = tc.bob
+        bob_x = tc.position[0] + math.sin(t * bob.x["freq"]) * bob.x["amp"]
+        bob_y = tc.position[1] + math.cos(t * bob.y["freq"]) * bob.y["amp"]
+        bob_z = tc.position[2] + math.sin(t * bob.z["freq"]) * bob.z["amp"]
         self._orb_np.setPos(bob_x, bob_y, bob_z)
-        self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # always aim forward+down
+        self._orb_np.lookAt(self.cam, Vec3(tc.look_at[0], tc.look_at[1], tc.look_at[2]))
 
         # Debug
         self._check_debug_commands()
