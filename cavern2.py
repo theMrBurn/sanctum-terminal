@@ -61,10 +61,10 @@ console = Console()
 
 # -- World constants -----------------------------------------------------------
 
-CHUNK_SIZE = 16.0       # meters per chunk edge
-CHUNK_RADIUS = 2        # chunks visible in each direction (5x5 = 25 chunks)
-PREGEN_RADIUS = 3       # pre-generate this far out (fog hides at 42m = ~2.6 chunks)
-DESPAWN_RADIUS = 4      # tighter cleanup — fewer chunks in scene graph
+CHUNK_SIZE = 8.0        # meters per chunk — smaller tiles = smoother fade gradient
+CHUNK_RADIUS = 4        # 4 chunks × 8m = 32m visible each direction
+PREGEN_RADIUS = 6       # pre-generate far out (fog_far=55m = ~7 chunks at 8m)
+DESPAWN_RADIUS = 8      # tighter cleanup
 TEX_SIZE = 120          # 2×60, base-60 aligned — divides by everything, no alignment artifacts
 MOVE_SPEED = 5.0
 MOUSE_SENS = 0.3
@@ -182,9 +182,13 @@ class Cavern(ShowBase):
     def __init__(self):
         super().__init__()
 
+        # Match display native resolution
+        pipe = self.pipe
+        native_w = pipe.getDisplayWidth()
+        native_h = pipe.getDisplayHeight()
         props = WindowProperties()
         props.setTitle("Sanctum — The Endless Floor")
-        props.setSize(960, 540)
+        props.setSize(native_w, native_h)
         props.setCursorHidden(True)
         props.setFullscreen(True)
         self.win.requestProperties(props)
@@ -225,7 +229,7 @@ class Cavern(ShowBase):
         self._pending_chunks = {}   # (cx, cz) -> texture data being generated in background
         self._ready_chunks = {}     # (cx, cz) -> (tex_data, chunk_seed) ready to build
         self._chunk_cache = {}      # (cx, cz) -> data dict (LRU: despawned chunks kept for fast revisit)
-        self._chunk_cache_max = 80  # keep ~80 despawned chunks in memory (~5MB)
+        self._chunk_cache_max = 200  # more chunks at 8m size, ~200 in cache
         self._chunk_lock = threading.Lock()
         self._chunk_seed = 42
         self._tex_size_override = TEX_SIZE
@@ -644,7 +648,7 @@ void main() {
         console.log("[bold green]Ground ready.[/bold green]")
 
         # Pre-bake object field — baseball lineup of unique tiles
-        self._object_tile_size = CHUNK_SIZE * 18  # ~288m per tile — 3× larger grid
+        self._object_tile_size = CHUNK_SIZE * 36  # ~288m per tile at 8m chunks
         self._object_tile_placed = set()
         self._object_spawn_queue = __import__("collections").deque()  # drip-feed queue
         # Generate 7 unique templates — no two adjacent tiles use the same one
@@ -1081,8 +1085,8 @@ void main() {
         rng = __import__("random").Random(chunk_seed)
 
         # -- Subdivided ground mesh following height function --
-        # 21×21 = enough normals to scatter the spotlight like rough stone
-        subdivs = 21
+        # 11×11 per 8m chunk = same vertex density as 21×21 per 16m
+        subdivs = 11
         if hasattr(self, '_prebuilt_tex') and self._prebuilt_tex is not None:
             tex = self._prebuilt_tex
         else:
@@ -1218,7 +1222,7 @@ void main() {
                 np.setTransparency(TransparencyAttrib.MNone)
                 np.clearColorScale()
         fade = Sequence(
-            LerpColorScaleInterval(chunk_root, 2.5, Vec4(1, 1, 1, 1), Vec4(1, 1, 1, 0)),
+            LerpColorScaleInterval(chunk_root, 0.8, Vec4(1, 1, 1, 1), Vec4(1, 1, 1, 0)),
             Func(_finish_fade),
         )
         fade.start()

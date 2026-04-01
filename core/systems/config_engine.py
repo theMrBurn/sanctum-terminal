@@ -58,24 +58,27 @@ class ConfigNode:
                 fn(full_path, value)
 
     def __repr__(self):
-        d = object.__getattribute__(self, '_data')
-        path = object.__getattribute__(self, '_path')
-        if not path:
-            sections = [k for k in d if isinstance(d[k], dict)]
-            scalars = [k for k in d if not isinstance(d[k], dict)]
-            parts = []
-            if sections:
-                parts.append(f"sections: {', '.join(sections)}")
-            if scalars:
-                parts.append(f"keys: {', '.join(scalars)}")
-            return f"<Config {' | '.join(parts)}>"
-        items = []
-        for k, v in d.items():
-            if isinstance(v, dict):
-                items.append(f"  {k}: {{...}}")
-            else:
-                items.append(f"  {k} = {v!r}")
-        return f"[{path}]\n" + "\n".join(items)
+        try:
+            d = object.__getattribute__(self, '_data')
+            path = object.__getattribute__(self, '_path')
+            if not path:
+                sections = [k for k in d if isinstance(d[k], dict)]
+                scalars = [k for k in d if not isinstance(d[k], dict)]
+                parts = []
+                if sections:
+                    parts.append(f"sections: {', '.join(sections)}")
+                if scalars:
+                    parts.append(f"keys: {', '.join(scalars)}")
+                return f"<Config {' | '.join(parts)}>"
+            items = []
+            for k, v in d.items():
+                if isinstance(v, dict):
+                    items.append(f"  {k}: {{...}}")
+                else:
+                    items.append(f"  {k} = {v!r}")
+            return f"[{path}]\n" + "\n".join(items)
+        except Exception as e:
+            return f"<ConfigNode error: {e}>"
 
     def __iter__(self):
         return iter(object.__getattribute__(self, '_data'))

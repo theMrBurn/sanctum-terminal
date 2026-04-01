@@ -29,22 +29,22 @@ class EngineREPL:
         self._output_lines = []
 
         # Build the namespace available in the REPL
-        self._ns = {
+        # Use properties so shortcuts always reflect live config state
+        class _NS(dict):
+            """Namespace that resolves cfg shortcuts on access."""
+            def __missing__(self, key):
+                # Try cfg subsection as fallback
+                try:
+                    return getattr(cfg, key)
+                except AttributeError:
+                    raise KeyError(key)
+        self._ns = _NS({
             "cfg": cfg,
-            "fog": getattr(cfg, 'fog', None),
-            "camera": getattr(cfg, 'camera', None),
-            "lighting": getattr(cfg, 'lighting', None),
-            "ground": getattr(cfg, 'ground', None),
-            "lod": getattr(cfg, 'lod', None),
-            "postprocess": getattr(cfg, 'postprocess', None),
-            "daylight": getattr(cfg, 'daylight', None),
-            "entity": getattr(cfg, 'entity', None),
-            "world": getattr(cfg, 'world', None),
             "save": lambda path=None: cfg.save(path),
             "load": lambda path=None: cfg.load(path),
             "app": app,
             "here": lambda: (app.cam.getX(), app.cam.getY(), app.cam.getZ()),
-        }
+        })
         if namespace:
             self._ns.update(namespace)
 
