@@ -32,6 +32,7 @@ import gc
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
 from direct.interval.LerpInterval import LerpColorScaleInterval
+from direct.interval.IntervalGlobal import Sequence, Func
 from panda3d.core import (
     Vec3, Vec4, TextNode, AntialiasAttrib,
     Fog, SamplerState, TransparencyAttrib,
@@ -1051,9 +1052,17 @@ void main() {
         ground_np.setMaterial(mat)
 
         # Fade in ground — C++ interval, prevents hard pop-in
+        # Clear transparency after fade so ground returns to opaque pipeline
         chunk_root.setTransparency(TransparencyAttrib.MAlpha)
         chunk_root.setColorScale(1, 1, 1, 0)
-        fade = LerpColorScaleInterval(chunk_root, 2.5, Vec4(1, 1, 1, 1), Vec4(1, 1, 1, 0))
+        def _finish_fade(np=chunk_root):
+            if np and not np.isEmpty():
+                np.setTransparency(TransparencyAttrib.MNone)
+                np.clearColorScale()
+        fade = Sequence(
+            LerpColorScaleInterval(chunk_root, 2.5, Vec4(1, 1, 1, 1), Vec4(1, 1, 1, 0)),
+            Func(_finish_fade),
+        )
         fade.start()
 
         # Ambient spawns — inside time budget with the mesh
@@ -1642,7 +1651,7 @@ void main() {
 
         # Ambient life: frames 3, 9, 21, 27, 33, 39, 51, 57 (8× per cycle)
         if fc % 6 == 3:
-            self._ambient.tick(dt * 6, self.cam.getPos())
+            self._ambient.tick(dt * 6, self.cam.getPos(), self._cam_h)
 
         # Despawn check: frame 47 only (1× per cycle)
         if fc == 47:

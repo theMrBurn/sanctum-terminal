@@ -1408,25 +1408,28 @@ def _spawn_motes(parent_node, cfg, origin):
 
 
 BUILDERS = {
-    "rat": (build_rat, "scurry"),
-    "leaf": (build_leaf, "drift"),
-    "spider": (build_spider, "crawl"),
-    "beetle": (build_beetle, "crawl"),
-    "boulder": (build_boulder, "static"),
-    "grass_tuft": (build_grass_tuft, "static"),
-    "rubble": (build_rubble, "static"),
-    "leaf_pile": (build_leaf_pile, "static"),
-    "dead_log": (build_dead_log, "static"),
-    "twig_scatter": (build_twig_scatter, "static"),
-    "bone_pile": (build_bone_pile, "static"),
-    "stalagmite": (build_stalagmite, "static"),
-    "column": (build_column, "static"),
-    "mega_column": (build_mega_column, "static"),
-    "giant_fungus": (build_giant_fungus, "static"),
-    "moss_patch": (build_moss_patch, "static"),
-    "crystal_cluster": (build_crystal_cluster, "static"),
-    "hanging_vine": (build_hanging_vine, "static"),
-    "ceiling_moss": (build_ceiling_moss, "static"),
+    # (builder_fn, behavior, visual_weight)
+    # weight 1.0 = large, fades in far behind fog
+    # weight 0.0 = tiny, fades in close (below visual threshold at distance)
+    "rat": (build_rat, "scurry", 0.2),
+    "leaf": (build_leaf, "drift", 0.1),
+    "spider": (build_spider, "crawl", 0.1),
+    "beetle": (build_beetle, "crawl", 0.1),
+    "boulder": (build_boulder, "static", 0.9),
+    "grass_tuft": (build_grass_tuft, "static", 0.15),
+    "rubble": (build_rubble, "static", 0.3),
+    "leaf_pile": (build_leaf_pile, "static", 0.2),
+    "dead_log": (build_dead_log, "static", 0.5),
+    "twig_scatter": (build_twig_scatter, "static", 0.1),
+    "bone_pile": (build_bone_pile, "static", 0.3),
+    "stalagmite": (build_stalagmite, "static", 0.7),
+    "column": (build_column, "static", 1.0),
+    "mega_column": (build_mega_column, "static", 1.0),
+    "giant_fungus": (build_giant_fungus, "static", 0.8),
+    "moss_patch": (build_moss_patch, "static", 0.15),
+    "crystal_cluster": (build_crystal_cluster, "static", 0.6),
+    "hanging_vine": (build_hanging_vine, "static", 0.4),
+    "ceiling_moss": (build_ceiling_moss, "static", 0.2),
 }
 
 
@@ -1436,7 +1439,8 @@ class AmbientEntity:
     """A single behavior-driven entity in the world."""
 
     __slots__ = ("kind", "pos", "heading", "node", "behavior",
-                 "awake", "height_fn", "chunk_key", "motes", "_fade_iv", "_lod_band")
+                 "awake", "height_fn", "chunk_key", "motes", "_fade_iv", "_lod_band",
+                 "_base_cs", "_vis_weight", "_prev_d2")
 
     def __init__(self, kind, node, behavior, pos, heading, height_fn=None, chunk_key=None):
         self.kind = kind
@@ -1450,6 +1454,7 @@ class AmbientEntity:
         self.chunk_key = chunk_key
         self._fade_iv = None  # active fade interval (C++ side)
         self._lod_band = 0    # 0=sleep, 1=far (silhouette), 2=mid (shape), 3=near (full)
+        self._base_cs = node.getColorScale()  # snapshot at spawn — LOD fades back to this
 
 
 # -- Ambient Manager -----------------------------------------------------------
@@ -1470,6 +1475,11 @@ class AmbientManager:
         self._band_mid_r2 = (wake_radius * 0.6) ** 2            # ~26m — shape band
         self._band_near_r2 = (wake_radius * 0.35) ** 2          # ~15m — full detail
         self._sleep_r2 = sleep_radius * sleep_radius             # 55m — gate closes
+        # Fog-synced alpha: entity hits full opacity BEHIND fog, so fog alone
+        # handles the visible reveal. Narrow fade band at the wake edge where
+        # fog is thick enough to mask the pop-in entirely.
+        self._fade_far = wake_radius                             # 44m — alpha 0
+        self._fade_near = wake_radius * 0.88                     # ~39m — alpha 1 (fog still ~60% here)
         self._entities = []         # all entities
         self._active = set()        # currently ticking (set for O(1) add/remove)
         self._active_lights = []    # (distance², entity, glow_np) — closest N active
@@ -1480,7 +1490,7 @@ class AmbientManager:
         """Create an entity. It starts asleep until tick() wakes it."""
         if kind not in BUILDERS:
             return None
-        builder_fn, behavior_name = BUILDERS[kind]
+        builder_fn, behavior_name, vis_weight = BUILDERS[kind]
         node = builder_fn(self._render, seed=seed)
         node.setPos(pos[0], pos[1], pos[2])
         node.setH(heading)
@@ -1488,6 +1498,8 @@ class AmbientManager:
 
         behavior_cls = BEHAVIORS[behavior_name]
         entity = AmbientEntity(kind, node, None, pos, heading, height_fn, chunk_key)
+        entity._vis_weight = vis_weight
+        entity._prev_d2 = float('inf')
         entity.behavior = behavior_cls(entity, seed=seed)
 
         # Register with membrane if available (decals instead of point lights)
@@ -1501,7 +1513,9 @@ class AmbientManager:
                     lc = glow.getNode(0).getColor()
                     glow_color = (lc.getX() * 0.15, lc.getY() * 0.15, lc.getZ() * 0.15)
                     att = glow.getNode(0).getAttenuation()
-                    glow_radius = min(25.0, 1.0 / max(att.getY(), 0.001))
+                    # Tight radius — decal is the halo, not a flood.
+                    # Prevents overlap stacking across multiple nearby sources.
+                    glow_radius = min(8.0, 1.0 / max(att.getY(), 0.001))
                 mote_color = glow_color
                 mote_count = 0
                 mote_cfg_data = {}
@@ -1530,9 +1544,15 @@ class AmbientManager:
                 e.node.removeNode()
             self._entities.remove(e)
 
-    def tick(self, dt, cam_pos):
+    def tick(self, dt, cam_pos, cam_heading=0.0):
         """Per-frame update: staggered wake/sleep, tick active behaviors."""
         cx, cy = cam_pos.getX(), cam_pos.getY()
+
+        # Forward vector from heading — for view-biased distance
+        import math
+        h_rad = math.radians(cam_heading)
+        fwd_x = -math.sin(h_rad)
+        fwd_y = math.cos(h_rad)
 
         # Staggered wake/sleep — batch scales with entity count
         # Target: full scan in ~3 seconds (8 ticks/sec × 3s = 24 ticks)
@@ -1566,6 +1586,11 @@ class AmbientManager:
                     new_band = 3  # near band
 
                 old_band = e._lod_band
+
+                # Approach velocity — how fast we're closing (m/tick)
+                approach = (e._prev_d2 - d2)  # positive = getting closer
+                e._prev_d2 = d2
+
                 if new_band == old_band:
                     continue
 
@@ -1574,6 +1599,18 @@ class AmbientManager:
                 if e._fade_iv:
                     e._fade_iv.pause()
                     e._fade_iv = None
+
+                # View bias: objects ahead of camera fade faster
+                # dot(offset, forward) > 0 means entity is in front of us
+                fwd_dot = dx * fwd_x + dy * fwd_y
+                in_view = max(0.0, fwd_dot)  # 0 if behind, positive if ahead
+                dist = d2 ** 0.5
+                # View urgency: 1.0 when dead ahead at close range, 0.0 when behind
+                view_urgency = min(1.0, in_view / max(1.0, dist)) if dist > 0 else 1.0
+                # Approach speed factor: faster closing = shorter fade
+                # approach is d2 delta; convert to rough m/tick
+                approach_speed = max(0.0, approach) / max(1.0, dist * 2.0)
+                speed_factor = 1.0 + approach_speed * 8.0  # 1× still, up to ~3× running
 
                 if new_band == 0 and old_band > 0:
                     # Gate close — sleep
@@ -1590,17 +1627,23 @@ class AmbientManager:
                         e.motes = []
 
                 elif new_band >= 1 and old_band == 0:
-                    # Gate open — wake into appropriate band
+                    # Gate open — view-aware fade behind fog
                     e.awake = True
                     e._lod_band = new_band
                     e.node.setTransparency(1)
-                    target_a = [0, 0.15, 0.55, cs[3]][new_band]
-                    e.node.setColorScale(cs[0], cs[1], cs[2], 0.0)
+                    bcs = e._base_cs
+                    ent_near = self._fade_near * e._vis_weight + self._band_near_r2 ** 0.5 * (1.0 - e._vis_weight)
+                    fog_vis = max(0.0, min(1.0, (self._fade_far - dist) / max(1.0, self._fade_far - ent_near)))
+                    target_a = bcs[3] * fog_vis
+                    # Duration: base scaled by view urgency and approach speed
+                    base_dur = 0.3 + (1.0 - fog_vis) * 0.7
+                    dur = base_dur / (speed_factor * (0.5 + view_urgency * 0.5))
+                    e.node.setColorScale(bcs[0], bcs[1], bcs[2], 0.0)
                     e.node.show()
                     e._fade_iv = LerpColorScaleInterval(
-                        e.node, 3.0,
-                        Vec4(cs[0], cs[1], cs[2], target_a),
-                        Vec4(cs[0], cs[1], cs[2], 0.0),
+                        e.node, max(0.1, dur),
+                        Vec4(bcs[0], bcs[1], bcs[2], target_a),
+                        Vec4(bcs[0], bcs[1], bcs[2], 0.0),
                     )
                     e._fade_iv.start()
                     self._active.add(e)
@@ -1608,14 +1651,19 @@ class AmbientManager:
                         self._membrane.wake(id(e))
 
                 else:
-                    # Band shift (1↔2↔3) — cross-fade alpha
+                    # Band shift — view-aware fog visibility
                     e._lod_band = new_band
-                    target_a = [0, 0.15, 0.55, cs[3]][new_band]
+                    bcs = e._base_cs
+                    ent_near = self._fade_near * e._vis_weight + self._band_near_r2 ** 0.5 * (1.0 - e._vis_weight)
+                    fog_vis = max(0.0, min(1.0, (self._fade_far - dist) / max(1.0, self._fade_far - ent_near)))
+                    target_a = bcs[3] * fog_vis
                     cur_a = e.node.getColorScale()[3]
+                    base_dur = 0.3 + abs(target_a - cur_a) * 0.8
+                    dur = base_dur / (speed_factor * (0.5 + view_urgency * 0.5))
                     e._fade_iv = LerpColorScaleInterval(
-                        e.node, 1.5,
-                        Vec4(cs[0], cs[1], cs[2], target_a),
-                        Vec4(cs[0], cs[1], cs[2], cur_a),
+                        e.node, max(0.1, dur),
+                        Vec4(bcs[0], bcs[1], bcs[2], target_a),
+                        Vec4(bcs[0], bcs[1], bcs[2], cur_a),
                     )
                     e._fade_iv.start()
                     # Decals activate at band 2+, motes at band 3
@@ -1656,9 +1704,14 @@ class AmbientManager:
                 cs = e.node.getColorScale()
                 fade_done = (e._fade_iv is None or e._fade_iv.isStopped())
                 if fade_done and cs[3] < 0.05 and e._lod_band > 0:
-                    # Stuck invisible — snap to band target alpha
-                    target_a = [0, 0.15, 0.55, cs[3] if cs[3] > 0.5 else 1.0][e._lod_band]
-                    e.node.setColorScale(cs[0], cs[1], cs[2], target_a)
+                    # Stuck invisible — snap to weight-staggered fog alpha
+                    bcs = e._base_cs
+                    dx = e.pos[0] - cx
+                    dy = e.pos[1] - cy
+                    dist = (dx * dx + dy * dy) ** 0.5
+                    ent_near = self._fade_near * e._vis_weight + self._band_near_r2 ** 0.5 * (1.0 - e._vis_weight)
+                    fog_vis = max(0.0, min(1.0, (self._fade_far - dist) / max(1.0, self._fade_far - ent_near)))
+                    e.node.setColorScale(bcs[0], bcs[1], bcs[2], bcs[3] * fog_vis)
                     e._fade_iv = None
 
         # Tick active behaviors

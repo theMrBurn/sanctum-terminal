@@ -36,7 +36,7 @@ _DECAL_CACHE = {}  # radius_bucket -> Texture
 
 
 def _get_decal_texture(size=64):
-    """Stippled radial gradient — dissolves at edges like light through dust. Cached."""
+    """Gas-like radial glow — gaussian falloff with noise throughout. Cached."""
     if size in _DECAL_CACHE:
         return _DECAL_CACHE[size]
 
@@ -55,15 +55,13 @@ def _get_decal_texture(size=64):
                 alpha = 0.0
             else:
                 t = dist / max_r
-                # Base gradient — cubic falloff
-                base = max(0, (1.0 - t * t) * 0.65)
-                # Stipple: noise dissolves the outer 40% of the radius
-                if t > 0.6:
-                    threshold = (t - 0.6) / 0.4  # 0 at 60%, 1 at edge
-                    if noise.random() < threshold * 0.7:
-                        base = 0.0  # dissolved pixel
-                    else:
-                        base *= (1.0 - threshold * 0.5)  # dim survivors
+                # Gaussian falloff — wide soft tail, no hard edge
+                base = math.exp(-3.0 * t * t) * 0.40
+                # Noise throughout — breaks up the circle, reads as gas not liquid
+                base *= 0.6 + noise.random() * 0.4
+                # Progressive dissolve: more holes further out
+                if noise.random() < t * t * 0.5:
+                    base = 0.0
                 alpha = base
             img.setXelA(x, y, 1.0, 1.0, 1.0, alpha)
 
