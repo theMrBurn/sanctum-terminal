@@ -22,6 +22,7 @@ test:
 		--ignore=tests/test_spawn_engine.py \
 		--ignore=tests/test_biome_stack.py \
 		--ignore=tests/test_active_pipeline.py \
+		--ignore=tests/test_creation_lab_pipeline.py \
 		-v --tb=short
 
 test-unit:

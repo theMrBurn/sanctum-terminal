@@ -27,6 +27,7 @@ import math
 import json
 import time
 import threading
+import gc
 
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
@@ -56,8 +57,8 @@ console = Console()
 
 CHUNK_SIZE = 16.0       # meters per chunk edge
 CHUNK_RADIUS = 2        # chunks visible in each direction (5x5 = 25 chunks)
-PREGEN_RADIUS = 4       # pre-generate + build this far out (fog hides, never pops)
-DESPAWN_RADIUS = 6      # wide buffer before cleanup
+PREGEN_RADIUS = 3       # pre-generate this far out (fog hides at 42m = ~2.6 chunks)
+DESPAWN_RADIUS = 4      # tighter cleanup — fewer chunks in scene graph
 TEX_SIZE = 120          # 2×60, base-60 aligned — divides by everything, no alignment artifacts
 MOVE_SPEED = 5.0
 MOUSE_SENS = 0.3
@@ -65,6 +66,33 @@ PITCH_LIMIT = 60.0
 EYE_Z = 2.5
 
 REGISTERS = ["survival", "tron", "tolkien", "sanrio"]
+
+# -- Biome density configs -----------------------------------------------------
+# (density_per_1000sqm, clearance_radius, margin)
+# density × tile_area / 1000 = count.  clearance > 0 = spacing enforced.
+
+BIOME_CAVERN_DEFAULT = [
+    # kind               density  clearance  margin  — placed largest-first
+    ("mega_column",       0.12,    10.0,      20),
+    ("column",            0.30,    5.0,       10),
+    ("boulder",           0.55,    4.0,       4),
+    ("stalagmite",        0.80,    3.0,       3),
+    ("giant_fungus",      0.20,    2.5,       3),
+    ("crystal_cluster",   0.15,    2.0,       3),
+    ("dead_log",          0.25,    2.0,       3),
+    ("bone_pile",         0.10,    0,         3),
+    ("moss_patch",        0.40,    0,         2),
+    ("ceiling_moss",      0.25,    0,         5),
+    ("hanging_vine",      0.20,    0,         5),
+    ("grass_tuft",        1.50,    0,         1),
+    ("rubble",            1.20,    0,         1),
+    ("leaf_pile",         0.80,    0,         1),
+    ("twig_scatter",      0.80,    0,         1),
+    ("rat",               0.45,    0,         2),
+    ("beetle",            0.25,    0,         2),
+    ("leaf",              0.30,    0,         1),
+    ("spider",            0.08,    0,         2),
+]
 
 
 class Cavern(ShowBase):
@@ -77,6 +105,9 @@ class Cavern(ShowBase):
         props.setSize(960, 540)  # 75% render resolution — natural softness + GPU savings
         props.setCursorHidden(True)
         self.win.requestProperties(props)
+
+        # -- GC control: manual collection on quiet frames, no random pauses --
+        gc.disable()
 
         # -- Rendering setup ---------------------------------------------------
         self.setBackgroundColor(0.02, 0.02, 0.03, 1)
@@ -331,90 +362,139 @@ void main() {
         console.log("[bold green]Ground ready.[/bold green]")
 
         # Pre-bake object field — baseball lineup of unique tiles
-        self._object_tile_size = CHUNK_SIZE * 6  # ~96m per tile
+        self._object_tile_size = CHUNK_SIZE * 18  # ~288m per tile — 3× larger grid
         self._object_tile_placed = set()
+        self._object_spawn_queue = __import__("collections").deque()  # drip-feed queue
         # Generate 7 unique templates — no two adjacent tiles use the same one
         self._object_templates = [
             self._generate_object_template(self._chunk_seed + i * 777)
             for i in range(7)
         ]
         self._place_object_tiles()
+        # Stage ALL initial objects synchronously — world populated before first frame
+        console.log("[dim]Staging objects...[/dim]")
+        while self._object_spawn_queue:
+            kind, wx, wy, heading, seed, tile_key = \
+                self._object_spawn_queue.popleft()
+            wz = self._height_at(wx, wy)
+            if kind == "leaf":
+                wz += 3.0
+            self._ambient.spawn(kind, pos=(wx, wy, wz),
+                                heading=heading, seed=seed,
+                                height_fn=self._height_at,
+                                chunk_key=tile_key)
+        console.log(f"[bold green]Objects ready. ({self._ambient.total_count} entities)[/bold green]")
 
-    def _generate_object_template(self, seed):
-        """Pre-roll a unique object layout for one tile."""
+    def _generate_object_template(self, seed, biome=None):
+        """Generate a tile layout from a biome density config.
+
+        One loop over the config — tile area × density = count.
+        Clearance > 0 enforces spacing. Sorted largest-first by config order.
+        Swapping biomes = swapping the density table.
+        """
+        if biome is None:
+            biome = BIOME_CAVERN_DEFAULT
         tile = self._object_tile_size
+        tile_area = tile * tile
         rng = __import__("random").Random(seed)
         spawns = []
+        solid_positions = []  # (x, y, clearance)
 
-        for _ in range(rng.randint(6, 10)):
-            spawns.append(("boulder",
-                           (rng.uniform(4, tile - 4), rng.uniform(4, tile - 4)),
-                           rng.uniform(0, 360), rng.randint(0, 99999)))
+        for kind, density, clearance, margin in biome:
+            # density is per 1000 sqm — scale to tile area with ±30% variance
+            base_count = density * tile_area / 1000.0
+            count = max(0, int(rng.uniform(base_count * 0.7, base_count * 1.3)))
 
-        for _ in range(rng.randint(20, 35)):
-            kind = rng.choice(["grass_tuft", "rubble", "leaf_pile", "twig_scatter"])
-            spawns.append((kind,
-                           (rng.uniform(1, tile - 1), rng.uniform(1, tile - 1)),
-                           rng.uniform(0, 360), rng.randint(0, 99999)))
+            for _ in range(count):
+                # Place with spacing check if clearance > 0
+                placed = False
+                for _attempt in range(5 if clearance > 0 else 1):
+                    x = rng.uniform(margin, tile - margin)
+                    y = rng.uniform(margin, tile - margin)
+                    if clearance > 0:
+                        too_close = False
+                        for sx, sy, sc in solid_positions:
+                            dx, dy = x - sx, y - sy
+                            if dx * dx + dy * dy < (clearance + sc) ** 2:
+                                too_close = True
+                                break
+                        if too_close:
+                            continue
+                        solid_positions.append((x, y, clearance))
+                    placed = True
+                    break
+                if not placed:
+                    x = rng.uniform(margin, tile - margin)
+                    y = rng.uniform(margin, tile - margin)
 
-        for _ in range(rng.randint(2, 5)):
-            spawns.append(("dead_log",
-                           (rng.uniform(3, tile - 3), rng.uniform(3, tile - 3)),
-                           rng.uniform(0, 360), rng.randint(0, 99999)))
-
-        for _ in range(rng.randint(8, 15)):
-            spawns.append(("stalagmite",
-                           (rng.uniform(3, tile - 3), rng.uniform(3, tile - 3)),
-                           rng.uniform(0, 360), rng.randint(0, 99999)))
-
-        if rng.random() < 0.4:  # not every tile gets a column
-            spawns.append(("column",
-                           (rng.uniform(10, tile - 10), rng.uniform(10, tile - 10)),
-                           rng.uniform(0, 360), rng.randint(0, 99999)))
-
-        for _ in range(rng.randint(6, 12)):
-            spawns.append(("rat",
-                           (rng.uniform(2, tile - 2), rng.uniform(2, tile - 2)),
-                           rng.uniform(0, 360), rng.randint(0, 99999)))
-
-        for _ in range(rng.randint(4, 8)):
-            spawns.append(("leaf",
-                           (rng.uniform(1, tile - 1), rng.uniform(1, tile - 1)),
-                           rng.uniform(0, 360), rng.randint(0, 99999)))
+                spawns.append((kind, (x, y),
+                               rng.uniform(0, 360), rng.randint(0, 99999)))
 
         return spawns
 
     def _place_object_tiles(self):
-        """Place object tiles around the camera. Tic-tac-toe: 3×3 grid."""
+        """Queue object tiles around the camera. 5×5 scan, drip-spawned."""
         cam_pos = self.cam.getPos()
         tile = self._object_tile_size
         center_tx = int(math.floor(cam_pos.getX() / tile))
         center_ty = int(math.floor(cam_pos.getY() / tile))
 
+        # Sort by distance — center tile + 1 ring (3×3 at 288m = 864m coverage)
+        candidates = []
         for dx in range(-1, 2):
             for dy in range(-1, 2):
                 tx, ty = center_tx + dx, center_ty + dy
                 if (tx, ty) in self._object_tile_placed:
                     continue
-                self._object_tile_placed.add((tx, ty))
-                offset_x = tx * tile
-                offset_y = ty * tile
-                tile_key = (tx, ty)
+                candidates.append((dx * dx + dy * dy, tx, ty))
+        candidates.sort()
 
-                # Pick template via position hash — adjacent tiles always differ
-                template_idx = (tx * 3 + ty * 5 + tx * ty) % len(self._object_templates)
-                template = self._object_templates[template_idx]
+        for _dist, tx, ty in candidates:
+            self._object_tile_placed.add((tx, ty))
+            offset_x = tx * tile
+            offset_y = ty * tile
+            tile_key = (tx, ty)
 
-                for kind, (lx, ly), heading, seed in template:
-                    wx = offset_x + lx
-                    wy = offset_y + ly
-                    wz = self._height_at(wx, wy)
-                    if kind == "leaf":
-                        wz += 3.0  # leaves drift from above
-                    self._ambient.spawn(kind, pos=(wx, wy, wz),
-                                        heading=heading, seed=seed + tx * 1000 + ty,
-                                        height_fn=self._height_at,
-                                        chunk_key=tile_key)
+            template_idx = (tx * 3 + ty * 5 + tx * ty) % len(self._object_templates)
+            template = self._object_templates[template_idx]
+
+            # Prefix tile keys with "T" so they never collide with chunk keys
+            entity_key = ("T", tx, ty)
+
+            for kind, (lx, ly), heading, seed in template:
+                wx = offset_x + lx
+                wy = offset_y + ly
+                # Height deferred to drip time — keep this scan light
+                self._object_spawn_queue.append(
+                    (kind, wx, wy, heading,
+                     seed + tx * 1000 + ty, entity_key))
+
+    def _despawn_distant_tiles(self):
+        """Remove object tiles far from camera so they can be re-entered."""
+        cam_pos = self.cam.getPos()
+        tile = self._object_tile_size
+        center_tx = int(math.floor(cam_pos.getX() / tile))
+        center_ty = int(math.floor(cam_pos.getY() / tile))
+        to_remove = [k for k in self._object_tile_placed
+                     if abs(k[0] - center_tx) > 3 or abs(k[1] - center_ty) > 3]
+        for k in to_remove:
+            self._ambient.despawn_chunk(("T", k[0], k[1]))
+            self._object_tile_placed.discard(k)
+
+    def _drip_spawn_objects(self):
+        """Spawn queued objects across frames. 8 per frame — smooth drip."""
+        for _ in range(8):
+            if not self._object_spawn_queue:
+                return
+            kind, wx, wy, heading, seed, tile_key = \
+                self._object_spawn_queue.popleft()
+            wz = self._height_at(wx, wy)
+            if kind == "leaf":
+                wz += 3.0
+            self._ambient.spawn(kind, pos=(wx, wy, wz),
+                                heading=heading, seed=seed,
+                                height_fn=self._height_at,
+                                chunk_key=tile_key)
 
     # -- Chunk subsystems (split for 60-frame cycle) ----------------------------
 
@@ -476,18 +556,18 @@ void main() {
         self._chunks[key] = self._build_chunk_from_data(key[0], key[1], data)
 
     def _despawn_distant(self):
-        """Remove chunks far from camera. Runs once per cycle."""
+        """Remove chunks far from camera. Throttled: max 3 per call."""
         cam_pos = self.cam.getPos()
         center_cx, center_cz = self._chunk_key(cam_pos.getX(), cam_pos.getY())
-        to_remove = []
-        for key in self._chunks:
+        removed = 0
+        for key in list(self._chunks):
+            if removed >= 3:
+                break
             if (abs(key[0] - center_cx) > DESPAWN_RADIUS or
                     abs(key[1] - center_cz) > DESPAWN_RADIUS):
-                to_remove.append(key)
-        for key in to_remove:
-            self._ambient.despawn_chunk(key)
-            self._chunks[key].removeNode()
-            del self._chunks[key]
+                self._chunks[key].removeNode()
+                del self._chunks[key]
+                removed += 1
 
     def _generate_chunk_data(self, key):
         """Background thread: compute ALL chunk data (texture + mesh + spawns)."""
@@ -1037,12 +1117,13 @@ void main() {
         return {"surface": "sky", "distance": -1, "hit": [0, 0, 0]}
 
     def _place_tag(self, label=None):
-        probe = self._calc_probe()
-        if probe.get("distance", -1) < 0:
-            return
+        """Drop a breadcrumb at the player's feet — visible behind you as you walk."""
         self._tag_counter += 1
         tag_id = self._tag_counter
-        pos = probe["hit"]
+        cx, cy, cz = self.cam.getX(), self.cam.getY(), self.cam.getZ()
+        # Ground level at player position
+        gz = self._height_at(cx, cy)
+        pos = [round(cx, 2), round(cy, 2), round(gz, 2)]
         text = label or f"#{tag_id}"
 
         tn = TextNode(f"tag_{tag_id}")
@@ -1053,24 +1134,49 @@ void main() {
         tn.setCardAsMargin(0.15, 0.15, 0.08, 0.08)
         tn.setCardDecal(True)
         node = self.render.attachNewNode(tn)
-        node.setPos(pos[0], pos[1], pos[2] + 0.3)
-        node.setScale(0.18)
+        node.setPos(pos[0], pos[1], pos[2] + 0.5)
+        node.setScale(0.25)
         node.setBillboardPointEye()
+        node.setLightOff()  # always visible, ignores scene lighting
+
+        chunk = list(self._chunk_key(cx, cy))
+        tile = self._object_tile_size
+        tile_key = (int(math.floor(cx / tile)), int(math.floor(cy / tile)))
+
+        # Performance telemetry at moment of drop
+        dt = globalClock.getDt()
+        frame_ms = round(dt * 1000, 1)
+        queue_depth = len(self._object_spawn_queue)
+        entities_total = self._ambient.total_count
+        entities_active = self._ambient.active_count
+        chunks_loaded = len(self._chunks)
+        import time as _time
+        wall_time = round(_time.time(), 3)
 
         tag = {
             "id": tag_id, "label": text,
-            "surface": probe["surface"], "distance": probe["distance"],
-            "pos": pos, "chunk": probe.get("chunk"),
+            "surface": "feet", "distance": 0,
+            "pos": pos, "chunk": chunk, "tile": list(tile_key),
             "camera": {
-                "x": round(self.cam.getX(), 2), "y": round(self.cam.getY(), 2),
-                "z": round(self.cam.getZ(), 2),
+                "x": round(cx, 2), "y": round(cy, 2),
+                "z": round(cz, 2),
                 "h": round(self._cam_h, 1), "p": round(self._cam_p, 1),
+            },
+            "perf": {
+                "frame_ms": frame_ms,
+                "spawn_queue": queue_depth,
+                "entities_total": entities_total,
+                "entities_active": entities_active,
+                "chunks_loaded": chunks_loaded,
+                "wall_time": wall_time,
             },
             "_node": node,
         }
         self._debug_tags.append(tag)
-        console.log(f"[bold yellow]TAG #{tag_id}[/bold yellow]  {probe['surface']}  "
-                     f"d={probe['distance']}  @ {pos}")
+        console.log(f"[bold yellow]TAG #{tag_id}[/bold yellow]  "
+                     f"chunk={chunk}  tile={list(tile_key)}  "
+                     f"frame={frame_ms}ms  queue={queue_depth}  "
+                     f"ent={entities_active}/{entities_total}  @ {pos}")
 
     def _undo_last_tag(self):
         if not self._debug_tags:
@@ -1245,9 +1351,19 @@ void main() {
         if fc == 47:
             self._despawn_distant()
 
-        # Object tile check: frame 29 (1× per cycle) — expand tiles as player moves
+        # Object tile scan: frame 29 — queue new tiles; frame 53 — despawn far tiles
         if fc == 29:
             self._place_object_tiles()
+        if fc == 53:
+            self._despawn_distant_tiles()
+
+        # Drip-spawn queued objects: every frame (8 per frame, ~1ms budget)
+        self._drip_spawn_objects()
+
+        # Manual GC: gen-0 only during gameplay — lightweight, ~0.1ms
+        # Gen-1/2 were causing 50-75ms spikes with 3000+ entity node trees
+        if fc == 37:
+            gc.collect(0)
 
         # Chronometer: frame 59 (1× per cycle, ~1 read per second)
         if fc == 59:
