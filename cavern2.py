@@ -33,6 +33,8 @@ from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
 from direct.interval.LerpInterval import LerpColorScaleInterval
 from direct.interval.IntervalGlobal import Sequence, Func
+from core.systems.config_engine import ConfigEngine
+from core.systems.repl import EngineREPL
 from panda3d.core import (
     Vec3, Vec4, TextNode, AntialiasAttrib,
     Fog, SamplerState, TransparencyAttrib,
@@ -197,8 +199,12 @@ class Cavern(ShowBase):
         globalClock.setMode(ClockObject.MLimited)
         globalClock.setFrameRate(60)
 
+        # -- Config engine (every constant lives in sanctum.toml) ---------------
+        self._cfg = ConfigEngine("config/sanctum.toml")
+
         # -- Rendering setup ---------------------------------------------------
-        self.setBackgroundColor(0.08, 0.07, 0.06, 1)
+        bg = self._cfg.camera.background
+        self.setBackgroundColor(bg[0], bg[1], bg[2], 1)
         self.disableMouse()
         self.camLens.setFov(65.0)
         self.camLens.setNear(0.5)
@@ -333,6 +339,18 @@ class Cavern(ShowBase):
         self.accept("shift-0", self._reset_tuners)  # Shift+0 = reset all to defaults
         self._daylight = False
 
+        # -- REPL (~ to toggle, type Python live) --------------------------------
+        self._repl = EngineREPL(self, self._cfg, namespace={
+            "fog_obj": self._fog,
+            "amb": self._amb_np,
+            "spot": self._orb_np,
+            "membrane": self._membrane,
+            "ambient": self._ambient,
+        })
+        # Wire config changes to live engine updates
+        self._cfg.root.watch("fog", self._on_cfg_fog)
+        self._cfg.root.watch("lighting.ambient", self._on_cfg_ambient)
+
         # -- Layer diagnostic mode ------------------------------------------------
         # Press . to add layers one at a time. Identify which layer causes issues.
         self._diag_layer = 0
@@ -441,6 +459,25 @@ class Cavern(ShowBase):
             self._diag_hud.setText("\n".join(lines))
 
         console.log(f"[bold yellow]LAYER {layer}: {name}[/bold yellow]")
+
+    # -- Config watchers (REPL changes → live engine) -------------------------
+
+    def _on_cfg_fog(self, path, value):
+        """Config change in fog.* → update live fog."""
+        try:
+            f = self._cfg.fog
+            self._fog.setColor(Vec4(f.color[0], f.color[1], f.color[2], 1))
+            self._fog.setLinearRange(f.near, f.far)
+        except Exception:
+            pass
+
+    def _on_cfg_ambient(self, path, value):
+        """Config change in lighting.ambient.* → update live ambient."""
+        try:
+            a = self._cfg.lighting.ambient
+            self._amb_np.node().setColor(Vec4(a.color[0], a.color[1], a.color[2], 1))
+        except Exception:
+            pass
 
     # -- Helpers ---------------------------------------------------------------
 
