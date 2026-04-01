@@ -23,6 +23,7 @@ from panda3d.core import (
     Vec3, Vec4, NodePath, TexGenAttrib, TextureStage, Texture, PNMImage,
     SamplerState, PointLight,
 )
+from direct.interval.LerpInterval import LerpColorScaleInterval
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
 
 
@@ -1435,7 +1436,7 @@ class AmbientEntity:
     """A single behavior-driven entity in the world."""
 
     __slots__ = ("kind", "pos", "heading", "node", "behavior",
-                 "awake", "height_fn", "chunk_key", "motes")
+                 "awake", "height_fn", "chunk_key", "motes", "_fade_iv", "_lod_band")
 
     def __init__(self, kind, node, behavior, pos, heading, height_fn=None, chunk_key=None):
         self.kind = kind
@@ -1447,6 +1448,8 @@ class AmbientEntity:
         self.awake = False
         self.height_fn = height_fn
         self.chunk_key = chunk_key
+        self._fade_iv = None  # active fade interval (C++ side)
+        self._lod_band = 0    # 0=sleep, 1=far (silhouette), 2=mid (shape), 3=near (full)
 
 
 # -- Ambient Manager -----------------------------------------------------------
@@ -1459,8 +1462,14 @@ class AmbientManager:
     def __init__(self, render_node, wake_radius=40.0, sleep_radius=50.0, membrane=None):
         self._render = render_node
         self._membrane = membrane   # if set, use decals instead of point lights
-        self._wake_r2 = wake_radius * wake_radius
-        self._sleep_r2 = sleep_radius * sleep_radius
+        # 3-band LOD chain (like audio gain staging):
+        #   Band 1 (far):  silhouette only — low alpha, no decals, no motes
+        #   Band 2 (mid):  basic geometry — medium alpha, decals fade in
+        #   Band 3 (near): full detail — full alpha, decals, motes, behavior ticks
+        self._band_far_r2 = wake_radius * wake_radius           # 44m — gate opens
+        self._band_mid_r2 = (wake_radius * 0.6) ** 2            # ~26m — shape band
+        self._band_near_r2 = (wake_radius * 0.35) ** 2          # ~15m — full detail
+        self._sleep_r2 = sleep_radius * sleep_radius             # 55m — gate closes
         self._entities = []         # all entities
         self._active = set()        # currently ticking (set for O(1) add/remove)
         self._active_lights = []    # (distance², entity, glow_np) — closest N active
@@ -1540,18 +1549,36 @@ class AmbientManager:
                 dy = e.pos[1] - cy
                 d2 = dx * dx + dy * dy
 
-                if not e.awake and d2 < self._wake_r2:
-                    e.awake = True
-                    e.node.show()
-                    self._active.add(e)
-                    if self._membrane:
-                        self._membrane.wake(id(e))
-                    else:
-                        mcfg = e.node.getPythonTag("mote_config")
-                        if mcfg and not e.motes:
-                            e.motes = _spawn_motes(e.node, mcfg, e.pos)
-                elif e.awake and d2 > self._sleep_r2:
+                # 3-band LOD — like gain staging through a signal chain
+                # Band 0: sleep (gate closed)
+                # Band 1: far — silhouette, low alpha, no effects
+                # Band 2: mid — shape visible, decals fade in
+                # Band 3: near — full detail, motes, behavior ticks
+                if d2 > self._sleep_r2:
+                    new_band = 0
+                elif d2 > self._band_far_r2:
+                    new_band = 0  # outside wake radius
+                elif d2 > self._band_mid_r2:
+                    new_band = 1  # far band
+                elif d2 > self._band_near_r2:
+                    new_band = 2  # mid band
+                else:
+                    new_band = 3  # near band
+
+                old_band = e._lod_band
+                if new_band == old_band:
+                    continue
+
+                # -- Transition: band changed --
+                cs = e.node.getColorScale()
+                if e._fade_iv:
+                    e._fade_iv.pause()
+                    e._fade_iv = None
+
+                if new_band == 0 and old_band > 0:
+                    # Gate close — sleep
                     e.awake = False
+                    e._lod_band = 0
                     e.node.hide()
                     self._active.discard(e)
                     if self._membrane:
@@ -1561,6 +1588,41 @@ class AmbientManager:
                             if m and not m.isEmpty():
                                 m.removeNode()
                         e.motes = []
+
+                elif new_band >= 1 and old_band == 0:
+                    # Gate open — wake into appropriate band
+                    e.awake = True
+                    e._lod_band = new_band
+                    e.node.setTransparency(1)
+                    target_a = [0, 0.15, 0.55, cs[3]][new_band]
+                    e.node.setColorScale(cs[0], cs[1], cs[2], 0.0)
+                    e.node.show()
+                    e._fade_iv = LerpColorScaleInterval(
+                        e.node, 3.0,
+                        Vec4(cs[0], cs[1], cs[2], target_a),
+                        Vec4(cs[0], cs[1], cs[2], 0.0),
+                    )
+                    e._fade_iv.start()
+                    self._active.add(e)
+                    if new_band >= 2 and self._membrane:
+                        self._membrane.wake(id(e))
+
+                else:
+                    # Band shift (1↔2↔3) — cross-fade alpha
+                    e._lod_band = new_band
+                    target_a = [0, 0.15, 0.55, cs[3]][new_band]
+                    cur_a = e.node.getColorScale()[3]
+                    e._fade_iv = LerpColorScaleInterval(
+                        e.node, 1.5,
+                        Vec4(cs[0], cs[1], cs[2], target_a),
+                        Vec4(cs[0], cs[1], cs[2], cur_a),
+                    )
+                    e._fade_iv.start()
+                    # Decals activate at band 2+, motes at band 3
+                    if new_band >= 2 and old_band < 2 and self._membrane:
+                        self._membrane.wake(id(e))
+                    elif new_band < 2 and old_band >= 2 and self._membrane:
+                        self._membrane.sleep(id(e))
 
         # Light budget: activate only the closest N point lights (skip if membrane handles it)
         if not self._membrane:
@@ -1584,6 +1646,20 @@ class AmbientManager:
                 if id(glow) not in new_lights:
                     self._render.clearLight(glow)
             self._active_lights = light_candidates[:self.MAX_ACTIVE_LIGHTS]
+
+        # Self-heal: detect awake entities stuck invisible (fade failed/stalled)
+        # Runs once per full scan cycle (~3s) — near-zero cost
+        if n > 0 and self._check_cursor == 0:
+            for e in list(self._active):
+                if not e.node or e.node.isEmpty():
+                    continue
+                cs = e.node.getColorScale()
+                fade_done = (e._fade_iv is None or e._fade_iv.isStopped())
+                if fade_done and cs[3] < 0.05 and e._lod_band > 0:
+                    # Stuck invisible — snap to band target alpha
+                    target_a = [0, 0.15, 0.55, cs[3] if cs[3] > 0.5 else 1.0][e._lod_band]
+                    e.node.setColorScale(cs[0], cs[1], cs[2], target_a)
+                    e._fade_iv = None
 
         # Tick active behaviors
         t = self._tick_time if hasattr(self, '_tick_time') else 0.0

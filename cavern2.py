@@ -31,6 +31,7 @@ import gc
 
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
+from direct.interval.LerpInterval import LerpColorScaleInterval
 from panda3d.core import (
     Vec3, Vec4, TextNode, AntialiasAttrib,
     Fog, SamplerState, TransparencyAttrib,
@@ -96,6 +97,82 @@ BIOME_CAVERN_DEFAULT = [
     ("spider",            0.08,    0,         2),
 ]
 
+# Ghost audio seeds — config structure for OSC→Max for Live bridge.
+# Each kind maps to an audio profile. Not wired yet — structure only.
+# channel: OSC channel/instrument routing
+# note_base: MIDI root note (entity pitch center)
+# velocity_curve: how approach speed maps to dynamics ("linear", "log", "step")
+# band_response: what happens at each LOD band transition
+#   1 (far):  ambient layer — reverb-heavy, low velocity, pad/drone
+#   2 (mid):  presence layer — moderate dynamics, texture emerges
+#   3 (near): detail layer — full velocity, dry signal, percussive elements
+# contact: trigger type on collision ("percussive", "sustained", "none")
+# decay: note-off behavior ("natural", "gated", "frozen")
+AUDIO_GHOST_SEEDS = {
+    # -- Architecture (low freq, long sustain, deep reverb) --
+    "mega_column":      {"channel": 1,  "note_base": 24, "velocity_curve": "log",
+                         "band_response": {1: "drone_low", 2: "resonance", 3: "presence"},
+                         "contact": "sustained", "decay": "frozen"},
+    "column":           {"channel": 1,  "note_base": 36, "velocity_curve": "log",
+                         "band_response": {1: "drone_low", 2: "resonance", 3: "presence"},
+                         "contact": "sustained", "decay": "frozen"},
+    "boulder":          {"channel": 2,  "note_base": 30, "velocity_curve": "linear",
+                         "band_response": {1: "rumble", 2: "mass", 3: "impact_ready"},
+                         "contact": "percussive", "decay": "natural"},
+    "stalagmite":       {"channel": 2,  "note_base": 48, "velocity_curve": "linear",
+                         "band_response": {1: "silence", 2: "tone", 3: "ring"},
+                         "contact": "percussive", "decay": "natural"},
+    # -- Bioluminescent (mid freq, swells, filter sweeps) --
+    "giant_fungus":     {"channel": 3,  "note_base": 55, "velocity_curve": "log",
+                         "band_response": {1: "spore_wash", 2: "pulse", 3: "bloom"},
+                         "contact": "sustained", "decay": "natural"},
+    "crystal_cluster":  {"channel": 3,  "note_base": 72, "velocity_curve": "step",
+                         "band_response": {1: "shimmer", 2: "chime", 3: "harmonic"},
+                         "contact": "percussive", "decay": "frozen"},
+    "moss_patch":       {"channel": 4,  "note_base": 60, "velocity_curve": "log",
+                         "band_response": {1: "silence", 2: "breath", 3: "texture"},
+                         "contact": "none", "decay": "natural"},
+    "ceiling_moss":     {"channel": 4,  "note_base": 65, "velocity_curve": "log",
+                         "band_response": {1: "silence", 2: "drip_hint", 3: "drip"},
+                         "contact": "none", "decay": "natural"},
+    "hanging_vine":     {"channel": 4,  "note_base": 58, "velocity_curve": "linear",
+                         "band_response": {1: "silence", 2: "creak", 3: "sway"},
+                         "contact": "sustained", "decay": "gated"},
+    # -- Organic debris (high freq, transients, texture) --
+    "dead_log":         {"channel": 5,  "note_base": 40, "velocity_curve": "linear",
+                         "band_response": {1: "silence", 2: "creak", 3: "wood_tone"},
+                         "contact": "percussive", "decay": "natural"},
+    "bone_pile":        {"channel": 5,  "note_base": 68, "velocity_curve": "step",
+                         "band_response": {1: "silence", 2: "rattle_hint", 3: "rattle"},
+                         "contact": "percussive", "decay": "gated"},
+    "grass_tuft":       {"channel": 6,  "note_base": 76, "velocity_curve": "linear",
+                         "band_response": {1: "silence", 2: "silence", 3: "rustle"},
+                         "contact": "none", "decay": "gated"},
+    "rubble":           {"channel": 6,  "note_base": 44, "velocity_curve": "linear",
+                         "band_response": {1: "silence", 2: "scrape_hint", 3: "scrape"},
+                         "contact": "percussive", "decay": "natural"},
+    "leaf_pile":        {"channel": 6,  "note_base": 80, "velocity_curve": "linear",
+                         "band_response": {1: "silence", 2: "silence", 3: "crinkle"},
+                         "contact": "none", "decay": "gated"},
+    "twig_scatter":     {"channel": 6,  "note_base": 84, "velocity_curve": "step",
+                         "band_response": {1: "silence", 2: "silence", 3: "snap"},
+                         "contact": "percussive", "decay": "gated"},
+    # -- Fauna (dynamic, velocity-sensitive, movement-triggered) --
+    "rat":              {"channel": 7,  "note_base": 88, "velocity_curve": "linear",
+                         "band_response": {1: "silence", 2: "scurry_distant", 3: "scurry"},
+                         "contact": "none", "decay": "gated"},
+    "beetle":           {"channel": 7,  "note_base": 92, "velocity_curve": "linear",
+                         "band_response": {1: "silence", 2: "silence", 3: "click"},
+                         "contact": "none", "decay": "gated"},
+    "spider":           {"channel": 7,  "note_base": 96, "velocity_curve": "log",
+                         "band_response": {1: "silence", 2: "silence", 3: "creep"},
+                         "contact": "none", "decay": "gated"},
+    # -- Atmospheric (drift, no contact, pure proximity) --
+    "leaf":             {"channel": 8,  "note_base": 70, "velocity_curve": "log",
+                         "band_response": {1: "silence", 2: "flutter_hint", 3: "flutter"},
+                         "contact": "none", "decay": "natural"},
+}
+
 
 class Cavern(ShowBase):
 
@@ -120,11 +197,11 @@ class Cavern(ShowBase):
         globalClock.setFrameRate(60)
 
         # -- Rendering setup ---------------------------------------------------
-        self.setBackgroundColor(0.02, 0.02, 0.03, 1)
+        self.setBackgroundColor(0.08, 0.07, 0.06, 1)
         self.disableMouse()
         self.camLens.setFov(65.0)
         self.camLens.setNear(0.5)
-        self.camLens.setFar(45.0)  # match fog end — don't render what you can't see
+        self.camLens.setFar(70.0)  # wider than fog — lets you tune fog_far without clipping
         self.render.setAntialias(AntialiasAttrib.MMultisample)
         # Per-pixel lighting with light count limit — cap GPU work
         self.render.setShaderAuto()
@@ -140,6 +217,8 @@ class Cavern(ShowBase):
         self._chunks = {}           # (cx, cz) -> NodePath
         self._pending_chunks = {}   # (cx, cz) -> texture data being generated in background
         self._ready_chunks = {}     # (cx, cz) -> (tex_data, chunk_seed) ready to build
+        self._chunk_cache = {}      # (cx, cz) -> data dict (LRU: despawned chunks kept for fast revisit)
+        self._chunk_cache_max = 80  # keep ~80 despawned chunks in memory (~5MB)
         self._chunk_lock = threading.Lock()
         self._chunk_seed = 42
         self._tex_size_override = TEX_SIZE
@@ -174,6 +253,24 @@ class Cavern(ShowBase):
         self._cmd_path = os.path.join(os.path.dirname(__file__) or ".", "debug_cmd.json")
         self._state_path = os.path.join(os.path.dirname(__file__) or ".", "debug_state.json")
 
+        # -- Tuning potentiometers (number row selects, +/- adjusts) -----------
+        self._tuner_channel = 0  # 0 = none selected
+        self._tuner_hud = None
+        self._tuners = {
+            1: {"name": "fog_near",     "val": 20.0,  "min": -10.0, "max": 60.0, "step": 1.0},
+            2: {"name": "fog_far",      "val": 60.0,  "min": -10.0, "max": 120.0,"step": 2.0},
+            3: {"name": "ambient_r",    "val": 0.35,  "min": -0.5,  "max": 1.0,  "step": 0.02},
+            4: {"name": "ambient_g",    "val": 0.30,  "min": -0.5,  "max": 1.0,  "step": 0.02},
+            5: {"name": "ambient_b",    "val": 0.25,  "min": -0.5,  "max": 1.0,  "step": 0.02},
+            6: {"name": "grain_alpha",  "val": 0.18,  "min": -0.3,  "max": 0.5,  "step": 0.02},
+            7: {"name": "spot_power",   "val": 4.0,   "min": -2.0,  "max": 10.0, "step": 0.5},
+            8: {"name": "decal_scale",  "val": 1.0,   "min": -1.0,  "max": 3.0,  "step": 0.1},
+            9: {"name": "fade_entity",  "val": 2.0,   "min": 0.0,   "max": 8.0,  "step": 0.2},
+        }
+
+        # Snapshot defaults for reset
+        self._tuner_defaults = {k: t["val"] for k, t in self._tuners.items()}
+
         # -- Lighting ----------------------------------------------------------
         self._build_lighting()
 
@@ -181,7 +278,7 @@ class Cavern(ShowBase):
         self._fog = Fog("cavern_fog")
         fc = self._palette["fog"]
         self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
-        self._fog.setLinearRange(15.0, 42.0)  # tighter — nothing visible past 42m
+        self._fog.setLinearRange(self._tuners[1]["val"], self._tuners[2]["val"])
         self.render.setFog(self._fog)
 
         # -- Camera start ------------------------------------------------------
@@ -214,15 +311,24 @@ class Cavern(ShowBase):
         for key in self._keys:
             self.accept(key, self._set_key, [key, True])
             self.accept(f"{key}-up", self._set_key, [key, False])
-        for i in range(len(REGISTERS)):
-            self.accept(f"f{i + 1}", self._cycle_register, [i])
+        # Registers: [ cycles backward, ] cycles forward (replaces fullscreen on ])
+        self.accept("[", self._prev_register)
+        self.accept("]", self._next_register)
         self.accept("`", self._toggle_debug)
         self.accept("0", self._dump_debug_state)
         self.accept("t", self._place_tag)
         self.accept("shift-t", self._undo_last_tag)
         self.accept("control-t", self._clear_tags)
-        self.accept("]", self._toggle_fullscreen)
         self.accept("l", self._toggle_daylight)
+        self.accept("shift-]", self._toggle_fullscreen)
+        # Tuning: number row selects channel, +/- adjusts
+        for i in range(1, 10):
+            self.accept(str(i), self._select_tuner, [i])
+        self.accept("=", self._adjust_tuner, [1, False])      # coarse +
+        self.accept("shift-=", self._adjust_tuner, [1, True])  # fine +
+        self.accept("-", self._adjust_tuner, [-1, False])       # coarse -
+        self.accept("shift--", self._adjust_tuner, [-1, True])  # fine -
+        self.accept("shift-0", self._reset_tuners)  # Shift+0 = reset all to defaults
         self._daylight = False
 
         self.taskMgr.add(self._loop, "CavernLoop")
@@ -257,7 +363,7 @@ class Cavern(ShowBase):
     def _build_lighting(self):
         pal = self._palette
         amb = AmbientLight("amb")
-        amb.setColor(Vec4(0.10, 0.08, 0.06, 1))
+        amb.setColor(Vec4(self._tuners[3]["val"], self._tuners[4]["val"], self._tuners[5]["val"], 1))
         self._amb_np = self.render.attachNewNode(amb)
         self.render.setLight(self._amb_np)
 
@@ -316,10 +422,26 @@ float hash(vec2 p) {
 }
 
 void main() {
-    float grain = hash(uv * 800.0 + osg_FrameTime * 7.3) * 0.08 - 0.04;
+    // Screen-space noise — two octaves for texture
+    float n1 = hash(uv * 900.0 + osg_FrameTime * 7.3);
+    float n2 = hash(uv * 400.0 + osg_FrameTime * 3.1);
+
+    // Distance from center — drives vignette + fog density feel
     vec2 vc = uv - 0.5;
-    float vign = 1.0 - dot(vc, vc) * 0.6;
-    gl_FragColor = vec4(grain * vign, grain * vign, grain * vign * 0.9, 0.12);
+    float dist = length(vc);
+    float vign = 1.0 - dist * dist * 0.8;
+
+    // Fog dither: stronger noise at edges (simulates uneven atmospheric density)
+    // Adds particulate breakup to the smooth fog gradient
+    float fog_noise = (n1 * 0.7 + n2 * 0.3) * 0.18 - 0.09;
+    float edge_boost = smoothstep(0.15, 0.5, dist) * 1.5;  // more noise at fog boundary
+    fog_noise *= (1.0 + edge_boost);
+
+    // Film grain — visible everywhere, stronger in dark areas (cave dust)
+    float grain = fog_noise * vign;
+
+    // Warm-shift the grain slightly (dust is warm, not neutral gray)
+    gl_FragColor = vec4(grain * 1.05, grain, grain * 0.9, 0.18);
 }
 """
         try:
@@ -388,7 +510,9 @@ void main() {
             self._generate_object_template(self._chunk_seed + i * 777)
             for i in range(7)
         ]
-        self._place_object_tiles()
+        # Place ALL initial tiles synchronously (runtime uses 1-per-call drip)
+        for _ in range(9):
+            self._place_object_tiles()
         # Stage ALL initial objects synchronously — world populated before first frame
         console.log("[dim]Staging objects...[/dim]")
         while self._object_spawn_queue:
@@ -451,7 +575,7 @@ void main() {
         return spawns
 
     def _place_object_tiles(self):
-        """Queue object tiles around the camera. 5×5 scan, drip-spawned."""
+        """Queue object tiles around the camera. Max 1 NEW tile per call — drip the drip."""
         cam_pos = self.cam.getPos()
         tile = self._object_tile_size
         center_tx = int(math.floor(cam_pos.getX() / tile))
@@ -465,27 +589,26 @@ void main() {
                 if (tx, ty) in self._object_tile_placed:
                     continue
                 candidates.append((dx * dx + dy * dy, tx, ty))
+        if not candidates:
+            return
         candidates.sort()
 
-        for _dist, tx, ty in candidates:
-            self._object_tile_placed.add((tx, ty))
-            offset_x = tx * tile
-            offset_y = ty * tile
-            tile_key = (tx, ty)
+        # Only place ONE tile per call — spreads the queue across multiple frame cycles
+        _dist, tx, ty = candidates[0]
+        self._object_tile_placed.add((tx, ty))
+        offset_x = tx * tile
+        offset_y = ty * tile
 
-            template_idx = (tx * 3 + ty * 5 + tx * ty) % len(self._object_templates)
-            template = self._object_templates[template_idx]
+        template_idx = (tx * 3 + ty * 5 + tx * ty) % len(self._object_templates)
+        template = self._object_templates[template_idx]
+        entity_key = ("T", tx, ty)
 
-            # Prefix tile keys with "T" so they never collide with chunk keys
-            entity_key = ("T", tx, ty)
-
-            for kind, (lx, ly), heading, seed in template:
-                wx = offset_x + lx
-                wy = offset_y + ly
-                # Height deferred to drip time — keep this scan light
-                self._object_spawn_queue.append(
-                    (kind, wx, wy, heading,
-                     seed + tx * 1000 + ty, entity_key))
+        for kind, (lx, ly), heading, seed in template:
+            wx = offset_x + lx
+            wy = offset_y + ly
+            self._object_spawn_queue.append(
+                (kind, wx, wy, heading,
+                 seed + tx * 1000 + ty, entity_key))
 
     def _despawn_distant_tiles(self):
         """Remove object tiles far from camera. Throttled: max 1 per call."""
@@ -500,8 +623,11 @@ void main() {
                 return  # max 1 tile per call — spread the cost
 
     def _drip_spawn_objects(self):
-        """Spawn queued objects across frames. 8 per frame — smooth drip."""
-        for _ in range(8):
+        """Spawn queued objects across frames. Adaptive rate — faster when queue is deep."""
+        # Base: 8/frame. If queue > 500, ramp up to drain faster (still smooth)
+        q = len(self._object_spawn_queue)
+        rate = 8 if q < 500 else min(24, 8 + q // 200)
+        for _ in range(rate):
             if not self._object_spawn_queue:
                 return
             kind, wx, wy, heading, seed, tile_key = \
@@ -545,6 +671,11 @@ void main() {
         needed.sort(key=chunk_priority)
 
         for key in needed:
+            # Fast path: cached chunk data from previous visit — skip thread entirely
+            if key in self._chunk_cache:
+                with self._chunk_lock:
+                    self._ready_chunks[key] = self._chunk_cache.pop(key)
+                continue
             if active_threads >= max_concurrent:
                 break
             self._pending_chunks[key] = True
@@ -619,13 +750,18 @@ void main() {
         # Objects are handled by the tile system now — not per-chunk
         ambient_spawns = []
 
+        data = {
+            "tex_bytes": tex_bytes, "tex_size": tex_size,
+            "verts": verts, "norms": norms, "uvs": uvs,
+            "subdivs": subdivs, "seed": chunk_seed,
+            "spawns": ambient_spawns,
+        }
         with self._chunk_lock:
-            self._ready_chunks[key] = {
-                "tex_bytes": tex_bytes, "tex_size": tex_size,
-                "verts": verts, "norms": norms, "uvs": uvs,
-                "subdivs": subdivs, "seed": chunk_seed,
-                "spawns": ambient_spawns,
-            }
+            self._ready_chunks[key] = data
+            # LRU cache — keep data for fast revisit after despawn
+            if len(self._chunk_cache) >= self._chunk_cache_max:
+                self._chunk_cache.pop(next(iter(self._chunk_cache)))
+            self._chunk_cache[key] = data  # shared ref, cheap
             self._pending_chunks.pop(key, None)
 
     def _build_chunk_OLD(self, cx, cz):
@@ -907,6 +1043,18 @@ void main() {
         ground_np = chunk_root.attachNewNode(gn)
         ground_np.setTexture(tex)
         ground_np.setTwoSided(True)
+        # Kill specular on ground — cave floor is matte, not wet
+        from panda3d.core import Material
+        mat = Material()
+        mat.setSpecular((0, 0, 0, 1))
+        mat.setShininess(0)
+        ground_np.setMaterial(mat)
+
+        # Fade in ground — C++ interval, prevents hard pop-in
+        chunk_root.setTransparency(TransparencyAttrib.MAlpha)
+        chunk_root.setColorScale(1, 1, 1, 0)
+        fade = LerpColorScaleInterval(chunk_root, 2.5, Vec4(1, 1, 1, 1), Vec4(1, 1, 1, 0))
+        fade.start()
 
         # Ambient spawns — inside time budget with the mesh
         chunk_key = (cx, cz)
@@ -921,8 +1069,8 @@ void main() {
         tex = Texture(name)
         tex.setup2dTexture(tex_size, tex_size, Texture.T_unsigned_byte, Texture.F_rgb8)
         tex.setRamImage(bytes(flat_bytes))
-        tex.setMagfilter(SamplerState.FT_nearest)
-        tex.setMinfilter(SamplerState.FT_nearest)
+        tex.setMagfilter(SamplerState.FT_linear)   # smooth at close range
+        tex.setMinfilter(SamplerState.FT_linear)    # smooth at distance — hides chunk seams
         tex.setWrapU(SamplerState.WM_clamp)
         tex.setWrapV(SamplerState.WM_clamp)
         return tex
@@ -1079,6 +1227,12 @@ void main() {
 
     # -- Register switching ----------------------------------------------------
 
+    def _next_register(self):
+        self._cycle_register((self._register_index + 1) % len(REGISTERS))
+
+    def _prev_register(self):
+        self._cycle_register((self._register_index - 1) % len(REGISTERS))
+
     def _cycle_register(self, index):
         self._register_index = index % len(REGISTERS)
         reg = REGISTERS[self._register_index]
@@ -1086,17 +1240,18 @@ void main() {
 
         # Update lighting
         lc = self._palette["sconce"]
-        self._player_light.node().setColor(Vec4(lc[0] * 0.8, lc[1] * 0.7, lc[2] * 0.4, 1))
+        self._orb_np.node().setColor(Vec4(lc[0] * 4.0, lc[1] * 3.5, lc[2] * 2.5, 1))
         fc = self._palette["fog"]
         self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
         bg = self._palette["backdrop"]
         self.setBackgroundColor(bg[0], bg[1], bg[2], 1)
 
-        # Rebuild all chunks with new palette
+        # Rebuild all chunks with new palette — clear rendered + cached, dispatch fresh
         for key, np in list(self._chunks.items()):
             np.removeNode()
         self._chunks.clear()
-        self._update_chunks()
+        self._chunk_cache.clear()
+        self._dispatch_chunks()
 
         console.log(f"[bold magenta]REGISTER[/bold magenta]  {reg}")
 
@@ -1145,6 +1300,100 @@ void main() {
         else:
             if self._debug_hud_text:
                 self._debug_hud_text.hide()
+
+    # -- Tuning potentiometers ---------------------------------------------------
+
+    def _select_tuner(self, ch):
+        """Number row: select which parameter to tune."""
+        if self._tuner_channel == ch:
+            self._tuner_channel = 0  # toggle off
+        else:
+            self._tuner_channel = ch
+        self._update_tuner_hud()
+
+    def _adjust_tuner(self, direction, fine=False):
+        """+ or - key: adjust selected parameter. Exponential taper near default.
+        Shift = fine mode (1/5 step). Normal = coarse with curve."""
+        ch = self._tuner_channel
+        if ch == 0 or ch not in self._tuners:
+            return
+        t = self._tuners[ch]
+        base_step = t["step"]
+        if fine:
+            # Fine mode: 1/5 step — precision dialing
+            step = base_step * 0.2
+        else:
+            # Exponential taper: small steps near default, larger at extremes
+            # Distance from default as fraction of range
+            default = self._tuner_defaults[ch]
+            full_range = t["max"] - t["min"]
+            dist = abs(t["val"] - default) / max(0.001, full_range)
+            # Curve: 0.3× at center, ramps to 2× at extremes
+            curve = 0.3 + dist * 1.7
+            step = base_step * curve
+        t["val"] = max(t["min"], min(t["max"], t["val"] + step * direction))
+        self._apply_tuner(ch)
+        self._update_tuner_hud()
+
+    def _apply_tuner(self, ch):
+        """Push tuned value into the live engine."""
+        t = self._tuners[ch]
+        name = t["name"]
+        v = t["val"]
+
+        if name == "fog_near":
+            fog_far = self._tuners[2]["val"]
+            self._fog.setLinearRange(v, fog_far)
+        elif name == "fog_far":
+            fog_near = self._tuners[1]["val"]
+            self._fog.setLinearRange(fog_near, v)
+        elif name in ("ambient_r", "ambient_g", "ambient_b"):
+            r = self._tuners[3]["val"]
+            g = self._tuners[4]["val"]
+            b = self._tuners[5]["val"]
+            self._amb_np.getNode(0).setColor(Vec4(r, g, b, 1))
+        elif name == "grain_alpha":
+            if self._grain_card:
+                self._grain_card.setAlphaScale(v / 0.18)  # relative to base
+        elif name == "spot_power":
+            pal = self._palette["sconce"]
+            self._orb_np.getNode(0).setColor(
+                Vec4(pal[0] * v, pal[1] * (v * 0.875), pal[2] * (v * 0.625), 1))
+        elif name == "decal_scale":
+            pass  # applied on next membrane wake — live preview on new entities
+        elif name == "fade_entity":
+            pass  # applied on next entity wake
+
+    def _reset_tuners(self):
+        """Shift+0: reset all pots to defaults."""
+        for ch, default_val in self._tuner_defaults.items():
+            self._tuners[ch]["val"] = default_val
+            self._apply_tuner(ch)
+        self._update_tuner_hud()
+        console.log("[bold yellow]TUNERS RESET[/bold yellow]")
+
+    def _update_tuner_hud(self):
+        """Show/hide the tuning overlay."""
+        if self._tuner_channel == 0:
+            if self._tuner_hud:
+                self._tuner_hud.hide()
+            return
+        if not self._tuner_hud:
+            self._tuner_hud = OnscreenText(
+                text="", pos=(0.0, 0.85), scale=0.04,
+                fg=(1.0, 0.9, 0.3, 0.9), align=TextNode.ACenter,
+                mayChange=True, shadow=(0, 0, 0, 0.7),
+            )
+        lines = []
+        for ch in range(1, 10):
+            t = self._tuners[ch]
+            marker = ">" if ch == self._tuner_channel else " "
+            bar_pct = (t["val"] - t["min"]) / max(0.001, t["max"] - t["min"])
+            bar_len = int(bar_pct * 20)
+            bar = "|" * bar_len + "." * (20 - bar_len)
+            lines.append(f"{marker}{ch} {t['name']:>12s}  [{bar}] {t['val']:.2f}")
+        self._tuner_hud.setText("\n".join(lines))
+        self._tuner_hud.show()
 
     def _calc_probe(self):
         h_rad = math.radians(self._cam_h)
@@ -1399,8 +1648,8 @@ void main() {
         if fc == 47:
             self._despawn_distant()
 
-        # Object tile scan: frame 29 — queue new tiles; frame 53 — despawn far tiles
-        if fc == 29:
+        # Object tile scan: 4× per cycle (1 tile per call, spread the load)
+        if fc in (7, 22, 37, 52):
             self._place_object_tiles()
         if fc == 53:
             self._despawn_distant_tiles()

@@ -26,7 +26,7 @@ from panda3d.core import (
     Vec4, NodePath, CardMaker, Texture, PNMImage,
     TransparencyAttrib, SamplerState, TextNode,
 )
-from direct.interval.LerpInterval import LerpPosInterval
+from direct.interval.LerpInterval import LerpPosInterval, LerpColorScaleInterval
 from direct.interval.IntervalGlobal import Sequence, Func, Wait
 
 
@@ -141,7 +141,12 @@ class Membrane:
         decal.setTexture(self._decal_tex)
         decal.setTransparency(TransparencyAttrib.MAlpha)
         decal.setLightOff()
-        decal.setColorScale(color[0], color[1], color[2], 0.45)  # light on stone, not paint
+        # Scale alpha by color intensity — bright colors (fungus purple) get more transparent
+        # so they read as diffused light, not liquid puddles
+        intensity = max(color[0], color[1], color[2])
+        target_alpha = max(0.12, 0.35 - intensity * 0.25)  # bright=0.12, dim=0.35
+        entry["_target_alpha"] = target_alpha
+        decal.setColorScale(color[0], color[1], color[2], 0.0)  # start invisible
         # Lay flat on ground — high enough to clear chunk seams
         decal.setPos(pos[0], pos[1], pos[2] + 0.25)
         decal.setP(-90)  # face up
@@ -149,6 +154,15 @@ class Membrane:
         decal.setDepthWrite(False)  # don't cut into terrain z-buffer
         decal.setDepthOffset(1)  # bias toward camera to prevent z-fight
         entry["decal"] = decal
+
+        # Fade in — C++ interval, zero Python per frame
+        fade = LerpColorScaleInterval(
+            decal, 3.0,
+            Vec4(color[0], color[1], color[2], target_alpha),
+            Vec4(color[0], color[1], color[2], 0.0),
+        )
+        fade.start()
+        entry["intervals"].append(fade)
 
         # Motes — Panda3D intervals, zero Python per frame
         if entry["mote_count"] > 0:
