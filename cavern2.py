@@ -241,6 +241,8 @@ class Cavern(ShowBase):
             ("warm", 0.7, 0.7, 50), ("dirt1", 0.8, 0.8, 0),
             ("dirt2", 2.5, 2.5, 300), ("grit", 1.8, 1.8, 700),
             ("stone", 5.0, 5.0, 0),
+            # Normal perturbation — breaks up spotlight reflection on ground
+            ("norm_x", 2.2, 2.2, 900), ("norm_y", 2.2, 2.2, 950),
         ]:
             n = PerlinNoise2(sx, sy, 256, self._chunk_seed + seed_offset)
             self._noise[scale_name] = n
@@ -258,8 +260,8 @@ class Cavern(ShowBase):
         self._tuner_channel = 0  # 0 = none selected
         self._tuner_hud = None
         self._tuners = {
-            1: {"name": "fog_near",     "val": 20.0,  "min": -10.0, "max": 60.0, "step": 1.0},
-            2: {"name": "fog_far",      "val": 60.0,  "min": -10.0, "max": 120.0,"step": 2.0},
+            1: {"name": "fog_near",     "val": 25.0,  "min": 0.0,   "max": 60.0, "step": 1.0},
+            2: {"name": "fog_far",      "val": 55.0,  "min": 20.0,  "max": 120.0,"step": 2.0},
             3: {"name": "ambient_r",    "val": 0.35,  "min": -0.5,  "max": 1.0,  "step": 0.02},
             4: {"name": "ambient_g",    "val": 0.30,  "min": -0.5,  "max": 1.0,  "step": 0.02},
             5: {"name": "ambient_b",    "val": 0.25,  "min": -0.5,  "max": 1.0,  "step": 0.02},
@@ -275,10 +277,9 @@ class Cavern(ShowBase):
         # -- Lighting ----------------------------------------------------------
         self._build_lighting()
 
-        # -- Fog ---------------------------------------------------------------
+        # -- Fog (linear to black — clean near field, fade to void at distance) -
         self._fog = Fog("cavern_fog")
-        fc = self._palette["fog"]
-        self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
+        self._fog.setColor(Vec4(0, 0, 0, 1))  # fade to darkness, not a color
         self._fog.setLinearRange(self._tuners[1]["val"], self._tuners[2]["val"])
         self.render.setFog(self._fog)
 
@@ -332,11 +333,114 @@ class Cavern(ShowBase):
         self.accept("shift-0", self._reset_tuners)  # Shift+0 = reset all to defaults
         self._daylight = False
 
+        # -- Layer diagnostic mode ------------------------------------------------
+        # Press . to add layers one at a time. Identify which layer causes issues.
+        self._diag_layer = 0
+        self._diag_labels = [
+            "GROUND",       # 1: mesh + texture only
+            "FOG",          # 2: fog
+            "LIGHTING",     # 3: ambient + torch + fill (all lights at once)
+            "ENTITIES",     # 4: ambient life + glow cards (glow is per-entity now)
+            "TORCH_DECAL",  # 5: player's warm ground pool
+            "GRAIN",        # 6: film grain overlay
+            "BLOOM",        # 7: post-process
+            "LIVE",         # 8: WASD + full scene
+        ]
+        # Start with everything hidden
+        self._diag_ground_vis = False
+        # Hide ground chunks
+        for key, np in self._chunks.items():
+            np.hide()
+        # Disable fog
+        self.render.clearFog()
+        # Disable all lights
+        self.render.clearLight(self._amb_np)
+        self.render.clearLight(self._orb_np)
+        self.render.clearLight(self._orb_fill)
+        # Hide grain
+        if self._grain_card:
+            self._grain_card.hide()
+        # Disable bloom
+        if self._bloom_on and self._filters:
+            self._filters.delBloom()
+            self._bloom_on = False
+        # Suppress ambient ticking until entities layer
+        self._diag_suppress_ambient = True
+        # Suppress membrane updates until membrane layer
+        self._diag_suppress_membrane = True
+        # (motes are now children of entity nodes — no separate suppression needed)
+        # HUD
+        self._diag_hud = OnscreenText(
+            text="LAYER DIAGNOSTIC\nPress [.] to add next layer\n\n[waiting]",
+            pos=(0.0, 0.0), scale=0.06,
+            fg=(1.0, 0.9, 0.3, 0.9), align=TextNode.ACenter,
+            mayChange=True, shadow=(0, 0, 0, 0.8),
+        )
+        self.accept(".", self._diag_next_layer)
+
         self.taskMgr.add(self._loop, "CavernLoop")
 
-        console.log("[bold cyan]THE ENDLESS FLOOR[/bold cyan]")
-        console.log("[WASD] move  [Mouse] look  [F1-F4] registers  [ESC] quit")
-        console.log("[dim][`] debug  [0] dump  [T] tag  [Shift+T] undo  [Ctrl+T] clear[/dim]")
+        console.log("[bold cyan]THE ENDLESS FLOOR — LAYER DIAGNOSTIC[/bold cyan]")
+        console.log("[bold yellow]Press [.] to add each layer[/bold yellow]")
+        console.log("[dim]ESC to quit at any point[/dim]")
+
+    # -- Layer diagnostic -------------------------------------------------------
+
+    def _diag_next_layer(self):
+        """Press . — enable the next rendering layer."""
+        self._diag_layer += 1
+        layer = self._diag_layer
+        name = self._diag_labels[min(layer - 1, len(self._diag_labels) - 1)]
+
+        if layer == 1:  # GROUND
+            for key, np in self._chunks.items():
+                np.show()
+            self._diag_ground_vis = True
+
+        elif layer == 2:  # FOG
+            self.render.setFog(self._fog)
+
+        elif layer == 3:  # LIGHTING (all lights together — ambient + torch + fill)
+            self.render.setLight(self._amb_np)
+            self.render.setLight(self._orb_np)
+            self.render.setLight(self._orb_fill)
+
+        elif layer == 4:  # ENTITIES (glow cards are children, come with them)
+            self._diag_suppress_ambient = False
+
+        elif layer == 5:  # TORCH DECAL (player's warm ground pool only)
+            self._diag_suppress_membrane = False
+
+        elif layer == 6:  # GRAIN
+            if self._grain_card:
+                self._grain_card.show()
+
+        elif layer == 7:  # BLOOM
+            if self._filters:
+                bloom_int = self._palette.get("bloom_intensity", 0.3)
+                self._filters.setBloom(
+                    blend=(0.3, 0.4, 0.3, 0.0),
+                    mintrigger=0.6, maxtrigger=1.0,
+                    desat=0.6, intensity=bloom_int, size="medium",
+                )
+                self._bloom_on = True
+
+        elif layer >= 8:  # LIVE
+            self._diag_hud.hide()
+            console.log("[bold green]ALL LAYERS ACTIVE — WASD enabled[/bold green]")
+
+        # Update HUD
+        if layer < 8:
+            active = self._diag_labels[:layer]
+            pending = self._diag_labels[layer:]
+            lines = ["LAYER DIAGNOSTIC — Press [.] for next\n"]
+            for l in active:
+                lines.append(f"  [ON]  {l}")
+            if pending:
+                lines.append(f"\n  next: {pending[0]}")
+            self._diag_hud.setText("\n".join(lines))
+
+        console.log(f"[bold yellow]LAYER {layer}: {name}[/bold yellow]")
 
     # -- Helpers ---------------------------------------------------------------
 
@@ -940,7 +1044,8 @@ void main() {
         rng = __import__("random").Random(chunk_seed)
 
         # -- Subdivided ground mesh following height function --
-        subdivs = 7
+        # 21×21 = enough normals to scatter the spotlight like rough stone
+        subdivs = 21
         if hasattr(self, '_prebuilt_tex') and self._prebuilt_tex is not None:
             tex = self._prebuilt_tex
         else:
@@ -955,17 +1060,33 @@ void main() {
         tw = GeomVertexWriter(vdata, "texcoord")
 
         step = CHUNK_SIZE / subdivs
+        # Overlap: extend mesh half a step past each edge so adjacent chunks
+        # overlap and the seam is hidden under the depth buffer
+        overhang = step * 0.5
+        # UV inset: don't sample right at the clamp boundary
+        uv_margin = 0.5 / getattr(self, '_tex_size_override', TEX_SIZE)
+        n_nx = self._noise["norm_x"]
+        n_ny = self._noise["norm_y"]
         for gy in range(subdivs + 1):
             for gx in range(subdivs + 1):
-                wx = world_x + gx * step
-                wy = world_y + gy * step
+                # Geometry extends past chunk boundary by overhang
+                wx = world_x - overhang + gx * (CHUNK_SIZE + overhang * 2) / subdivs
+                wy = world_y - overhang + gy * (CHUNK_SIZE + overhang * 2) / subdivs
                 wz = self._height_at(wx, wy)
                 vw.addData3(wx, wy, wz)
                 dx_h = self._height_at(wx + 0.5, wy) - self._height_at(wx - 0.5, wy)
                 dy_h = self._height_at(wx, wy + 0.5) - self._height_at(wx, wy - 0.5)
+                # Perturb normals with Perlin — rough stone scatters light
+                # instead of reflecting it uniformly (kills wet-floor look)
+                perturb = 0.35  # perturbation strength
+                dx_h += n_nx(wx, wy) * perturb
+                dy_h += n_ny(wx, wy) * perturb
                 nmag = math.sqrt(dx_h * dx_h + dy_h * dy_h + 1.0)
                 nw.addData3(-dx_h / nmag, -dy_h / nmag, 1.0 / nmag)
-                tw.addData2(gx / subdivs, gy / subdivs)
+                # UV: inset slightly from 0/1 to avoid clamp-edge artifacts
+                u = uv_margin + (gx / subdivs) * (1.0 - 2 * uv_margin)
+                v = uv_margin + (gy / subdivs) * (1.0 - 2 * uv_margin)
+                tw.addData2(u, v)
 
         tris = GeomTriangles(Geom.UHStatic)
         for gy in range(subdivs):
@@ -1605,7 +1726,7 @@ void main() {
         self._cam_h -= dx * MOUSE_SENS
         self._cam_p = max(-PITCH_LIMIT, min(PITCH_LIMIT, self._cam_p - dy * MOUSE_SENS))
 
-        # WASD
+        # WASD — gated by layer diagnostic (layer 10 = LIVE)
         heading_rad = math.radians(self._cam_h)
         forward_x = -math.sin(heading_rad)
         forward_y = math.cos(heading_rad)
@@ -1613,14 +1734,15 @@ void main() {
         right_y = math.sin(heading_rad)
 
         move_x, move_y = 0.0, 0.0
-        if self._keys["w"]:
-            move_x += forward_x; move_y += forward_y
-        if self._keys["s"]:
-            move_x -= forward_x; move_y -= forward_y
-        if self._keys["a"]:
-            move_x -= right_x; move_y -= right_y
-        if self._keys["d"]:
-            move_x += right_x; move_y += right_y
+        if getattr(self, '_diag_layer', 8) >= 8:
+            if self._keys["w"]:
+                move_x += forward_x; move_y += forward_y
+            if self._keys["s"]:
+                move_x -= forward_x; move_y -= forward_y
+            if self._keys["a"]:
+                move_x -= right_x; move_y -= right_y
+            if self._keys["d"]:
+                move_x += right_x; move_y += right_y
 
         mag = math.sqrt(move_x * move_x + move_y * move_y)
         if mag > 0:
@@ -1650,24 +1772,26 @@ void main() {
             self._build_ready_chunk()
 
         # Ambient life: frames 3, 9, 21, 27, 33, 39, 51, 57 (8× per cycle)
-        if fc % 6 == 3:
+        if fc % 6 == 3 and not getattr(self, '_diag_suppress_ambient', False):
             self._ambient.tick(dt * 6, self.cam.getPos(), self._cam_h)
 
         # Despawn check: frame 47 only (1× per cycle)
-        if fc == 47:
+        if fc == 47 and not getattr(self, '_diag_suppress_ambient', False):
             self._despawn_distant()
 
         # Object tile scan: 4× per cycle (1 tile per call, spread the load)
-        if fc in (7, 22, 37, 52):
+        if fc in (7, 22, 37, 52) and not getattr(self, '_diag_suppress_ambient', False):
             self._place_object_tiles()
-        if fc == 53:
+        if fc == 53 and not getattr(self, '_diag_suppress_ambient', False):
             self._despawn_distant_tiles()
 
         # Drip-spawn queued objects: every frame (8 per frame, ~1ms budget)
-        self._drip_spawn_objects()
+        if not getattr(self, '_diag_suppress_ambient', False):
+            self._drip_spawn_objects()
 
         # Player torch decal — warm ground pool follows camera
-        self._membrane.update_torch(self.cam.getPos(), self._height_at)
+        if not getattr(self, '_diag_suppress_membrane', False):
+            self._membrane.update_torch(self.cam.getPos(), self._height_at)
 
         # Manual GC: gen-0 only during gameplay — lightweight, ~0.1ms
         # Gen-1/2 were causing 50-75ms spikes with 3000+ entity node trees
@@ -1679,8 +1803,8 @@ void main() {
             self._chrono_state = self._chrono.read()
             # Fog density shifts with time — denser at night
             nw = self._chrono_state["night_weight"]
-            fog_near = 15.0 - nw * 4.0   # 15→11 at night
-            fog_far = 42.0 - nw * 8.0    # 42→34 at night
+            fog_near = 25.0 - nw * 6.0   # 25→19 at night
+            fog_far = 55.0 - nw * 12.0   # 55→43 at night
             self._fog.setLinearRange(fog_near, fog_far)
             # Ambient light dims at night
             amb_scale = 1.0 - nw * 0.3   # 30% dimmer at deep night

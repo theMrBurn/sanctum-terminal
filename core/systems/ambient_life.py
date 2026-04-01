@@ -21,9 +21,10 @@ import random
 
 from panda3d.core import (
     Vec3, Vec4, NodePath, TexGenAttrib, TextureStage, Texture, PNMImage,
-    SamplerState, PointLight,
+    SamplerState, PointLight, CardMaker, TransparencyAttrib,
 )
 from direct.interval.LerpInterval import LerpColorScaleInterval
+from core.systems.membrane import _get_decal_texture
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
 
 
@@ -1440,7 +1441,7 @@ class AmbientEntity:
 
     __slots__ = ("kind", "pos", "heading", "node", "behavior",
                  "awake", "height_fn", "chunk_key", "motes", "_fade_iv", "_lod_band",
-                 "_base_cs", "_vis_weight", "_prev_d2")
+                 "_base_cs", "_vis_weight", "_prev_d2", "_glow_cfg", "_glow_card")
 
     def __init__(self, kind, node, behavior, pos, heading, height_fn=None, chunk_key=None):
         self.kind = kind
@@ -1502,31 +1503,19 @@ class AmbientManager:
         entity._prev_d2 = float('inf')
         entity.behavior = behavior_cls(entity, seed=seed)
 
-        # Register with membrane if available (decals instead of point lights)
-        if self._membrane:
-            glow = node.getPythonTag("point_light")
-            mcfg = node.getPythonTag("mote_config")
-            if glow or mcfg:
-                glow_color = (0.5, 0.5, 0.5)
-                glow_radius = 8.0
-                if glow:
-                    lc = glow.getNode(0).getColor()
-                    glow_color = (lc.getX() * 0.15, lc.getY() * 0.15, lc.getZ() * 0.15)
-                    att = glow.getNode(0).getAttenuation()
-                    # Tight radius — decal is the halo, not a flood.
-                    # Prevents overlap stacking across multiple nearby sources.
-                    glow_radius = min(8.0, 1.0 / max(att.getY(), 0.001))
-                mote_color = glow_color
-                mote_count = 0
-                mote_cfg_data = {}
-                if mcfg:
-                    mote_color = mcfg.get("color", glow_color)
-                    mote_count = mcfg.get("count", 0) * 5  # was ×5 in _spawn_motes
-                    mote_cfg_data = mcfg
-                self._membrane.register(
-                    id(entity), pos, glow_color, glow_radius,
-                    mote_color=mote_color, mote_count=mote_count,
-                    mote_cfg=mote_cfg_data)
+        # Store glow config — card created on wake, destroyed on sleep.
+        # Deferred so sleeping entities carry zero scene graph overhead.
+        glow = node.getPythonTag("point_light")
+        if glow:
+            lc = glow.getNode(0).getColor()
+            gc = (lc.getX() * 0.15, lc.getY() * 0.15, lc.getZ() * 0.15)
+            att = glow.getNode(0).getAttenuation()
+            gr = min(8.0, 1.0 / max(att.getY(), 0.001))
+            intensity = max(gc[0], gc[1], gc[2])
+            decal_alpha = max(0.12, 0.35 - intensity * 0.25)
+            entity._glow_cfg = {"color": gc, "radius": gr, "alpha": decal_alpha}
+        else:
+            entity._glow_cfg = None
 
         self._entities.append(entity)
         return entity
@@ -1618,59 +1607,68 @@ class AmbientManager:
                     e._lod_band = 0
                     e.node.hide()
                     self._active.discard(e)
-                    if self._membrane:
-                        self._membrane.sleep(id(e))
-                    else:
-                        for m, _d in e.motes:
-                            if m and not m.isEmpty():
-                                m.removeNode()
-                        e.motes = []
+                    # Destroy glow card — zero overhead while sleeping
+                    if hasattr(e, '_glow_card') and e._glow_card and not e._glow_card.isEmpty():
+                        e._glow_card.removeNode()
+                        e._glow_card = None
 
                 elif new_band >= 1 and old_band == 0:
-                    # Gate open — view-aware fade behind fog
+                    # Gate open — one continuous ramp to full opacity
+                    # Gate open — create glow card on wake, inherits LOD alpha
                     e.awake = True
                     e._lod_band = new_band
                     e.node.setTransparency(1)
                     bcs = e._base_cs
-                    ent_near = self._fade_near * e._vis_weight + self._band_near_r2 ** 0.5 * (1.0 - e._vis_weight)
-                    fog_vis = max(0.0, min(1.0, (self._fade_far - dist) / max(1.0, self._fade_far - ent_near)))
-                    target_a = bcs[3] * fog_vis
-                    # Duration: base scaled by view urgency and approach speed
-                    base_dur = 0.3 + (1.0 - fog_vis) * 0.7
-                    dur = base_dur / (speed_factor * (0.5 + view_urgency * 0.5))
+                    target_a = bcs[3]
+                    approach_dur = dist / max(1.0, speed_factor * 5.0)
+                    dur = max(0.2, approach_dur * e._vis_weight + 0.3 * (1.0 - e._vis_weight))
+                    dur /= (0.5 + view_urgency * 0.5)
                     e.node.setColorScale(bcs[0], bcs[1], bcs[2], 0.0)
                     e.node.show()
                     e._fade_iv = LerpColorScaleInterval(
-                        e.node, max(0.1, dur),
+                        e.node, dur,
                         Vec4(bcs[0], bcs[1], bcs[2], target_a),
                         Vec4(bcs[0], bcs[1], bcs[2], 0.0),
                     )
                     e._fade_iv.start()
                     self._active.add(e)
-                    if new_band >= 2 and self._membrane:
-                        self._membrane.wake(id(e))
+                    # Create glow card as child — deferred from spawn for perf
+                    gcfg = getattr(e, '_glow_cfg', None)
+                    if gcfg and (not hasattr(e, '_glow_card') or not e._glow_card):
+                        gc = gcfg["color"]
+                        cm = CardMaker(f"glow_{e.kind}")
+                        cm.setFrame(-gcfg["radius"], gcfg["radius"],
+                                    -gcfg["radius"], gcfg["radius"])
+                        card = e.node.attachNewNode(cm.generate())
+                        card.setTexture(_get_decal_texture(64))
+                        card.setTransparency(TransparencyAttrib.MAlpha)
+                        card.setLightOff()
+                        card.setColorScale(gc[0], gc[1], gc[2], gcfg["alpha"])
+                        card.setPos(0, 0, -(e.pos[2] - 0.25))
+                        card.setP(-90)
+                        card.setBin("transparent", 10)
+                        card.setDepthWrite(False)
+                        card.setDepthOffset(1)
+                        e._glow_card = card
 
                 else:
-                    # Band shift — view-aware fog visibility
+                    # Band shift — alpha tracks fog, glow card inherits
                     e._lod_band = new_band
                     bcs = e._base_cs
                     ent_near = self._fade_near * e._vis_weight + self._band_near_r2 ** 0.5 * (1.0 - e._vis_weight)
                     fog_vis = max(0.0, min(1.0, (self._fade_far - dist) / max(1.0, self._fade_far - ent_near)))
-                    target_a = bcs[3] * fog_vis
                     cur_a = e.node.getColorScale()[3]
-                    base_dur = 0.3 + abs(target_a - cur_a) * 0.8
-                    dur = base_dur / (speed_factor * (0.5 + view_urgency * 0.5))
-                    e._fade_iv = LerpColorScaleInterval(
-                        e.node, max(0.1, dur),
-                        Vec4(bcs[0], bcs[1], bcs[2], target_a),
-                        Vec4(bcs[0], bcs[1], bcs[2], cur_a),
-                    )
-                    e._fade_iv.start()
-                    # Decals activate at band 2+, motes at band 3
-                    if new_band >= 2 and old_band < 2 and self._membrane:
-                        self._membrane.wake(id(e))
-                    elif new_band < 2 and old_band >= 2 and self._membrane:
-                        self._membrane.sleep(id(e))
+                    fade_done = (e._fade_iv is None or e._fade_iv.isStopped())
+                    if cur_a > bcs[3] * fog_vis + 0.05 or fade_done:
+                        target_a = bcs[3] * fog_vis
+                        dur = 0.3 + abs(target_a - cur_a) * 0.8
+                        dur /= (speed_factor * (0.5 + view_urgency * 0.5))
+                        e._fade_iv = LerpColorScaleInterval(
+                            e.node, max(0.1, dur),
+                            Vec4(bcs[0], bcs[1], bcs[2], target_a),
+                            Vec4(bcs[0], bcs[1], bcs[2], cur_a),
+                        )
+                        e._fade_iv.start()
 
         # Light budget: activate only the closest N point lights (skip if membrane handles it)
         if not self._membrane:
