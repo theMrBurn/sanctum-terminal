@@ -36,13 +36,15 @@ _DECAL_CACHE = {}  # radius_bucket -> Texture
 
 
 def _get_decal_texture(size=64):
-    """Radial gradient circle — soft falloff from center. Cached."""
+    """Stippled radial gradient — dissolves at edges like light through dust. Cached."""
     if size in _DECAL_CACHE:
         return _DECAL_CACHE[size]
 
+    import random as _rng
+    noise = _rng.Random(42)  # deterministic noise
     img = PNMImage(size, size, 4)  # RGBA
     center = size / 2
-    max_r = center * 0.9
+    max_r = center * 0.95
 
     for y in range(size):
         for x in range(size):
@@ -52,10 +54,17 @@ def _get_decal_texture(size=64):
             if dist > max_r:
                 alpha = 0.0
             else:
-                # Soft falloff — bright center, fades to edge
                 t = dist / max_r
-                alpha = max(0, (1.0 - t * t) * 0.85)
-            # White texture — color applied via colorScale on the node
+                # Base gradient — cubic falloff
+                base = max(0, (1.0 - t * t) * 0.65)
+                # Stipple: noise dissolves the outer 40% of the radius
+                if t > 0.6:
+                    threshold = (t - 0.6) / 0.4  # 0 at 60%, 1 at edge
+                    if noise.random() < threshold * 0.7:
+                        base = 0.0  # dissolved pixel
+                    else:
+                        base *= (1.0 - threshold * 0.5)  # dim survivors
+                alpha = base
             img.setXelA(x, y, 1.0, 1.0, 1.0, alpha)
 
     tex = Texture("glow_decal")
@@ -77,6 +86,26 @@ class Membrane:
         self._render = render_node
         self._decal_tex = _get_decal_texture(64)
         self._entries = {}  # entity_id -> {"decal": NodePath, "motes": [...], "active": bool}
+        self._torch_decal = None  # player's warm ground light
+
+    def update_torch(self, cam_pos, height_fn=None):
+        """Move the player's warm ground decal to follow the camera."""
+        if self._torch_decal is None:
+            cm = CardMaker("torch_decal")
+            r = 12.0  # warm pool radius
+            cm.setFrame(-r, r, -r, r)
+            self._torch_decal = self._render.attachNewNode(cm.generate())
+            self._torch_decal.setTexture(self._decal_tex)
+            self._torch_decal.setTransparency(TransparencyAttrib.MAlpha)
+            self._torch_decal.setLightOff()
+            self._torch_decal.setColorScale(1.2, 0.85, 0.4, 0.35)  # warm amber, subtle
+            self._torch_decal.setP(-90)
+            self._torch_decal.setBin("transparent", 11)  # on top of other decals
+            self._torch_decal.setDepthWrite(False)
+            self._torch_decal.setDepthOffset(2)
+        cx, cy = cam_pos.getX(), cam_pos.getY()
+        gz = height_fn(cx, cy) if height_fn else 0
+        self._torch_decal.setPos(cx, cy, gz + 0.3)
 
     def register(self, entity_id, pos, glow_color, glow_radius,
                  mote_color=None, mote_count=0, mote_cfg=None):
@@ -112,11 +141,13 @@ class Membrane:
         decal.setTexture(self._decal_tex)
         decal.setTransparency(TransparencyAttrib.MAlpha)
         decal.setLightOff()
-        decal.setColorScale(color[0], color[1], color[2], 0.7)
-        # Lay flat on the ground, slightly above to avoid z-fighting
-        decal.setPos(pos[0], pos[1], pos[2] + 0.05)
+        decal.setColorScale(color[0], color[1], color[2], 0.45)  # light on stone, not paint
+        # Lay flat on ground — high enough to clear chunk seams
+        decal.setPos(pos[0], pos[1], pos[2] + 0.25)
         decal.setP(-90)  # face up
-        decal.setBin("fixed", 1)  # render on ground plane
+        decal.setBin("transparent", 10)  # render after ground, blend on top
+        decal.setDepthWrite(False)  # don't cut into terrain z-buffer
+        decal.setDepthOffset(1)  # bias toward camera to prevent z-fight
         entry["decal"] = decal
 
         # Motes — Panda3D intervals, zero Python per frame

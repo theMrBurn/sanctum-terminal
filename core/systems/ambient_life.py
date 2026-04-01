@@ -1023,14 +1023,14 @@ def build_giant_fungus(parent, seed=0):
 
     # Point light — EXAGGERATED, visible light pool edge on the ground
     pl = PointLight(f"fungus_glow_{seed}")
-    pl.setColor(Vec4(10.0, 2.0, 14.0, 1))  # 5× previous — see the throw edge
+    pl.setColor(Vec4(5.0, 1.5, 14.0, 1))  # indigo-violet — scotopic shifts blue
     pl.setAttenuation((0.05, 0.004, 0.001))  # reaches ~25m
     glow_np = root.attachNewNode(pl)
     glow_np.setPos(0, 0, stem_h * 0.75)
 
     root.setPythonTag("point_light", glow_np)
     root.setPythonTag("mote_config", {
-        "color": (0.4, 0.08, 0.55), "count": 12,
+        "color": (0.2, 0.06, 0.50), "count": 12,  # indigo scotopic
         "radius": 4.0, "height": stem_h * 0.9,
     })
     # NO root damping — this is bioluminescent, not stone
@@ -1067,18 +1067,18 @@ def build_moss_patch(parent, seed=0):
         blob.setTexture(ts, tex)
         blob.setTexScale(ts, 0.5, 0.5)
         blob.setLightOff()  # self-illuminated — glow bleeds through texture
-        blob.setColorScale(8.0, 16.0, 5.0, 1.0)  # 5× CRANKED — SEE IT
+        blob.setColorScale(4.0, 12.0, 7.0, 1.0)  # scotopic blue-green, not pure green
 
-    # Point light — EXAGGERATED, visible green pool on the ground
+    # Point light — scotopic-shifted green pool
     pl = PointLight(f"moss_glow_{seed}")
-    pl.setColor(Vec4(3.0, 12.5, 1.5, 1))  # 5× previous — see the throw edge
+    pl.setColor(Vec4(1.5, 10.0, 5.0, 1))  # blue-green shifted for dark-adapted eyes
     pl.setAttenuation((0.05, 0.004, 0.001))  # reaches ~25m
     glow_np = root.attachNewNode(pl)
     glow_np.setPos(0, 0, 0.5)
 
     root.setPythonTag("point_light", glow_np)
     root.setPythonTag("mote_config", {
-        "color": (0.08, 0.45, 0.06), "count": 15,
+        "color": (0.06, 0.35, 0.20), "count": 15,  # blue-green scotopic
         "radius": 3.5, "height": 0.8,
         "ground_bias": True,
         "float_compression": 0.4,  # barely perceptible near surface
@@ -1301,14 +1301,14 @@ def build_ceiling_moss(parent, seed=0):
 
     # Amber point light — CRANKED, visible warm pool on ground
     pl = PointLight(f"ceil_moss_glow_{seed}")
-    pl.setColor(Vec4(25.0, 18.0, 5.0, 1))  # 4× brighter
-    pl.setAttenuation((0.02, 0.001, 0.0005))  # reaches ~30m down
+    pl.setColor(Vec4(40.0, 28.0, 8.0, 1))  # CRANKED — ceiling light must read on ground
+    pl.setAttenuation((0.02, 0.06, 0.001))  # radius ~16m for membrane decal calc
     glow_np = root.attachNewNode(pl)
     glow_np.setPos(0, 0, hang_z - 1.0)
 
     root.setPythonTag("point_light", glow_np)
     root.setPythonTag("mote_config", {
-        "color": (0.5, 0.35, 0.1), "count": 20,
+        "color": (0.40, 0.35, 0.08), "count": 20,  # warm yellow scotopic
         "radius": 4.0, "height": hang_z * 0.9,
         "downward": True,
         "float_compression": 0.3,

@@ -84,7 +84,7 @@ BIOME_CAVERN_DEFAULT = [
     ("dead_log",          0.25,    2.0,       3),
     ("bone_pile",         0.10,    0,         3),
     ("moss_patch",        0.40,    0,         2),
-    ("ceiling_moss",      0.25,    0,         5),
+    ("ceiling_moss",      0.50,    0,         5),
     ("hanging_vine",      0.20,    0,         5),
     ("grass_tuft",        1.50,    0,         1),
     ("rubble",            1.20,    0,         1),
@@ -146,7 +146,7 @@ class Cavern(ShowBase):
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
         self._membrane = Membrane(self.render)
-        self._ambient = AmbientManager(self.render, wake_radius=40.0, sleep_radius=50.0,
+        self._ambient = AmbientManager(self.render, wake_radius=44.0, sleep_radius=55.0,
                                         membrane=self._membrane)
         self._deferred_spawns = []  # ambient spawns queued across frames
         self._chrono = Chronometer()
@@ -262,23 +262,23 @@ class Cavern(ShowBase):
         # Light orb — spotlight cone from behind, casting forward like a flashlight
         lc = pal["sconce"]
 
-        # Main cone: spotlight aimed forward from behind the player
+        # Main cone: spotlight aimed forward — THE player's light, dominant over ambient
         spot = Spotlight("orb_cone")
-        spot.setColor(Vec4(lc[0] * 1.8, lc[1] * 1.6, lc[2] * 1.4, 1))
-        spot.getLens().setFov(60)
-        spot.getLens().setNearFar(0.5, 50)
-        spot.setAttenuation((0.2, 0.008, 0.002))
+        spot.setColor(Vec4(lc[0] * 4.0, lc[1] * 3.5, lc[2] * 2.5, 1))  # cranked warm cone
+        spot.getLens().setFov(55)  # slightly tighter = more focused beam
+        spot.getLens().setNearFar(0.5, 40)
+        spot.setAttenuation((0.15, 0.005, 0.001))  # reaches further, falls off slower
         spot.setShadowCaster(True, 512, 512)
-        spot.setExponent(8.0)
+        spot.setExponent(12.0)  # tighter hotspot center
         self._orb_np = self.cam.attachNewNode(spot)
         self._orb_np.setPos(0.3, -0.8, 0.6)  # behind right shoulder
         self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # aim forward and slightly down
         self.render.setLight(self._orb_np)
 
-        # Fill light: dim point light for ambient spill around the orb
+        # Fill light: warm halo around the player — you carry warmth into the dark
         fill = PointLight("orb_fill")
-        fill.setColor(Vec4(lc[0] * 0.4, lc[1] * 0.35, lc[2] * 0.2, 1))
-        fill.setAttenuation((0.5, 0.03, 0.008))
+        fill.setColor(Vec4(lc[0] * 1.2, lc[1] * 0.9, lc[2] * 0.5, 1))
+        fill.setAttenuation((0.3, 0.015, 0.004))
         self._orb_fill = self._orb_np.attachNewNode(fill)
         self.render.setLight(self._orb_fill)
 
@@ -286,7 +286,7 @@ class Cavern(ShowBase):
         orb_vis = make_box(0.025, 0.025, 0.025, (0.95, 0.8, 0.45))
         self._orb_vis = self._orb_np.attachNewNode(orb_vis)
         self._orb_vis.setLightOff()
-        self._orb_vis.setColorScale(2.5, 2.0, 1.2, 1.0)
+        self._orb_vis.setColorScale(4.0, 3.0, 1.8, 1.0)  # bright peripheral torch glow
 
     def _setup_grain_shader(self):
         """Screen-space film grain — constant visual motion masks frame hitches."""
@@ -486,16 +486,16 @@ void main() {
                      seed + tx * 1000 + ty, entity_key))
 
     def _despawn_distant_tiles(self):
-        """Remove object tiles far from camera so they can be re-entered."""
+        """Remove object tiles far from camera. Throttled: max 1 per call."""
         cam_pos = self.cam.getPos()
         tile = self._object_tile_size
         center_tx = int(math.floor(cam_pos.getX() / tile))
         center_ty = int(math.floor(cam_pos.getY() / tile))
-        to_remove = [k for k in self._object_tile_placed
-                     if abs(k[0] - center_tx) > 3 or abs(k[1] - center_ty) > 3]
-        for k in to_remove:
-            self._ambient.despawn_chunk(("T", k[0], k[1]))
-            self._object_tile_placed.discard(k)
+        for k in list(self._object_tile_placed):
+            if abs(k[0] - center_tx) > 3 or abs(k[1] - center_ty) > 3:
+                self._ambient.despawn_chunk(("T", k[0], k[1]))
+                self._object_tile_placed.discard(k)
+                return  # max 1 tile per call — spread the cost
 
     def _drip_spawn_objects(self):
         """Spawn queued objects across frames. 8 per frame — smooth drip."""
@@ -1363,8 +1363,8 @@ void main() {
         if fc % 15 == 0:
             self._dispatch_chunks()
 
-        # Chunk build: frames 5, 10, 20, 25, 35, 40, 50, 55 (8× per cycle)
-        if fc % 5 == 0 and fc % 15 != 0:
+        # Chunk build: frames 10, 20, 40, 50 (4× per cycle — half rate, smoother)
+        if fc % 10 == 0 and fc % 30 != 0:
             self._build_ready_chunk()
 
         # Ambient life: frames 3, 9, 21, 27, 33, 39, 51, 57 (8× per cycle)
@@ -1383,6 +1383,9 @@ void main() {
 
         # Drip-spawn queued objects: every frame (8 per frame, ~1ms budget)
         self._drip_spawn_objects()
+
+        # Player torch decal — warm ground pool follows camera
+        self._membrane.update_torch(self.cam.getPos(), self._height_at)
 
         # Manual GC: gen-0 only during gameplay — lightweight, ~0.1ms
         # Gen-1/2 were causing 50-75ms spikes with 3000+ entity node trees
