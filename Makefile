@@ -69,5 +69,8 @@ shadowbox:
 cavern:
 	PYTHONPATH=. ./.venv/bin/python cavern.py
 
+cavern2:
+	PYTHONPATH=. ./.venv/bin/python cavern2.py
+
 viewer:
 	PYTHONPATH=. ./.venv/bin/python template_viewer.py

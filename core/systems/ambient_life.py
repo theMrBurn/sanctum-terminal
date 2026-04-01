@@ -1456,8 +1456,9 @@ class AmbientManager:
 
     MAX_ACTIVE_LIGHTS = 8  # GPU budget — cap simultaneous point lights
 
-    def __init__(self, render_node, wake_radius=40.0, sleep_radius=50.0):
+    def __init__(self, render_node, wake_radius=40.0, sleep_radius=50.0, membrane=None):
         self._render = render_node
+        self._membrane = membrane   # if set, use decals instead of point lights
         self._wake_r2 = wake_radius * wake_radius
         self._sleep_r2 = sleep_radius * sleep_radius
         self._entities = []         # all entities
@@ -1479,6 +1480,30 @@ class AmbientManager:
         behavior_cls = BEHAVIORS[behavior_name]
         entity = AmbientEntity(kind, node, None, pos, heading, height_fn, chunk_key)
         entity.behavior = behavior_cls(entity, seed=seed)
+
+        # Register with membrane if available (decals instead of point lights)
+        if self._membrane:
+            glow = node.getPythonTag("point_light")
+            mcfg = node.getPythonTag("mote_config")
+            if glow or mcfg:
+                glow_color = (0.5, 0.5, 0.5)
+                glow_radius = 8.0
+                if glow:
+                    lc = glow.getNode(0).getColor()
+                    glow_color = (lc.getX() * 0.15, lc.getY() * 0.15, lc.getZ() * 0.15)
+                    att = glow.getNode(0).getAttenuation()
+                    glow_radius = min(25.0, 1.0 / max(att.getY(), 0.001))
+                mote_color = glow_color
+                mote_count = 0
+                mote_cfg_data = {}
+                if mcfg:
+                    mote_color = mcfg.get("color", glow_color)
+                    mote_count = mcfg.get("count", 0) * 5  # was ×5 in _spawn_motes
+                    mote_cfg_data = mcfg
+                self._membrane.register(
+                    id(entity), pos, glow_color, glow_radius,
+                    mote_color=mote_color, mote_count=mote_count,
+                    mote_cfg=mote_cfg_data)
 
         self._entities.append(entity)
         return entity
@@ -1519,43 +1544,46 @@ class AmbientManager:
                     e.awake = True
                     e.node.show()
                     self._active.add(e)
-                    # Spawn dust motes if configured
-                    mcfg = e.node.getPythonTag("mote_config")
-                    if mcfg and not e.motes:
-                        e.motes = _spawn_motes(e.node, mcfg, e.pos)
+                    if self._membrane:
+                        self._membrane.wake(id(e))
+                    else:
+                        mcfg = e.node.getPythonTag("mote_config")
+                        if mcfg and not e.motes:
+                            e.motes = _spawn_motes(e.node, mcfg, e.pos)
                 elif e.awake and d2 > self._sleep_r2:
                     e.awake = False
                     e.node.hide()
                     self._active.discard(e)
-                    # Remove dust motes
-                    for m, _d in e.motes:
-                        if m and not m.isEmpty():
-                            m.removeNode()
-                    e.motes = []
+                    if self._membrane:
+                        self._membrane.sleep(id(e))
+                    else:
+                        for m, _d in e.motes:
+                            if m and not m.isEmpty():
+                                m.removeNode()
+                        e.motes = []
 
-        # Light budget: activate only the closest N point lights
-        light_candidates = []
-        for e in self._active:
-            glow = e.node.getPythonTag("point_light")
-            if glow:
-                dx = e.pos[0] - cx
-                dy = e.pos[1] - cy
-                light_candidates.append((dx * dx + dy * dy, e, glow))
-        light_candidates.sort()
-        # Activate closest, deactivate the rest
-        new_lights = set()
-        for i, (_, e, glow) in enumerate(light_candidates):
-            if i < self.MAX_ACTIVE_LIGHTS:
-                new_lights.add(id(glow))
-                if not any(id(g) == id(glow) for _, _, g in self._active_lights):
-                    self._render.setLight(glow)
-            else:
-                self._render.clearLight(glow)
-        # Clear lights that are no longer in the active set
-        for _, _, glow in self._active_lights:
-            if id(glow) not in new_lights:
-                self._render.clearLight(glow)
-        self._active_lights = light_candidates[:self.MAX_ACTIVE_LIGHTS]
+        # Light budget: activate only the closest N point lights (skip if membrane handles it)
+        if not self._membrane:
+            light_candidates = []
+            for e in self._active:
+                glow = e.node.getPythonTag("point_light")
+                if glow:
+                    dx = e.pos[0] - cx
+                    dy = e.pos[1] - cy
+                    light_candidates.append((dx * dx + dy * dy, e, glow))
+            light_candidates.sort()
+            new_lights = set()
+            for i, (_, e, glow) in enumerate(light_candidates):
+                if i < self.MAX_ACTIVE_LIGHTS:
+                    new_lights.add(id(glow))
+                    if not any(id(g) == id(glow) for _, _, g in self._active_lights):
+                        self._render.setLight(glow)
+                else:
+                    self._render.clearLight(glow)
+            for _, _, glow in self._active_lights:
+                if id(glow) not in new_lights:
+                    self._render.clearLight(glow)
+            self._active_lights = light_candidates[:self.MAX_ACTIVE_LIGHTS]
 
         # Tick active behaviors
         t = self._tick_time if hasattr(self, '_tick_time') else 0.0
@@ -1563,7 +1591,9 @@ class AmbientManager:
         for e in self._active:
             e.behavior.tick(dt)
 
-        # Drift motes — every tick, but cheap: just add velocity × dt
+        # Drift motes — skip if membrane handles them via C++ intervals
+        if self._membrane:
+            return
         for e in self._active:
             for m, d in e.motes:
                 pos = m.getPos()
