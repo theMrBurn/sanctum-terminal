@@ -222,6 +222,8 @@ class Cavern(ShowBase):
         self.accept("shift-t", self._undo_last_tag)
         self.accept("control-t", self._clear_tags)
         self.accept("]", self._toggle_fullscreen)
+        self.accept("l", self._toggle_daylight)
+        self._daylight = False
 
         self.taskMgr.add(self._loop, "CavernLoop")
 
@@ -1107,6 +1109,28 @@ void main() {
         if not self._fullscreen:
             props.setSize(960, 540)
         self.win.requestProperties(props)
+
+    def _toggle_daylight(self):
+        """Toggle between cave darkness and daylight inspection mode.
+        Fog stays — dampness is permanent. Ambient cranks up."""
+        self._daylight = not self._daylight
+        if self._daylight:
+            # Daylight: bright ambient, fog becomes atmospheric haze
+            self._amb_np.node().setColor(Vec4(0.8, 0.75, 0.7, 1))
+            self._fog.setColor(Vec4(0.35, 0.33, 0.30, 1))  # warm grey haze
+            self._fog.setLinearRange(40.0, 120.0)  # push fog way out
+            self.camLens.setFar(130.0)
+            self.setBackgroundColor(0.30, 0.28, 0.26, 1)  # overcast sky
+            console.log("[bold]DAYLIGHT[/bold] — inspection mode")
+        else:
+            # Cave: restore darkness
+            fc = self._palette["fog"]
+            self._amb_np.node().setColor(Vec4(0.10, 0.08, 0.06, 1))
+            self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
+            self._fog.setLinearRange(15.0, 42.0)
+            self.camLens.setFar(45.0)
+            self.setBackgroundColor(0.02, 0.02, 0.03, 1)
+            console.log("[bold]CAVE[/bold] — darkness restored")
 
     def _toggle_debug(self):
         self._debug_mode = not self._debug_mode
