@@ -19,7 +19,10 @@ Usage:
 import math
 import random
 
-from panda3d.core import Vec3, NodePath, TexGenAttrib, TextureStage, Texture, PNMImage, SamplerState
+from panda3d.core import (
+    Vec3, Vec4, NodePath, TexGenAttrib, TextureStage, Texture, PNMImage,
+    SamplerState, PointLight,
+)
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
 
 
@@ -159,10 +162,10 @@ class CrawlBehavior(Behavior):
 
     def __init__(self, entity, seed=0):
         super().__init__(entity, seed)
-        self._pick_creep()
         self._origin = entity.pos
         self._speed = self.rng.uniform(0.3, 0.8)
         self._roam_radius = self.rng.uniform(0.5, 2.0)
+        self._pick_creep()
 
     def _pick_creep(self):
         self._switch("creep")
@@ -304,37 +307,43 @@ def build_spider(parent, seed=0):
 
 
 # -- Shared material textures (generated once, cached) -------------------------
+# Pool of 8 variants per material — pre-baked on first request, then sampled.
+# This eliminates per-spawn texture generation (the #1 performance killer).
 
-_MATERIAL_CACHE = {}
+_MATERIAL_POOL = {}   # material -> [tex0, tex1, ..., tex7]
+_POOL_SIZE = 8
 
 
 def get_material_texture(material, seed=0):
-    """Get or create a cached material texture. Reused across all objects of same type."""
-    cache_key = (material, seed)
-    if cache_key in _MATERIAL_CACHE:
-        return _MATERIAL_CACHE[cache_key]
+    """Get a cached material texture variant. 8 pre-baked per material type."""
+    if material not in _MATERIAL_POOL:
+        _MATERIAL_POOL[material] = _prebake_material_pool(material)
+    return _MATERIAL_POOL[material][seed % _POOL_SIZE]
 
-    if material == "stone_heavy":
-        tex = generate_stone_texture(size=64, seed=seed,
-                                      ground_color=CAVERN_PALETTE["dirt"])
-    elif material == "stone_light":
-        # Lighter stone — more weathered, higher surface exposure
-        tex = _generate_material_texture(size=48, seed=seed,
-            base=CAVERN_PALETTE["stone"],
-            lighten=0.04,  # slightly brighter than heavy stone
-            cell_size=0.10,  # tighter grain — smaller rock = finer fractures
-            mortar_width=0.01,
-            ground_color=CAVERN_PALETTE["dirt"])
-    elif material == "dry_organic":
-        # Dead plant matter — streaky grain, not mineral Voronoi
-        tex = _generate_organic_texture(size=48, seed=seed,
-            base=CAVERN_PALETTE["dead_organic"],
-            ground_color=CAVERN_PALETTE["dirt"])
-    else:
-        tex = generate_stone_texture(size=48, seed=seed)
 
-    _MATERIAL_CACHE[cache_key] = tex
-    return tex
+def _prebake_material_pool(material):
+    """Generate pool of texture variants for a material type."""
+    pool = []
+    for i in range(_POOL_SIZE):
+        s = i * 7919  # spread seeds for visual variety
+        if material == "stone_heavy":
+            tex = generate_stone_texture(size=64, seed=s,
+                                          ground_color=CAVERN_PALETTE["dirt"])
+        elif material == "stone_light":
+            tex = _generate_material_texture(size=48, seed=s,
+                base=CAVERN_PALETTE["stone"],
+                lighten=0.04,
+                cell_size=0.10,
+                mortar_width=0.01,
+                ground_color=CAVERN_PALETTE["dirt"])
+        elif material == "dry_organic":
+            tex = _generate_organic_texture(size=48, seed=s,
+                base=CAVERN_PALETTE["dead_organic"],
+                ground_color=CAVERN_PALETTE["dirt"])
+        else:
+            tex = generate_stone_texture(size=48, seed=s)
+        pool.append(tex)
+    return pool
 
 
 def _generate_material_texture(size=48, seed=0, base=(0.12, 0.11, 0.10),
@@ -557,7 +566,7 @@ def build_boulder(parent, seed=0):
     rock.setTwoSided(True)
 
     # Stone texture with situ blend — auto-projected via world position
-    stone_tex = generate_stone_texture(size=64, seed=seed, ground_color=(0.06, 0.05, 0.04))
+    stone_tex = get_material_texture("stone_heavy", seed=seed)
     ts = TextureStage("stone")
     ts.setMode(TextureStage.MModulate)  # multiply with vertex color
     rock.setTexGen(ts, TexGenAttrib.MWorldPosition)
@@ -859,18 +868,564 @@ def build_column(parent, seed=0):
     return root
 
 
+def build_mega_column(parent, seed=0):
+    """Cathedral-scale column — 40-80m tall. Makes the cavern feel hundreds of feet deep."""
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"mega_column_{seed}")
+
+    total_height = rng.uniform(80.0, 160.0)
+    base_radius = rng.uniform(5.0, 12.0)
+    profile = rng.choice(["pillar", "hourglass", "curtain"])
+
+    if profile == "hourglass":
+        waist_radius = base_radius * rng.uniform(0.25, 0.4)
+        top_radius = base_radius * rng.uniform(0.9, 1.3)
+    elif profile == "pillar":
+        waist_radius = base_radius * rng.uniform(0.8, 0.95)
+        top_radius = base_radius * rng.uniform(0.7, 0.9)
+    else:  # curtain
+        base_radius *= rng.uniform(1.5, 2.5)
+        waist_radius = base_radius * rng.uniform(0.5, 0.7)
+        top_radius = base_radius * rng.uniform(0.4, 0.6)
+
+    depth_scale = 0.25 if profile == "curtain" else rng.uniform(0.7, 1.0)
+    color = _cavern_color("stone", rng, 0.02)
+
+    # Bottom — massive base
+    bottom_h = total_height * 0.4
+    bottom = root.attachNewNode(make_rock(
+        base_radius, bottom_h * 0.5, base_radius * depth_scale, color,
+        rings=10, segments=12, seed=seed, roughness=rng.uniform(0.2, 0.35),
+    ))
+    bottom.setPos(0, 0, 0)
+    bottom.setTwoSided(True)
+
+    # Waist
+    waist_h = total_height * 0.2
+    waist_z = bottom_h * 0.7
+    waist = root.attachNewNode(make_rock(
+        waist_radius, waist_h * 0.5, waist_radius * depth_scale, color,
+        rings=6, segments=8, seed=seed + 33, roughness=rng.uniform(0.15, 0.3),
+    ))
+    waist.setPos(0, 0, waist_z)
+    waist.setTwoSided(True)
+
+    # Top — vanishes into darkness above
+    top_h = total_height - bottom_h - waist_h
+    top_z = waist_z + waist_h * 0.5
+    top = root.attachNewNode(make_rock(
+        top_radius, top_h * 0.5, top_radius * depth_scale, color,
+        rings=10, segments=12, seed=seed + 66, roughness=rng.uniform(0.2, 0.35),
+    ))
+    top.setPos(0, 0, top_z + top_h * 0.3)
+    top.setTwoSided(True)
+
+    tex = get_material_texture("stone_light", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.06, 0.06)  # larger scale = bigger grain for massive stone
+    root.setColorScale(0.50, 0.46, 0.44, 1.0)
+    return root
+
+
+def build_giant_fungus(parent, seed=0):
+    """Giant bioluminescent mushroom — purple phosphorescence. Cathedral flora.
+
+    NO stone damping — this is living, glowing biology.
+    Cap is self-lit and casts purple light onto surrounding stone.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"fungus_{seed}")
+
+    # Stem — tall, narrow, pale fleshy
+    stem_h = rng.uniform(3.0, 8.0)
+    stem_r = rng.uniform(0.3, 0.7)
+    stem_color = (0.08, 0.06, 0.10)  # pale purple-grey flesh
+    stem = root.attachNewNode(make_rock(
+        stem_r, stem_h * 0.5, stem_r * 0.8, stem_color,
+        rings=5, segments=6, seed=seed, roughness=rng.uniform(0.1, 0.2),
+    ))
+    stem.setPos(0, 0, 0)
+    stem.setTwoSided(True)
+    # Stem gets organic texture, not stone
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    stem.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    stem.setTexture(ts, tex)
+    stem.setTexScale(ts, 0.3, 0.3)
+
+    # Cap — wide, flat dome, glowing purple, textured
+    cap_r = stem_r * rng.uniform(2.5, 5.0)
+    cap_h = rng.uniform(0.4, 1.2)
+    cap_color = (0.45, 0.08, 0.55)  # rich saturated purple
+    cap = root.attachNewNode(make_rock(
+        cap_r, cap_h, cap_r * 0.9, cap_color,
+        rings=5, segments=8, seed=seed + 99, roughness=rng.uniform(0.05, 0.12),
+    ))
+    cap.setPos(0, 0, stem_h * 0.8)
+    cap.setTwoSided(True)
+    cap.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    cap.setTexture(ts, tex)
+    cap.setTexScale(ts, 0.2, 0.2)
+    cap.setLightOff()  # self-illuminated — glow bleeds through texture
+    cap.setColorScale(5.0, 1.5, 6.0, 1.0)  # CRANKED phosphorescent purple
+
+    # Gill glow — smaller inverted disc under cap, hottest
+    gill_color = (0.55, 0.12, 0.65)
+    gill = root.attachNewNode(make_rock(
+        cap_r * 0.7, cap_h * 0.3, cap_r * 0.65, gill_color,
+        rings=3, segments=6, seed=seed + 200, roughness=0.05,
+    ))
+    gill.setPos(0, 0, stem_h * 0.75)
+    gill.setTwoSided(True)
+    gill.setLightOff()
+    gill.setColorScale(6.0, 2.0, 7.0, 1.0)  # blazing underside
+
+    # Smaller fungus cluster — arcing out from the base like a colony
+    for ci in range(rng.randint(3, 7)):
+        angle = rng.uniform(0, 360)
+        dist = stem_r + rng.uniform(0.3, 1.5)
+        arc_h = rng.uniform(0.8, 3.0)
+        arc_r = rng.uniform(0.1, 0.25)
+        arc_color = (0.35 + rng.uniform(-0.03, 0.03), 0.06,
+                     0.45 + rng.uniform(-0.03, 0.03))
+        ax = math.cos(math.radians(angle)) * dist
+        ay = math.sin(math.radians(angle)) * dist
+
+        # Small stem leaning outward — textured
+        arc_stem = root.attachNewNode(make_rock(
+            arc_r, arc_h * 0.4, arc_r * 0.7, stem_color,
+            rings=3, segments=4, seed=seed + 300 + ci, roughness=0.12,
+        ))
+        arc_stem.setPos(ax, ay, 0)
+        arc_stem.setR(rng.uniform(-25, 25))
+        arc_stem.setTwoSided(True)
+        arc_stem.setTexGen(ts, TexGenAttrib.MWorldPosition)
+        arc_stem.setTexture(ts, tex)
+        arc_stem.setTexScale(ts, 0.4, 0.4)
+
+        # Small glowing cap — textured, glow through grain
+        arc_cap_r = arc_r * rng.uniform(2.0, 3.5)
+        arc_cap = root.attachNewNode(make_rock(
+            arc_cap_r, 0.15, arc_cap_r * 0.8, arc_color,
+            rings=3, segments=4, seed=seed + 400 + ci, roughness=0.08,
+        ))
+        arc_cap.setPos(ax, ay, arc_h * 0.7)
+        arc_cap.setTwoSided(True)
+        arc_cap.setTexGen(ts, TexGenAttrib.MWorldPosition)
+        arc_cap.setTexture(ts, tex)
+        arc_cap.setTexScale(ts, 0.3, 0.3)
+        arc_cap.setLightOff()
+        arc_cap.setColorScale(8.0, 2.5, 10.0, 1.0)  # cranked — visible in the dark
+
+    # Point light — EXAGGERATED, visible light pool edge on the ground
+    pl = PointLight(f"fungus_glow_{seed}")
+    pl.setColor(Vec4(10.0, 2.0, 14.0, 1))  # 5× previous — see the throw edge
+    pl.setAttenuation((0.05, 0.004, 0.001))  # reaches ~25m
+    glow_np = root.attachNewNode(pl)
+    glow_np.setPos(0, 0, stem_h * 0.75)
+
+    root.setPythonTag("point_light", glow_np)
+    root.setPythonTag("mote_config", {
+        "color": (0.4, 0.08, 0.55), "count": 12,
+        "radius": 4.0, "height": stem_h * 0.9,
+    })
+    # NO root damping — this is bioluminescent, not stone
+    return root
+
+
+def build_moss_patch(parent, seed=0):
+    """Phosphorescent moss — neon green glow on the ground. Natural wayfinding.
+
+    Organic blobs, not boxes. Textured. Casts green light like a natural torch.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"moss_{seed}")
+
+    # Cluster of small, irregular, textured glowing organic blobs
+    patch_count = rng.randint(4, 10)
+    green_v = rng.uniform(0.0, 0.04)
+    # Ground-like texture — moss grows ON the surface, shares its grain
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("moss_mat")
+    ts.setMode(TextureStage.MModulate)
+    for i in range(patch_count):
+        r = rng.uniform(0.1, 0.35)
+        h = rng.uniform(0.02, 0.06)
+        color = (0.06, 0.40 + green_v + rng.uniform(-0.03, 0.03), 0.08)
+        blob = root.attachNewNode(make_rock(
+            r, h, r * rng.uniform(0.7, 1.0), color,
+            rings=3, segments=4, seed=seed + i * 17, roughness=0.15,
+        ))
+        blob.setPos(rng.uniform(-1.0, 1.0), rng.uniform(-1.0, 1.0), rng.uniform(0, 0.03))
+        blob.setH(rng.uniform(0, 360))
+        blob.setTwoSided(True)
+        blob.setTexGen(ts, TexGenAttrib.MWorldPosition)
+        blob.setTexture(ts, tex)
+        blob.setTexScale(ts, 0.5, 0.5)
+        blob.setLightOff()  # self-illuminated — glow bleeds through texture
+        blob.setColorScale(8.0, 16.0, 5.0, 1.0)  # 5× CRANKED — SEE IT
+
+    # Point light — EXAGGERATED, visible green pool on the ground
+    pl = PointLight(f"moss_glow_{seed}")
+    pl.setColor(Vec4(3.0, 12.5, 1.5, 1))  # 5× previous — see the throw edge
+    pl.setAttenuation((0.05, 0.004, 0.001))  # reaches ~25m
+    glow_np = root.attachNewNode(pl)
+    glow_np.setPos(0, 0, 0.5)
+
+    root.setPythonTag("point_light", glow_np)
+    root.setPythonTag("mote_config", {
+        "color": (0.08, 0.45, 0.06), "count": 15,
+        "radius": 3.5, "height": 0.8,
+        "ground_bias": True,
+        "float_compression": 0.4,  # barely perceptible near surface
+    })
+    # NO root damping — bioluminescent
+    return root
+
+
+def _build_crystal_spire(root, rng, seed_offset, max_h, lean_r=0, lean_p=0, pos=(0, 0, 0)):
+    """Single crystal spire — king shard + subordinates. Reused for compound clusters."""
+    shard_count = rng.randint(4, 8)
+    bv_base = rng.uniform(-0.02, 0.02)
+    color = (0.15 + bv_base, 0.18 + bv_base, 0.25 + bv_base)
+
+    for i in range(shard_count):
+        if i == 0:
+            h = max_h
+            dist = 0.0
+            sr, sp = 0.0, 0.0
+        else:
+            rank = i / shard_count
+            h = max_h * rng.uniform(0.35, 0.75 - rank * 0.15)
+            angle = rng.uniform(0, 360)
+            dist = rng.uniform(0.1, 0.35 + rank * 0.15)
+            la = rng.uniform(3, 8)
+            sr = math.cos(math.radians(angle)) * la
+            sp = math.sin(math.radians(angle)) * la
+
+        w = h * rng.uniform(0.12, 0.22)
+        bv = rng.uniform(-0.01, 0.01)
+        sc = (color[0] + bv, color[1] + bv, color[2] + bv)
+
+        shard = root.attachNewNode(make_rock(
+            w, h * 0.5, w * rng.uniform(0.6, 0.9), sc,
+            rings=4, segments=4, seed=seed_offset + i * 31, roughness=0.06,
+        ))
+        sx = pos[0] + (math.cos(math.radians(angle)) * dist if i > 0 else 0)
+        sy = pos[1] + (math.sin(math.radians(angle)) * dist if i > 0 else 0)
+        shard.setPos(sx, sy, pos[2])
+        shard.setR(lean_r + sr)
+        shard.setP(lean_p + sp)
+        shard.setH(rng.uniform(0, 360))
+        shard.setTwoSided(True)
+        shard.setLightOff()
+        shard.setColorScale(3.0, 3.5, 5.0, 1.0)
+
+
+def build_crystal_cluster(parent, seed=0):
+    """Compound crystal formation — 3 spires from shared trunk + base clusters.
+
+    Three main spires at different vectors from a common base.
+    Smaller satellite clusters around the perimeter.
+    Reads as a single geological formation, not scattered shards.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"crystal_{seed}")
+
+    # Shared trunk base — wide, squat rock
+    trunk_r = rng.uniform(0.6, 1.2)
+    trunk_color = (0.12, 0.14, 0.20)
+    trunk = root.attachNewNode(make_rock(
+        trunk_r, trunk_r * 0.4, trunk_r * 0.8, trunk_color,
+        rings=4, segments=5, seed=seed, roughness=0.1,
+    ))
+    trunk.setPos(0, 0, 0)
+    trunk.setTwoSided(True)
+    trunk.setLightOff()
+    trunk.setColorScale(2.0, 2.2, 3.0, 1.0)
+
+    # 3 main spires — different heights, different lean vectors
+    max_h = rng.uniform(4.0, 8.0)
+    tallest_h = 0
+    for si in range(3):
+        spire_h = max_h * rng.uniform(0.6, 1.0)
+        tallest_h = max(tallest_h, spire_h)
+        angle = si * 120 + rng.uniform(-25, 25)  # ~120° apart
+        lean = rng.uniform(8, 20)  # each spire leans outward
+        lr = math.cos(math.radians(angle)) * lean
+        lp = math.sin(math.radians(angle)) * lean
+        # Offset from trunk center
+        ox = math.cos(math.radians(angle)) * trunk_r * 0.3
+        oy = math.sin(math.radians(angle)) * trunk_r * 0.3
+        _build_crystal_spire(root, rng, seed + si * 100, spire_h,
+                             lean_r=lr, lean_p=lp, pos=(ox, oy, trunk_r * 0.3))
+
+    # 3-5 small satellite clusters around the base
+    for ci in range(rng.randint(3, 5)):
+        angle = rng.uniform(0, 360)
+        dist = trunk_r + rng.uniform(0.5, 1.5)
+        small_h = max_h * rng.uniform(0.15, 0.35)
+        sx = math.cos(math.radians(angle)) * dist
+        sy = math.sin(math.radians(angle)) * dist
+        _build_crystal_spire(root, rng, seed + 500 + ci * 50, small_h,
+                             pos=(sx, sy, 0))
+
+    # Cold blue point light
+    pl = PointLight(f"crystal_glow_{seed}")
+    pl.setColor(Vec4(5.0, 6.0, 12.0, 1))  # boosted
+    pl.setAttenuation((0.04, 0.003, 0.001))
+    glow_np = root.attachNewNode(pl)
+    glow_np.setPos(0, 0, tallest_h * 0.7)
+
+    root.setPythonTag("point_light", glow_np)
+    root.setPythonTag("mote_config", {
+        "color": (0.1, 0.15, 0.45), "count": 12,  # more saturated blue
+        "radius": 3.5, "height": tallest_h * 0.8,
+        "float_compression": 0.5,
+    })
+    return root
+
+
+def build_bone_pile(parent, seed=0):
+    """Scattered bones — pale cream against dark ground. History, danger, passage.
+
+    Pale color breaks the dark palette like a warning sign.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"bones_{seed}")
+
+    bone_count = rng.randint(4, 10)
+    for i in range(bone_count):
+        # Long, thin, slightly curved
+        length = rng.uniform(0.2, 0.8)
+        thick = rng.uniform(0.02, 0.06)
+        # Pale cream — bone color, stark against dark ground
+        bv = rng.uniform(-0.02, 0.02)
+        color = (0.22 + bv, 0.20 + bv, 0.16 + bv)
+        bone = root.attachNewNode(make_rock(
+            thick, length * 0.4, thick * 0.8, color,
+            rings=3, segments=3, seed=seed + i * 13, roughness=0.08,
+        ))
+        bone.setPos(rng.uniform(-0.6, 0.6), rng.uniform(-0.6, 0.6), 0.02)
+        bone.setH(rng.uniform(0, 360))
+        bone.setR(rng.uniform(-10, 10))
+        bone.setTwoSided(True)
+
+    # Optional skull-like lump in the center
+    if rng.random() < 0.4:
+        skull_r = rng.uniform(0.08, 0.14)
+        skull_color = (0.20, 0.18, 0.14)
+        skull = root.attachNewNode(make_rock(
+            skull_r, skull_r * 0.8, skull_r * 0.9, skull_color,
+            rings=4, segments=5, seed=seed + 999, roughness=0.12,
+        ))
+        skull.setPos(0, 0, skull_r * 0.3)
+        skull.setTwoSided(True)
+
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.4, 0.4)
+    root.setColorScale(0.60, 0.55, 0.50, 1.0)  # slightly brighter than stone — stands out
+    return root
+
+
+def build_beetle(parent, seed=0):
+    """Cave beetle — dark glossy carapace, catches bioluminescent light."""
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"beetle_{seed}")
+
+    s = rng.uniform(0.03, 0.06)
+    # Dark with subtle iridescence — catches reflected light
+    color = (0.04, 0.03, 0.05)
+    # Oval body
+    body = root.attachNewNode(make_rock(
+        s, s * 0.4, s * 0.7, color,
+        rings=3, segments=4, seed=seed, roughness=0.05,
+    ))
+    body.setTwoSided(True)
+    # Slight sheen — not setLightOff, so it catches scene lights
+    body.setColorScale(1.2, 1.1, 1.3, 1.0)
+
+    # Tiny legs — 3 per side
+    for i in range(6):
+        leg = root.attachNewNode(make_box(0.002, 0.002, s * 0.6, (0.03, 0.03, 0.04)))
+        side = 1 if i < 3 else -1
+        leg.setPos(side * s * 0.4, (i % 3 - 1) * s * 0.4, 0)
+        leg.setR(side * 40)
+    return root
+
+
+def build_ceiling_moss(parent, seed=0):
+    """Amber bioluminescent moss hanging from implied ceiling.
+
+    Spawns at height — dangles down. Motes drift downward.
+    Player never sees the ceiling, but the falling light proves it's there.
+    Any object with attachment_type='ceiling' gets placed at height.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"ceil_moss_{seed}")
+
+    # Cluster hangs from a height — the "ceiling"
+    hang_z = rng.uniform(15.0, 25.0)
+
+    # Dangling organic blobs — amber/gold
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+
+    blob_count = rng.randint(5, 12)
+    for i in range(blob_count):
+        r = rng.uniform(0.1, 0.4)
+        dangle = rng.uniform(0.3, 2.0)  # how far it hangs down
+        av = rng.uniform(-0.02, 0.02)
+        color = (0.35 + av, 0.25 + av, 0.06)  # warm amber
+        blob = root.attachNewNode(make_rock(
+            r, dangle * 0.3, r * rng.uniform(0.6, 0.9), color,
+            rings=3, segments=4, seed=seed + i * 19, roughness=0.12,
+        ))
+        blob.setPos(rng.uniform(-1.5, 1.5), rng.uniform(-1.5, 1.5),
+                     hang_z - dangle)
+        blob.setTwoSided(True)
+        blob.setTexGen(ts, TexGenAttrib.MWorldPosition)
+        blob.setTexture(ts, tex)
+        blob.setTexScale(ts, 0.4, 0.4)
+        blob.setLightOff()
+        blob.setColorScale(12.0, 8.0, 3.0, 1.0)  # CRANKED warm amber
+
+    # Amber point light — CRANKED, visible warm pool on ground
+    pl = PointLight(f"ceil_moss_glow_{seed}")
+    pl.setColor(Vec4(25.0, 18.0, 5.0, 1))  # 4× brighter
+    pl.setAttenuation((0.02, 0.001, 0.0005))  # reaches ~30m down
+    glow_np = root.attachNewNode(pl)
+    glow_np.setPos(0, 0, hang_z - 1.0)
+
+    root.setPythonTag("point_light", glow_np)
+    root.setPythonTag("mote_config", {
+        "color": (0.5, 0.35, 0.1), "count": 20,
+        "radius": 4.0, "height": hang_z * 0.9,
+        "downward": True,
+        "float_compression": 0.3,
+    })
+    return root
+
+
+def build_hanging_vine(parent, seed=0):
+    """Thin vine draping downward — hangs from column heights, adds vertical softness.
+
+    Dark organic, barely visible until backlit by bioluminescence.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"vine_{seed}")
+
+    # Vine hangs from a random height (as if from a column or ceiling)
+    hang_height = rng.uniform(6.0, 20.0)
+    vine_length = rng.uniform(3.0, hang_height * 0.7)
+    segment_count = rng.randint(4, 8)
+    seg_len = vine_length / segment_count
+
+    color = (0.05, 0.06, 0.04)  # dark green-brown, nearly invisible
+    x_drift = 0.0
+    y_drift = 0.0
+
+    for i in range(segment_count):
+        w = rng.uniform(0.01, 0.025)
+        seg = root.attachNewNode(make_box(w, w, seg_len * 0.45, color))
+        z = hang_height - i * seg_len
+        x_drift += rng.uniform(-0.15, 0.15)
+        y_drift += rng.uniform(-0.15, 0.15)
+        seg.setPos(x_drift, y_drift, z)
+        seg.setR(rng.uniform(-8, 8))
+        seg.setTwoSided(True)
+
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    root.setTexScale(ts, 0.5, 0.5)
+    root.setColorScale(0.45, 0.50, 0.40, 1.0)  # dark but slightly green-shifted
+    return root
+
+
+# -- Dust mote system (config-driven, any light source) -----------------------
+# mote_config = {"color": (r,g,b), "count": N, "radius": m, "height": m}
+# Tagged on any node with a point_light. AmbientManager spawns on wake.
+
+def _spawn_motes(parent_node, cfg, origin):
+    """Spawn drifting dust motes around a light source. Returns list of nodes."""
+    rng = random.Random(hash(origin) & 0xFFFF)
+    motes = []
+    color = cfg.get("color", (0.5, 0.5, 0.5))
+    count = cfg.get("count", 8)
+    radius = cfg.get("radius", 3.0)
+    height = cfg.get("height", 3.0)
+
+    for i in range(count * 5):
+        size = rng.uniform(0.006, 0.02)
+        mote = parent_node.getParent().attachNewNode(
+            make_box(size, size, size, color))
+        # Scatter around the light source
+        mx = origin[0] + rng.uniform(-radius, radius)
+        my = origin[1] + rng.uniform(-radius, radius)
+        if cfg.get("ground_bias"):
+            # Dense near surface — exponential falloff upward
+            mz = origin[2] + rng.uniform(0.05, height) ** 2 / height
+        else:
+            mz = origin[2] + rng.uniform(0.3, height)
+        mote.setPos(mx, my, mz)
+        mote.setLightOff()
+        # Glow intensity — bright enough to see in the dark
+        mote.setColorScale(color[0] * 15, color[1] * 15, color[2] * 15, 0.85)
+        mote.setTwoSided(True)
+        mote.setBillboardPointEye()  # always faces camera
+        # Tag for drift animation
+        # Compression: movement scales down near origin, feels like still air
+        compress = cfg.get("float_compression", 1.0)  # 0.1 = barely moves
+        base_speed = rng.uniform(0.01, 0.06) * compress
+        base_sway = rng.uniform(0.1, 0.25) * compress
+        base_freq = rng.uniform(0.05, 0.2) * compress
+
+        mote.setPythonTag("mote_drift", {
+            "origin": (mx, my, mz),
+            "radius": radius,
+            "speed": base_speed,
+            "sway_freq": base_freq,
+            "sway_amp": base_sway,
+            "phase": rng.uniform(0, 6.28),
+            "downward": cfg.get("downward", False),
+            "fall_speed": rng.uniform(0.005, 0.02) * compress,
+        })
+        motes.append(mote)
+    return motes
+
+
 BUILDERS = {
     "rat": (build_rat, "scurry"),
     "leaf": (build_leaf, "drift"),
     "spider": (build_spider, "crawl"),
+    "beetle": (build_beetle, "crawl"),
     "boulder": (build_boulder, "static"),
     "grass_tuft": (build_grass_tuft, "static"),
     "rubble": (build_rubble, "static"),
     "leaf_pile": (build_leaf_pile, "static"),
     "dead_log": (build_dead_log, "static"),
     "twig_scatter": (build_twig_scatter, "static"),
+    "bone_pile": (build_bone_pile, "static"),
     "stalagmite": (build_stalagmite, "static"),
     "column": (build_column, "static"),
+    "mega_column": (build_mega_column, "static"),
+    "giant_fungus": (build_giant_fungus, "static"),
+    "moss_patch": (build_moss_patch, "static"),
+    "crystal_cluster": (build_crystal_cluster, "static"),
+    "hanging_vine": (build_hanging_vine, "static"),
+    "ceiling_moss": (build_ceiling_moss, "static"),
 }
 
 
@@ -880,11 +1435,12 @@ class AmbientEntity:
     """A single behavior-driven entity in the world."""
 
     __slots__ = ("kind", "pos", "heading", "node", "behavior",
-                 "awake", "height_fn", "chunk_key")
+                 "awake", "height_fn", "chunk_key", "motes")
 
     def __init__(self, kind, node, behavior, pos, heading, height_fn=None, chunk_key=None):
         self.kind = kind
         self.pos = pos
+        self.motes = []  # dust mote nodes spawned on wake
         self.heading = heading
         self.node = node
         self.behavior = behavior
@@ -898,7 +1454,7 @@ class AmbientEntity:
 class AmbientManager:
     """Manages all ambient life entities. Tick once per frame."""
 
-    def __init__(self, render_node, wake_radius=30.0, sleep_radius=45.0):
+    def __init__(self, render_node, wake_radius=40.0, sleep_radius=50.0):
         self._render = render_node
         self._wake_r2 = wake_radius * wake_radius
         self._sleep_r2 = sleep_radius * sleep_radius
@@ -937,10 +1493,11 @@ class AmbientManager:
         """Per-frame update: staggered wake/sleep, tick active behaviors."""
         cx, cy = cam_pos.getX(), cam_pos.getY()
 
-        # Staggered wake/sleep — check a batch per frame, not all
+        # Staggered wake/sleep — batch scales with entity count
+        # Target: full scan in ~3 seconds (8 ticks/sec × 3s = 24 ticks)
         n = len(self._entities)
         if n > 0:
-            batch = min(self._check_batch, n)
+            batch = max(self._check_batch, n // 24)
             for _ in range(batch):
                 if self._check_cursor >= n:
                     self._check_cursor = 0
@@ -955,14 +1512,54 @@ class AmbientManager:
                     e.awake = True
                     e.node.show()
                     self._active.add(e)
+                    # Activate point light if present
+                    glow = e.node.getPythonTag("point_light")
+                    if glow:
+                        self._render.setLight(glow)
+                    # Spawn dust motes if configured
+                    mcfg = e.node.getPythonTag("mote_config")
+                    if mcfg and not e.motes:
+                        e.motes = _spawn_motes(e.node, mcfg, e.pos)
                 elif e.awake and d2 > self._sleep_r2:
                     e.awake = False
                     e.node.hide()
                     self._active.discard(e)
+                    # Deactivate point light
+                    glow = e.node.getPythonTag("point_light")
+                    if glow:
+                        self._render.clearLight(glow)
+                    # Remove dust motes
+                    for m in e.motes:
+                        if m and not m.isEmpty():
+                            m.removeNode()
+                    e.motes = []
 
-        # Tick active behaviors
+        # Tick active behaviors + drift motes
+        t = self._tick_time if hasattr(self, '_tick_time') else 0.0
+        self._tick_time = t + dt
         for e in self._active:
             e.behavior.tick(dt)
+            # Drift motes gently
+            for m in e.motes:
+                if m.isEmpty():
+                    continue
+                d = m.getPythonTag("mote_drift")
+                if not d:
+                    continue
+                ox, oy, oz = d["origin"]
+                phase = d["phase"]
+                sway = math.sin(t * d["sway_freq"] + phase) * d["sway_amp"]
+                drift_y = math.cos(t * d["speed"] * 0.7 + phase * 2) * d["radius"] * 0.3
+                if d.get("downward"):
+                    # Drift slowly downward, reset to origin when below floor
+                    fall = (t * d["fall_speed"] + phase) % 1.0
+                    dz = oz - fall * d["radius"] * 2
+                    if dz < oz - d["radius"] * 2:
+                        dz = oz
+                    m.setPos(ox + sway, oy + drift_y, dz)
+                else:
+                    m.setPos(ox + sway, oy + drift_y,
+                             oz + math.sin(t * d["speed"] + phase) * 0.5)
 
     @property
     def total_count(self):
