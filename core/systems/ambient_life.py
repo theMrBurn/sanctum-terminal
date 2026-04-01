@@ -1386,23 +1386,23 @@ def _spawn_motes(parent_node, cfg, origin):
         mote.setTwoSided(True)
         mote.setBillboardPointEye()  # always faces camera
         # Tag for drift animation
-        # Compression: movement scales down near origin, feels like still air
-        compress = cfg.get("float_compression", 1.0)  # 0.1 = barely moves
-        base_speed = rng.uniform(0.01, 0.06) * compress
-        base_sway = rng.uniform(0.1, 0.25) * compress
-        base_freq = rng.uniform(0.05, 0.2) * compress
+        # Pre-compute velocity — no trig per frame, just v × dt
+        compress = cfg.get("float_compression", 1.0)
+        downward = cfg.get("downward", False)
+        vx = rng.uniform(-0.08, 0.08) * compress
+        vy = rng.uniform(-0.08, 0.08) * compress
+        if downward:
+            vz = -rng.uniform(0.01, 0.05) * compress  # slow fall
+        else:
+            vz = rng.uniform(-0.03, 0.03) * compress  # gentle bob
 
-        mote.setPythonTag("mote_drift", {
+        drift_data = {
             "origin": (mx, my, mz),
             "radius": radius,
-            "speed": base_speed,
-            "sway_freq": base_freq,
-            "sway_amp": base_sway,
-            "phase": rng.uniform(0, 6.28),
-            "downward": cfg.get("downward", False),
-            "fall_speed": rng.uniform(0.005, 0.02) * compress,
-        })
-        motes.append(mote)
+            "vx": vx, "vy": vy, "vz": vz,
+            "downward": downward,
+        }
+        motes.append((mote, drift_data))  # cached — no getPythonTag needed
     return motes
 
 
@@ -1454,12 +1454,15 @@ class AmbientEntity:
 class AmbientManager:
     """Manages all ambient life entities. Tick once per frame."""
 
+    MAX_ACTIVE_LIGHTS = 8  # GPU budget — cap simultaneous point lights
+
     def __init__(self, render_node, wake_radius=40.0, sleep_radius=50.0):
         self._render = render_node
         self._wake_r2 = wake_radius * wake_radius
         self._sleep_r2 = sleep_radius * sleep_radius
         self._entities = []         # all entities
         self._active = set()        # currently ticking (set for O(1) add/remove)
+        self._active_lights = []    # (distance², entity, glow_np) — closest N active
         self._check_cursor = 0      # stagger wake/sleep checks across frames
         self._check_batch = 20      # entities to check per frame
 
@@ -1485,6 +1488,10 @@ class AmbientManager:
         to_remove = [e for e in self._entities if e.chunk_key == chunk_key]
         for e in to_remove:
             self._active.discard(e)
+            for m, _d in e.motes:
+                if m and not m.isEmpty():
+                    m.removeNode()
+            e.motes = []
             if e.node and not e.node.isEmpty():
                 e.node.removeNode()
             self._entities.remove(e)
@@ -1512,10 +1519,6 @@ class AmbientManager:
                     e.awake = True
                     e.node.show()
                     self._active.add(e)
-                    # Activate point light if present
-                    glow = e.node.getPythonTag("point_light")
-                    if glow:
-                        self._render.setLight(glow)
                     # Spawn dust motes if configured
                     mcfg = e.node.getPythonTag("mote_config")
                     if mcfg and not e.motes:
@@ -1524,42 +1527,68 @@ class AmbientManager:
                     e.awake = False
                     e.node.hide()
                     self._active.discard(e)
-                    # Deactivate point light
-                    glow = e.node.getPythonTag("point_light")
-                    if glow:
-                        self._render.clearLight(glow)
                     # Remove dust motes
-                    for m in e.motes:
+                    for m, _d in e.motes:
                         if m and not m.isEmpty():
                             m.removeNode()
                     e.motes = []
 
-        # Tick active behaviors + drift motes
+        # Light budget: activate only the closest N point lights
+        light_candidates = []
+        for e in self._active:
+            glow = e.node.getPythonTag("point_light")
+            if glow:
+                dx = e.pos[0] - cx
+                dy = e.pos[1] - cy
+                light_candidates.append((dx * dx + dy * dy, e, glow))
+        light_candidates.sort()
+        # Activate closest, deactivate the rest
+        new_lights = set()
+        for i, (_, e, glow) in enumerate(light_candidates):
+            if i < self.MAX_ACTIVE_LIGHTS:
+                new_lights.add(id(glow))
+                if not any(id(g) == id(glow) for _, _, g in self._active_lights):
+                    self._render.setLight(glow)
+            else:
+                self._render.clearLight(glow)
+        # Clear lights that are no longer in the active set
+        for _, _, glow in self._active_lights:
+            if id(glow) not in new_lights:
+                self._render.clearLight(glow)
+        self._active_lights = light_candidates[:self.MAX_ACTIVE_LIGHTS]
+
+        # Tick active behaviors
         t = self._tick_time if hasattr(self, '_tick_time') else 0.0
         self._tick_time = t + dt
         for e in self._active:
             e.behavior.tick(dt)
-            # Drift motes gently
-            for m in e.motes:
-                if m.isEmpty():
-                    continue
-                d = m.getPythonTag("mote_drift")
-                if not d:
-                    continue
+
+        # Drift motes — every tick, but cheap: just add velocity × dt
+        for e in self._active:
+            for m, d in e.motes:
+                pos = m.getPos()
+                # Tiny velocity nudge — no trig, just linear drift
+                vx = d.get("vx", 0)
+                vy = d.get("vy", 0)
+                vz = d.get("vz", 0)
+                nx = pos.getX() + vx * dt
+                ny = pos.getY() + vy * dt
+                nz = pos.getZ() + vz * dt
+                # Soft wrap: when mote drifts too far from origin, nudge back
                 ox, oy, oz = d["origin"]
-                phase = d["phase"]
-                sway = math.sin(t * d["sway_freq"] + phase) * d["sway_amp"]
-                drift_y = math.cos(t * d["speed"] * 0.7 + phase * 2) * d["radius"] * 0.3
+                dx = nx - ox
+                dy = ny - oy
+                r = d["radius"]
+                if dx * dx + dy * dy > r * r:
+                    nx = ox + dx * 0.5
+                    ny = oy + dy * 0.5
                 if d.get("downward"):
-                    # Drift slowly downward, reset to origin when below floor
-                    fall = (t * d["fall_speed"] + phase) % 1.0
-                    dz = oz - fall * d["radius"] * 2
-                    if dz < oz - d["radius"] * 2:
-                        dz = oz
-                    m.setPos(ox + sway, oy + drift_y, dz)
+                    if nz < oz - r * 2:
+                        nz = oz  # reset to top
                 else:
-                    m.setPos(ox + sway, oy + drift_y,
-                             oz + math.sin(t * d["speed"] + phase) * 0.5)
+                    if abs(nz - oz) > 0.8:
+                        d["vz"] = -d["vz"]  # bounce
+                m.setPos(nx, ny, nz)
 
     @property
     def total_count(self):

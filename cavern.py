@@ -45,6 +45,7 @@ from core.systems.entropy_engine import EntropyEngine
 from panda3d.core import (
     Geom, GeomNode, GeomTriangles, GeomVertexData,
     GeomVertexFormat, GeomVertexWriter, PerlinNoise2,
+    LightRampAttrib,
 )
 from core.systems.geometry import make_box, make_pebble_cluster
 from core.systems.shadowbox_scene import SHADOWBOX_REGISTERS, resolve_palette
@@ -102,12 +103,20 @@ class Cavern(ShowBase):
 
         props = WindowProperties()
         props.setTitle("Sanctum — The Endless Floor")
-        props.setSize(960, 540)  # 75% render resolution — natural softness + GPU savings
+        props.setSize(960, 540)
         props.setCursorHidden(True)
+        props.setFullscreen(True)
         self.win.requestProperties(props)
+        self._fullscreen = True
 
         # -- GC control: manual collection on quiet frames, no random pauses --
         gc.disable()
+
+        # -- Frame rate: disable vsync, cap at 60fps ourselves -----------------
+        from panda3d.core import loadPrcFileData, ClockObject
+        loadPrcFileData("", "sync-video false")
+        globalClock.setMode(ClockObject.MLimited)
+        globalClock.setFrameRate(60)
 
         # -- Rendering setup ---------------------------------------------------
         self.setBackgroundColor(0.02, 0.02, 0.03, 1)
@@ -116,7 +125,10 @@ class Cavern(ShowBase):
         self.camLens.setNear(0.5)
         self.camLens.setFar(45.0)  # match fog end — don't render what you can't see
         self.render.setAntialias(AntialiasAttrib.MMultisample)
+        # Per-pixel lighting with light count limit — cap GPU work
         self.render.setShaderAuto()
+        self.render.setAttrib(
+            LightRampAttrib.makeDefault())  # default ramp, no HDR overhead
 
         # -- State -------------------------------------------------------------
         self._register_index = 0
@@ -206,6 +218,7 @@ class Cavern(ShowBase):
         self.accept("t", self._place_tag)
         self.accept("shift-t", self._undo_last_tag)
         self.accept("control-t", self._clear_tags)
+        self.accept("]", self._toggle_fullscreen)
 
         self.taskMgr.add(self._loop, "CavernLoop")
 
@@ -1083,6 +1096,14 @@ void main() {
         console.log(f"[bold magenta]REGISTER[/bold magenta]  {reg}")
 
     # -- Debug telemetry (carried from dungeon) --------------------------------
+
+    def _toggle_fullscreen(self):
+        self._fullscreen = not self._fullscreen
+        props = WindowProperties()
+        props.setFullscreen(self._fullscreen)
+        if not self._fullscreen:
+            props.setSize(960, 540)
+        self.win.requestProperties(props)
 
     def _toggle_debug(self):
         self._debug_mode = not self._debug_mode
