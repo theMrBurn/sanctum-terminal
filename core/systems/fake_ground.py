@@ -149,11 +149,15 @@ class FakeGround:
         return tex
 
     def update(self, cam_x, cam_y, dt=0, moving=False):
-        """Reposition plane to follow camera. Optionally bob for height illusion."""
-        # Snap to tile grid so texture doesn't slide
-        snap_x = math.floor(cam_x / self._tile_size) * self._tile_size
-        snap_y = math.floor(cam_y / self._tile_size) * self._tile_size
-        self._node.setPos(snap_x, snap_y, 0)
+        """Reposition plane centered on camera. Texture stays world-locked."""
+        # Move plane to center on player — smooth, no grid snap
+        self._node.setPos(cam_x, cam_y, 0)
+        # Offset UVs so the texture stays world-locked despite the plane moving.
+        # Without this the texture slides under your feet as you walk.
+        tiles = self._plane_size / self._tile_size
+        u_offset = -cam_x / self._plane_size * tiles
+        v_offset = -cam_y / self._plane_size * tiles
+        self._node.setTexOffset(TextureStage.getDefault(), u_offset, v_offset)
 
         # Camera bob — only when moving, subtle sine
         if moving and dt > 0:
