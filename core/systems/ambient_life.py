@@ -24,7 +24,7 @@ from panda3d.core import (
     SamplerState, PointLight,
 )
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
-from core.systems.glow_decal import make_glow_decal, get_glow_texture
+from core.systems.glow_decal import make_glow_decal, get_glow_texture, make_light_shaft, get_shaft_texture
 
 
 # -- Behavior definitions -----------------------------------------------------
@@ -1031,9 +1031,15 @@ def build_giant_fungus(parent, seed=0):
 
     root.setPythonTag("point_light", glow_np)
 
-    # Ground glow decal — visible violet pool under the fungus
-    tex = get_glow_texture(64)
-    make_glow_decal(root, color=(0.6, 0.15, 0.8), radius=6.0, tex=tex)
+    # Ground glow decal — parented to root, sits at ground
+    glow_tex = get_glow_texture(64)
+    make_glow_decal(root, color=(0.6, 0.15, 0.8), radius=cap_r * 2.5, tex=glow_tex)
+
+    # Light shaft — anchored to gill underside, extends down to ground
+    # Height = gill position, width = cap diameter. Stops at the gill, not through the cap.
+    shaft_tex = get_shaft_texture()
+    shaft_h = stem_h * 0.75  # gill Z position
+    make_light_shaft(root, color=(0.6, 0.15, 0.8), shaft_height=shaft_h, shaft_width=cap_r * 1.5, tex=shaft_tex)
 
     return root
 
@@ -1082,6 +1088,10 @@ def build_moss_patch(parent, seed=0):
     # Ground glow decal — visible green pool under the moss
     tex = get_glow_texture(64)
     make_glow_decal(root, color=(0.1, 0.5, 0.08), radius=4.0, tex=tex)
+
+    # Light shaft — short haze rising from moss
+    shaft_tex = get_shaft_texture()
+    make_light_shaft(root, color=(0.1, 0.5, 0.08), shaft_height=1.5, shaft_width=2.5, tex=shaft_tex)
 
     return root
 
@@ -1182,9 +1192,13 @@ def build_crystal_cluster(parent, seed=0):
 
     root.setPythonTag("point_light", glow_np)
 
-    # Ground glow decal — visible blue pool under the crystal
-    tex = get_glow_texture(64)
-    make_glow_decal(root, color=(0.2, 0.25, 0.8), radius=5.0, tex=tex)
+    # Ground glow decal — scaled to trunk spread
+    glow_tex = get_glow_texture(64)
+    make_glow_decal(root, color=(0.2, 0.25, 0.8), radius=trunk_r * 3.0, tex=glow_tex)
+
+    # Light shaft — stops at 70% of tallest shard, width matches trunk
+    shaft_tex = get_shaft_texture()
+    make_light_shaft(root, color=(0.2, 0.25, 0.8), shaft_height=tallest_h * 0.7, shaft_width=trunk_r * 2.0, tex=shaft_tex)
 
     return root
 
@@ -1313,6 +1327,12 @@ def build_ceiling_moss(parent, seed=0):
     decal = make_glow_decal(root, color=(0.6, 0.4, 0.12), radius=8.0, tex=tex)
     # Override position — place decal at ground, not at ceiling blob height
     decal.setPos(0, 0, -hang_z + 0.05)
+
+    # Light shaft — warm gold column from ground up toward ceiling blobs
+    # Stops 2m below the blobs so it doesn't clip through them
+    shaft_tex = get_shaft_texture()
+    shaft = make_light_shaft(root, color=(0.6, 0.4, 0.12), shaft_height=hang_z - 2.0, shaft_width=3.0, tex=shaft_tex)
+    shaft.setPos(0, 0, -hang_z + 0.05)
 
     return root
 
