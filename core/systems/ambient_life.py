@@ -1032,7 +1032,7 @@ def build_giant_fungus(parent, seed=0):
     root.setPythonTag("point_light", glow_np)
 
     # Ground glow decal — parented to root, sits at ground
-    glow_tex = get_glow_texture(64)
+    glow_tex = get_glow_texture(64, surface="wet_stone")
     make_glow_decal(root, color=(0.6, 0.15, 0.8), radius=cap_r * 2.5, tex=glow_tex)
 
     # Light shaft — anchored to gill underside, extends down to ground
@@ -1086,7 +1086,7 @@ def build_moss_patch(parent, seed=0):
     root.setPythonTag("point_light", glow_np)
 
     # Ground glow decal — visible green pool under the moss
-    tex = get_glow_texture(64)
+    tex = get_glow_texture(64, surface="wet_stone")
     make_glow_decal(root, color=(0.1, 0.5, 0.08), radius=4.0, tex=tex)
 
     # Light shaft — short haze rising from moss
@@ -1193,7 +1193,7 @@ def build_crystal_cluster(parent, seed=0):
     root.setPythonTag("point_light", glow_np)
 
     # Ground glow decal — scaled to trunk spread
-    glow_tex = get_glow_texture(64)
+    glow_tex = get_glow_texture(64, surface="wet_stone")
     make_glow_decal(root, color=(0.2, 0.25, 0.8), radius=trunk_r * 3.0, tex=glow_tex)
 
     # Light shaft — stops at 70% of tallest shard, width matches trunk
@@ -1323,7 +1323,7 @@ def build_ceiling_moss(parent, seed=0):
 
     # Ground glow decal — warm gold pool projected down from ceiling
     # Positioned at ground level (decal y=0), not at ceiling height
-    tex = get_glow_texture(64)
+    tex = get_glow_texture(64, surface="wet_stone")
     decal = make_glow_decal(root, color=(0.6, 0.4, 0.12), radius=8.0, tex=tex)
     # Override position — place decal at ground, not at ceiling blob height
     decal.setPos(0, 0, -hang_z + 0.05)

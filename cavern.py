@@ -277,7 +277,7 @@ class Cavern(ShowBase):
 
         # Torch ground decal — warm pool ahead of player
         from core.systems.glow_decal import make_glow_decal, get_glow_texture
-        glow_tex = get_glow_texture(64)
+        glow_tex = get_glow_texture(64, surface="wet_stone")
         self._torch_decal = make_glow_decal(
             self.render, color=(0.5, 0.35, 0.15), radius=8.0, tex=glow_tex)
 
