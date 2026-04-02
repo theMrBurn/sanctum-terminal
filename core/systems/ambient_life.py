@@ -1274,63 +1274,47 @@ def build_beetle(parent, seed=0):
 
 
 def build_ceiling_moss(parent, seed=0):
-    """Amber bioluminescent moss hanging from implied ceiling.
+    """Amber bioluminescent moss — 4 cards, zero 3D geometry, zero point lights.
 
-    Spawns at height — dangles down. Motes drift downward.
-    Player never sees the ceiling, but the falling light proves it's there.
-    Any object with attachment_type='ceiling' gets placed at height.
+    The full illusion:
+    1. Billboard blob at ceiling height (impostor for moss cluster)
+    2. Mote shaft connecting ceiling to ground (baked particle specks)
+    3. Ground glow decal (warm amber pool)
+
+    Player sees: glowing amber above, motes drifting in a light column,
+    warm pool on the floor. Total cost: 3 cards + 1 decal.
     """
+    from core.systems.glow_decal import (
+        make_glow_decal, get_glow_texture,
+        make_light_shaft, get_mote_shaft_texture,
+        make_ceiling_blob, get_ceiling_blob_texture,
+    )
+
     rng = random.Random(seed)
     root = parent.attachNewNode(f"ceil_moss_{seed}")
 
     # Cluster hangs from a height — the "ceiling"
     hang_z = rng.uniform(15.0, 25.0)
 
-    # Dangling organic blobs — amber/gold
-    tex = get_material_texture("dry_organic", seed=seed)
-    ts = TextureStage("mat")
-    ts.setMode(TextureStage.MModulate)
+    # 1. Billboard blob at ceiling — one card replaces 5-12 rock meshes
+    #    Cranked brightness — this is the SOURCE, it should glow hot
+    blob_tex = get_ceiling_blob_texture(64)
+    blob_radius = rng.uniform(2.5, 4.5)
+    blob = make_ceiling_blob(root, color=(5.0, 3.5, 1.2), blob_radius=blob_radius,
+                             height=hang_z, tex=blob_tex)
 
-    blob_count = rng.randint(5, 12)
-    for i in range(blob_count):
-        r = rng.uniform(0.1, 0.4)
-        dangle = rng.uniform(0.3, 2.0)  # how far it hangs down
-        av = rng.uniform(-0.02, 0.02)
-        color = (0.35 + av, 0.25 + av, 0.06)  # warm amber
-        blob = root.attachNewNode(make_rock(
-            r, dangle * 0.3, r * rng.uniform(0.6, 0.9), color,
-            rings=3, segments=4, seed=seed + i * 19, roughness=0.12,
-        ))
-        blob.setPos(rng.uniform(-1.5, 1.5), rng.uniform(-1.5, 1.5),
-                     hang_z - dangle)
-        blob.setTwoSided(True)
-        blob.setTexGen(ts, TexGenAttrib.MWorldPosition)
-        blob.setTexture(ts, tex)
-        blob.setTexScale(ts, 0.4, 0.4)
-        blob.setLightOff()
-        blob.setColorScale(4.0, 3.0, 1.0, 1.0)  # warm amber, point light does the area work
-
-    # Amber point light — CRANKED, visible warm pool on ground
-    pl = PointLight(f"ceil_moss_glow_{seed}")
-    pl.setColor(Vec4(12.0, 8.0, 2.5, 1))  # warm gold downlight — brightest bio source
-    pl.setAttenuation((0.05, 0.004, 0.001))  # ~25m reach from ceiling
-    glow_np = root.attachNewNode(pl)
-    glow_np.setPos(0, 0, hang_z - 1.0)
-
-    root.setPythonTag("point_light", glow_np)
-
-    # Ground glow decal — warm gold pool projected down from ceiling
-    # Positioned at ground level (decal y=0), not at ceiling height
-    tex = get_glow_texture(64, surface="wet_stone")
-    decal = make_glow_decal(root, color=(0.6, 0.4, 0.12), radius=8.0, tex=tex)
-    # Override position — place decal at ground, not at ceiling blob height
-    decal.setPos(0, 0, -hang_z + 0.05)
-
-    # Light shaft — warm gold column from ground up toward ceiling blobs
-    # Stops 2m below the blobs so it doesn't clip through them
-    shaft_tex = get_shaft_texture()
-    shaft = make_light_shaft(root, color=(0.6, 0.4, 0.12), shaft_height=hang_z - 2.0, shaft_width=3.0, tex=shaft_tex)
+    # 2. Mote shaft — directed downlight like a lamp, baked mote specks
+    #    Narrow at top, spreads at ground = natural lamp cone
+    mote_tex = get_mote_shaft_texture(32, 128, seed=seed)
+    shaft = make_light_shaft(root, color=(1.0, 0.7, 0.2),
+                             shaft_height=hang_z - 1.0, shaft_width=4.0, tex=mote_tex)
     shaft.setPos(0, 0, -hang_z + 0.05)
+
+    # 3. Ground glow decal — the actual "lamp pool" on the floor
+    #    Large radius, cranked color — this IS the illumination
+    glow_tex = get_glow_texture(128, surface="wet_stone")
+    decal = make_glow_decal(root, color=(1.2, 0.8, 0.25), radius=10.0, tex=glow_tex)
+    decal.setPos(0, 0, -hang_z + 0.05)
 
     return root
 
@@ -1344,9 +1328,10 @@ def build_hanging_vine(parent, seed=0):
     root = parent.attachNewNode(f"vine_{seed}")
 
     # Vine hangs from a random height (as if from a column or ceiling)
-    hang_height = rng.uniform(6.0, 20.0)
-    vine_length = rng.uniform(3.0, hang_height * 0.7)
-    segment_count = rng.randint(4, 8)
+    hang_height = rng.uniform(8.0, 22.0)
+    # Reach half to 2/3 the distance to the ground
+    vine_length = rng.uniform(hang_height * 0.5, hang_height * 0.67)
+    segment_count = rng.randint(6, 12)
     seg_len = vine_length / segment_count
 
     color = (0.05, 0.06, 0.04)  # dark green-brown, nearly invisible
@@ -1564,6 +1549,23 @@ class AmbientManager:
                 enabled.add(glow)
             else:
                 self._render.clearLight(glow)
+
+    def reseat_ground(self, old_height_fn, new_height_fn):
+        """Reseat all entities when switching ground modes.
+
+        Shifts each entity's Z by the difference between old and new
+        ground height at its XY position. Ceiling entities, leaves, etc.
+        move correctly because their internal offsets are relative to root Z.
+        """
+        for e in self._entities:
+            if e.node and not e.node.isEmpty():
+                x, y = e.pos[0], e.pos[1]
+                old_z = old_height_fn(x, y)
+                new_z = new_height_fn(x, y)
+                delta = new_z - old_z
+                cur_z = e.node.getZ()
+                e.node.setZ(cur_z + delta)
+            e.height_fn = new_height_fn
 
     @property
     def total_count(self):
