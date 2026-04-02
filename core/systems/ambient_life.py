@@ -24,7 +24,7 @@ from panda3d.core import (
     SamplerState, PointLight,
 )
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
-from core.systems.glow_decal import make_glow_decal, get_glow_texture, make_light_shaft, get_shaft_texture
+from core.systems.glow_decal import make_glow_decal, get_glow_texture, make_light_shaft, get_shaft_texture, make_glow_halo
 
 
 # -- Behavior definitions -----------------------------------------------------
@@ -1085,13 +1085,10 @@ def build_moss_patch(parent, seed=0):
 
     root.setPythonTag("point_light", glow_np)
 
-    # Ground glow decal — visible green pool under the moss
+    # Ground glow decal — seep type: wide flat pool, no shaft
+    # Moss doesn't cast light like a lamp — it IS the light, seeping from the surface
     tex = get_glow_texture(64, surface="wet_stone")
-    make_glow_decal(root, color=(0.1, 0.5, 0.08), radius=4.0, tex=tex)
-
-    # Light shaft — short haze rising from moss
-    shaft_tex = get_shaft_texture()
-    make_light_shaft(root, color=(0.1, 0.5, 0.08), shaft_height=1.5, shaft_width=2.5, tex=shaft_tex)
+    make_glow_decal(root, color=(0.1, 0.5, 0.08), radius=5.0, tex=tex)
 
     return root
 
@@ -1196,9 +1193,10 @@ def build_crystal_cluster(parent, seed=0):
     glow_tex = get_glow_texture(64, surface="wet_stone")
     make_glow_decal(root, color=(0.2, 0.25, 0.8), radius=trunk_r * 3.0, tex=glow_tex)
 
-    # Light shaft — stops at 70% of tallest shard, width matches trunk
-    shaft_tex = get_shaft_texture()
-    make_light_shaft(root, color=(0.2, 0.25, 0.8), shaft_height=tallest_h * 0.7, shaft_width=trunk_r * 2.0, tex=shaft_tex)
+    # Radial halo — crystal radiates outward, not upward like a lamp
+    halo = make_glow_halo(root, color=(0.2, 0.25, 0.8),
+                          halo_radius=trunk_r * 2.5, halo_height=tallest_h * 0.5)
+    halo.setPos(0, 0, tallest_h * 0.4)  # sit at mid-crystal height
 
     return root
 
