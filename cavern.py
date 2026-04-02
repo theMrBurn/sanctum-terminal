@@ -133,6 +133,7 @@ class Cavern(ShowBase):
         self._tex_size_override = TEX_SIZE
         self._deferred_entity_spawns = deque()  # drip-spawned across frames
         self._flat_height = lambda x, y: 0.0  # fake ground height — zero Perlin
+        self._use_fake_ground = False  # real ground default, G key toggles
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
         self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=45.0)
