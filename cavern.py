@@ -134,6 +134,7 @@ class Cavern(ShowBase):
         self._deferred_entity_spawns = deque()  # drip-spawned across frames
         self._flat_height = lambda x, y: 0.0  # fake ground height — zero Perlin
         self._use_fake_ground = False  # real ground default, G key toggles
+        self._ground_blend_z = 0.0    # lerp offset to prevent pop on G toggle
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
         self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=45.0)
@@ -275,11 +276,11 @@ class Cavern(ShowBase):
         self._orb_vis.setLightOff()
         self._orb_vis.setColorScale(2.5, 2.0, 1.2, 1.0)
 
-        # Torch ground decal — warm pool ahead of player
+        # Torch ground decal — warm pool ahead of player, the nearfield light
         from core.systems.glow_decal import make_glow_decal, get_glow_texture
-        glow_tex = get_glow_texture(64, surface="wet_stone")
+        glow_tex = get_glow_texture(128, surface="wet_stone")
         self._torch_decal = make_glow_decal(
-            self.render, color=(0.5, 0.35, 0.15), radius=8.0, tex=glow_tex)
+            self.render, color=(1.4, 0.95, 0.45), radius=6.0, tex=glow_tex)
 
     def _setup_grain_shader(self):
         """Screen-space film grain — constant visual motion masks frame hitches."""
@@ -369,10 +370,11 @@ void main() {
                     t.start()
 
         # Flush deferred entity spawns for initial chunks — player shouldn't start empty
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
         while self._deferred_entity_spawns:
             kind, pos, heading, seed, chunk_key = self._deferred_entity_spawns.popleft()
             self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
-                                height_fn=self._height_at, chunk_key=chunk_key)
+                                height_fn=h_fn, chunk_key=chunk_key)
         console.log("[bold green]Ground ready.[/bold green]")
 
         # Pre-bake object field — baseball lineup of unique tiles
@@ -387,15 +389,16 @@ void main() {
         self._place_object_tiles()
         # Stage ALL initial objects synchronously — world populated before first frame
         console.log("[dim]Staging objects...[/dim]")
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
         while self._object_spawn_queue:
             kind, wx, wy, heading, seed, tile_key = \
                 self._object_spawn_queue.popleft()
-            wz = self._height_at(wx, wy)
+            wz = h_fn(wx, wy)
             if kind == "leaf":
                 wz += 3.0
             self._ambient.spawn(kind, pos=(wx, wy, wz),
                                 heading=heading, seed=seed,
-                                height_fn=self._flat_height if self._use_fake_ground else self._height_at,
+                                height_fn=h_fn,
                                 chunk_key=tile_key)
         console.log(f"[bold green]Objects ready. ({self._ambient.total_count} entities)[/bold green]")
 
@@ -497,17 +500,18 @@ void main() {
 
     def _drip_spawn_objects(self):
         """Spawn queued objects across frames. 8 per frame — smooth drip."""
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
         for _ in range(8):
             if not self._object_spawn_queue:
                 return
             kind, wx, wy, heading, seed, tile_key = \
                 self._object_spawn_queue.popleft()
-            wz = self._height_at(wx, wy)
+            wz = h_fn(wx, wy)
             if kind == "leaf":
                 wz += 3.0
             self._ambient.spawn(kind, pos=(wx, wy, wz),
                                 heading=heading, seed=seed,
-                                height_fn=self._flat_height if self._use_fake_ground else self._height_at,
+                                height_fn=h_fn,
                                 chunk_key=tile_key)
 
     # -- Chunk subsystems (split for 60-frame cycle) ----------------------------
@@ -1109,34 +1113,46 @@ void main() {
         """G key — A/B test: real chunked ground vs WorldRunner cheat ground."""
         self._use_fake_ground = not self._use_fake_ground
         if self._use_fake_ground:
+            # Capture current terrain height so camera doesn't jump
+            pos = self.cam.getPos()
+            self._ground_blend_z = self._height_at(pos.getX(), pos.getY())
             # Stash real chunks off the scene graph entirely — not just hidden
             for key, node in self._chunks.items():
                 node.stash()
             self._fake_ground.show()
+            # Reseat ALL entities from Perlin heights to Z=0
+            self._ambient.reseat_ground(self._height_at, self._flat_height)
             console.log("[bold green]FAKE GROUND[/bold green] — one plane, one texture, zero Perlin")
         else:
+            # Capture flat→terrain offset so camera doesn't jump
+            pos = self.cam.getPos()
+            self._ground_blend_z = -(self._height_at(pos.getX(), pos.getY()))
             # Unstash real chunks back into the scene
             for key, node in self._chunks.items():
                 node.unstash()
             self._fake_ground.hide()
+            # Reseat ALL entities from Z=0 back to Perlin heights
+            self._ambient.reseat_ground(self._flat_height, self._height_at)
             console.log("[bold green]REAL GROUND[/bold green] — chunked Perlin geometry")
 
     def _toggle_daylight(self):
         """L key — toggle daylight inspection mode. Fog stays, ambient cranks."""
         self._daylight = not self._daylight
         if self._daylight:
+            # Inspection mode — deep cave atmosphere, not flat gray
             self._amb_np.node().setColor(Vec4(0.8, 0.75, 0.7, 1))
-            self._fog.setColor(Vec4(0.35, 0.33, 0.30, 1))
+            self._fog.setColor(Vec4(0.12, 0.11, 0.18, 1))  # blue-purple haze
             self._fog.setLinearRange(40.0, 120.0)
             self.camLens.setFar(130.0)
-            self.setBackgroundColor(0.30, 0.28, 0.26, 1)
+            self.setBackgroundColor(0.06, 0.05, 0.10, 1)  # deep cave void
             console.log("[bold]DAYLIGHT[/bold] — inspection mode")
         else:
+            # Cave darkness — near-black fog, warm at the edges
             self._amb_np.node().setColor(Vec4(0.10, 0.08, 0.06, 1))
-            self._fog.setColor(Vec4(0, 0, 0, 1))
+            self._fog.setColor(Vec4(0.02, 0.015, 0.03, 1))  # hint of purple depth
             self._fog.setLinearRange(15.0, 50.0)
             self.camLens.setFar(45.0)
-            self.setBackgroundColor(0.02, 0.015, 0.01, 1)
+            self.setBackgroundColor(0.02, 0.015, 0.03, 1)
             console.log("[bold]CAVE[/bold] — darkness restored")
 
     def _toggle_debug(self):
@@ -1381,14 +1397,20 @@ void main() {
         new_y = pos.getY() + move_y
         moving = mag > 0
 
+        # Decay ground blend offset — prevents camera pop on G toggle
+        if abs(self._ground_blend_z) > 0.001:
+            self._ground_blend_z *= 0.88  # ~8 frames to settle
+        else:
+            self._ground_blend_z = 0.0
+
         if self._use_fake_ground:
             # WorldRunner mode — flat plane, camera bob sells height
             bob = self._fake_ground.update(new_x, new_y, dt, moving)
-            self.cam.setPos(new_x, new_y, EYE_Z + bob)
+            self.cam.setPos(new_x, new_y, EYE_Z + bob + self._ground_blend_z)
         else:
             # Real ground — Perlin height query
             terrain_z = self._height_at(new_x, new_y)
-            self.cam.setPos(new_x, new_y, terrain_z + EYE_Z)
+            self.cam.setPos(new_x, new_y, terrain_z + EYE_Z + self._ground_blend_z)
             # Still update fake ground position (for seamless toggle)
             self._fake_ground.update(new_x, new_y)
 
@@ -1472,10 +1494,11 @@ void main() {
         # Torch ground decal — project ahead of player at ground level
         cam_pos = self.cam.getPos()
         h_rad = math.radians(self._cam_h)
-        ahead_dist = 5.0  # meters ahead of feet
-        decal_x = cam_pos.getX() + math.sin(h_rad) * ahead_dist
-        decal_y = cam_pos.getY() - math.cos(h_rad) * ahead_dist
-        decal_z = self._height_at(decal_x, decal_y) + 0.05
+        ahead_dist = 4.0  # meters ahead of feet
+        # Forward direction matches probe/movement: (-sin(h), +cos(h))
+        decal_x = cam_pos.getX() - math.sin(h_rad) * ahead_dist
+        decal_y = cam_pos.getY() + math.cos(h_rad) * ahead_dist
+        decal_z = (self._flat_height(decal_x, decal_y) if self._use_fake_ground else self._height_at(decal_x, decal_y)) + 0.05
         self._torch_decal.setPos(decal_x, decal_y, decal_z)
 
         # Debug
