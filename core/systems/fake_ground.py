@@ -60,10 +60,14 @@ class FakeGround:
         Uses the same Perlin noise as the real ground generator but
         renders once at startup, not per-chunk per-frame.
         """
+        # Floor base color — brighter than palette suggests.
+        # Dark enough to feel like a cave, bright enough that glow decals
+        # reveal surface detail (cracks, dust, wet patches) underneath.
+        # Oblivion trick: the floor has visible detail at ambient level.
         floor_color = palette.get("stage_floor", (0.08, 0.06, 0.05))
-        dr = floor_color[0] * 0.55
-        dg = floor_color[1] * 0.50
-        db = floor_color[2] * 0.45
+        dr = floor_color[0] * 1.8
+        dg = floor_color[1] * 1.6
+        db = floor_color[2] * 1.4
 
         # Noise generators (same seeds as cavern.py for visual match)
         n_stone = PerlinNoise2(5.0, 5.0, 256, seed)
@@ -110,12 +114,26 @@ class FakeGround:
                     g += 0.015
                     b += 0.01
 
-                # Baked light variation — fake "bumps" via brightness
-                # This replaces actual vertex displacement
-                bump = n_stone(wx * 3, wy * 3) * 0.08
+                # Baked bumps — brightness variation reads as surface relief
+                bump = n_stone(wx * 3, wy * 3) * 0.06
                 r += bump
                 g += bump
                 b += bump
+
+                # Wet patches — slightly darker, slightly blue-shifted
+                # These catch glow decals and read as damp reflections
+                wet = n_dirt1(wx * 1.5, wy * 1.5)
+                if wet > 0.4:
+                    wet_amt = (wet - 0.4) * 0.3
+                    r -= wet_amt * 0.02
+                    g -= wet_amt * 0.01
+                    b += wet_amt * 0.02  # blue shift = damp
+
+                # Fine dust — high frequency brightness noise
+                dust = n_grit(wx * 4, wy * 4) * 0.03
+                r += dust
+                g += dust
+                b += dust * 0.8
 
                 img.setXel(px, py,
                            max(0.0, min(1.0, r)),

@@ -1,22 +1,22 @@
 {
   "camera": {
-    "x": 150.719,
-    "y": 144.138,
+    "x": 299.804,
+    "y": 119.184,
     "z": 2.5,
-    "h": 125.0,
-    "p": -4.5
+    "h": -121.7,
+    "p": -1.8
   },
   "probe": {
     "surface": "floor",
-    "distance": 31.55,
+    "distance": 80.69,
     "hit": [
-      124.95,
-      126.1,
+      368.45,
+      76.84,
       0.0
     ],
     "chunk": [
-      7,
-      7
+      23,
+      4
     ]
   },
   "tags": [
@@ -26,32 +26,32 @@
       "surface": "feet",
       "distance": 0,
       "pos": [
-        27.41,
-        -6.11,
-        0.76
+        173.1,
+        73.8,
+        1.17
       ],
       "chunk": [
-        1,
-        -1
+        10,
+        4
       ],
       "tile": [
         0,
-        -1
+        0
       ],
       "camera": {
-        "x": 27.41,
-        "y": -6.11,
+        "x": 173.1,
+        "y": 73.8,
         "z": 2.5,
-        "h": -131.3,
-        "p": -6.1
+        "h": -72.3,
+        "p": -6.5
       },
       "perf": {
-        "frame_ms": 11.8,
+        "frame_ms": 8.7,
         "spawn_queue": 0,
         "entities_total": 8402,
-        "entities_active": 41,
+        "entities_active": 32,
         "chunks_loaded": 49,
-        "wall_time": 1775115318.976
+        "wall_time": 1775116004.791
       }
     },
     {
@@ -60,32 +60,32 @@
       "surface": "feet",
       "distance": 0,
       "pos": [
-        150.72,
-        144.14,
-        1.56
+        299.8,
+        119.18,
+        0.73
       ],
       "chunk": [
-        9,
-        9
+        18,
+        7
       ],
       "tile": [
-        0,
+        1,
         0
       ],
       "camera": {
-        "x": 150.72,
-        "y": 144.14,
+        "x": 299.8,
+        "y": 119.18,
         "z": 2.5,
-        "h": 125.0,
-        "p": -4.5
+        "h": -121.7,
+        "p": -1.8
       },
       "perf": {
-        "frame_ms": 8.6,
+        "frame_ms": 17.1,
         "spawn_queue": 0,
-        "entities_total": 8402,
+        "entities_total": 10409,
         "entities_active": 38,
         "chunks_loaded": 49,
-        "wall_time": 1775115408.748
+        "wall_time": 1775116039.1
       }
     }
   ],

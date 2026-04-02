@@ -197,14 +197,10 @@ def make_glow_halo(parent, color, halo_radius, halo_height, tex=None):
     halo = parent.attachNewNode(cm.generate())
     halo.setTexture(tex)
     halo.setBillboardPointEye()
-    # Additive — adds glow atmosphere around the object
-    halo.setAttrib(ColorBlendAttrib.make(
-        ColorBlendAttrib.MAdd,
-        ColorBlendAttrib.OOne,
-        ColorBlendAttrib.OOne,
-    ))
+    # Alpha blend — gaussian alpha fades to zero at edges, no visible rectangle
+    halo.setTransparency(TransparencyAttrib.MAlpha)
     r, g, b = color
-    halo.setColorScale(r * 0.3, g * 0.3, b * 0.3, 1.0)
+    halo.setColorScale(r * 0.35, g * 0.35, b * 0.35, 1.0)
     halo.setLightOff()
     halo.setBin("transparent", 11)
     halo.setDepthWrite(False)
