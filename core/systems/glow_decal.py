@@ -9,38 +9,59 @@ present but cast zero visible light. All visible illumination comes from:
   1. AmbientLight (flat fill — works without shaders)
   2. These additive decals (glow pools on ground)
   3. Self-illuminated entities (setLightOff + setColorScale)
+  4. Light shafts (vertical billboard cards)
 
 The decals ARE the lighting layer.
 """
 
 import math
 from panda3d.core import (
-    CardMaker, ColorBlendAttrib,
+    CardMaker, ColorBlendAttrib, TransparencyAttrib,
     Texture, PNMImage, SamplerState,
 )
 
 _glow_tex_cache = {}
 
 
-def get_glow_texture(size=64):
-    """Radial gaussian — white center fades to black edges. RGB only."""
-    if size in _glow_tex_cache:
-        return _glow_tex_cache[size]
+def get_glow_texture(size=64, surface="smooth"):
+    """Radial gaussian glow texture with alpha falloff.
 
-    img = PNMImage(size, size, 3)
-    img.fill(0, 0, 0)
+    The decal paints its OWN surface — the ground texture does not bleed through.
+    Alpha channel controls where the decal is visible (gaussian falloff).
+    RGB channel controls what the pool surface looks like.
+
+    surface="smooth" — clean gradient, no pattern (default cavern)
+    surface="wet_stone" — subtle caustic ripple (wet cave floor)
+    """
+    key = (size, surface)
+    if key in _glow_tex_cache:
+        return _glow_tex_cache[key]
+
+    img = PNMImage(size, size, 4)  # RGBA
     center = size / 2.0
     for y in range(size):
         for x in range(size):
             dx = (x - center) / center
             dy = (y - center) / center
             d2 = dx * dx + dy * dy
-            # Tight gaussian — visible bright pool, fades cleanly
-            brightness = math.exp(-d2 * 2.5)
-            # Subtle noise for organic edge
+
+            # Alpha: gaussian falloff — sharp center, soft edges
+            alpha = math.exp(-d2 * 2.5)
+            # Organic edge noise
             noise = math.sin(x * 0.7 + y * 1.3) * 0.03
-            brightness = max(0.0, min(1.0, brightness + noise))
-            img.setXel(x, y, brightness, brightness, brightness)
+            alpha = max(0.0, min(1.0, alpha + noise))
+
+            # RGB: the pool surface — what the light looks like on the ground
+            if surface == "wet_stone":
+                # Caustic ripple — light on wet rock
+                ripple = math.sin(x * 0.5 + y * 0.3) * 0.08
+                ripple += math.cos(x * 0.3 - y * 0.7) * 0.06
+                brightness = max(0.0, min(1.0, 0.9 + ripple))
+            else:
+                # Smooth — clean glow, no pattern
+                brightness = 1.0
+
+            img.setXelA(x, y, brightness, brightness, brightness, alpha)
 
     tex = Texture("glow_decal")
     tex.load(img)
@@ -49,18 +70,17 @@ def get_glow_texture(size=64):
     tex.setWrapU(SamplerState.WM_clamp)
     tex.setWrapV(SamplerState.WM_clamp)
 
-    _glow_tex_cache[size] = tex
+    _glow_tex_cache[key] = tex
     return tex
 
 
 def make_glow_decal(parent, color, radius, tex, height_offset=0.08):
     """
-    Additive ground glow. This IS the light — not supplemental.
+    Ground glow pool. Paints its own surface — no ground texture bleed.
 
-    Color values > 1.0 are expected. The gaussian texture modulates
-    brightness spatially (bright center, zero at edges). The color
-    scale sets hue and intensity. Additive blend adds to whatever
-    is below — on dark ground, it paints the glow color directly.
+    Uses alpha blend (not additive) so the decal's RGB replaces the ground
+    within the gaussian falloff zone. The pool looks like colored light
+    on a smooth surface, not a tinted view of cobblestone.
     """
     cm = CardMaker("glow_decal")
     cm.setFrame(-radius, radius, -radius, radius)
@@ -68,20 +88,14 @@ def make_glow_decal(parent, color, radius, tex, height_offset=0.08):
 
     decal = parent.attachNewNode(cm.generate())
     decal.setTexture(tex)
-    # Lay flat on ground
     decal.setP(-90)
     decal.setPos(0, 0, height_offset)
-    # Additive: src*ONE + dst*ONE — black adds nothing, color adds glow
-    decal.setAttrib(ColorBlendAttrib.make(
-        ColorBlendAttrib.MAdd,
-        ColorBlendAttrib.OOne,
-        ColorBlendAttrib.OOne,
-    ))
+    # Alpha blend: decal color * alpha + ground * (1-alpha)
+    # At center (alpha=1): pure glow color. At edges (alpha=0): ground shows.
+    decal.setTransparency(TransparencyAttrib.MAlpha)
     r, g, b = color
     decal.setColorScale(r, g, b, 1.0)
-    # No scene lighting — self-illuminated
     decal.setLightOff()
-    # Render after ground geometry
     decal.setBin("transparent", 10)
     decal.setDepthWrite(False)
     decal.setDepthTest(True)
@@ -136,13 +150,6 @@ def make_light_shaft(parent, color, shaft_height, shaft_width=1.5, tex=None):
     Fills the negative space between source and floor with a soft
     colored gradient. Billboard faces camera so it always reads as
     a volumetric column of light regardless of viewing angle.
-
-    Args:
-        parent: entity root NodePath
-        color: (r, g, b) — same color as the entity's glow
-        shaft_height: how tall the shaft is (entity height)
-        shaft_width: width of the beam
-        tex: shaft texture from get_shaft_texture()
     """
     if tex is None:
         tex = get_shaft_texture()
@@ -153,20 +160,18 @@ def make_light_shaft(parent, color, shaft_height, shaft_width=1.5, tex=None):
 
     shaft = parent.attachNewNode(cm.generate())
     shaft.setTexture(tex)
-    shaft.setPos(0, 0, 0.05)  # just above ground
-    # Billboard — always faces camera
+    shaft.setPos(0, 0, 0.05)
     shaft.setBillboardPointEye()
-    # Additive blend — same as ground decals
+    # Additive blend for shafts — they ADD atmosphere to the scene
     shaft.setAttrib(ColorBlendAttrib.make(
         ColorBlendAttrib.MAdd,
         ColorBlendAttrib.OOne,
         ColorBlendAttrib.OOne,
     ))
     r, g, b = color
-    # Dimmer than the ground pool — atmosphere, not spotlight
     shaft.setColorScale(r * 0.4, g * 0.4, b * 0.4, 1.0)
     shaft.setLightOff()
-    shaft.setBin("transparent", 11)  # render after ground decals
+    shaft.setBin("transparent", 11)
     shaft.setDepthWrite(False)
     shaft.setDepthTest(True)
     shaft.setTwoSided(True)
