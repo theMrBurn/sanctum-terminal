@@ -913,6 +913,10 @@ void main() {
         # Ensure ground receives per-pixel lighting from auto shader
         ground_np.setShaderAuto()
 
+        # If fake ground is active, stash new chunks immediately
+        if self._use_fake_ground:
+            chunk_root.stash()
+
         return chunk_root
 
     def _bytes_to_texture(self, flat_bytes, tex_size, name):
@@ -1105,15 +1109,15 @@ void main() {
         """G key — A/B test: real chunked ground vs WorldRunner cheat ground."""
         self._use_fake_ground = not self._use_fake_ground
         if self._use_fake_ground:
-            # Hide real chunks, show fake plane
+            # Stash real chunks off the scene graph entirely — not just hidden
             for key, node in self._chunks.items():
-                node.hide()
+                node.stash()
             self._fake_ground.show()
             console.log("[bold green]FAKE GROUND[/bold green] — one plane, one texture, zero Perlin")
         else:
-            # Show real chunks, hide fake plane
+            # Unstash real chunks back into the scene
             for key, node in self._chunks.items():
-                node.show()
+                node.unstash()
             self._fake_ground.hide()
             console.log("[bold green]REAL GROUND[/bold green] — chunked Perlin geometry")
 
