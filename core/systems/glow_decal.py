@@ -177,3 +177,38 @@ def make_light_shaft(parent, color, shaft_height, shaft_width=1.5, tex=None):
     shaft.setTwoSided(True)
 
     return shaft
+
+
+def make_glow_halo(parent, color, halo_radius, halo_height, tex=None):
+    """
+    Low horizontal halo — radial emitter (crystals, embers, minerals).
+
+    A billboard ring that sits at the entity's mid-height and radiates
+    outward. Reads as light emanating from the object in all directions,
+    not projecting up or down like a lamp.
+    """
+    if tex is None:
+        tex = get_glow_texture(64)
+
+    cm = CardMaker("glow_halo")
+    cm.setFrame(-halo_radius, halo_radius, -halo_height / 2, halo_height / 2)
+    cm.setHasUvs(True)
+
+    halo = parent.attachNewNode(cm.generate())
+    halo.setTexture(tex)
+    halo.setBillboardPointEye()
+    # Additive — adds glow atmosphere around the object
+    halo.setAttrib(ColorBlendAttrib.make(
+        ColorBlendAttrib.MAdd,
+        ColorBlendAttrib.OOne,
+        ColorBlendAttrib.OOne,
+    ))
+    r, g, b = color
+    halo.setColorScale(r * 0.3, g * 0.3, b * 0.3, 1.0)
+    halo.setLightOff()
+    halo.setBin("transparent", 11)
+    halo.setDepthWrite(False)
+    halo.setDepthTest(True)
+    halo.setTwoSided(True)
+
+    return halo
