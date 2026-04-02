@@ -28,6 +28,7 @@ import json
 import time
 import threading
 import gc
+from collections import deque
 
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
@@ -130,6 +131,8 @@ class Cavern(ShowBase):
         self._chunk_lock = threading.Lock()
         self._chunk_seed = 42
         self._tex_size_override = TEX_SIZE
+        self._deferred_entity_spawns = deque()  # drip-spawned across frames
+        self._flat_height = lambda x, y: 0.0  # fake ground height — zero Perlin
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
         self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=45.0)
@@ -364,6 +367,11 @@ void main() {
                     )
                     t.start()
 
+        # Flush deferred entity spawns for initial chunks — player shouldn't start empty
+        while self._deferred_entity_spawns:
+            kind, pos, heading, seed, chunk_key = self._deferred_entity_spawns.popleft()
+            self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
+                                height_fn=self._height_at, chunk_key=chunk_key)
         console.log("[bold green]Ground ready.[/bold green]")
 
         # Pre-bake object field — baseball lineup of unique tiles
@@ -386,7 +394,7 @@ void main() {
                 wz += 3.0
             self._ambient.spawn(kind, pos=(wx, wy, wz),
                                 heading=heading, seed=seed,
-                                height_fn=self._height_at,
+                                height_fn=self._flat_height if self._use_fake_ground else self._height_at,
                                 chunk_key=tile_key)
         console.log(f"[bold green]Objects ready. ({self._ambient.total_count} entities)[/bold green]")
 
@@ -498,7 +506,7 @@ void main() {
                 wz += 3.0
             self._ambient.spawn(kind, pos=(wx, wy, wz),
                                 heading=heading, seed=seed,
-                                height_fn=self._height_at,
+                                height_fn=self._flat_height if self._use_fake_ground else self._height_at,
                                 chunk_key=tile_key)
 
     # -- Chunk subsystems (split for 60-frame cycle) ----------------------------
@@ -895,11 +903,11 @@ void main() {
         ground_np.setTexture(tex)
         ground_np.setTwoSided(True)
 
-        # Ambient spawns — inside time budget with the mesh
+        # Defer entity spawns — drip them across frames instead of all at once.
+        # This is what turns 121ms spikes into smooth 8ms frames.
         chunk_key = (cx, cz)
         for kind, pos, heading, seed in data["spawns"]:
-            self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
-                                height_fn=self._height_at, chunk_key=chunk_key)
+            self._deferred_entity_spawns.append((kind, pos, heading, seed, chunk_key))
 
         # Ensure ground receives per-pixel lighting from auto shader
         ground_np.setShaderAuto()
@@ -1388,21 +1396,23 @@ void main() {
 
         fc = self._frame_counter
 
-        # Chunk scan + dispatch: frames 0, 15, 30, 45 (4× per cycle)
-        if fc % 15 == 0:
-            self._dispatch_chunks()
+        # Chunk system — skip entirely when fake ground is active
+        if not self._use_fake_ground:
+            # Chunk scan + dispatch: frames 0, 15, 30, 45 (4× per cycle)
+            if fc % 15 == 0:
+                self._dispatch_chunks()
 
-        # Chunk build: frames 5, 10, 20, 25, 35, 40, 50, 55 (8× per cycle)
-        if fc % 5 == 0 and fc % 15 != 0:
-            self._build_ready_chunk()
+            # Chunk build: frames 5, 10, 20, 25, 35, 40, 50, 55 (8× per cycle)
+            if fc % 5 == 0 and fc % 15 != 0:
+                self._build_ready_chunk()
+
+            # Despawn check: frame 47 only (1× per cycle)
+            if fc == 47:
+                self._despawn_distant()
 
         # Ambient life: frames 3, 9, 21, 27, 33, 39, 51, 57 (8× per cycle)
         if fc % 6 == 3:
             self._ambient.tick(dt * 6, self.cam.getPos())
-
-        # Despawn check: frame 47 only (1× per cycle)
-        if fc == 47:
-            self._despawn_distant()
 
         # Object tile scan: frame 29 — queue new tiles; frame 53 — despawn far tiles
         if fc == 29:
@@ -1412,6 +1422,13 @@ void main() {
 
         # Drip-spawn queued objects: every frame (8 per frame, ~1ms budget)
         self._drip_spawn_objects()
+
+        # Drip-spawn deferred chunk entities: 4 per frame, O(1) popleft
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
+        for _ in range(min(4, len(self._deferred_entity_spawns))):
+            kind, pos, heading, seed, chunk_key = self._deferred_entity_spawns.popleft()
+            self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
+                                height_fn=h_fn, chunk_key=chunk_key)
 
         # Manual GC: gen-0 only during gameplay — lightweight, ~0.1ms
         # Gen-1/2 were causing 50-75ms spikes with 3000+ entity node trees
