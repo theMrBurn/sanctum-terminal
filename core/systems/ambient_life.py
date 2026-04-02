@@ -24,6 +24,7 @@ from panda3d.core import (
     SamplerState, PointLight,
 )
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
+from core.systems.glow_decal import make_glow_decal, get_glow_texture
 
 
 # -- Behavior definitions -----------------------------------------------------
@@ -971,7 +972,7 @@ def build_giant_fungus(parent, seed=0):
     cap.setTexture(ts, tex)
     cap.setTexScale(ts, 0.2, 0.2)
     cap.setLightOff()  # self-illuminated — glow bleeds through texture
-    cap.setColorScale(5.0, 1.5, 6.0, 1.0)  # CRANKED phosphorescent purple
+    cap.setColorScale(2.5, 0.8, 3.0, 1.0)  # phosphorescent purple, point light does area
 
     # Gill glow — smaller inverted disc under cap, hottest
     gill_color = (0.55, 0.12, 0.65)
@@ -1019,21 +1020,21 @@ def build_giant_fungus(parent, seed=0):
         arc_cap.setTexture(ts, tex)
         arc_cap.setTexScale(ts, 0.3, 0.3)
         arc_cap.setLightOff()
-        arc_cap.setColorScale(8.0, 2.5, 10.0, 1.0)  # cranked — visible in the dark
+        arc_cap.setColorScale(3.0, 1.0, 4.0, 1.0)  # satellite cap, toned to match
 
     # Point light — EXAGGERATED, visible light pool edge on the ground
     pl = PointLight(f"fungus_glow_{seed}")
-    pl.setColor(Vec4(10.0, 2.0, 14.0, 1))  # 5× previous — see the throw edge
-    pl.setAttenuation((0.05, 0.004, 0.001))  # reaches ~25m
+    pl.setColor(Vec4(5.0, 1.0, 7.0, 1))  # violet area light
+    pl.setAttenuation((0.1, 0.008, 0.001))  # ~18m reach
     glow_np = root.attachNewNode(pl)
     glow_np.setPos(0, 0, stem_h * 0.75)
 
     root.setPythonTag("point_light", glow_np)
-    root.setPythonTag("mote_config", {
-        "color": (0.4, 0.08, 0.55), "count": 12,
-        "radius": 4.0, "height": stem_h * 0.9,
-    })
-    # NO root damping — this is bioluminescent, not stone
+
+    # Ground glow decal — visible violet pool under the fungus
+    tex = get_glow_texture(64)
+    make_glow_decal(root, color=(0.6, 0.15, 0.8), radius=6.0, tex=tex)
+
     return root
 
 
@@ -1067,23 +1068,21 @@ def build_moss_patch(parent, seed=0):
         blob.setTexture(ts, tex)
         blob.setTexScale(ts, 0.5, 0.5)
         blob.setLightOff()  # self-illuminated — glow bleeds through texture
-        blob.setColorScale(8.0, 16.0, 5.0, 1.0)  # 5× CRANKED — SEE IT
+        blob.setColorScale(3.0, 6.0, 2.0, 1.0)  # self-illuminated, point light does the area work
 
     # Point light — EXAGGERATED, visible green pool on the ground
     pl = PointLight(f"moss_glow_{seed}")
-    pl.setColor(Vec4(3.0, 12.5, 1.5, 1))  # 5× previous — see the throw edge
-    pl.setAttenuation((0.05, 0.004, 0.001))  # reaches ~25m
+    pl.setColor(Vec4(1.5, 6.0, 0.8, 1))  # green area light — ground wayfinding
+    pl.setAttenuation((0.1, 0.008, 0.001))  # ~18m reach
     glow_np = root.attachNewNode(pl)
     glow_np.setPos(0, 0, 0.5)
 
     root.setPythonTag("point_light", glow_np)
-    root.setPythonTag("mote_config", {
-        "color": (0.08, 0.45, 0.06), "count": 15,
-        "radius": 3.5, "height": 0.8,
-        "ground_bias": True,
-        "float_compression": 0.4,  # barely perceptible near surface
-    })
-    # NO root damping — bioluminescent
+
+    # Ground glow decal — visible green pool under the moss
+    tex = get_glow_texture(64)
+    make_glow_decal(root, color=(0.1, 0.5, 0.08), radius=4.0, tex=tex)
+
     return root
 
 
@@ -1176,17 +1175,17 @@ def build_crystal_cluster(parent, seed=0):
 
     # Cold blue point light
     pl = PointLight(f"crystal_glow_{seed}")
-    pl.setColor(Vec4(5.0, 6.0, 12.0, 1))  # boosted
-    pl.setAttenuation((0.04, 0.003, 0.001))
+    pl.setColor(Vec4(2.5, 3.0, 6.0, 1))  # cold blue area light
+    pl.setAttenuation((0.1, 0.008, 0.001))  # ~18m reach
     glow_np = root.attachNewNode(pl)
     glow_np.setPos(0, 0, tallest_h * 0.7)
 
     root.setPythonTag("point_light", glow_np)
-    root.setPythonTag("mote_config", {
-        "color": (0.1, 0.15, 0.45), "count": 12,  # more saturated blue
-        "radius": 3.5, "height": tallest_h * 0.8,
-        "float_compression": 0.5,
-    })
+
+    # Ground glow decal — visible blue pool under the crystal
+    tex = get_glow_texture(64)
+    make_glow_decal(root, color=(0.2, 0.25, 0.8), radius=5.0, tex=tex)
+
     return root
 
 
@@ -1297,22 +1296,24 @@ def build_ceiling_moss(parent, seed=0):
         blob.setTexture(ts, tex)
         blob.setTexScale(ts, 0.4, 0.4)
         blob.setLightOff()
-        blob.setColorScale(12.0, 8.0, 3.0, 1.0)  # CRANKED warm amber
+        blob.setColorScale(4.0, 3.0, 1.0, 1.0)  # warm amber, point light does the area work
 
     # Amber point light — CRANKED, visible warm pool on ground
     pl = PointLight(f"ceil_moss_glow_{seed}")
-    pl.setColor(Vec4(25.0, 18.0, 5.0, 1))  # 4× brighter
-    pl.setAttenuation((0.02, 0.001, 0.0005))  # reaches ~30m down
+    pl.setColor(Vec4(12.0, 8.0, 2.5, 1))  # warm gold downlight — brightest bio source
+    pl.setAttenuation((0.05, 0.004, 0.001))  # ~25m reach from ceiling
     glow_np = root.attachNewNode(pl)
     glow_np.setPos(0, 0, hang_z - 1.0)
 
     root.setPythonTag("point_light", glow_np)
-    root.setPythonTag("mote_config", {
-        "color": (0.5, 0.35, 0.1), "count": 20,
-        "radius": 4.0, "height": hang_z * 0.9,
-        "downward": True,
-        "float_compression": 0.3,
-    })
+
+    # Ground glow decal — warm gold pool projected down from ceiling
+    # Positioned at ground level (decal y=0), not at ceiling height
+    tex = get_glow_texture(64)
+    decal = make_glow_decal(root, color=(0.6, 0.4, 0.12), radius=8.0, tex=tex)
+    # Override position — place decal at ground, not at ceiling blob height
+    decal.setPos(0, 0, -hang_z + 0.05)
+
     return root
 
 
@@ -1462,6 +1463,8 @@ class AmbientManager:
         self._active = set()        # currently ticking (set for O(1) add/remove)
         self._check_cursor = 0      # stagger wake/sleep checks across frames
         self._check_batch = 20      # entities to check per frame
+        self._max_lights = 8        # GPU budget: nearest N bio-lights only
+        self._active_lights = []    # [(dist2, glow_np, entity), ...] sorted
 
     def spawn(self, kind, pos, heading=0, seed=0, height_fn=None, chunk_key=None):
         """Create an entity. It starts asleep until tick() wakes it."""
@@ -1512,54 +1515,37 @@ class AmbientManager:
                     e.awake = True
                     e.node.show()
                     self._active.add(e)
-                    # Activate point light if present
-                    glow = e.node.getPythonTag("point_light")
-                    if glow:
-                        self._render.setLight(glow)
-                    # Spawn dust motes if configured
-                    mcfg = e.node.getPythonTag("mote_config")
-                    if mcfg and not e.motes:
-                        e.motes = _spawn_motes(e.node, mcfg, e.pos)
                 elif e.awake and d2 > self._sleep_r2:
                     e.awake = False
                     e.node.hide()
                     self._active.discard(e)
-                    # Deactivate point light
+                    # Always clear light on sleep
                     glow = e.node.getPythonTag("point_light")
                     if glow:
                         self._render.clearLight(glow)
-                    # Remove dust motes
-                    for m in e.motes:
-                        if m and not m.isEmpty():
-                            m.removeNode()
-                    e.motes = []
 
-        # Tick active behaviors + drift motes
-        t = self._tick_time if hasattr(self, '_tick_time') else 0.0
-        self._tick_time = t + dt
+        # Tick active behaviors
         for e in self._active:
             e.behavior.tick(dt)
-            # Drift motes gently
-            for m in e.motes:
-                if m.isEmpty():
-                    continue
-                d = m.getPythonTag("mote_drift")
-                if not d:
-                    continue
-                ox, oy, oz = d["origin"]
-                phase = d["phase"]
-                sway = math.sin(t * d["sway_freq"] + phase) * d["sway_amp"]
-                drift_y = math.cos(t * d["speed"] * 0.7 + phase * 2) * d["radius"] * 0.3
-                if d.get("downward"):
-                    # Drift slowly downward, reset to origin when below floor
-                    fall = (t * d["fall_speed"] + phase) % 1.0
-                    dz = oz - fall * d["radius"] * 2
-                    if dz < oz - d["radius"] * 2:
-                        dz = oz
-                    m.setPos(ox + sway, oy + drift_y, dz)
-                else:
-                    m.setPos(ox + sway, oy + drift_y,
-                             oz + math.sin(t * d["speed"] + phase) * 0.5)
+
+        # Light budget — nearest N bio-lights only
+        candidates = []
+        for e in self._active:
+            glow = e.node.getPythonTag("point_light")
+            if glow:
+                dx = e.pos[0] - cx
+                dy = e.pos[1] - cy
+                candidates.append((dx * dx + dy * dy, glow))
+        candidates.sort(key=lambda x: x[0])
+
+        # Enable nearest, disable the rest
+        enabled = set()
+        for i, (_, glow) in enumerate(candidates):
+            if i < self._max_lights:
+                self._render.setLight(glow)
+                enabled.add(glow)
+            else:
+                self._render.clearLight(glow)
 
     @property
     def total_count(self):
