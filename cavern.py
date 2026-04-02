@@ -171,28 +171,24 @@ class Cavern(ShowBase):
 
         # -- Camera start ------------------------------------------------------
         self.cam.setPos(0, 0, EYE_Z)
+        self.cam.setHpr(0, 0, 0)  # heading 0 (north), pitch 0 (horizon), roll 0
         self._mouse_initialized = False
 
         # -- Stage the immediate area before player sees anything --
         self._stage_initial_chunks()
 
-        # -- Post-processing: grain + bloom + reduced render resolution ----------
-        self._bloom_on = False
-        try:
-            from direct.filter.CommonFilters import CommonFilters
-            self._filters = CommonFilters(self.win, self.cam)
-            bloom_int = self._palette.get("bloom_intensity", 0.3)
-            self._filters.setBloom(
-                blend=(0.3, 0.4, 0.3, 0.0),
-                mintrigger=0.6, maxtrigger=1.0,
-                desat=0.6, intensity=bloom_int, size="medium",
-            )
-            self._bloom_on = True
-        except Exception:
-            self._filters = None
+        # -- Fake ground (WorldRunner cheat) — toggle with G key ----------------
+        from core.systems.fake_ground import FakeGround
+        self._fake_ground = FakeGround(self.render, self._palette, self._chunk_seed)
+        self._fake_ground.hide()  # starts off — real ground active
+        self._use_fake_ground = False
 
-        # Film grain overlay — masks frame hitches + adds atmosphere
-        self._setup_grain_shader()
+        # -- Post-processing: DISABLED for decal diagnostic ----------
+        # Bloom's render-to-texture pipeline may eat additive-blended cards.
+        # Grain fullscreen overlay may obscure them. Both off until decals work.
+        self._bloom_on = False
+        self._filters = None
+        self._grain_card = None
 
         # -- Controls ----------------------------------------------------------
         self.accept("escape", sys.exit)
@@ -206,11 +202,14 @@ class Cavern(ShowBase):
         self.accept("t", self._place_tag)
         self.accept("shift-t", self._undo_last_tag)
         self.accept("control-t", self._clear_tags)
+        self.accept("l", self._toggle_daylight)
+        self.accept("g", self._toggle_fake_ground)
+        self._daylight = False
 
         self.taskMgr.add(self._loop, "CavernLoop")
 
         console.log("[bold cyan]THE ENDLESS FLOOR[/bold cyan]")
-        console.log("[WASD] move  [Mouse] look  [F1-F4] registers  [ESC] quit")
+        console.log("[WASD] move  [Mouse] look  [F1-F4] registers  [L] daylight  [ESC] quit")
         console.log("[dim][`] debug  [0] dump  [T] tag  [Shift+T] undo  [Ctrl+T] clear[/dim]")
 
     # -- Helpers ---------------------------------------------------------------
@@ -248,12 +247,12 @@ class Cavern(ShowBase):
 
         # Main cone: spotlight aimed forward from behind the player
         spot = Spotlight("orb_cone")
-        spot.setColor(Vec4(lc[0] * 1.8, lc[1] * 1.6, lc[2] * 1.4, 1))
-        spot.getLens().setFov(60)
+        spot.setColor(Vec4(lc[0] * 3.0, lc[1] * 2.8, lc[2] * 2.2, 1))
+        spot.getLens().setFov(70)
         spot.getLens().setNearFar(0.5, 50)
-        spot.setAttenuation((0.2, 0.008, 0.002))
+        spot.setAttenuation((0.08, 0.003, 0.0008))
         spot.setShadowCaster(True, 512, 512)
-        spot.setExponent(8.0)
+        spot.setExponent(3.0)
         self._orb_np = self.cam.attachNewNode(spot)
         self._orb_np.setPos(0.3, -0.8, 0.6)  # behind right shoulder
         self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # aim forward and slightly down
@@ -261,8 +260,8 @@ class Cavern(ShowBase):
 
         # Fill light: dim point light for ambient spill around the orb
         fill = PointLight("orb_fill")
-        fill.setColor(Vec4(lc[0] * 0.4, lc[1] * 0.35, lc[2] * 0.2, 1))
-        fill.setAttenuation((0.5, 0.03, 0.008))
+        fill.setColor(Vec4(lc[0] * 1.0, lc[1] * 0.8, lc[2] * 0.5, 1))
+        fill.setAttenuation((0.15, 0.01, 0.002))
         self._orb_fill = self._orb_np.attachNewNode(fill)
         self.render.setLight(self._orb_fill)
 
@@ -271,6 +270,12 @@ class Cavern(ShowBase):
         self._orb_vis = self._orb_np.attachNewNode(orb_vis)
         self._orb_vis.setLightOff()
         self._orb_vis.setColorScale(2.5, 2.0, 1.2, 1.0)
+
+        # Torch ground decal — warm pool ahead of player
+        from core.systems.glow_decal import make_glow_decal, get_glow_texture
+        glow_tex = get_glow_texture(64)
+        self._torch_decal = make_glow_decal(
+            self.render, color=(0.5, 0.35, 0.15), radius=8.0, tex=glow_tex)
 
     def _setup_grain_shader(self):
         """Screen-space film grain — constant visual motion masks frame hitches."""
@@ -896,6 +901,9 @@ void main() {
             self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
                                 height_fn=self._height_at, chunk_key=chunk_key)
 
+        # Ensure ground receives per-pixel lighting from auto shader
+        ground_np.setShaderAuto()
+
         return chunk_root
 
     def _bytes_to_texture(self, flat_bytes, tex_size, name):
@@ -1083,6 +1091,40 @@ void main() {
         console.log(f"[bold magenta]REGISTER[/bold magenta]  {reg}")
 
     # -- Debug telemetry (carried from dungeon) --------------------------------
+
+    def _toggle_fake_ground(self):
+        """G key — A/B test: real chunked ground vs WorldRunner cheat ground."""
+        self._use_fake_ground = not self._use_fake_ground
+        if self._use_fake_ground:
+            # Hide real chunks, show fake plane
+            for key, node in self._chunks.items():
+                node.hide()
+            self._fake_ground.show()
+            console.log("[bold green]FAKE GROUND[/bold green] — one plane, one texture, zero Perlin")
+        else:
+            # Show real chunks, hide fake plane
+            for key, node in self._chunks.items():
+                node.show()
+            self._fake_ground.hide()
+            console.log("[bold green]REAL GROUND[/bold green] — chunked Perlin geometry")
+
+    def _toggle_daylight(self):
+        """L key — toggle daylight inspection mode. Fog stays, ambient cranks."""
+        self._daylight = not self._daylight
+        if self._daylight:
+            self._amb_np.node().setColor(Vec4(0.8, 0.75, 0.7, 1))
+            self._fog.setColor(Vec4(0.35, 0.33, 0.30, 1))
+            self._fog.setLinearRange(40.0, 120.0)
+            self.camLens.setFar(130.0)
+            self.setBackgroundColor(0.30, 0.28, 0.26, 1)
+            console.log("[bold]DAYLIGHT[/bold] — inspection mode")
+        else:
+            self._amb_np.node().setColor(Vec4(0.10, 0.08, 0.06, 1))
+            self._fog.setColor(Vec4(0, 0, 0, 1))
+            self._fog.setLinearRange(15.0, 50.0)
+            self.camLens.setFar(45.0)
+            self.setBackgroundColor(0.02, 0.015, 0.01, 1)
+            console.log("[bold]CAVE[/bold] — darkness restored")
 
     def _toggle_debug(self):
         self._debug_mode = not self._debug_mode
@@ -1324,8 +1366,19 @@ void main() {
         pos = self.cam.getPos()
         new_x = pos.getX() + move_x
         new_y = pos.getY() + move_y
-        terrain_z = self._height_at(new_x, new_y)
-        self.cam.setPos(new_x, new_y, terrain_z + EYE_Z)
+        moving = mag > 0
+
+        if self._use_fake_ground:
+            # WorldRunner mode — flat plane, camera bob sells height
+            bob = self._fake_ground.update(new_x, new_y, dt, moving)
+            self.cam.setPos(new_x, new_y, EYE_Z + bob)
+        else:
+            # Real ground — Perlin height query
+            terrain_z = self._height_at(new_x, new_y)
+            self.cam.setPos(new_x, new_y, terrain_z + EYE_Z)
+            # Still update fake ground position (for seamless toggle)
+            self._fake_ground.update(new_x, new_y)
+
         self.cam.setHpr(self._cam_h, self._cam_p, 0)
 
         # 60-frame cycle — spread all subsystems across the cycle
@@ -1384,8 +1437,8 @@ void main() {
         lc = self._palette["sconce"]
         flicker = 1.0 + fi * 0.4 * math.sin(t * 5.3) * math.sin(t * 7.7)
         self._orb_np.node().setColor(Vec4(
-            lc[0] * 1.8 * flicker, lc[1] * 1.6 * flicker,
-            lc[2] * 1.4 * flicker, 1,
+            lc[0] * 3.0 * flicker, lc[1] * 2.8 * flicker,
+            lc[2] * 2.2 * flicker, 1,
         ))
         # Gentle drift behind shoulder
         bob_x = 0.3 + math.sin(t * 1.1) * 0.06
@@ -1393,6 +1446,15 @@ void main() {
         bob_z = 0.6 + math.sin(t * 1.7) * 0.08
         self._orb_np.setPos(bob_x, bob_y, bob_z)
         self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # always aim forward+down
+
+        # Torch ground decal — project ahead of player at ground level
+        cam_pos = self.cam.getPos()
+        h_rad = math.radians(self._cam_h)
+        ahead_dist = 5.0  # meters ahead of feet
+        decal_x = cam_pos.getX() + math.sin(h_rad) * ahead_dist
+        decal_y = cam_pos.getY() - math.cos(h_rad) * ahead_dist
+        decal_z = self._height_at(decal_x, decal_y) + 0.05
+        self._torch_decal.setPos(decal_x, decal_y, decal_z)
 
         # Debug
         self._check_debug_commands()
