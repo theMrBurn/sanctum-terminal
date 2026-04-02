@@ -1,22 +1,22 @@
 {
   "camera": {
-    "x": 299.804,
-    "y": 119.184,
+    "x": -41.886,
+    "y": -18.077,
     "z": 2.5,
-    "h": -121.7,
-    "p": -1.8
+    "h": 97.2,
+    "p": -11.8
   },
   "probe": {
     "surface": "floor",
-    "distance": 80.69,
+    "distance": 12.27,
     "hit": [
-      368.45,
-      76.84,
+      -53.8,
+      -19.59,
       0.0
     ],
     "chunk": [
-      23,
-      4
+      -4,
+      -2
     ]
   },
   "tags": [
@@ -26,32 +26,32 @@
       "surface": "feet",
       "distance": 0,
       "pos": [
-        173.1,
-        73.8,
-        1.17
+        -41.89,
+        -18.08,
+        1.6
       ],
       "chunk": [
-        10,
-        4
+        -3,
+        -2
       ],
       "tile": [
-        0,
-        0
+        -1,
+        -1
       ],
       "camera": {
-        "x": 173.1,
-        "y": 73.8,
+        "x": -41.89,
+        "y": -18.08,
         "z": 2.5,
-        "h": -72.3,
-        "p": -6.5
+        "h": 97.2,
+        "p": -11.8
       },
       "perf": {
-        "frame_ms": 8.7,
+        "frame_ms": 8.6,
         "spawn_queue": 0,
-        "entities_total": 8402,
-        "entities_active": 32,
-        "chunks_loaded": 49,
-        "wall_time": 1775116004.791
+        "entities_total": 11203,
+        "entities_active": 34,
+        "chunks_loaded": 43,
+        "wall_time": 1775116515.526
       }
     },
     {
@@ -60,37 +60,71 @@
       "surface": "feet",
       "distance": 0,
       "pos": [
-        299.8,
-        119.18,
-        0.73
+        -41.89,
+        -18.08,
+        1.6
       ],
       "chunk": [
-        18,
-        7
+        -3,
+        -2
       ],
       "tile": [
-        1,
-        0
+        -1,
+        -1
       ],
       "camera": {
-        "x": 299.8,
-        "y": 119.18,
+        "x": -41.89,
+        "y": -18.08,
         "z": 2.5,
-        "h": -121.7,
-        "p": -1.8
+        "h": 97.2,
+        "p": -11.8
       },
       "perf": {
-        "frame_ms": 17.1,
+        "frame_ms": 16.9,
         "spawn_queue": 0,
-        "entities_total": 10409,
-        "entities_active": 38,
-        "chunks_loaded": 49,
-        "wall_time": 1775116039.1
+        "entities_total": 11203,
+        "entities_active": 34,
+        "chunks_loaded": 43,
+        "wall_time": 1775116518.527
+      }
+    },
+    {
+      "id": 3,
+      "label": "#3",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        -41.89,
+        -18.08,
+        1.6
+      ],
+      "chunk": [
+        -3,
+        -2
+      ],
+      "tile": [
+        -1,
+        -1
+      ],
+      "camera": {
+        "x": -41.89,
+        "y": -18.08,
+        "z": 2.5,
+        "h": 97.2,
+        "p": -11.8
+      },
+      "perf": {
+        "frame_ms": 18.3,
+        "spawn_queue": 0,
+        "entities_total": 11203,
+        "entities_active": 34,
+        "chunks_loaded": 43,
+        "wall_time": 1775116520.462
       }
     }
   ],
   "register": "survival",
-  "chunks_loaded": 49,
+  "chunks_loaded": 43,
   "palette": {
     "fog": [
       0.04,
