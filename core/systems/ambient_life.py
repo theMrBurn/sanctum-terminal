@@ -388,24 +388,27 @@ OUTDOOR_PALETTE = {
 
 # Per-kind colorScale overrides applied after build.
 # Cavern uses uniform stone tones. Outdoor differentiates by species.
+# NOTE: These MULTIPLY against the builder's baked colorScale (~0.50-0.55).
+# Values are ~1.8x brighter than target to compensate for the stacking.
+# boulder target green (0.19, 0.33, 0.12) → scale (0.65, 1.20, 0.48) × baked (0.55, 0.50, 0.48)
 OUTDOOR_COLOR_SCALES = {
-    "boulder":         (0.35, 0.65, 0.25, 1.0),  # sword fern mound — deep green
-    "column":          (0.50, 0.40, 0.30, 1.0),  # tree bark — warm brown
-    "mega_column":     (0.45, 0.35, 0.25, 1.0),  # old growth bark — darker
-    "stalagmite":      (0.45, 0.38, 0.28, 1.0),  # dead stump / standing stone
-    "giant_fungus":    (0.50, 0.42, 0.28, 1.0),  # large bush / rhododendron
-    "crystal_cluster": (0.55, 0.45, 0.30, 1.0),  # flowering shrub — warm
-    "moss_patch":      (0.20, 0.50, 0.12, 1.0),  # natural moss — not neon
-    "dead_log":        (0.30, 0.42, 0.18, 1.0),  # nurse log — mossy green-brown
-    "grass_tuft":      (0.30, 0.55, 0.18, 1.0),  # forest grass — saturated green
-    "rubble":          (0.45, 0.40, 0.32, 1.0),  # scattered stones — earthy
-    "leaf_pile":       (0.50, 0.38, 0.18, 1.0),  # fir needles — orange-brown
-    "twig_scatter":    (0.42, 0.35, 0.22, 1.0),  # fallen branches — wood tone
+    "boulder":         (0.65, 1.20, 0.48, 1.0),  # sword fern mound — visible green
+    "column":          (0.90, 0.75, 0.55, 1.0),  # tree bark — warm brown
+    "mega_column":     (0.82, 0.65, 0.48, 1.0),  # old growth bark — rich brown
+    "stalagmite":      (0.82, 0.70, 0.52, 1.0),  # dead stump / standing stone
+    "giant_fungus":    (0.90, 0.78, 0.52, 1.0),  # large bush / rhododendron
+    "crystal_cluster": (1.00, 0.82, 0.55, 1.0),  # flowering shrub — warm
+    "moss_patch":      (0.40, 0.95, 0.25, 1.0),  # natural moss — green, not neon
+    "dead_log":        (0.55, 0.78, 0.35, 1.0),  # nurse log — mossy green-brown
+    "grass_tuft":      (0.55, 1.00, 0.35, 1.0),  # forest grass — visible green
+    "rubble":          (0.82, 0.72, 0.58, 1.0),  # scattered stones — earthy
+    "leaf_pile":       (0.90, 0.70, 0.35, 1.0),  # fir needles — warm orange-brown
+    "twig_scatter":    (0.76, 0.65, 0.42, 1.0),  # fallen branches — wood tone
     "firefly":         (3.0, 2.0, 1.0, 1.0),     # same warm amber — fireflies are fireflies
-    "cave_gravel":     (0.40, 0.35, 0.25, 1.0),  # dirt pebbles — warm
-    "horizon_form":    (0.06, 0.08, 0.04, 1.0),  # distant tree line — dark green
-    "horizon_mid":     (0.08, 0.10, 0.06, 1.0),  # mid-distance trees
-    "horizon_near":    (0.10, 0.12, 0.08, 1.0),  # near tree silhouettes
+    "cave_gravel":     (0.72, 0.65, 0.48, 1.0),  # dirt pebbles — warm
+    "horizon_form":    (0.12, 0.16, 0.08, 1.0),  # distant tree line — dark green
+    "horizon_mid":     (0.16, 0.20, 0.12, 1.0),  # mid-distance trees
+    "horizon_near":    (0.20, 0.24, 0.16, 1.0),  # near tree silhouettes
 }
 
 # Render dome height per biome — fog hides the rest.
