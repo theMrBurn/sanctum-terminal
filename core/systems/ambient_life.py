@@ -2695,7 +2695,7 @@ class AmbientManager:
         # Adaptive tick budget — self-regulating batch size
         self._tick_budget_ms = 8.0  # target: 8ms max per tick (leaves 25ms for render)
         self._last_tick_ms = 0.0
-        self._adaptive_batch = 150  # starting scan batch, adjusts per tick
+        self._adaptive_batch = 300  # starting scan batch, adjusts per tick
 
     def spawn(self, kind, pos, heading=0, seed=0, height_fn=None, chunk_key=None,
               biome="Cavern_Default"):
@@ -2885,21 +2885,12 @@ class AmbientManager:
         """Per-frame update: staggered wake/sleep, tick active behaviors."""
         cx, cy = cam_pos.getX(), cam_pos.getY()
 
-        # Freeze scan when stationary — skip wake/sleep if player hasn't moved 5m.
         import time as _time
         _tick_start = _time.monotonic()
-        moved = True
-        if hasattr(self, '_last_scan_pos'):
-            lx, ly = self._last_scan_pos
-            ddx, ddy = cx - lx, cy - ly
-            if ddx * ddx + ddy * ddy < 25.0:  # 5m squared
-                moved = False
-        if moved:
-            self._last_scan_pos = (cx, cy)
 
-        # Adaptive wake/sleep scan — only runs when player is moving.
+        # Adaptive wake/sleep scan — self-regulating batch size.
         n = len(self._entities)
-        if n > 0 and moved:
+        if n > 0:
             # Adjust batch based on last tick performance
             if self._last_tick_ms > self._tick_budget_ms * 1.2:
                 self._adaptive_batch = max(50, self._adaptive_batch - 30)
