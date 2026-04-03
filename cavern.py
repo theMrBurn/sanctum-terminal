@@ -577,23 +577,14 @@ class Cavern(ShowBase):
         self._bloom_on = False
         self._filters = None
 
-        # CommonFilters bloom — proven pattern from shadowbox_dungeon
-        try:
-            from direct.filter.CommonFilters import CommonFilters
-            self._filters = CommonFilters(self.win, self.cam)
-            self._filters.setBloom(
-                blend=(0.3, 0.4, 0.3, 0.0),
-                mintrigger=pp_config.bloom.threshold,
-                maxtrigger=1.0,
-                desat=0.5,
-                intensity=pp_config.bloom.intensity,
-                size="medium",
-            )
-            self._bloom_on = True
-            console.log(f"[green]Bloom ON[/green] threshold={pp_config.bloom.threshold} "
-                        f"intensity={pp_config.bloom.intensity}")
-        except Exception as e:
-            console.log(f"[yellow]Bloom unavailable:[/yellow] {e}")
+        # CommonFilters bloom DISABLED — causes 600-1200ms GPU stalls on
+        # Apple Silicon Metal. FBO render-to-texture pipeline creates driver
+        # synchronization stalls every 3-4 frames. Keeping color grade + grain
+        # (render2d cards, no FBO) which are stall-free.
+        # TODO: Implement bloom as additive render2d card (emissive bright-pass
+        # extracted from scene, blurred on CPU, composited as billboard).
+        self._bloom_on = False
+        self._filters = None
 
         # Color grading fullscreen card — same technique as grain shader
         from panda3d.core import Shader
