@@ -38,8 +38,9 @@ import math
 
 CAVERN_CYCLE = {
     # Thresholds calibrated for real entity counts (~11K start, ~19K explored).
-    # Budget = entity_count / MAX_ENTITIES (25K).
+    # Budget = entity_count / budget_max.
     # Walking to a new tile adds ~4K entities = ~0.16 budget jump.
+    "budget_max": 25000,
     "open": {
         "fog": (8.0, 28.0),
         "ambient": (0.38, 0.34, 0.32),
@@ -77,6 +78,51 @@ CAVERN_CYCLE = {
         "budget_floor": 0.0,
         "budget_ceiling": 0.15,
         "hold_seconds": 4.0,
+    },
+}
+
+OUTDOOR_CYCLE = {
+    # Tighter thresholds — wider wake radius = more active entities.
+    # Fog ranges scaled to outdoor distances (15-55m baseline).
+    # Flora collapses in like cavern walls — forest swallows you.
+    "budget_max": 500,     # wake-radius capacity, not hard cap
+    "open": {
+        "fog": (15.0, 55.0),
+        "ambient": (0.55, 0.50, 0.45),     # warm daylight
+        "budget_floor": 0.0,
+        "budget_ceiling": 0.35,              # trigger sooner than cavern
+    },
+    "building": {
+        "fog": (12.0, 40.0),
+        "ambient": (0.40, 0.35, 0.30),     # overcast rolling in
+        "budget_floor": 0.35,
+        "budget_ceiling": 0.45,
+    },
+    "tension": {
+        "fog": (8.0, 25.0),
+        "ambient": (0.25, 0.20, 0.16),     # dim canopy
+        "budget_floor": 0.45,
+        "budget_ceiling": 0.55,
+    },
+    "tunnel": {
+        "fog": (4.0, 12.0),
+        "ambient": (0.10, 0.08, 0.06),     # deep twilight
+        "budget_floor": 0.55,
+        "budget_ceiling": 0.65,
+    },
+    "dump": {
+        "fog": (2.0, 6.0),
+        "ambient": (0.04, 0.03, 0.03),     # near-dark, forest gone
+        "budget_floor": 0.65,
+        "budget_ceiling": 1.0,
+        "hold_seconds": 3.0,                # slightly longer — weight of silence
+    },
+    "rebirth": {
+        "fog": (10.0, 35.0),
+        "ambient": (0.30, 0.25, 0.20),     # dawn breaking through canopy
+        "budget_floor": 0.0,
+        "budget_ceiling": 0.10,
+        "hold_seconds": 5.0,                # sunrise is slow
     },
 }
 
@@ -153,13 +199,15 @@ class TensionCycle:
             self._set_state(state_name)
             self._lerp_t = 1.0  # skip transition
 
-    def tick(self, dt, entity_count, max_entities):
+    def tick(self, dt, entity_count, max_entities=None):
         """Advance the cycle. Returns CycleEnvelope with current fog/ambient/state.
 
         Call every frame. When not active, returns static open envelope.
+        max_entities overrides config budget_max if provided (legacy compat).
         """
         env = self._envelope
-        budget = entity_count / max(1, max_entities)
+        bmax = max_entities if max_entities is not None else self._config.get("budget_max", 25000)
+        budget = entity_count / max(1, bmax)
         env.budget = budget
 
         if not self._active:
