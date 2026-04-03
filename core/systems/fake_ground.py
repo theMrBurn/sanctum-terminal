@@ -28,7 +28,7 @@ class FakeGround:
     def __init__(self, render_node, palette, chunk_seed=42, tile_size=16.0):
         self._render = render_node
         self._tile_size = tile_size
-        self._plane_size = 200.0
+        self._plane_size = 300.0  # must exceed camera far (45m) at any pitch angle
         half = self._plane_size / 2.0
 
         # Pre-bake cavern sediment texture ONCE
@@ -53,76 +53,117 @@ class FakeGround:
         self._bob_phase = 0.0
 
     def _bake_tiling_texture(self, palette, seed, size=256):
-        """Cavern sediment floor — compacted dirt with embedded gravel.
+        """Cavern floor — Voronoi cells from WORLD_GRAIN, dark negative space.
 
-        Natural cave floor: water-deposited sediment, loose gravel,
-        worn pebbles half-buried in dirt. Cool blue-gray tone to match
-        the real ground's palette interaction.
+        Same visual DNA as object textures: Voronoi cell grid defines
+        sediment islands, gaps between cells are true dark negative space
+        (erosion channels). The WORLD_GRAIN root value drives cell density
+        so floor and objects share the same visual language.
         """
         floor = palette.get("stage_floor", (0.08, 0.06, 0.05))
-        # Cool-shifted to match real ground's blue-gray tone
         base_r = floor[0] * 1.2 + 0.03
         base_g = floor[1] * 1.3 + 0.04
         base_b = floor[2] * 1.5 + 0.05
 
-        tile = self._tile_size
+        # Dark negative space — true black-ish, not just "dimmer"
+        dark_r, dark_g, dark_b = 0.02, 0.018, 0.022
 
-        n_sed1 = PerlinNoise2(0.6, 0.6, 256, seed)
-        n_sed2 = PerlinNoise2(1.5, 1.5, 256, seed + 200)
-        n_grit = PerlinNoise2(4.0, 4.0, 256, seed + 700)
-        n_peb = PerlinNoise2(8.0, 8.0, 256, seed + 400)
+        tile = self._tile_size
+        # Cell size from WORLD_GRAIN — same visual rhythm as object textures
+        # Ground cells are larger (÷ 0.08 ratio) because we're looking straight down
+        cell_size = 0.80  # meters per cell in world space
+
+        rng = __import__("random").Random(seed)
+
+        # Generate jittered Voronoi cell centers across the tile + overscan
+        overscan = cell_size * 2
+        cells = []
+        cell_colors = []
         n_color = PerlinNoise2(0.4, 0.4, 256, seed)
         n_warm = PerlinNoise2(0.7, 0.7, 256, seed + 50)
-        n_crack = PerlinNoise2(3.0, 3.0, 256, seed + 800)
+
+        gx = -overscan
+        while gx < tile + overscan:
+            gy = -overscan
+            while gy < tile + overscan:
+                jx = rng.uniform(-0.4, 0.4) * cell_size
+                jy = rng.uniform(-0.4, 0.4) * cell_size
+                wx, wy = gx + jx, gy + jy
+                cells.append((wx, wy))
+                # Per-cell color variation
+                n = (n_color(wx, wy) + 1.0) * 0.5
+                v = (n - 0.5) * 0.08
+                w = (n_warm(wx, wy) + 1.0) * 0.5
+                warm = (w - 0.5) * 0.04
+                cell_colors.append((
+                    base_r + v + warm,
+                    base_g + v,
+                    base_b + v - warm * 0.3,
+                ))
+                gy += cell_size
+            gx += cell_size
+
+        # Spatial hash for fast lookup
+        bucket_size = cell_size * 1.5
+        buckets = {}
+        for ci, (ccx, ccy) in enumerate(cells):
+            bx = int(math.floor(ccx / bucket_size))
+            by = int(math.floor(ccy / bucket_size))
+            key = (bx, by)
+            if key not in buckets:
+                buckets[key] = []
+            buckets[key].append(ci)
+
+        n_grit = PerlinNoise2(4.0, 4.0, 256, seed + 700)
+        mortar_width = cell_size * 0.18  # gap between cells = negative space
 
         img = PNMImage(size, size, 3)
         for y in range(size):
             for x in range(size):
-                wx = (x / size) * tile
-                wy = (y / size) * tile
+                px = (x / size) * tile
+                py = (y / size) * tile
 
-                sed = (n_sed1(wx, wy) + 1.0) * 0.5
-                sed2 = (n_sed2(wx, wy) + 1.0) * 0.5
-                cdrift = (n_color(wx, wy)) * 0.06
-                wdrift = (n_warm(wx, wy)) * 0.04
+                # Find nearest two Voronoi cells
+                bx = int(math.floor(px / bucket_size))
+                by = int(math.floor(py / bucket_size))
+                min_d1, min_d2 = 999.0, 999.0
+                min_ci = 0
+                for dbx in range(-1, 2):
+                    for dby in range(-1, 2):
+                        for ci in buckets.get((bx + dbx, by + dby), ()):
+                            ccx, ccy = cells[ci]
+                            for ox in (-tile, 0, tile):
+                                for oy in (-tile, 0, tile):
+                                    ddx = px - (ccx + ox)
+                                    ddy = py - (ccy + oy)
+                                    d = ddx * ddx + ddy * ddy
+                                    if d < min_d1:
+                                        min_d2 = min_d1
+                                        min_d1 = d
+                                        min_ci = ci
+                                    elif d < min_d2:
+                                        min_d2 = d
 
-                r = base_r + sed * 0.06 + sed2 * 0.03 + cdrift + wdrift
-                g = base_g + sed * 0.05 + sed2 * 0.02 + cdrift
-                b = base_b + sed * 0.04 + sed2 * 0.015 + cdrift - wdrift * 0.3
+                min_d1 = math.sqrt(min_d1)
+                min_d2 = math.sqrt(min_d2)
+                # Edge distance — how close to the cell boundary
+                edge_dist = (min_d2 - min_d1) * 0.5
 
-                # Hairline cracks
-                crack = abs(n_crack(wx, wy))
-                if crack < 0.06:
-                    dark = 1.0 - (0.06 - crack) * 8.0
-                    r *= max(0.4, dark)
-                    g *= max(0.4, dark)
-                    b *= max(0.4, dark)
+                cr, cg, cb = cell_colors[min_ci % len(cell_colors)]
 
-                # Fine grit
-                grit = (n_grit(wx, wy) + 1.0) * 0.5
-                r += (grit - 0.5) * 0.05
-                g += (grit - 0.5) * 0.04
-                b += (grit - 0.5) * 0.03
-
-                # Embedded pebbles
-                peb = n_peb(wx, wy)
-                if peb > 0.55:
-                    peb_str = min(1.0, (peb - 0.55) * 3.0)
-                    pv = (n_color(wx * 3, wy * 3)) * 0.04
-                    pr = base_r * 1.6 + peb_str * 0.08 + pv
-                    pg = base_g * 1.5 + peb_str * 0.06 + pv
-                    pb = base_b * 1.4 + peb_str * 0.04 - pv * 0.3
-                    t = peb_str * 0.7
-                    r = r * (1 - t) + pr * t
-                    g = g * (1 - t) + pg * t
-                    b = b * (1 - t) + pb * t
-
-                # Sediment depressions
-                if sed < 0.3:
-                    dark_t = (0.3 - sed) * 1.5
-                    r *= (1.0 - dark_t * 0.4)
-                    g *= (1.0 - dark_t * 0.4)
-                    b *= (1.0 - dark_t * 0.35)
+                if edge_dist < mortar_width:
+                    # Negative space — true dark, not just dimmer
+                    t = edge_dist / mortar_width  # 0=deep, 1=edge
+                    t = t * t  # ease-in
+                    r = dark_r * (1 - t) + cr * t
+                    g = dark_g * (1 - t) + cg * t
+                    b = dark_b * (1 - t) + cb * t
+                else:
+                    # Cell surface — sediment island
+                    grit = (n_grit(px, py) + 1.0) * 0.5
+                    r = cr + (grit - 0.5) * 0.04
+                    g = cg + (grit - 0.5) * 0.03
+                    b = cb + (grit - 0.5) * 0.02
 
                 img.setXel(x, y,
                            max(0.0, min(1.0, r)),

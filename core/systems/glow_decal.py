@@ -133,13 +133,14 @@ def get_shaft_texture(width=32, height=64):
     for y in range(height):
         # Vertical: bottom=1.0, top=0.0
         v_fade = 1.0 - (y / float(height))
-        # Soften the top with a curve — more light stays near ground
-        v_fade = v_fade * v_fade
+        v_fade = v_fade * v_fade  # curve — more light near ground
         for x in range(width):
-            # Horizontal: gaussian from center
+            # Horizontal: steep gaussian — fades to zero well before card edge
             dx = (x - cx) / cx
-            h_fade = math.exp(-dx * dx * 3.0)
-            brightness = v_fade * h_fade
+            h_fade = math.exp(-dx * dx * 6.0)  # steeper = no visible edge
+            # Extra soft edge clamp — kills any residual brightness at boundary
+            edge = max(0.0, 1.0 - abs(dx)) ** 2
+            brightness = v_fade * h_fade * edge * 0.7  # dimmer overall = gradient not banner
             img.setXel(x, y, brightness, brightness, brightness)
 
     tex = Texture("light_shaft")
@@ -251,11 +252,11 @@ def get_mote_shaft_texture(width=32, height=128, seed=0):
             brightness = v_fade * h_fade
             img.setXel(x, y, brightness, brightness, brightness)
 
-    # Scatter bright mote specks — small bright dots
-    mote_count = rng.randint(8, 15)
+    # Scatter dust motes — single pixel, numerous, subtle sparkle
+    mote_count = rng.randint(20, 35)
     for _ in range(mote_count):
-        mx = rng.randint(4, width - 5)
-        my = rng.randint(4, height - 5)
+        mx = rng.randint(2, width - 3)
+        my = rng.randint(2, height - 3)
         # Mote brightness scales with shaft brightness at that point
         v_fade = 1.0 - (my / float(height))
         dx = (mx - cx) / cx
@@ -263,17 +264,13 @@ def get_mote_shaft_texture(width=32, height=128, seed=0):
         base = v_fade * h_fade
         if base < 0.05:
             continue  # don't place motes in dead zones
-        # Bright speck — 2x2 pixel cross
-        bright = min(1.0, base + rng.uniform(0.3, 0.6))
-        for ox, oy in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)]:
-            px = max(0, min(width - 1, mx + ox))
-            py = max(0, min(height - 1, my + oy))
-            old_r, old_g, old_b = img.getXel(px, py)
-            fade = 0.6 if (ox != 0 or oy != 0) else 1.0
-            img.setXel(px, py,
-                       min(1.0, old_r + bright * fade),
-                       min(1.0, old_g + bright * fade * 0.9),
-                       min(1.0, old_b + bright * fade * 0.7))
+        # Single pixel speck — tiny sparkling dust, not fluffy stars
+        bright = min(1.0, base + rng.uniform(0.15, 0.35))
+        old_r, old_g, old_b = img.getXel(mx, my)
+        img.setXel(mx, my,
+                   min(1.0, old_r + bright),
+                   min(1.0, old_g + bright * 0.9),
+                   min(1.0, old_b + bright * 0.7))
 
     tex = Texture("mote_shaft")
     tex.load(img)
@@ -312,13 +309,13 @@ def get_ceiling_blob_texture(size=64):
                 img.setXelA(x, y, 0, 0, 0, 0)
                 continue
 
-            # Soft radial glow with organic wobble
-            wobble = math.sin(x * 0.5 + y * 0.7) * 0.08
-            wobble += math.cos(x * 0.3 - y * 0.9) * 0.06
-            alpha = math.exp(-d * d * 3.0) + wobble
-            # Irregular edge — reads as organic cluster, not perfect circle
-            edge_noise = math.sin(math.atan2(dy, dx) * 5.0) * 0.1
-            alpha *= max(0.0, 1.0 - (d + edge_noise)) ** 1.5
+            # Soft radial glow with subtle organic irregularity
+            wobble = math.sin(x * 0.5 + y * 0.7) * 0.025
+            wobble += math.cos(x * 0.3 - y * 0.9) * 0.02
+            alpha = math.exp(-d * d * 2.5) + wobble
+            # Irregular edge — subtle, not star-shaped
+            edge_noise = math.sin(math.atan2(dy, dx) * 7.0) * 0.04
+            alpha *= max(0.0, 1.0 - (d + edge_noise)) ** 1.2
             alpha = max(0.0, min(1.0, alpha))
 
             # Warm amber core, darker edges

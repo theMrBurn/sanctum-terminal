@@ -37,7 +37,7 @@ from panda3d.core import (
     Fog, SamplerState, TransparencyAttrib,
     WindowProperties, NodePath,
     PNMImage, Texture, CardMaker,
-    AmbientLight, PointLight, Spotlight,
+    AmbientLight,
 )
 from rich.console import Console
 
@@ -76,23 +76,27 @@ BIOME_CAVERN_DEFAULT = [
     # kind               density  clearance  margin  — placed largest-first
     ("mega_column",       0.12,    10.0,      20),
     ("column",            0.30,    5.0,       10),
-    ("boulder",           0.55,    4.0,       4),
-    ("stalagmite",        0.80,    3.0,       3),
-    ("giant_fungus",      0.20,    2.5,       3),
-    ("crystal_cluster",   0.15,    2.0,       3),
-    ("dead_log",          0.25,    2.0,       3),
-    ("bone_pile",         0.10,    0,         3),
-    ("moss_patch",        0.40,    0,         2),
-    ("ceiling_moss",      0.25,    0,         5),
-    ("hanging_vine",      0.20,    0,         5),
-    ("grass_tuft",        1.50,    0,         1),
-    ("rubble",            1.20,    0,         1),
-    ("leaf_pile",         0.80,    0,         1),
-    ("twig_scatter",      0.80,    0,         1),
+    ("boulder",           0.80,    3.5,       4),
+    ("stalagmite",        1.20,    2.5,       3),
+    ("giant_fungus",      0.30,    2.5,       3),
+    ("crystal_cluster",   0.25,    2.0,       3),
+    ("dead_log",          0.50,    1.5,       2),
+    ("bone_pile",         0.25,    0,         2),
+    ("moss_patch",        0.70,    0,         2),
+    ("ceiling_moss",      0.40,    0,         5),
+    ("hanging_vine",      0.35,    0,         4),
+    ("filament",          1.00,    4.0,       2),
+    ("firefly",           0.80,    0,         1),
+    ("grass_tuft",        3.00,    0,         1),
+    ("rubble",            2.50,    0,         1),
+    ("leaf_pile",         1.50,    0,         1),
+    ("twig_scatter",      1.50,    0,         1),
     ("rat",               0.45,    0,         2),
     ("beetle",            0.25,    0,         2),
-    ("leaf",              0.30,    0,         1),
-    ("spider",            0.08,    0,         2),
+    ("cave_gravel",       2.00,    0,         0),
+    ("horizon_form",      0.15,    8.0,       30),
+    ("leaf",              0.50,    0,         1),
+    ("spider",            0.12,    0,         2),
 ]
 
 
@@ -133,7 +137,7 @@ class Cavern(ShowBase):
         self._tex_size_override = TEX_SIZE
         self._deferred_entity_spawns = deque()  # drip-spawned across frames
         self._flat_height = lambda x, y: 0.0  # fake ground height — zero Perlin
-        self._use_fake_ground = False  # real ground default, G key toggles
+        self._use_fake_ground = True  # G-mode default — flat plane, zero Perlin, max perf
         self._ground_blend_z = 0.0    # lerp offset to prevent pop on G toggle
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
@@ -185,8 +189,10 @@ class Cavern(ShowBase):
         # -- Fake ground (WorldRunner cheat) — toggle with G key ----------------
         from core.systems.fake_ground import FakeGround
         self._fake_ground = FakeGround(self.render, self._palette, self._chunk_seed)
-        self._fake_ground.hide()  # starts off — real ground active
-        self._use_fake_ground = False
+        self._fake_ground.show()  # G-mode is default — performance ground active
+        # Stash real chunks — they exist from _stage_initial_chunks but are hidden
+        for key, node in self._chunks.items():
+            node.stash()
 
         # -- Post-processing: DISABLED for decal diagnostic ----------
         # Bloom's render-to-texture pipeline may eat additive-blended cards.
@@ -209,13 +215,14 @@ class Cavern(ShowBase):
         self.accept("control-t", self._clear_tags)
         self.accept("l", self._toggle_daylight)
         self.accept("g", self._toggle_fake_ground)
+        self.accept("9", self._showcase_light_layers)
         self._daylight = False
 
         self.taskMgr.add(self._loop, "CavernLoop")
 
         console.log("[bold cyan]THE ENDLESS FLOOR[/bold cyan]")
         console.log("[WASD] move  [Mouse] look  [F1-F4] registers  [L] daylight  [ESC] quit")
-        console.log("[dim][`] debug  [0] dump  [T] tag  [Shift+T] undo  [Ctrl+T] clear[/dim]")
+        console.log("[dim][`] debug  [0] dump  [T] tag  [Shift+T] undo  [Ctrl+T] clear  [9] showcase[/dim]")
 
     # -- Helpers ---------------------------------------------------------------
 
@@ -242,45 +249,44 @@ class Cavern(ShowBase):
 
     def _build_lighting(self):
         pal = self._palette
+
+        # Ambient only — the sole pipeline light. Everything else is decals.
         amb = AmbientLight("amb")
         amb.setColor(Vec4(0.10, 0.08, 0.06, 1))
         self._amb_np = self.render.attachNewNode(amb)
         self.render.setLight(self._amb_np)
 
-        # Light orb — spotlight cone from behind, casting forward like a flashlight
-        lc = pal["sconce"]
+        # NO Spotlight, NO PointLight — Metal can't render them.
+        # Decals ARE the lighting on this hardware.
 
-        # Main cone: spotlight aimed forward from behind the player
-        spot = Spotlight("orb_cone")
-        spot.setColor(Vec4(lc[0] * 3.0, lc[1] * 2.8, lc[2] * 2.2, 1))
-        spot.getLens().setFov(70)
-        spot.getLens().setNearFar(0.5, 50)
-        spot.setAttenuation((0.08, 0.003, 0.0008))
-        spot.setShadowCaster(True, 512, 512)
-        spot.setExponent(3.0)
-        self._orb_np = self.cam.attachNewNode(spot)
-        self._orb_np.setPos(0.3, -0.8, 0.6)  # behind right shoulder
-        self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # aim forward and slightly down
-        self.render.setLight(self._orb_np)
+        # Torch: cone-shaped ground decal + faint beam billboard + peripheral glow marker
+        from core.systems.glow_decal import (
+            make_glow_decal, get_glow_texture, make_light_shaft, get_shaft_texture,
+        )
 
-        # Fill light: dim point light for ambient spill around the orb
-        fill = PointLight("orb_fill")
-        fill.setColor(Vec4(lc[0] * 1.0, lc[1] * 0.8, lc[2] * 0.5, 1))
-        fill.setAttenuation((0.15, 0.01, 0.002))
-        self._orb_fill = self._orb_np.attachNewNode(fill)
-        self.render.setLight(self._orb_fill)
+        # Main torch pool — elongated warm cone ahead of player
+        glow_tex = get_glow_texture(128, surface="wet_stone")
+        self._torch_decal = make_glow_decal(
+            self.render, color=(1.4, 0.95, 0.45), radius=6.0, tex=glow_tex)
 
-        # Tiny glow marker visible in peripheral vision
+        # Outer ambient wash — wider, dimmer, sells the cone spread
+        outer_tex = get_glow_texture(64, surface="smooth")
+        self._torch_outer = make_glow_decal(
+            self.render, color=(0.5, 0.35, 0.15), radius=10.0, tex=outer_tex)
+
+        # Faint beam billboard — shoulder to ground, reads as light in dusty air
+        shaft_tex = get_shaft_texture(32, 64)
+        self._torch_beam = make_light_shaft(
+            self.render, color=(0.8, 0.55, 0.2),
+            shaft_height=2.0, shaft_width=1.5, tex=shaft_tex)
+
+        # Tiny glow marker in peripheral vision
+        self._orb_np = self.cam.attachNewNode("torch_mount")
+        self._orb_np.setPos(0.3, -0.8, 0.6)
         orb_vis = make_box(0.025, 0.025, 0.025, (0.95, 0.8, 0.45))
         self._orb_vis = self._orb_np.attachNewNode(orb_vis)
         self._orb_vis.setLightOff()
         self._orb_vis.setColorScale(2.5, 2.0, 1.2, 1.0)
-
-        # Torch ground decal — warm pool ahead of player, the nearfield light
-        from core.systems.glow_decal import make_glow_decal, get_glow_texture
-        glow_tex = get_glow_texture(128, surface="wet_stone")
-        self._torch_decal = make_glow_decal(
-            self.render, color=(1.4, 0.95, 0.45), radius=6.0, tex=glow_tex)
 
     def _setup_grain_shader(self):
         """Screen-space film grain — constant visual motion masks frame hitches."""
@@ -1269,6 +1275,95 @@ void main() {
         self._debug_tags.clear()
         self._tag_counter = 0
 
+    def _showcase_light_layers(self):
+        """Spawn a museum arc of every base×light combo in front of the camera.
+
+        Two-row arc: front row = smaller objects, back row = larger objects.
+        Columns = [dark, moss, crystal, torch] with labels overhead.
+        All objects at roughly the same viewing distance.
+        Press 9 again to clear.
+        """
+        from panda3d.core import TextNode
+        from direct.gui.OnscreenText import OnscreenText
+        from core.systems.ambient_life import (
+            BUILDERS, LIGHT_LAYERS, apply_light_layer,
+        )
+
+        # Toggle — if showcase exists, remove it
+        if hasattr(self, "_showcase_root") and self._showcase_root:
+            self._showcase_root.removeNode()
+            self._showcase_root = None
+            for txt in getattr(self, "_showcase_labels", []):
+                txt.destroy()
+            self._showcase_labels = []
+            console.log("[bold cyan]SHOWCASE[/bold cyan]  cleared")
+            return
+
+        # Rows: front (small objects) and back (large objects)
+        front_row = ["dead_log", "rubble", "bone_pile"]
+        back_row = ["boulder", "stalagmite", "column"]
+        layers = [None] + list(LIGHT_LAYERS.keys())  # dark, moss, crystal, torch
+        layer_labels = ["dark"] + list(LIGHT_LAYERS.keys())
+
+        cam = self.cam.getPos()
+        cam_h = self._cam_h
+        fwd_x = -math.sin(math.radians(cam_h))
+        fwd_y = math.cos(math.radians(cam_h))
+        right_x = fwd_y
+        right_y = -fwd_x
+
+        col_spacing = 15.0
+        front_dist = 15.0   # small objects closer
+        back_dist = 28.0    # large objects further back
+        self._showcase_root = self.render.attachNewNode("showcase_grid")
+        self._showcase_labels = []
+
+        total_w = (len(layers) - 1) * col_spacing
+        seed_base = 12345
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
+
+        def _spawn_row(kinds, forward_dist, row_idx):
+            for col, layer_name in enumerate(layers):
+                cx = col * col_spacing - total_w * 0.5
+                wx = cam.getX() + fwd_x * forward_dist + right_x * cx
+                wy = cam.getY() + fwd_y * forward_dist + right_y * cx
+                wz = h_fn(wx, wy) + 0.3  # slight lift so decals read clearly
+
+                # Cycle through row objects per column for variety
+                kind = kinds[col % len(kinds)]
+                if kind not in BUILDERS:
+                    continue
+                builder_fn, _ = BUILDERS[kind]
+                seed = seed_base + row_idx * 1000 + col * 100
+                node = builder_fn(self._showcase_root, seed=seed)
+                if layer_name is not None:
+                    apply_light_layer(node, layer_name, seed)
+                node.setPos(wx, wy, wz)
+                # Face toward camera
+                node.setH(cam_h + 180)
+
+        _spawn_row(front_row, front_dist, 0)
+        _spawn_row(back_row, back_dist, 1)
+
+        # Column labels — screen-space text at top
+        for col, label in enumerate(layer_labels):
+            # Evenly spaced across the top of the screen
+            x_ndc = -0.6 + col * (1.2 / max(1, len(layer_labels) - 1))
+            txt = OnscreenText(
+                text=label.upper(),
+                pos=(x_ndc, 0.85),
+                scale=0.06,
+                fg=(1, 1, 1, 0.7),
+                shadow=(0, 0, 0, 0.8),
+                align=TextNode.ACenter,
+            )
+            self._showcase_labels.append(txt)
+
+        count = (len(front_row) + len(back_row)) * len(layers)
+        console.log(f"[bold cyan]SHOWCASE[/bold cyan]  {len(layers)} columns × 2 rows — "
+                    f"look ahead, columns labeled on screen")
+        console.log("[dim]Press 9 again to clear[/dim]")
+
     def _dump_debug_state(self):
         import traceback
         try:
@@ -1475,31 +1570,33 @@ void main() {
             self._amb_np.node().setColor(Vec4(
                 0.10 * amb_scale, 0.08 * amb_scale, 0.06 * amb_scale, 1))
 
-        # Orb animation: gentle bob + flicker
+        # Torch flicker — drives decal brightness, not a spotlight
         t = globalClock.getFrameTime()
         fi = self._palette.get("flicker_intensity", 0.15)
-        lc = self._palette["sconce"]
         flicker = 1.0 + fi * 0.4 * math.sin(t * 5.3) * math.sin(t * 7.7)
-        self._orb_np.node().setColor(Vec4(
-            lc[0] * 3.0 * flicker, lc[1] * 2.8 * flicker,
-            lc[2] * 2.2 * flicker, 1,
-        ))
-        # Gentle drift behind shoulder
-        bob_x = 0.3 + math.sin(t * 1.1) * 0.06
-        bob_y = -0.8 + math.cos(t * 0.9) * 0.04
-        bob_z = 0.6 + math.sin(t * 1.7) * 0.08
-        self._orb_np.setPos(bob_x, bob_y, bob_z)
-        self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # always aim forward+down
+        self._torch_decal.setColorScale(
+            1.4 * flicker, 0.95 * flicker, 0.45 * flicker, 1.0)
 
-        # Torch ground decal — project ahead of player at ground level
+        # Project torch cone ahead of player at ground level
         cam_pos = self.cam.getPos()
         h_rad = math.radians(self._cam_h)
-        ahead_dist = 4.0  # meters ahead of feet
-        # Forward direction matches probe/movement: (-sin(h), +cos(h))
+        ahead_dist = 4.0
         decal_x = cam_pos.getX() - math.sin(h_rad) * ahead_dist
         decal_y = cam_pos.getY() + math.cos(h_rad) * ahead_dist
-        decal_z = (self._flat_height(decal_x, decal_y) if self._use_fake_ground else self._height_at(decal_x, decal_y)) + 0.05
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
+        decal_z = h_fn(decal_x, decal_y) + 0.05
         self._torch_decal.setPos(decal_x, decal_y, decal_z)
+
+        # Outer wash — same direction, slightly behind main pool
+        outer_dist = 3.0
+        outer_x = cam_pos.getX() - math.sin(h_rad) * outer_dist
+        outer_y = cam_pos.getY() + math.cos(h_rad) * outer_dist
+        self._torch_outer.setPos(outer_x, outer_y, h_fn(outer_x, outer_y) + 0.04)
+
+        # Beam billboard — from shoulder height to ground at decal position
+        beam_x = cam_pos.getX() - math.sin(h_rad) * 1.5
+        beam_y = cam_pos.getY() + math.cos(h_rad) * 1.5
+        self._torch_beam.setPos(beam_x, beam_y, h_fn(beam_x, beam_y) + 0.1)
 
         # Debug
         self._check_debug_commands()
