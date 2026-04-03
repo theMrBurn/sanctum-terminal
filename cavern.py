@@ -2035,6 +2035,7 @@ void main() {
 
         # Ambient life: frames 3, 9, 21, 27, 33, 39, 51, 57 (8× per cycle)
         if fc % 6 == 3:
+            self._ambient._cam_heading = self._cam_h  # feed heading for behind-camera check
             self._ambient.tick(dt * 6, self.cam.getPos())
 
         # Object tile scan: frame 29 — queue new tiles; frame 53 — despawn far tiles

@@ -2954,6 +2954,10 @@ class AmbientManager:
                         e.imposter.removeNode()
                     e.imposter = None
         # Tick active behaviors + motes (throttled) + spectrum drift
+        # Three optimizations:
+        # 1. Static entities skip behavior tick entirely (StaticBehavior.tick = pass)
+        # 2. Behind-camera entities tick behavior every 6th frame
+        # 3. Spectrum drift staggered: each entity drifts every 4th frame
         self._mote_frame += 1
         tick_motes_this_frame = (self._mote_frame % 3 == 0)
         try:
@@ -2961,12 +2965,36 @@ class AmbientManager:
             elapsed = ClockObject.getGlobalClock().getFrameTime()
         except Exception:
             elapsed = 0
-        for e in self._active:
-            e.behavior.tick(dt)
+
+        # Camera forward vector for behind-check (passed via cam_pos heading)
+        cam_h = getattr(self, '_cam_heading', 0.0)
+        fwd_x = -math.sin(math.radians(cam_h))
+        fwd_y = math.cos(math.radians(cam_h))
+        frame_n = self._mote_frame  # reuse as global frame counter
+
+        for idx, e in enumerate(self._active):
+            # Behind-camera check: dot product of (entity - camera) vs forward
+            dx = e.pos[0] - cx
+            dy = e.pos[1] - cy
+            dot = dx * fwd_x + dy * fwd_y
+            behind = dot < 0
+
+            # 1. Behavior tick: skip static entirely, throttle behind-camera
+            is_static = isinstance(e.behavior, StaticBehavior)
+            if not is_static:
+                if behind:
+                    # Behind camera: tick every 6th frame, compensate dt
+                    if frame_n % 6 == idx % 6:
+                        e.behavior.tick(dt * 6)
+                else:
+                    e.behavior.tick(dt)
+
+            # 2. Motes: already throttled to every 3rd frame
             if tick_motes_this_frame and e.motes:
-                tick_motes(e.motes, dt * 3)  # compensate for 3× dt gap
-            # Spectrum drift — bio-lit entities shift color over time
-            if e.spectrum and e.base_color_scale:
+                tick_motes(e.motes, dt * 3)
+
+            # 3. Spectrum drift: stagger every 4th frame per entity
+            if e.spectrum and e.base_color_scale and (frame_n % 4 == idx % 4):
                 rs, gs, bs = SpectrumEngine.drift(e.spectrum, elapsed, e.seed)
                 br, bg, bb = e.base_color_scale
                 e.node.setColorScale(br + rs, bg + gs, bb + bs, 1.0)
