@@ -32,15 +32,20 @@ FRAMING_CONFIG = {
         "frame_kinds": ["mega_column", "column"],
         "accent_kinds": ["crystal_cluster", "giant_fungus", "moss_patch"],
         "pair_spacing": (8.0, 14.0),     # distance between framing pair along path
-        "gap_width": (5.0, 9.0),         # walkable space between left/right frame
+        "gap_width": (14.0, 22.0),       # center-to-center; collision radii eat into this
+        "min_walkable": 4.0,             # minimum clear space after collision radii
         "nudge_bias": 0.3,               # 30% chance accent is off-center
+        # Collision radii for gap calculation (must exceed HARD_OBJECTS + base_radius)
+        "frame_collision": {"mega_column": 12.0, "column": 3.0},
     },
     "outdoor": {
         "frame_kinds": ["mega_column", "column"],
         "accent_kinds": ["boulder", "crystal_cluster", "dead_log"],
         "pair_spacing": (10.0, 18.0),    # wider for forest
-        "gap_width": (6.0, 12.0),
+        "gap_width": (16.0, 28.0),       # wider — Doug fir base radius 5-12m each side
+        "min_walkable": 5.0,
         "nudge_bias": 0.25,
+        "frame_collision": {"mega_column": 12.0, "column": 3.0},
     },
 }
 
@@ -98,13 +103,19 @@ class FrameComposer:
             cx = ax + nx * t
             cy = ay + ny * t
 
-            # Gap width for this pair
-            gap = rng.uniform(gap_min, gap_max)
-            half_gap = gap * 0.5
-
-            # Frame pair: left and right of path
+            # Pick frame kinds first — collision radii depend on kind
             left_kind = rng.choice(frame_kinds)
             right_kind = rng.choice(frame_kinds)
+
+            # Gap width — must account for collision radii of frame objects
+            gap = rng.uniform(gap_min, gap_max)
+            frame_coll = config.get("frame_collision", {})
+            left_coll = frame_coll.get(left_kind, 3.0)
+            right_coll = frame_coll.get(right_kind, 3.0)
+            min_walkable = config.get("min_walkable", 4.0)
+            min_gap = left_coll + right_coll + min_walkable
+            gap = max(gap, min_gap)
+            half_gap = gap * 0.5
 
             left_pos = (
                 round(cx + px * half_gap, 2),

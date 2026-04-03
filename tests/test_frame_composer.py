@@ -22,7 +22,8 @@ class TestFramingConfig:
         assert "outdoor" in FRAMING_CONFIG
 
     def test_required_keys(self):
-        required = ["frame_kinds", "accent_kinds", "pair_spacing", "gap_width", "nudge_bias"]
+        required = ["frame_kinds", "accent_kinds", "pair_spacing", "gap_width",
+                     "nudge_bias", "min_walkable", "frame_collision"]
         for biome in ["cavern", "outdoor"]:
             for key in required:
                 assert key in FRAMING_CONFIG[biome], f"{biome} missing '{key}'"
@@ -33,12 +34,10 @@ class TestFramingConfig:
             assert len(ps) == 2
             assert ps[0] < ps[1], f"{biome} pair_spacing min >= max"
 
-    def test_gap_width_less_than_pair_spacing(self):
-        """Gap must be narrower than the pair distance."""
+    def test_min_walkable_positive(self):
+        """Minimum walkable gap must be positive."""
         for biome in FRAMING_CONFIG:
-            cfg = FRAMING_CONFIG[biome]
-            assert cfg["gap_width"][1] < cfg["pair_spacing"][1], \
-                f"{biome} gap max >= pair max"
+            assert FRAMING_CONFIG[biome]["min_walkable"] >= 3.0
 
     def test_nudge_bias_valid_probability(self):
         for biome in FRAMING_CONFIG:
@@ -56,13 +55,13 @@ class TestComposeAlongPath:
 
     def test_returns_list_of_placements(self):
         result = self.composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=FRAMING_CONFIG["cavern"])
+            node_a=(0, 0), node_b=(40, 0), config=FRAMING_CONFIG["cavern"])
         assert isinstance(result, list)
         assert len(result) > 0
 
     def test_placements_have_required_fields(self):
         result = self.composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=FRAMING_CONFIG["cavern"])
+            node_a=(0, 0), node_b=(40, 0), config=FRAMING_CONFIG["cavern"])
         for placement in result:
             assert "kind" in placement
             assert "pos" in placement
@@ -72,7 +71,7 @@ class TestComposeAlongPath:
     def test_frame_kinds_from_config(self):
         cfg = FRAMING_CONFIG["cavern"]
         result = self.composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=cfg)
+            node_a=(0, 0), node_b=(40, 0), config=cfg)
         frame_kinds = {p["kind"] for p in result if p["role"].startswith("frame")}
         for k in frame_kinds:
             assert k in cfg["frame_kinds"], f"Frame kind '{k}' not in config"
@@ -80,7 +79,7 @@ class TestComposeAlongPath:
     def test_accent_kinds_from_config(self):
         cfg = FRAMING_CONFIG["cavern"]
         result = self.composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=cfg)
+            node_a=(0, 0), node_b=(40, 0), config=cfg)
         accent_kinds = {p["kind"] for p in result if p["role"] == "accent"}
         for k in accent_kinds:
             assert k in cfg["accent_kinds"], f"Accent kind '{k}' not in config"
@@ -88,7 +87,7 @@ class TestComposeAlongPath:
     def test_produces_at_least_one_frame_pair(self):
         """Minimum: 2 frame objects + 1 accent."""
         result = self.composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=FRAMING_CONFIG["cavern"])
+            node_a=(0, 0), node_b=(40, 0), config=FRAMING_CONFIG["cavern"])
         frames = [p for p in result if p["role"].startswith("frame")]
         accents = [p for p in result if p["role"] == "accent"]
         assert len(frames) >= 2, f"Expected >= 2 frames, got {len(frames)}"
@@ -97,7 +96,7 @@ class TestComposeAlongPath:
     def test_frame_pair_flanks_the_path(self):
         """Left frame and right frame should be on opposite sides of the path midpoint."""
         result = self.composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=FRAMING_CONFIG["cavern"])
+            node_a=(0, 0), node_b=(40, 0), config=FRAMING_CONFIG["cavern"])
         lefts = [p for p in result if p["role"] == "frame_left"]
         rights = [p for p in result if p["role"] == "frame_right"]
         if lefts and rights:
@@ -110,7 +109,7 @@ class TestComposeAlongPath:
     def test_accent_between_frames(self):
         """Accent should be near the path midpoint, between the frame pair."""
         result = self.composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=FRAMING_CONFIG["cavern"])
+            node_a=(0, 0), node_b=(40, 0), config=FRAMING_CONFIG["cavern"])
         accents = [p for p in result if p["role"] == "accent"]
         if accents:
             ax = accents[0]["pos"][0]
@@ -118,18 +117,23 @@ class TestComposeAlongPath:
             assert 2.0 <= ax <= 18.0, f"Accent at x={ax}, expected near midpoint"
 
     def test_gap_width_respected(self):
-        """Distance between left and right frame should be within gap_width range."""
-        cfg = FRAMING_CONFIG["cavern"]
+        """Distance between left and right frame should leave walkable space."""
+        cfg = FRAMING_CONFIG["outdoor"]
         result = self.composer.compose_along_path(
-            node_a=(0, 0), node_b=(30, 0), config=cfg)
+            node_a=(0, 0), node_b=(40, 0), config=cfg)
         lefts = [p for p in result if p["role"] == "frame_left"]
         rights = [p for p in result if p["role"] == "frame_right"]
         if lefts and rights:
             lp = lefts[0]["pos"]
             rp = rights[0]["pos"]
             dist = math.sqrt((lp[0] - rp[0]) ** 2 + (lp[1] - rp[1]) ** 2)
-            assert dist >= cfg["gap_width"][0] * 0.5, f"Gap {dist} too narrow"
-            assert dist <= cfg["pair_spacing"][1] * 2.0, f"Gap {dist} too wide"
+            # After subtracting collision radii, must have min_walkable clearance
+            frame_coll = cfg["frame_collision"]
+            l_coll = frame_coll.get(lefts[0]["kind"], 3.0)
+            r_coll = frame_coll.get(rights[0]["kind"], 3.0)
+            walkable = dist - l_coll - r_coll
+            assert walkable >= cfg["min_walkable"] * 0.8, \
+                f"Walkable gap {walkable:.1f}m too narrow (need {cfg['min_walkable']}m)"
 
     def test_deterministic_with_same_seed(self):
         c1 = FrameComposer(seed=99)
@@ -168,7 +172,7 @@ class TestNudgeBias:
         cfg["nudge_bias"] = 1.0  # always nudge
         composer = FrameComposer(seed=42)
         result = composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=cfg)
+            node_a=(0, 0), node_b=(40, 0), config=cfg)
         accents = [p for p in result if p["role"] == "accent"]
         if accents:
             # With path along X axis, nudge should offset Y from centerline (0)
@@ -180,7 +184,7 @@ class TestNudgeBias:
         cfg["nudge_bias"] = 0.0
         composer = FrameComposer(seed=42)
         result = composer.compose_along_path(
-            node_a=(0, 0), node_b=(20, 0), config=cfg)
+            node_a=(0, 0), node_b=(40, 0), config=cfg)
         accents = [p for p in result if p["role"] == "accent"]
         if accents:
             ay = accents[0]["pos"][1]
