@@ -176,6 +176,8 @@ class Cavern(ShowBase):
         self._debug_hud_text = None
         self._debug_tags = []
         self._tag_counter = 0
+        self._frame_times = deque(maxlen=60)  # rolling 60-frame window
+        self._drip_this_frame = 0  # entities spawned this frame via drip
         self._cmd_path = os.path.join(os.path.dirname(__file__) or ".", "debug_cmd.json")
         self._state_path = os.path.join(os.path.dirname(__file__) or ".", "debug_state.json")
 
@@ -649,15 +651,17 @@ void main() {
             self._hibernated_tiles.discard(k)
 
     def _drip_spawn_objects(self):
-        """Spawn queued objects across frames. 8 per frame — smooth drip."""
+        """Spawn queued objects across frames. 16 per frame — smooth drip."""
         # Hard cap reached — flush queue, don't accumulate forever
         if self._ambient.total_count >= self._ambient.MAX_ENTITIES:
             self._object_spawn_queue.clear()
+            self._drip_this_frame = 0
             return
         h_fn = self._flat_height if self._use_fake_ground else self._height_at
+        spawned = 0
         for _ in range(16):  # 16 per frame — clear queue faster
             if not self._object_spawn_queue:
-                return
+                break
             kind, wx, wy, heading, seed, tile_key = \
                 self._object_spawn_queue.popleft()
             wz = h_fn(wx, wy)
@@ -667,6 +671,8 @@ void main() {
                                 heading=heading, seed=seed,
                                 height_fn=h_fn,
                                 chunk_key=tile_key)
+            spawned += 1
+        self._drip_this_frame = spawned
 
     # -- Chunk subsystems (split for 60-frame cycle) ----------------------------
 
@@ -1378,12 +1384,16 @@ void main() {
         # Performance telemetry at moment of drop
         dt = globalClock.getDt()
         frame_ms = round(dt * 1000, 1)
+        ft = self._frame_times
+        avg_ms = round(sum(ft) / len(ft), 1) if ft else frame_ms
         queue_depth = len(self._object_spawn_queue)
         entities_total = self._ambient.total_count
         entities_active = self._ambient.active_count
+        entities_hibernated = self._ambient.hibernated_count
         chunks_loaded = len(self._chunks)
         import time as _time
         wall_time = round(_time.time(), 3)
+        census = self._ambient.kind_census()
 
         tag = {
             "id": tag_id, "label": text,
@@ -1396,12 +1406,22 @@ void main() {
             },
             "perf": {
                 "frame_ms": frame_ms,
+                "avg_ms": avg_ms,
+                "drip_per_frame": self._drip_this_frame,
                 "spawn_queue": queue_depth,
                 "entities_total": entities_total,
                 "entities_active": entities_active,
+                "entities_hibernated": entities_hibernated,
                 "chunks_loaded": chunks_loaded,
                 "wall_time": wall_time,
             },
+            "tension": {
+                "active": self._tension.active,
+                "state": self._tension.state,
+                "budget": round(self._tension.budget, 3),
+            },
+            "census": {k: {"active": a, "total": t, "hibernated": h}
+                       for k, (a, t, h) in census.items()},
             "_node": node,
         }
         self._debug_tags.append(tag)
@@ -1549,6 +1569,9 @@ void main() {
         try:
             self._probe_data = self._calc_probe()
             cam = self.cam.getPos()
+            ft = self._frame_times
+            avg_ms = round(sum(ft) / len(ft), 1) if ft else 0
+            census = self._ambient.kind_census()
             state = {
                 "camera": {
                     "x": round(cam.getX(), 3), "y": round(cam.getY(), 3),
@@ -1560,13 +1583,29 @@ void main() {
                          for t in self._debug_tags],
                 "register": REGISTERS[self._register_index],
                 "chunks_loaded": len(self._chunks),
+                "perf": {
+                    "avg_ms": avg_ms,
+                    "drip_per_frame": self._drip_this_frame,
+                    "spawn_queue": len(self._object_spawn_queue),
+                    "entities_total": self._ambient.total_count,
+                    "entities_active": self._ambient.active_count,
+                    "entities_hibernated": self._ambient.hibernated_count,
+                },
+                "tension": {
+                    "active": self._tension.active,
+                    "state": self._tension.state,
+                    "budget": round(self._tension.budget, 3),
+                },
+                "census": {k: {"active": a, "total": t, "hibernated": h}
+                           for k, (a, t, h) in census.items()},
                 "palette": {k: list(v) if isinstance(v, tuple) else v
                             for k, v in self._palette.items()},
             }
             with open(self._state_path, "w") as f:
                 json.dump(state, f, indent=2, default=str)
             console.log(f"[bold green]STATE DUMPED[/bold green]  "
-                         f"chunks={len(self._chunks)}  tags={len(self._debug_tags)}")
+                         f"chunks={len(self._chunks)}  tags={len(self._debug_tags)}  "
+                         f"avg={avg_ms}ms  active={self._ambient.active_count}")
         except Exception as e:
             console.log(f"[bold red]DUMP FAILED[/bold red]  {e}")
             traceback.print_exc()
@@ -1618,22 +1657,32 @@ void main() {
         p = self._probe_data
         cam = self.cam.getPos()
         chunk = self._chunk_key(cam.getX(), cam.getY())
+        # Rolling frame average
+        ft = self._frame_times
+        avg_ms = sum(ft) / len(ft) if ft else 0
         lines = [
             f"pos=({cam.getX():.1f}, {cam.getY():.1f}, {cam.getZ():.1f}) "
             f"h={self._cam_h:.0f} p={self._cam_p:.0f}",
             f"chunk=({chunk[0]}, {chunk[1]})  loaded={len(self._chunks)}",
+            f"frame: {avg_ms:.1f}ms avg60  drip={self._drip_this_frame}/f  queue={len(self._object_spawn_queue)}",
             f"probe: {p.get('surface', '?')}  d={p.get('distance', '?')}",
             f"reg={REGISTERS[self._register_index]}  tags={len(self._debug_tags)}  tex={self._tex_size_override}",
             f"ambient: {self._ambient.active_count}/{self._ambient.total_count} awake  hibernate={self._ambient.hibernated_count}",
+            f"TRAIN: {'ON' if self._tension.active else 'off'}  state={self._tension.state}  budget={self._tension.budget:.0%}",
             f"chrono: {self._chrono_state['day_phase']}  night={self._chrono_state['night_weight']:.2f}  moon={self._chrono_state['moon_approx']:.2f}",
-            f"TRAIN: {'ON' if self._tension.active else 'off'}  state={self._tension.state}  budget={self._tension.budget:.0%}  queue={len(self._object_spawn_queue)}",
         ]
+        # Per-kind census — top 5 by active count
+        census = self._ambient.kind_census()
+        top5 = sorted(census.items(), key=lambda kv: kv[1][0], reverse=True)[:5]
+        kind_str = "  ".join(f"{k}:{a}/{t}" for k, (a, t, _h) in top5)
+        lines.append(f"kinds: {kind_str}")
         self._debug_hud_text.setText("\n".join(lines))
 
     # -- Main loop -------------------------------------------------------------
 
     def _loop(self, task):
         dt = globalClock.getDt()
+        self._frame_times.append(dt * 1000)
 
         # Mouse look
         if not hasattr(self, '_win_cx'):

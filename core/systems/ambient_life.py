@@ -558,7 +558,12 @@ class SpectrumEngine:
 
     Prismatic mode (crystals): per-shard offsets on top of the drift,
     so facets shimmer independently while the cluster moves as a family.
+
+    LUT mode: pre-computed 256-entry sine table. Zero trig at runtime.
+    Saturn/PS1 trick — index into a table instead of calling sin().
     """
+    # Pre-computed sine LUT — 256 entries covering 0..2π
+    _SIN_LUT = [math.sin(i * 2.0 * math.pi / 256.0) for i in range(256)]
 
     @staticmethod
     def phase_for_seed(seed):
@@ -570,14 +575,18 @@ class SpectrumEngine:
         """Calculate hue shift for an entity at a given time.
 
         Returns (r_shift, g_shift, b_shift) to ADD to base colorScale.
+        Uses LUT lookup instead of math.sin() — zero trig per frame.
         """
         profile = SPECTRUM_PROFILES.get(profile_name)
         if not profile:
             return (0, 0, 0)
         phase = SpectrumEngine.phase_for_seed(seed)
+        lut = SpectrumEngine._SIN_LUT
         total = 0.0
         for ch in profile["channels"]:
-            total += math.sin(elapsed * ch["freq"] * 2.0 * math.pi + phase) * ch["amp"]
+            # LUT index: map continuous angle to 0-255
+            idx = int((elapsed * ch["freq"] + phase * 0.15915494) * 256.0) & 0xFF
+            total += lut[idx] * ch["amp"]
         # Normalize to [-1, 1] range then scale by drift_range
         max_amp = sum(ch["amp"] for ch in profile["channels"])
         if max_amp > 0:
@@ -1554,6 +1563,9 @@ def build_column(parent, seed=0):
     col.setPos(0, 0, 0)
     col.setTwoSided(True)
 
+    # Store actual width for collision scaling (curtains are wider than default)
+    root.setPythonTag("base_radius", max(w, d))
+
     tex = get_material_texture("stone_light", seed=seed)
     ts = TextureStage("mat")
     ts.setMode(TextureStage.MModulate)
@@ -1566,56 +1578,45 @@ def build_column(parent, seed=0):
 
 
 def build_mega_column(parent, seed=0):
-    """Cathedral-scale column — 40-80m tall. Makes the cavern feel hundreds of feet deep."""
+    """Cathedral-scale column — massive base, darkness implies the rest.
+
+    Only renders bottom ~30m (the render dome). The column feels 80-160m
+    because darkness above the fog ceiling IS the ceiling. Oblivion trick:
+    the cave geometry fits inside the render distance, everything beyond
+    is implied. Saves ~1000 verts per column vs 3-section full height.
+    """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"mega_column_{seed}")
 
-    total_height = rng.uniform(80.0, 160.0)
+    # Full conceptual height drives the base radius — massive columns
+    # feel massive because of WIDTH, not rendered height
+    conceptual_height = rng.uniform(80.0, 160.0)
     base_radius = rng.uniform(5.0, 12.0)
     profile = rng.choice(["pillar", "hourglass", "curtain"])
 
     if profile == "hourglass":
-        waist_radius = base_radius * rng.uniform(0.25, 0.4)
-        top_radius = base_radius * rng.uniform(0.9, 1.3)
+        pass  # base_radius stays — waist taper is above the dome anyway
     elif profile == "pillar":
-        waist_radius = base_radius * rng.uniform(0.8, 0.95)
-        top_radius = base_radius * rng.uniform(0.7, 0.9)
+        pass  # uniform width — just the base
     else:  # curtain
         base_radius *= rng.uniform(1.5, 2.5)
-        waist_radius = base_radius * rng.uniform(0.5, 0.7)
-        top_radius = base_radius * rng.uniform(0.4, 0.6)
 
     depth_scale = 0.25 if profile == "curtain" else rng.uniform(0.7, 1.0)
     color = _cavern_color("stone", rng, 0.02)
 
-    # Bottom — massive base
-    bottom_h = total_height * 0.4
-    bottom = root.attachNewNode(make_rock(
-        base_radius, bottom_h * 0.5, base_radius * depth_scale, color,
-        rings=10, segments=12, seed=seed, roughness=rng.uniform(0.2, 0.35),
-    ))
-    bottom.setPos(0, 0, 0)
-    bottom.setTwoSided(True)
+    # Render dome cap: only build what's visible (fog far + headroom)
+    # 30m dome height = fog far (28m) + margin. Darkness does the rest.
+    render_height = min(30.0, conceptual_height)
 
-    # Waist
-    waist_h = total_height * 0.2
-    waist_z = bottom_h * 0.7
-    waist = root.attachNewNode(make_rock(
-        waist_radius, waist_h * 0.5, waist_radius * depth_scale, color,
-        rings=6, segments=8, seed=seed + 33, roughness=rng.uniform(0.15, 0.3),
+    col = root.attachNewNode(make_rock(
+        base_radius, render_height * 0.5 * 1.6, base_radius * depth_scale, color,
+        rings=8, segments=8, seed=seed, roughness=rng.uniform(0.2, 0.35),
     ))
-    waist.setPos(0, 0, waist_z)
-    waist.setTwoSided(True)
+    col.setPos(0, 0, 0)
+    col.setTwoSided(True)
 
-    # Top — vanishes into darkness above
-    top_h = total_height - bottom_h - waist_h
-    top_z = waist_z + waist_h * 0.5
-    top = root.attachNewNode(make_rock(
-        top_radius, top_h * 0.5, top_radius * depth_scale, color,
-        rings=10, segments=12, seed=seed + 66, roughness=rng.uniform(0.2, 0.35),
-    ))
-    top.setPos(0, 0, top_z + top_h * 0.3)
-    top.setTwoSided(True)
+    # Store actual base radius for collision scaling
+    root.setPythonTag("base_radius", base_radius)
 
     tex = get_material_texture("stone_light", seed=seed)
     ts = TextureStage("mat")
@@ -2575,10 +2576,13 @@ class AmbientManager:
         self._imposter_r2 = (sleep_radius + 15.0) ** 2  # imposters visible beyond sleep
         self._entities = []         # all entities
         self._active = set()        # currently ticking (set for O(1) add/remove)
+        self._active_hard = []      # collidable subset — only HARD_OBJECTS entities
         self._check_cursor = 0      # stagger wake/sleep checks across frames
         self._check_batch = 20      # entities to check per frame
         self._max_lights = 8        # GPU budget: nearest N bio-lights only
         self._active_lights = []    # [(dist2, glow_np, entity), ...] sorted
+        self._hibernated_n = 0      # incremental counter — no full scans
+        self._mote_frame = 0        # throttle: tick motes every 3rd frame
 
     def spawn(self, kind, pos, heading=0, seed=0, height_fn=None, chunk_key=None,
               biome="Cavern_Default"):
@@ -2608,6 +2612,7 @@ class AmbientManager:
         entity.behavior = behavior_cls(entity, seed=seed)
 
         self._entities.append(entity)
+        self._hibernated_n += 1  # spawns asleep
 
         # Companion spawns — grass clusters near boulders, columns, etc.
         companions = COMPANION_SPAWNS.get(kind, {})
@@ -2679,7 +2684,13 @@ class AmbientManager:
                 if abs(tx - center_tx) > keep_radius or abs(ty - center_ty) > keep_radius:
                     if e.awake:
                         self._active.discard(e)
+                        if e.kind in HARD_OBJECTS:
+                            try:
+                                self._active_hard.remove(e)
+                            except ValueError:
+                                pass
                         e.awake = False
+                        self._hibernated_n += 1
                         if e.node and not e.node.isEmpty():
                             e.node.hide()
                         for m in e.motes:
@@ -2692,7 +2703,7 @@ class AmbientManager:
     @property
     def hibernated_count(self):
         """How many entities are alive but sleeping (in purgatory)."""
-        return sum(1 for e in self._entities if not e.awake)
+        return self._hibernated_n
 
     def _make_imposter(self, entity):
         """Create a cheap dark silhouette card for a distant entity.
@@ -2726,12 +2737,19 @@ class AmbientManager:
         Uses sphere-vs-sphere: player radius + object collision radius.
         Slide vector = push along the surface normal so movement continues
         tangent to the object rather than stopping dead.
+
+        Only iterates _active_hard (collidable subset), not all active entities.
+        Collision radius uses stored base_radius when available (curtain columns,
+        mega columns scale with actual geometry width).
         """
         sx, sy = px, py
-        for e in self._active:
-            cr = HARD_OBJECTS.get(e.kind)
-            if cr is None:
-                continue
+        for e in self._active_hard:
+            # Use stored base_radius if builder tagged it, otherwise HARD_OBJECTS default
+            cr = HARD_OBJECTS.get(e.kind, 1.0)
+            if e.node and not e.node.isEmpty():
+                stored = e.node.getPythonTag("base_radius")
+                if stored is not None:
+                    cr = max(cr, stored)
             ex, ey = e.pos[0], e.pos[1]
             dx = sx - ex
             dy = sy - ey
@@ -2774,10 +2792,13 @@ class AmbientManager:
                 if not e.awake and d2 < entity_wake_r2:
                     # Full wake — show real geometry
                     e.awake = True
+                    self._hibernated_n -= 1
                     e.fade_alpha = 1.0  # instant show — fog handles the transition
                     e.node.show()
                     e.node.setAlphaScale(1.0)
                     self._active.add(e)
+                    if e.kind in HARD_OBJECTS:
+                        self._active_hard.append(e)
                     # Hide imposter if it exists
                     if e.imposter and not e.imposter.isEmpty():
                         e.imposter.removeNode()
@@ -2794,8 +2815,14 @@ class AmbientManager:
                 if e.awake and d2 > entity_sleep_r2:
                     # Sleep — hide real geometry, show imposter if in range
                     e.awake = False
+                    self._hibernated_n += 1
                     e.node.hide()
                     self._active.discard(e)
+                    if e.kind in HARD_OBJECTS:
+                        try:
+                            self._active_hard.remove(e)
+                        except ValueError:
+                            pass
                     for m in e.motes:
                         if not m.isEmpty():
                             m.removeNode()
@@ -2812,7 +2839,9 @@ class AmbientManager:
                     if not e.imposter.isEmpty():
                         e.imposter.removeNode()
                     e.imposter = None
-        # Tick active behaviors + motes + spectrum drift + fade-in
+        # Tick active behaviors + motes (throttled) + spectrum drift
+        self._mote_frame += 1
+        tick_motes_this_frame = (self._mote_frame % 3 == 0)
         try:
             from panda3d.core import ClockObject
             elapsed = ClockObject.getGlobalClock().getFrameTime()
@@ -2820,9 +2849,8 @@ class AmbientManager:
             elapsed = 0
         for e in self._active:
             e.behavior.tick(dt)
-            if e.motes:
-                tick_motes(e.motes, dt)
-            # (fade removed — fog handles visual transition, instant show is cleaner)
+            if tick_motes_this_frame and e.motes:
+                tick_motes(e.motes, dt * 3)  # compensate for 3× dt gap
             # Spectrum drift — bio-lit entities shift color over time
             if e.spectrum and e.base_color_scale:
                 rs, gs, bs = SpectrumEngine.drift(e.spectrum, elapsed, e.seed)
@@ -2853,8 +2881,22 @@ class AmbientManager:
     @property
     def awake_count(self):
         """Entities that are alive and not hibernated — the real memory pressure."""
-        return sum(1 for e in self._entities if e.awake or (e.node and not e.node.isEmpty() and not e.node.isHidden()))
+        return len(self._entities) - self._hibernated_n
 
     @property
     def active_count(self):
         return len(self._active)
+
+    def kind_census(self):
+        """Per-kind entity counts: {kind: (active, total, hibernated)}."""
+        from collections import defaultdict
+        counts = defaultdict(lambda: [0, 0, 0])  # [active, total, hibernated]
+        active_set = set(id(e) for e in self._active)
+        for e in self._entities:
+            c = counts[e.kind]
+            c[1] += 1  # total
+            if id(e) in active_set:
+                c[0] += 1  # active
+            if not e.awake:
+                c[2] += 1  # hibernated
+        return {k: tuple(v) for k, v in counts.items()}
