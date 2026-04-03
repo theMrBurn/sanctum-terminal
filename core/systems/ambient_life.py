@@ -2521,7 +2521,8 @@ class AmbientEntity:
 
     __slots__ = ("kind", "pos", "heading", "node", "behavior",
                  "awake", "height_fn", "chunk_key", "motes",
-                 "seed", "spectrum", "base_color_scale", "fade_alpha")
+                 "seed", "spectrum", "base_color_scale", "fade_alpha",
+                 "imposter")
 
     def __init__(self, kind, node, behavior, pos, heading, height_fn=None,
                  chunk_key=None, seed=0):
@@ -2536,6 +2537,7 @@ class AmbientEntity:
         self.chunk_key = chunk_key
         self.seed = seed
         self.fade_alpha = 1.0  # 0→1 on wake, smooth pop-in
+        self.imposter = None   # cheap dark card shown at distance
         self.spectrum = _KIND_TO_SPECTRUM.get(kind)  # None for non-bio entities
         # Capture the initial colorScale so drift is additive from base
         if self.spectrum and node and not node.isEmpty():
@@ -2556,6 +2558,7 @@ class AmbientManager:
         self._render = render_node
         self._wake_r2 = wake_radius * wake_radius
         self._sleep_r2 = sleep_radius * sleep_radius
+        self._imposter_r2 = (sleep_radius + 15.0) ** 2  # imposters visible beyond sleep
         self._entities = []         # all entities
         self._active = set()        # currently ticking (set for O(1) add/remove)
         self._check_cursor = 0      # stagger wake/sleep checks across frames
@@ -2677,6 +2680,30 @@ class AmbientManager:
         """How many entities are alive but sleeping (in purgatory)."""
         return sum(1 for e in self._entities if not e.awake)
 
+    def _make_imposter(self, entity):
+        """Create a cheap dark silhouette card for a distant entity.
+
+        One flat billboard — no texture, no lighting, no tick cost.
+        Just a dark shape that fills the visual field at distance.
+        Removed when entity wakes or goes beyond imposter range.
+        """
+        cr = HARD_OBJECTS.get(entity.kind, 1.0)
+        from panda3d.core import CardMaker
+        cm = CardMaker("imposter")
+        hw = cr * 0.8
+        hh = cr * 1.5  # taller than wide — reads as a column/boulder silhouette
+        cm.setFrame(-hw, hw, 0, hh)
+        imp = self._render.attachNewNode(cm.generate())
+        imp.setPos(entity.pos[0], entity.pos[1], entity.pos[2])
+        imp.setBillboardPointEye()
+        imp.setColor(0.06, 0.055, 0.055, 0.8)
+        imp.setLightOff()
+        imp.setDepthWrite(False)
+        imp.setBin("transparent", 5)
+        from panda3d.core import TransparencyAttrib
+        imp.setTransparency(TransparencyAttrib.MAlpha)
+        entity.imposter = imp
+
     def collide_point(self, px, py, player_radius=0.4):
         """Check if a point collides with any hard active entity.
 
@@ -2728,12 +2755,17 @@ class AmbientManager:
                 d2 = dx * dx + dy * dy
 
                 if not e.awake and d2 < self._wake_r2:
+                    # Full wake — show real geometry
                     e.awake = True
-                    e.fade_alpha = 0.0  # start invisible, fade in
+                    e.fade_alpha = 0.0
                     e.node.show()
                     e.node.setAlphaScale(0.0)
                     self._active.add(e)
-                    # Spawn motes on wake — config from MOTE_PRESETS or light layer
+                    # Hide imposter if it exists
+                    if e.imposter and not e.imposter.isEmpty():
+                        e.imposter.removeNode()
+                        e.imposter = None
+                    # Spawn motes on wake
                     if not e.motes:
                         mote_cfg = MOTE_PRESETS.get(e.kind)
                         if mote_cfg is None:
@@ -2742,14 +2774,26 @@ class AmbientManager:
                             origin = (e.pos[0], e.pos[1], e.pos[2])
                             e.motes = _spawn_motes(e.node, mote_cfg, origin)
                 elif e.awake and d2 > self._sleep_r2:
+                    # Sleep — hide real geometry, show imposter if in range
                     e.awake = False
                     e.node.hide()
                     self._active.discard(e)
-                    # Clear motes on sleep
                     for m in e.motes:
                         if not m.isEmpty():
                             m.removeNode()
                     e.motes = []
+                    # Spawn imposter silhouette if within imposter range
+                    if d2 < self._imposter_r2 and HARD_OBJECTS.get(e.kind):
+                        self._make_imposter(e)
+                elif not e.awake and e.imposter is None and d2 < self._imposter_r2:
+                    # Not awake, no imposter, but in imposter range — create one
+                    if HARD_OBJECTS.get(e.kind):
+                        self._make_imposter(e)
+                elif e.imposter and d2 > self._imposter_r2:
+                    # Beyond imposter range — remove it
+                    if not e.imposter.isEmpty():
+                        e.imposter.removeNode()
+                    e.imposter = None
         # Tick active behaviors + motes + spectrum drift + fade-in
         try:
             from panda3d.core import ClockObject
