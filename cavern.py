@@ -225,7 +225,7 @@ CAVERN_LIGHT_STATES = {
 CAVERN_LIGHT_ORDER = ["cave", "daylight"]
 
 # Toggle: "cavern" or "outdoor"
-ACTIVE_BIOME = "outdoor"
+ACTIVE_BIOME = "cavern"  # "cavern" or "outdoor"
 
 
 class Cavern(ShowBase):
