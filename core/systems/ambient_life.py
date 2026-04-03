@@ -2682,16 +2682,23 @@ class AmbientManager:
         self._render = render_node
         self._wake_r2 = wake_radius * wake_radius
         self._sleep_r2 = sleep_radius * sleep_radius
-        self._imposter_r2 = (sleep_radius + 15.0) ** 2  # imposters visible beyond sleep
+        self._imposter_r2 = (sleep_radius + 15.0) ** 2
         self._entities = []         # all entities
-        self._active = set()        # currently ticking (set for O(1) add/remove)
-        self._active_hard = set()   # collidable subset — only HARD_OBJECTS entities (set for O(1) remove)
-        self._check_cursor = 0      # stagger wake/sleep checks across frames
-        self._check_batch = 20      # entities to check per frame
-        self._max_lights = 8        # GPU budget: nearest N bio-lights only
-        self._active_lights = []    # [(dist2, glow_np, entity), ...] sorted
-        self._hibernated_n = 0      # incremental counter — no full scans
-        self._mote_frame = 0        # throttle: tick motes every 3rd frame
+        self._entity_by_id = {}     # id(entity) -> entity for spatial hash lookups
+        self._active = set()        # currently ticking
+        self._active_hard = set()   # collidable subset
+        self._check_cursor = 0
+        self._check_batch = 20
+        self._max_lights = 8
+        self._active_lights = []
+        self._hibernated_n = 0
+        self._mote_frame = 0
+        # Spatial hash + wake chain — replaces O(n) scan with O(1) cell lookups
+        from core.systems.spatial_wake import SpatialHash, WakeChain, WAKE_CHAINS
+        self._spatial = SpatialHash(cell_size=20.0)
+        biome = _active_biome
+        chain_config = WAKE_CHAINS.get(biome, WAKE_CHAINS["cavern"])
+        self._wake_chain = WakeChain(chain_config)
         # Adaptive tick budget — self-regulating batch size
         self._tick_budget_ms = 8.0  # target: 8ms max per tick (leaves 25ms for render)
         self._last_tick_ms = 0.0
@@ -2730,6 +2737,11 @@ class AmbientManager:
         entity.behavior = behavior_cls(entity, seed=seed)
 
         self._entities.append(entity)
+        # Register in spatial hash for O(1) wake/sleep
+        eid = id(entity)
+        self._entity_by_id[eid] = entity
+        chain_idx = self._wake_chain.chain_index(kind)
+        self._spatial.insert(eid, pos[0], pos[1], chain_index=chain_idx)
         self._hibernated_n += 1  # spawns asleep
 
         # Companion spawns — biome-aware ecosystem clustering
@@ -2888,76 +2900,51 @@ class AmbientManager:
         import time as _time
         _tick_start = _time.monotonic()
 
-        # Adaptive wake/sleep scan — self-regulating batch size.
-        n = len(self._entities)
-        if n > 0:
-            # Adjust batch based on last tick performance
-            if self._last_tick_ms > self._tick_budget_ms * 1.2:
-                self._adaptive_batch = max(50, self._adaptive_batch - 30)
-            elif self._last_tick_ms < self._tick_budget_ms * 0.6:
-                self._adaptive_batch = min(400, self._adaptive_batch + 20)
-            batch = self._adaptive_batch
-            for _ in range(batch):
-                if self._check_cursor >= n:
-                    self._check_cursor = 0
-                e = self._entities[self._check_cursor]
-                self._check_cursor += 1
-
-                dx = e.pos[0] - cx
-                dy = e.pos[1] - cy
-                d2 = dx * dx + dy * dy
-
-                # Anchors wake at extended range — landmarks visible first
-                wake_mult = ANCHOR_WAKE_MULT.get(e.kind, 1.0)
-                entity_wake_r2 = self._wake_r2 * (wake_mult * wake_mult)
-
-                if not e.awake and d2 < entity_wake_r2:
-                    # Full wake — show real geometry
-                    e.awake = True
-                    self._hibernated_n -= 1
-                    e.fade_alpha = 1.0  # instant show — fog handles the transition
-                    e.node.show()
-                    e.node.setAlphaScale(1.0)
-                    self._active.add(e)
-                    if e.kind in HARD_OBJECTS:
-                        self._active_hard.add(e)
-                    # Hide imposter if it exists
-                    if e.imposter and not e.imposter.isEmpty():
-                        e.imposter.removeNode()
-                        e.imposter = None
-                    # Spawn motes on wake
-                    if not e.motes:
-                        mote_cfg = biome_config("motes").get(e.kind)
-                        if mote_cfg is None:
-                            mote_cfg = e.node.getPythonTag("mote_config")
-                        if mote_cfg:
-                            origin = (e.pos[0], e.pos[1], e.pos[2])
-                            e.motes = _spawn_motes(e.node, mote_cfg, origin)
-                entity_sleep_r2 = self._sleep_r2 * (wake_mult * wake_mult)
-                if e.awake and d2 > entity_sleep_r2:
-                    # Sleep — hide real geometry, show imposter if in range
-                    e.awake = False
-                    self._hibernated_n += 1
-                    e.node.hide()
-                    self._active.discard(e)
-                    if e.kind in HARD_OBJECTS:
-                        self._active_hard.discard(e)
-                    for m in e.motes:
-                        if not m.isEmpty():
-                            m.removeNode()
-                    e.motes = []
-                    # Spawn imposter silhouette if within imposter range
-                    if d2 < self._imposter_r2 and HARD_OBJECTS.get(e.kind):
-                        self._make_imposter(e)
-                elif not e.awake and e.imposter is None and d2 < self._imposter_r2:
-                    # Not awake, no imposter, but in imposter range — create one
-                    if HARD_OBJECTS.get(e.kind):
-                        self._make_imposter(e)
-                elif e.imposter and d2 > self._imposter_r2:
-                    # Beyond imposter range — remove it
-                    if not e.imposter.isEmpty():
-                        e.imposter.removeNode()
+        # Spatial hash wake — O(1) cell lookup replaces O(n) entity scan.
+        # Query returns entities sorted by chain priority (skeleton first).
+        from core.systems.spatial_wake import WAKE_CHAINS
+        chain_config = WAKE_CHAINS.get(_active_biome, WAKE_CHAINS["cavern"])
+        should_be_awake = set()
+        wake_results = self._spatial.query_chain(cx, cy, chain_config)
+        for eid, chain_idx in wake_results:
+            e = self._entity_by_id.get(eid)
+            if e is None:
+                continue
+            should_be_awake.add(e)
+            if not e.awake:
+                # Wake — show real geometry
+                e.awake = True
+                self._hibernated_n -= 1
+                e.fade_alpha = 1.0
+                e.node.show()
+                e.node.setAlphaScale(1.0)
+                self._active.add(e)
+                if e.kind in HARD_OBJECTS:
+                    self._active_hard.add(e)
+                if e.imposter and not e.imposter.isEmpty():
+                    e.imposter.removeNode()
                     e.imposter = None
+                if not e.motes:
+                    mote_cfg = biome_config("motes").get(e.kind)
+                    if mote_cfg is None:
+                        mote_cfg = e.node.getPythonTag("mote_config")
+                    if mote_cfg:
+                        origin = (e.pos[0], e.pos[1], e.pos[2])
+                        e.motes = _spawn_motes(e.node, mote_cfg, origin)
+
+        # Sleep entities that are awake but not in the wake set
+        to_sleep = [e for e in self._active if e not in should_be_awake]
+        for e in to_sleep:
+            e.awake = False
+            self._hibernated_n += 1
+            e.node.hide()
+            self._active.discard(e)
+            if e.kind in HARD_OBJECTS:
+                self._active_hard.discard(e)
+            for m in e.motes:
+                if not m.isEmpty():
+                    m.removeNode()
+            e.motes = []
         # Tick active behaviors + motes (throttled) + spectrum drift
         # Three optimizations:
         # 1. Static entities skip behavior tick entirely (StaticBehavior.tick = pass)
