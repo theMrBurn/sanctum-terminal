@@ -257,7 +257,9 @@ class Cavern(ShowBase):
         self.camLens.setFar(ls["far_clip"])
         self.setBackgroundColor(*ls["bg_color"], 1)
         self.render.setAntialias(AntialiasAttrib.MMultisample)
-        self.render.setShaderAuto()
+        # setShaderAuto() REMOVED — causes GPU stalls on Apple Silicon Metal.
+        # All lighting is via single AmbientLight + decals (no per-pixel shading).
+        # Color grade + grain use explicit GLSL shaders on render2d cards.
 
         # -- State -------------------------------------------------------------
         self._register_index = 0
@@ -999,9 +1001,11 @@ void main() {
                 self._ambient.hibernate_chunk(chunk_key)
                 self._hibernated_tiles.add(k)
 
-        # Hard destroy tiles beyond radius 6 — memory cap
+        # Hard destroy tiles beyond radius 4 — free entity budget for tiles ahead
+        # Was radius 6, but 25K cap fills before player reaches new tiles.
+        # Tighter destroy = faster budget recycling = continuous world generation.
         to_destroy = [k for k in self._hibernated_tiles
-                      if abs(k[0] - center_tx) > 6 or abs(k[1] - center_ty) > 6]
+                      if abs(k[0] - center_tx) > 4 or abs(k[1] - center_ty) > 4]
         for k in to_destroy:
             self._ambient.despawn_chunk(("T", k[0], k[1]))
             self._object_tile_placed.discard(k)
@@ -1271,7 +1275,7 @@ void main() {
             self._deferred_entity_spawns.append((kind, pos, heading, seed, chunk_key))
 
         # Ensure ground receives per-pixel lighting from auto shader
-        ground_np.setShaderAuto()
+        # ground_np.setShaderAuto()  # REMOVED — Metal GPU stalls
 
         # If fake ground is active, stash new chunks immediately
         if self._use_fake_ground:
