@@ -118,7 +118,7 @@ class Cavern(ShowBase):
         gc.disable()
 
         # -- Rendering setup ---------------------------------------------------
-        self.setBackgroundColor(0.04, 0.04, 0.05, 1)  # slightly lifted — void isn't pure black
+        self.setBackgroundColor(0.06, 0.06, 0.07, 1)  # lifted — void has depth, not pure black
         self.disableMouse()
         self.camLens.setFov(65.0)
         self.camLens.setNear(0.5)
@@ -144,7 +144,7 @@ class Cavern(ShowBase):
         self._ground_blend_z = 0.0    # lerp offset to prevent pop on G toggle
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
-        self._ambient = AmbientManager(self.render, wake_radius=25.0, sleep_radius=32.0)
+        self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=38.0)  # wake at fog far — objects start fully fogged, fog reveals them
         self._deferred_spawns = []  # ambient spawns queued across frames
         self._chrono = Chronometer()
         self._chrono_state = self._chrono.read()
@@ -185,7 +185,7 @@ class Cavern(ShowBase):
         # -- Fog ---------------------------------------------------------------
         self._fog = Fog("cavern_fog")
         fc = self._palette["fog"]
-        self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
+        self._fog.setColor(Vec4(0.06, 0.055, 0.06, 1))  # lifted fog — depth, not void
         self._fog.setLinearRange(8.0, 28.0)  # tight — hides sparse zones, world feels denser
         self.render.setFog(self._fog)
 
@@ -264,7 +264,7 @@ class Cavern(ShowBase):
 
         # Ambient only — the sole pipeline light. Everything else is decals.
         amb = AmbientLight("amb")
-        amb.setColor(Vec4(0.32, 0.28, 0.26, 1))
+        amb.setColor(Vec4(0.38, 0.34, 0.32, 1))
         self._amb_np = self.render.attachNewNode(amb)
         self.render.setLight(self._amb_np)
 
@@ -452,7 +452,7 @@ void main() {
         # Honeycomb nodes = mega_column positions. Columns ARE the lattice.
         # First pass: place mega_columns on hex grid. These anchor every chamber.
         # All other objects fill around them.
-        node_spacing = rng.uniform(18.0, 24.0)  # balanced — dense enough to feel enclosed, light enough to stage fast
+        node_spacing = rng.uniform(14.0, 18.0)  # tight chambers — enclosed but won't choke staging
         nodes = []
         ny = node_spacing * 0.5
         row = 0
@@ -1293,20 +1293,27 @@ void main() {
         """L key — toggle daylight inspection mode. Fog stays, ambient cranks."""
         self._daylight = not self._daylight
         if self._daylight:
-            # Inspection mode — deep cave atmosphere, not flat gray
+            # Inspection mode — hide imposters, crank everything
             self._amb_np.node().setColor(Vec4(0.8, 0.75, 0.7, 1))
-            self._fog.setColor(Vec4(0.12, 0.11, 0.18, 1))  # blue-purple haze
+            self._fog.setColor(Vec4(0.12, 0.11, 0.18, 1))
             self._fog.setLinearRange(40.0, 120.0)
             self.camLens.setFar(130.0)
-            self.setBackgroundColor(0.06, 0.05, 0.10, 1)  # deep cave void
+            self.setBackgroundColor(0.06, 0.05, 0.10, 1)
+            # Hide all imposters — they're visible as boxes in daylight
+            for e in self._ambient._entities:
+                if e.imposter and not e.imposter.isEmpty():
+                    e.imposter.hide()
             console.log("[bold]DAYLIGHT[/bold] — inspection mode")
         else:
-            # Cave darkness — near-black fog, warm at the edges
-            self._amb_np.node().setColor(Vec4(0.10, 0.08, 0.06, 1))
-            self._fog.setColor(Vec4(0.02, 0.015, 0.03, 1))  # hint of purple depth
-            self._fog.setLinearRange(15.0, 50.0)
-            self.camLens.setFar(45.0)
-            self.setBackgroundColor(0.02, 0.015, 0.03, 1)
+            self._amb_np.node().setColor(Vec4(0.38, 0.34, 0.32, 1))
+            self._fog.setColor(Vec4(0.06, 0.055, 0.06, 1))
+            self._fog.setLinearRange(8.0, 28.0)
+            self.camLens.setFar(30.0)
+            self.setBackgroundColor(0.06, 0.06, 0.07, 1)
+            # Re-show imposters
+            for e in self._ambient._entities:
+                if e.imposter and not e.imposter.isEmpty():
+                    e.imposter.show()
             console.log("[bold]CAVE[/bold] — darkness restored")
 
     def _toggle_debug(self):
@@ -1756,7 +1763,7 @@ void main() {
             self._fog.setLinearRange(fog_near, fog_far)
             amb_scale = 1.0 - nw * 0.3
             self._amb_np.node().setColor(Vec4(
-                0.32 * amb_scale, 0.28 * amb_scale, 0.26 * amb_scale, 1))
+                0.38 * amb_scale, 0.34 * amb_scale, 0.32 * amb_scale, 1))
 
         # Torch disabled — skip flicker and positioning
         cam_pos = self.cam.getPos()

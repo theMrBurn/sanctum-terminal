@@ -42,7 +42,7 @@ CAVERN_CYCLE = {
     # Walking to a new tile adds ~4K entities = ~0.16 budget jump.
     "open": {
         "fog": (8.0, 28.0),
-        "ambient": (0.32, 0.28, 0.26),
+        "ambient": (0.38, 0.34, 0.32),
         "budget_floor": 0.0,
         "budget_ceiling": 0.50,
     },

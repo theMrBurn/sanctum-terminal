@@ -2774,13 +2774,9 @@ class AmbientManager:
                 if not e.awake and d2 < entity_wake_r2:
                     # Full wake — show real geometry
                     e.awake = True
-                    if wake_mult > 1.0:
-                        # Anchors: instant show — they're landmarks, no ghost fade
-                        e.fade_alpha = 1.0
-                    else:
-                        e.fade_alpha = 0.0
+                    e.fade_alpha = 1.0  # instant show — fog handles the transition
                     e.node.show()
-                    e.node.setAlphaScale(e.fade_alpha)
+                    e.node.setAlphaScale(1.0)
                     self._active.add(e)
                     # Hide imposter if it exists
                     if e.imposter and not e.imposter.isEmpty():
@@ -2826,10 +2822,7 @@ class AmbientManager:
             e.behavior.tick(dt)
             if e.motes:
                 tick_motes(e.motes, dt)
-            # Fade-in — smooth pop-in matched to walk pace (~1.2s)
-            if e.fade_alpha < 1.0:
-                e.fade_alpha = min(1.0, e.fade_alpha + dt * 0.5)  # ~2s fade — matched to walk pace
-                e.node.setAlphaScale(e.fade_alpha)
+            # (fade removed — fog handles visual transition, instant show is cleaner)
             # Spectrum drift — bio-lit entities shift color over time
             if e.spectrum and e.base_color_scale:
                 rs, gs, bs = SpectrumEngine.drift(e.spectrum, elapsed, e.seed)
