@@ -38,8 +38,9 @@ import math
 
 CAVERN_CYCLE = {
     # Thresholds calibrated for real entity counts (~11K start, ~19K explored).
-    # Budget = entity_count / MAX_ENTITIES (25K).
+    # Budget = entity_count / budget_max.
     # Walking to a new tile adds ~4K entities = ~0.16 budget jump.
+    "budget_max": 25000,
     "open": {
         "fog": (8.0, 28.0),
         "ambient": (0.38, 0.34, 0.32),
@@ -80,6 +81,52 @@ CAVERN_CYCLE = {
     },
 }
 
+OUTDOOR_CYCLE = {
+    # Calibrated from live UAT: 320-488 active entities with companion spawns.
+    # budget_max=800 gives headroom. Wider bands = slower progression.
+    # Lerp speed 5.0s (set on TensionCycle init) for gradual weather-like transitions.
+    "budget_max": 800,     # 320-488 active = 0.40-0.61 budget range
+    "lerp_speed": 5.0,     # seconds per transition (was 3.0 — too snappy)
+    "open": {
+        "fog": (15.0, 55.0),
+        "ambient": (0.55, 0.50, 0.45),     # warm daylight
+        "budget_floor": 0.0,
+        "budget_ceiling": 0.50,              # was 0.35 — stay open longer
+    },
+    "building": {
+        "fog": (12.0, 42.0),
+        "ambient": (0.42, 0.38, 0.32),     # overcast rolling in
+        "budget_floor": 0.50,
+        "budget_ceiling": 0.62,              # was 0.45 — wider band
+    },
+    "tension": {
+        "fog": (8.0, 30.0),
+        "ambient": (0.28, 0.24, 0.18),     # dim canopy
+        "budget_floor": 0.62,
+        "budget_ceiling": 0.74,              # was 0.55
+    },
+    "tunnel": {
+        "fog": (5.0, 18.0),
+        "ambient": (0.14, 0.11, 0.08),     # deep twilight (was 0.10 — too dark)
+        "budget_floor": 0.74,
+        "budget_ceiling": 0.85,
+    },
+    "dump": {
+        "fog": (3.0, 10.0),                 # was 2/6 — too claustrophobic
+        "ambient": (0.06, 0.05, 0.04),      # was 0.04 — slightly brighter
+        "budget_floor": 0.85,
+        "budget_ceiling": 1.0,
+        "hold_seconds": 5.0,                 # was 3.0 — let the silence land
+    },
+    "rebirth": {
+        "fog": (10.0, 38.0),
+        "ambient": (0.35, 0.30, 0.24),     # dawn — warmer than before
+        "budget_floor": 0.0,
+        "budget_ceiling": 0.15,
+        "hold_seconds": 8.0,                 # was 5.0 — sunrise is slow
+    },
+}
+
 STATE_ORDER = ["open", "building", "tension", "tunnel", "dump", "rebirth"]
 
 
@@ -110,7 +157,7 @@ class TensionCycle:
         self._state = "open"
         self._prev_state = "open"
         self._lerp_t = 1.0
-        self._lerp_speed = 3.0      # seconds to blend between states — matched to walk pace
+        self._lerp_speed = self._config.get("lerp_speed", 3.0)
         self._hold_timer = 0.0
         self._active = False         # train is boarded
         self._envelope = CycleEnvelope()
@@ -153,13 +200,15 @@ class TensionCycle:
             self._set_state(state_name)
             self._lerp_t = 1.0  # skip transition
 
-    def tick(self, dt, entity_count, max_entities):
+    def tick(self, dt, entity_count, max_entities=None):
         """Advance the cycle. Returns CycleEnvelope with current fog/ambient/state.
 
         Call every frame. When not active, returns static open envelope.
+        max_entities overrides config budget_max if provided (legacy compat).
         """
         env = self._envelope
-        budget = entity_count / max(1, max_entities)
+        bmax = max_entities if max_entities is not None else self._config.get("budget_max", 25000)
+        budget = entity_count / max(1, bmax)
         env.budget = budget
 
         if not self._active:

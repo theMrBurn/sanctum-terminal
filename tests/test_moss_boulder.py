@@ -40,11 +40,12 @@ class TestLightLayerConfig:
                     assert k in hue, f"{name} hue[{i}] missing '{k}'"
 
     def test_affinity_references_valid_layers(self):
-        from core.systems.ambient_life import LIGHT_LAYERS, LIGHT_AFFINITY
+        from core.systems.ambient_life import LIGHT_LAYERS, OUTDOOR_LIGHT_LAYERS, LIGHT_AFFINITY
+        all_layers = {**LIGHT_LAYERS, **OUTDOOR_LIGHT_LAYERS}
         for biome, objects in LIGHT_AFFINITY.items():
             for kind, layers in objects.items():
                 for layer_name in layers:
-                    assert layer_name in LIGHT_LAYERS, \
+                    assert layer_name in all_layers, \
                         f"Affinity {biome}/{kind} references unknown layer '{layer_name}'"
 
     def test_affinity_probabilities_valid(self):

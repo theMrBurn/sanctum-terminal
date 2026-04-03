@@ -27,6 +27,16 @@ from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pe
 from core.systems.glow_decal import make_glow_decal, get_glow_texture, make_light_shaft, get_shaft_texture, make_glow_halo
 
 
+# -- Biome state (set by cavern.py at init) ------------------------------------
+_active_biome = "cavern"
+
+
+def set_active_biome(biome):
+    """Called by cavern.py to configure biome-dependent builders."""
+    global _active_biome
+    _active_biome = biome
+
+
 # -- Behavior definitions -----------------------------------------------------
 
 class Behavior:
@@ -276,69 +286,6 @@ BEHAVIORS = {
 # Each creature profile maps base_behavior → {state: {overrides}}.
 # The overrides replace speed/roam/pause when active.
 
-CREATURE_PROFILES = {
-    "cave_spider": {
-        "builder": "spider",
-        "base_behavior": "crawl",
-        "states": {
-            "default":  {"speed": 0.4, "roam": 1.5, "pause": (2.0, 6.0)},
-            "curious":  {"speed": 0.2, "roam": 3.0, "pause": (0.5, 1.5),
-                         "trigger": "player_near", "range": 8.0},
-            "panic":    {"speed": 2.5, "roam": 6.0, "pause": (0.0, 0.1),
-                         "trigger": "player_close", "range": 3.0},
-            "dazed":    {"speed": 0.1, "roam": 0.3, "pause": (3.0, 8.0),
-                         "trigger": "light_exposure"},
-        },
-    },
-    "cave_beetle": {
-        "builder": "beetle",
-        "base_behavior": "crawl",
-        "states": {
-            "default":  {"speed": 0.5, "roam": 1.0, "pause": (1.5, 4.0)},
-            "curious":  {"speed": 0.3, "roam": 2.0, "pause": (0.3, 1.0),
-                         "trigger": "player_near", "range": 6.0},
-            "panic":    {"speed": 1.8, "roam": 4.0, "pause": (0.0, 0.2),
-                         "trigger": "player_close", "range": 2.0},
-        },
-    },
-    "cave_rat": {
-        "builder": "rat",
-        "base_behavior": "scurry",
-        "states": {
-            "default":  {"speed": 2.0, "roam": 2.5, "pause": (1.0, 3.0)},
-            "curious":  {"speed": 1.0, "roam": 4.0, "pause": (0.5, 1.5),
-                         "trigger": "player_near", "range": 10.0},
-            "panic":    {"speed": 3.5, "roam": 8.0, "pause": (0.0, 0.0),
-                         "trigger": "player_close", "range": 4.0},
-        },
-    },
-    # Stub — builders not yet implemented
-    "cave_lizard":  {"builder": None, "base_behavior": "crawl", "states": {
-        "default": {"speed": 0.6, "roam": 2.0, "pause": (2.0, 5.0)},
-        "panic":   {"speed": 3.0, "roam": 5.0, "pause": (0.0, 0.0),
-                    "trigger": "player_close", "range": 3.0},
-    }},
-    "cave_snake":   {"builder": None, "base_behavior": "crawl", "states": {
-        "default": {"speed": 0.3, "roam": 1.0, "pause": (4.0, 10.0)},
-        "curious": {"speed": 0.4, "roam": 2.5, "pause": (1.0, 3.0),
-                    "trigger": "player_near", "range": 5.0},
-    }},
-}
-
-
-# -- Spatial pressure (fog density zones) --------------------------------------
-# Tile-level atmosphere variation. Each tile can override fog range + ambient
-# to create passage/chamber feel. The TensionCycle can also drive this.
-# Config-as-code: biome declares spatial_pressure per tile seed.
-
-SPATIAL_PRESSURE = {
-    "passage":  {"fog": (12.0, 35.0), "ambient_mult": 0.85, "weight": 0.60},
-    "chamber":  {"fog": (18.0, 48.0), "ambient_mult": 1.20, "weight": 0.25},
-    "alcove":   {"fog": (8.0, 20.0),  "ambient_mult": 0.70, "weight": 0.10},
-    "vault":    {"fog": (22.0, 55.0), "ambient_mult": 1.40, "weight": 0.05},
-}
-
-
 # -- Discovery pacing ---------------------------------------------------------
 # Tile-level biome variation. Most tiles are "standard" density.
 # Some tiles are special — crystal grove, fungus forest, bone field.
@@ -356,6 +303,26 @@ TILE_VARIANTS = {
     "wet_zone":       {"density_mult": 0.8, "weight": 0.05,
                        "boost": {"moss_patch": 3.0, "ceiling_moss": 2.0},
                        "surface": "wet_stone", "drip_motes": True},
+}
+
+# -- Outdoor tile variants — PNW forest micro-biomes --------------------------
+OUTDOOR_TILE_VARIANTS = {
+    "standard":       {"density_mult": 1.0, "weight": 0.50},
+    "clearing":       {"density_mult": 0.3, "weight": 0.15,
+                       "boost": {"grass_tuft": 3.0, "firefly": 2.0, "leaf": 2.0},
+                       "desc": "open meadow — light, grass, drifting leaves"},
+    "dense_canopy":   {"density_mult": 1.2, "weight": 0.12,
+                       "boost": {"column": 2.5, "moss_patch": 2.0, "dead_log": 1.5},
+                       "desc": "thick forest — more trunks, more moss, darker"},
+    "fern_hollow":    {"density_mult": 0.8, "weight": 0.10,
+                       "boost": {"boulder": 3.0, "moss_patch": 2.5, "leaf_pile": 2.0},
+                       "desc": "sword fern colony — green mounds everywhere"},
+    "rocky_outcrop":  {"density_mult": 0.6, "weight": 0.08,
+                       "boost": {"stalagmite": 3.0, "rubble": 2.5, "cave_gravel": 2.0},
+                       "desc": "exposed rock — stumps and stones"},
+    "stream_bed":     {"density_mult": 0.7, "weight": 0.05,
+                       "boost": {"moss_patch": 4.0, "grass_tuft": 2.0},
+                       "surface": "wet_stone", "desc": "damp gully — moss-on-everything"},
 }
 
 
@@ -395,35 +362,6 @@ HARD_OBJECTS = {
 }
 
 
-ECOSYSTEM_RECIPES = {
-    "moss_boulder": {
-        "anchor": "boulder",
-        "light_layer": "moss",
-        "companions_builtin": ["grass_tuft"],  # built into parent, not separate entity
-        "ground_catcher": True,                # gold-green moss below
-        "mote_rain": False,
-    },
-    "crystal_alcove": {
-        "anchor": "crystal_cluster",
-        "companions_builtin": ["rubble"],       # broken rock at crystal base
-        "ground_catcher": False,
-        "mote_rain": False,
-    },
-    "ceiling_drip": {
-        "anchor": "ceiling_moss",
-        "companions_builtin": [],
-        "ground_catcher": True,                 # gold-green catcher below
-        "mote_rain": True,                      # falling motes from source to catcher
-    },
-    "fungus_colony": {
-        "anchor": "giant_fungus",
-        "companions_builtin": ["small_fungus"],  # tiny accents at base
-        "ground_catcher": False,
-        "mote_rain": False,
-    },
-}
-
-
 # -- Shared cavern palette (derived from stage_floor) -------------------------
 
 # All objects reference these to stay on the same spectrum.
@@ -436,6 +374,54 @@ CAVERN_PALETTE = {
     "dead_organic": (0.09, 0.07, 0.05), # dead grass, twigs, logs
     "bone": (0.14, 0.13, 0.11),         # pale but muted
 }
+
+# -- PNW outdoor palette — Portland OR reference biome -------------------------
+# Douglas fir bark, sword fern green, forest floor earth, moss-on-everything.
+OUTDOOR_PALETTE = {
+    "floor": (0.12, 0.10, 0.06),       # warm forest earth
+    "dirt": (0.08, 0.06, 0.03),         # dark forest dirt
+    "stone": (0.10, 0.07, 0.05),        # bark brown (columns, mega_columns)
+    "dark_stone": (0.06, 0.05, 0.03),   # deep bark shadow
+    "dead_organic": (0.06, 0.10, 0.04), # green-brown (living plant matter)
+    "bone": (0.16, 0.14, 0.08),         # pale wood / birch bark
+}
+
+# Per-kind colorScale overrides applied after build.
+# Cavern uses uniform stone tones. Outdoor differentiates by species.
+# NOTE: These MULTIPLY against the builder's baked colorScale (~0.50-0.55).
+# Values are ~1.8x brighter than target to compensate for the stacking.
+# boulder target green (0.19, 0.33, 0.12) → scale (0.65, 1.20, 0.48) × baked (0.55, 0.50, 0.48)
+OUTDOOR_COLOR_SCALES = {
+    "boulder":         (0.75, 1.45, 0.55, 1.0),  # sword fern mound — bright green
+    "column":          (0.90, 0.75, 0.55, 1.0),  # tree bark — warm brown
+    "mega_column":     (0.82, 0.65, 0.48, 1.0),  # old growth bark — rich brown
+    "stalagmite":      (0.82, 0.70, 0.52, 1.0),  # dead stump / standing stone
+    "giant_fungus":    (0.60, 1.10, 0.45, 1.0),  # large bush — green dominant, suppress magenta
+    "crystal_cluster": (1.00, 0.82, 0.55, 1.0),  # flowering shrub — warm
+    "moss_patch":      (0.40, 0.95, 0.25, 1.0),  # natural moss — green, not neon
+    "dead_log":        (0.55, 0.78, 0.35, 1.0),  # nurse log — mossy green-brown
+    "grass_tuft":      (0.55, 1.00, 0.35, 1.0),  # forest grass — visible green
+    "rubble":          (0.82, 0.72, 0.58, 1.0),  # scattered stones — earthy
+    "leaf_pile":       (0.90, 0.70, 0.35, 1.0),  # fir needles — warm orange-brown
+    "twig_scatter":    (0.76, 0.65, 0.42, 1.0),  # fallen branches — wood tone
+    "firefly":         (3.0, 2.0, 1.0, 1.0),     # same warm amber — fireflies are fireflies
+    "cave_gravel":     (0.72, 0.65, 0.48, 1.0),  # dirt pebbles — warm
+    "horizon_form":    (0.12, 0.16, 0.08, 1.0),  # distant tree line — dark green
+    "horizon_mid":     (0.16, 0.20, 0.12, 1.0),  # mid-distance trees
+    "horizon_near":    (0.20, 0.24, 0.16, 1.0),  # near tree silhouettes
+}
+
+# Render dome height per biome — fog hides the rest.
+DOME_HEIGHT = {
+    "cavern": 30.0,      # fog_far 28m + margin
+    "outdoor": 45.0,     # Doug firs feel TALL — fog_far 55m, dome lower for canopy implication
+}
+
+BIOME_PALETTES = {
+    "cavern": CAVERN_PALETTE,
+    "outdoor": OUTDOOR_PALETTE,
+}
+
 
 # -- World grain: visual language root -------------------------------------------
 # One number governs the texture density of the entire world.
@@ -466,13 +452,6 @@ STONE_MIN_HEIGHT_RATIO = 0.15
 # Contact rule: child_z = parent_top - child_h * OVERLAP_FACTOR
 # This guarantees visual intersection between adjacent sections.
 
-SIZE_CLASSES = {
-    "ground_clutter": {"range": (0.1, 0.5),  "desc": "gravel, small fungus, moss blobs"},
-    "mid_feature":    {"range": (0.5, 2.5),  "desc": "stalagmites, grass, bone, rubble"},
-    "large_feature":  {"range": (2.0, 8.0),  "desc": "boulders, columns, crystal clusters"},
-    "structure":      {"range": (8.0, 25.0), "desc": "mega columns, giant fungus"},
-}
-
 OVERLAP_FACTOR = 0.50  # each section overlaps 50% into the one below it
 
 
@@ -485,12 +464,6 @@ def overlap_z(parent_h, child_h):
     return parent_h * (1.0 - OVERLAP_FACTOR) - child_h * 0.1
 
 
-def size_for_class(size_class, rng):
-    """Pick a random size within a size class range."""
-    lo, hi = SIZE_CLASSES[size_class]["range"]
-    return rng.uniform(lo, hi)
-
-
 # Companion spawns — objects that cluster near other objects.
 # When a base object spawns, also spawn N companions at random positions around it.
 # Grass grows near boulders, columns, moss. Not near crystals (too harsh).
@@ -500,6 +473,16 @@ COMPANION_SPAWNS = {
     "moss_patch": {"grass_tuft": 1, "radius": 2.0},
     "dead_log":   {"grass_tuft": 1, "radius": 2.5},
     "stalagmite": {"grass_tuft": 1, "radius": 3.0},
+}
+
+# Outdoor: anchor objects pull PNW ecosystem companions
+# Companion counts reduced — each costs a tick slot. Density table handles volume.
+OUTDOOR_COMPANION_SPAWNS = {
+    "mega_column": {"moss_patch": 1, "grass_tuft": 1, "radius": 8.0},   # Doug fir base
+    "column":      {"grass_tuft": 1, "radius": 4.0},                    # tree trunk base
+    "boulder":     {"grass_tuft": 1, "radius": 4.0},                    # fern understory
+    "dead_log":    {"moss_patch": 1, "radius": 3.0},                    # nurse log
+    "giant_fungus": {"grass_tuft": 1, "radius": 3.5},                   # bush ground cover
 }
 
 
@@ -549,6 +532,45 @@ SPECTRUM_PROFILES = {
     },
 }
 
+# -- Outdoor spectrum profiles — same drift engine, PNW palette ----------------
+# Bioluminescence → natural light. Slower drift = weather/wind, not metabolism.
+OUTDOOR_SPECTRUM_PROFILES = {
+    "fungus": {  # giant_fungus → large bush / rhododendron
+        "base_hue": (0.12, 0.28, 0.08),    # forest green
+        "drift_range": 0.08,                 # subtle — wind, not glow
+        "channels": [
+            {"freq": 0.008, "amp": 1.0},    # ~125s — breeze cycle
+            {"freq": 0.005, "amp": 0.4},    # ~200s — slow sway
+        ],
+    },
+    "crystal": {  # crystal_cluster → flowering shrub / wildflower
+        "base_hue": (0.35, 0.20, 0.12),    # warm flower
+        "drift_range": 0.10,
+        "channels": [
+            {"freq": 0.010, "amp": 1.0},    # ~100s
+            {"freq": 0.006, "amp": 0.5},    # ~167s
+        ],
+        "prismatic": True,                   # per-petal color variation
+        "facet_spread": 0.08,
+    },
+    "moss": {  # moss_patch → natural ground moss
+        "base_hue": (0.06, 0.22, 0.04),    # deep natural green
+        "drift_range": 0.05,                 # almost static — moss doesn't move
+        "channels": [
+            {"freq": 0.004, "amp": 1.0},    # ~250s — moisture cycle
+        ],
+    },
+    "sunlight": {  # outdoor-only — dappled sun on forest floor
+        "base_hue": (0.45, 0.38, 0.15),    # warm gold
+        "drift_range": 0.12,                 # cloud shadows passing
+        "channels": [
+            {"freq": 0.015, "amp": 1.0},    # ~67s — cloud drift
+            {"freq": 0.009, "amp": 0.6},    # ~111s — canopy sway
+            {"freq": 0.004, "amp": 0.3},    # ~250s — time of day
+        ],
+    },
+}
+
 
 class SpectrumEngine:
     """Polyrhythmic hue drift + prismatic facet offsets.
@@ -558,7 +580,12 @@ class SpectrumEngine:
 
     Prismatic mode (crystals): per-shard offsets on top of the drift,
     so facets shimmer independently while the cluster moves as a family.
+
+    LUT mode: pre-computed 256-entry sine table. Zero trig at runtime.
+    Saturn/PS1 trick — index into a table instead of calling sin().
     """
+    # Pre-computed sine LUT — 256 entries covering 0..2π
+    _SIN_LUT = [math.sin(i * 2.0 * math.pi / 256.0) for i in range(256)]
 
     @staticmethod
     def phase_for_seed(seed):
@@ -570,14 +597,18 @@ class SpectrumEngine:
         """Calculate hue shift for an entity at a given time.
 
         Returns (r_shift, g_shift, b_shift) to ADD to base colorScale.
+        Uses LUT lookup instead of math.sin() — zero trig per frame.
         """
-        profile = SPECTRUM_PROFILES.get(profile_name)
+        profile = biome_config("spectrum").get(profile_name)
         if not profile:
             return (0, 0, 0)
         phase = SpectrumEngine.phase_for_seed(seed)
+        lut = SpectrumEngine._SIN_LUT
         total = 0.0
         for ch in profile["channels"]:
-            total += math.sin(elapsed * ch["freq"] * 2.0 * math.pi + phase) * ch["amp"]
+            # LUT index: map continuous angle to 0-255
+            idx = int((elapsed * ch["freq"] + phase * 0.15915494) * 256.0) & 0xFF
+            total += lut[idx] * ch["amp"]
         # Normalize to [-1, 1] range then scale by drift_range
         max_amp = sum(ch["amp"] for ch in profile["channels"])
         if max_amp > 0:
@@ -596,7 +627,7 @@ class SpectrumEngine:
         Shard 0 (king) stays true. Others shift ± on one channel.
         Returns (r_off, g_off, b_off) to ADD to shard colorScale.
         """
-        profile = SPECTRUM_PROFILES.get(profile_name, {})
+        profile = biome_config("spectrum").get(profile_name, {})
         if shard_index == 0 or not profile.get("prismatic"):
             return (0, 0, 0)
         spread = profile.get("facet_spread", 0.10)
@@ -728,6 +759,51 @@ MOTE_PRESETS = {
     },
 }
 
+# -- Outdoor mote presets — pollen, leaf particles, ground dust ----------------
+OUTDOOR_MOTE_PRESETS = {
+    "giant_fungus": {  # bush → pollen/seed drift
+        "color": (0.35, 0.30, 0.12), "count": 6, "radius": 3.0, "height": 3.0,
+        "downward": False, "fall_speed": 0.008,
+        "sway_amp": 0.30, "sway_freq": 0.06,
+        "float_compression": 0.3,       # lazy seed drift on breeze
+    },
+    "moss_patch": {  # ground moss → dust motes
+        "color": (0.25, 0.20, 0.10), "count": 3, "radius": 1.5, "height": 0.8,
+        "downward": False, "fall_speed": 0.0,
+        "sway_amp": 0.08, "sway_freq": 0.04,
+        "float_compression": 0.1,       # near-static ground dust
+        "ground_bias": True,
+    },
+    "crystal_cluster": {  # flowers → petal drift
+        "color": (0.40, 0.30, 0.15), "count": 5, "radius": 2.0, "height": 2.0,
+        "downward": True, "fall_speed": 0.010,
+        "sway_amp": 0.20, "sway_freq": 0.08,
+        "float_compression": 0.25,      # falling petals
+    },
+}
+
+# -- Sunlight light layer — outdoor-only, warm ground dapple ------------------
+OUTDOOR_LIGHT_LAYERS = {
+    "sunlight": {
+        "material": "dry_organic",
+        "shell_scale": 1.02,
+        "shell_roughness": (0.20, 0.40),
+        "decal_radius_mult": 3.0,         # wide sun pools
+        "decal_surface": "smooth",
+        "inner_darken": (0.55, 0.50, 0.45),  # subtle shadow side
+        "hues": [
+            {"color": (0.45, 0.38, 0.15), "glow": (3.0, 2.5, 1.0), "decal": (1.0, 0.85, 0.35)},
+            {"color": (0.40, 0.35, 0.12), "glow": (2.5, 2.0, 0.8), "decal": (0.90, 0.75, 0.30)},
+        ],
+        "motes": {
+            "count": 6, "radius": 2.5, "height": 4.0,
+            "downward": True, "fall_speed": 0.006,
+            "sway_amp": 0.18, "sway_freq": 0.10,
+            "float_compression": 0.3,     # dust motes in sunbeam
+        },
+    },
+}
+
 # Per-biome affinity: {object_kind: {light_layer: probability}}
 # 0.0 = never, 1.0 = always. Roll per spawn instance.
 LIGHT_AFFINITY = {
@@ -739,12 +815,24 @@ LIGHT_AFFINITY = {
         "rubble":     {"moss": 0.05},
         "bone_pile":  {"moss": 0.03},
     },
+    "Outdoor_Forest": {
+        "boulder":    {"sunlight": 0.30, "moss": 0.20},   # ferns catch sun + moss
+        "column":     {"sunlight": 0.15, "moss": 0.12},   # sun dapple on trunks
+        "mega_column": {"sunlight": 0.10, "moss": 0.15},  # old growth = more moss
+        "dead_log":   {"moss": 0.40, "sunlight": 0.10},   # nurse logs are mossy
+        "stalagmite": {"sunlight": 0.12, "moss": 0.08},   # stumps in clearings
+        "moss_patch": {"sunlight": 0.25},                  # sun on moss
+        "rubble":     {"moss": 0.10},                      # mossy stones
+    },
 }
 
 
-def _cavern_color(key, rng, variation=0.02):
-    """Get a color from the shared palette with small random variation."""
-    base = CAVERN_PALETTE.get(key, (0.10, 0.10, 0.10))
+def _cavern_color(key, rng, variation=0.02, biome=None):
+    """Get a color from the biome palette with small random variation."""
+    if biome is None:
+        biome = _active_biome
+    palette = BIOME_PALETTES.get(biome, CAVERN_PALETTE)
+    base = palette.get(key, (0.10, 0.10, 0.10))
     sv = rng.uniform(-variation, variation)
     return (base[0] + sv, base[1] + sv * 0.7, base[2] + sv * 0.5)
 
@@ -758,6 +846,8 @@ def apply_light_layer(base_node, layer_name, seed):
     Returns the base_node (modified in-place with additional children).
     """
     cfg = LIGHT_LAYERS.get(layer_name)
+    if cfg is None:
+        cfg = OUTDOOR_LIGHT_LAYERS.get(layer_name)
     if cfg is None:
         return base_node
 
@@ -868,6 +958,33 @@ def resolve_light_layer(kind, seed, biome="Cavern_Default"):
         if rng.random() < prob:
             return layer_name
     return None
+
+
+# -- Biome registry: unified lookup for all biome-paired config ----------------
+# Third biome = one new entry here. Everything else reads biome_config().
+BIOME_REGISTRY = {
+    "cavern": {
+        "palette": CAVERN_PALETTE,
+        "color_scales": {},
+        "companions": COMPANION_SPAWNS,
+        "spectrum": SPECTRUM_PROFILES,
+        "motes": MOTE_PRESETS,
+        "tile_variants": TILE_VARIANTS,
+    },
+    "outdoor": {
+        "palette": OUTDOOR_PALETTE,
+        "color_scales": OUTDOOR_COLOR_SCALES,
+        "companions": OUTDOOR_COMPANION_SPAWNS,
+        "spectrum": OUTDOOR_SPECTRUM_PROFILES,
+        "motes": OUTDOOR_MOTE_PRESETS,
+        "tile_variants": OUTDOOR_TILE_VARIANTS,
+    },
+}
+
+
+def biome_config(key):
+    """Look up biome-specific config. Falls back to cavern."""
+    return BIOME_REGISTRY.get(_active_biome, BIOME_REGISTRY["cavern"])[key]
 
 
 # -- Entity builders ----------------------------------------------------------
@@ -1554,6 +1671,9 @@ def build_column(parent, seed=0):
     col.setPos(0, 0, 0)
     col.setTwoSided(True)
 
+    # Store actual width for collision scaling (curtains are wider than default)
+    root.setPythonTag("base_radius", max(w, d))
+
     tex = get_material_texture("stone_light", seed=seed)
     ts = TextureStage("mat")
     ts.setMode(TextureStage.MModulate)
@@ -1566,56 +1686,46 @@ def build_column(parent, seed=0):
 
 
 def build_mega_column(parent, seed=0):
-    """Cathedral-scale column — 40-80m tall. Makes the cavern feel hundreds of feet deep."""
+    """Cathedral-scale column — massive base, darkness implies the rest.
+
+    Only renders bottom ~30m (the render dome). The column feels 80-160m
+    because darkness above the fog ceiling IS the ceiling. Oblivion trick:
+    the cave geometry fits inside the render distance, everything beyond
+    is implied. Saves ~1000 verts per column vs 3-section full height.
+    """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"mega_column_{seed}")
 
-    total_height = rng.uniform(80.0, 160.0)
+    # Full conceptual height drives the base radius — massive columns
+    # feel massive because of WIDTH, not rendered height
+    conceptual_height = rng.uniform(80.0, 160.0)
     base_radius = rng.uniform(5.0, 12.0)
     profile = rng.choice(["pillar", "hourglass", "curtain"])
 
     if profile == "hourglass":
-        waist_radius = base_radius * rng.uniform(0.25, 0.4)
-        top_radius = base_radius * rng.uniform(0.9, 1.3)
+        pass  # base_radius stays — waist taper is above the dome anyway
     elif profile == "pillar":
-        waist_radius = base_radius * rng.uniform(0.8, 0.95)
-        top_radius = base_radius * rng.uniform(0.7, 0.9)
+        pass  # uniform width — just the base
     else:  # curtain
         base_radius *= rng.uniform(1.5, 2.5)
-        waist_radius = base_radius * rng.uniform(0.5, 0.7)
-        top_radius = base_radius * rng.uniform(0.4, 0.6)
 
     depth_scale = 0.25 if profile == "curtain" else rng.uniform(0.7, 1.0)
     color = _cavern_color("stone", rng, 0.02)
 
-    # Bottom — massive base
-    bottom_h = total_height * 0.4
-    bottom = root.attachNewNode(make_rock(
-        base_radius, bottom_h * 0.5, base_radius * depth_scale, color,
-        rings=10, segments=12, seed=seed, roughness=rng.uniform(0.2, 0.35),
-    ))
-    bottom.setPos(0, 0, 0)
-    bottom.setTwoSided(True)
+    # Render dome cap: only build what's visible (fog far + headroom)
+    # Dome height per biome — cavern 30m, outdoor 45m (Doug firs feel TALL).
+    dome_h = DOME_HEIGHT.get(_active_biome, 30.0)
+    render_height = min(dome_h, conceptual_height)
 
-    # Waist
-    waist_h = total_height * 0.2
-    waist_z = bottom_h * 0.7
-    waist = root.attachNewNode(make_rock(
-        waist_radius, waist_h * 0.5, waist_radius * depth_scale, color,
-        rings=6, segments=8, seed=seed + 33, roughness=rng.uniform(0.15, 0.3),
+    col = root.attachNewNode(make_rock(
+        base_radius, render_height * 0.5 * 1.6, base_radius * depth_scale, color,
+        rings=8, segments=8, seed=seed, roughness=rng.uniform(0.2, 0.35),
     ))
-    waist.setPos(0, 0, waist_z)
-    waist.setTwoSided(True)
+    col.setPos(0, 0, 0)
+    col.setTwoSided(True)
 
-    # Top — vanishes into darkness above
-    top_h = total_height - bottom_h - waist_h
-    top_z = waist_z + waist_h * 0.5
-    top = root.attachNewNode(make_rock(
-        top_radius, top_h * 0.5, top_radius * depth_scale, color,
-        rings=10, segments=12, seed=seed + 66, roughness=rng.uniform(0.2, 0.35),
-    ))
-    top.setPos(0, 0, top_z + top_h * 0.3)
-    top.setTwoSided(True)
+    # Store actual base radius for collision scaling
+    root.setPythonTag("base_radius", base_radius)
 
     tex = get_material_texture("stone_light", seed=seed)
     ts = TextureStage("mat")
@@ -1805,6 +1915,7 @@ def build_giant_fungus(parent, seed=0):
     shaft_h = total_h * 0.5
     make_light_shaft(root, color=(0.35, 0.10, 0.50), shaft_height=shaft_h, shaft_width=base_r * 2.0, tex=shaft_tex)
 
+    root.flattenStrong()  # 10 GeomNodes → 1
     return root
 
 
@@ -1846,6 +1957,7 @@ def build_moss_patch(parent, seed=0):
     tex = get_glow_texture(64, surface="wet_stone")
     make_glow_decal(root, color=(0.15, 0.75, 0.12), radius=5.0, tex=tex)
 
+    root.flattenStrong()  # 10 GeomNodes → 1
     return root
 
 
@@ -1949,6 +2061,7 @@ def build_crystal_cluster(parent, seed=0):
                           halo_radius=trunk_r * 2.5, halo_height=tallest_h * 0.5)
     halo.setPos(0, 0, tallest_h * 0.4)  # sit at mid-crystal height
 
+    root.flattenStrong()  # 53 GeomNodes → 1. Critical for draw call budget.
     return root
 
 
@@ -2572,13 +2685,27 @@ class AmbientManager:
         self._render = render_node
         self._wake_r2 = wake_radius * wake_radius
         self._sleep_r2 = sleep_radius * sleep_radius
-        self._imposter_r2 = (sleep_radius + 15.0) ** 2  # imposters visible beyond sleep
+        self._imposter_r2 = (sleep_radius + 15.0) ** 2
         self._entities = []         # all entities
-        self._active = set()        # currently ticking (set for O(1) add/remove)
-        self._check_cursor = 0      # stagger wake/sleep checks across frames
-        self._check_batch = 20      # entities to check per frame
-        self._max_lights = 8        # GPU budget: nearest N bio-lights only
-        self._active_lights = []    # [(dist2, glow_np, entity), ...] sorted
+        self._entity_by_id = {}     # id(entity) -> entity for spatial hash lookups
+        self._active = set()        # currently ticking
+        self._active_hard = set()   # collidable subset
+        self._check_cursor = 0
+        self._check_batch = 20
+        self._max_lights = 8
+        self._active_lights = []
+        self._hibernated_n = 0
+        self._mote_frame = 0
+        # Spatial hash + wake chain — replaces O(n) scan with O(1) cell lookups
+        from core.systems.spatial_wake import SpatialHash, WakeChain, WAKE_CHAINS
+        self._spatial = SpatialHash(cell_size=20.0)
+        biome = _active_biome
+        chain_config = WAKE_CHAINS.get(biome, WAKE_CHAINS["cavern"])
+        self._wake_chain = WakeChain(chain_config)
+        # Adaptive tick budget — self-regulating batch size
+        self._tick_budget_ms = 8.0  # target: 8ms max per tick (leaves 25ms for render)
+        self._last_tick_ms = 0.0
+        self._adaptive_batch = 300  # starting scan batch, adjusts per tick
 
     def spawn(self, kind, pos, heading=0, seed=0, height_fn=None, chunk_key=None,
               biome="Cavern_Default"):
@@ -2594,6 +2721,11 @@ class AmbientManager:
         builder_fn, behavior_name = BUILDERS[kind]
         node = builder_fn(self._render, seed=seed)
 
+        # Biome color override — same geometry, different palette
+        color_scales = biome_config("color_scales")
+        if kind in color_scales:
+            node.setColorScale(*color_scales[kind])
+
         # Composition: check if this object gets a light layer
         layer = resolve_light_layer(kind, seed, biome=biome)
         if layer is not None:
@@ -2608,9 +2740,15 @@ class AmbientManager:
         entity.behavior = behavior_cls(entity, seed=seed)
 
         self._entities.append(entity)
+        # Register in spatial hash for O(1) wake/sleep
+        eid = id(entity)
+        self._entity_by_id[eid] = entity
+        chain_idx = self._wake_chain.chain_index(kind)
+        self._spatial.insert(eid, pos[0], pos[1], chain_index=chain_idx)
+        self._hibernated_n += 1  # spawns asleep
 
-        # Companion spawns — grass clusters near boulders, columns, etc.
-        companions = COMPANION_SPAWNS.get(kind, {})
+        # Companion spawns — biome-aware ecosystem clustering
+        companions = biome_config("companions").get(kind, {})
         if companions:
             comp_rng = random.Random(seed + 55555)
             for comp_kind, comp_count in companions.items():
@@ -2679,7 +2817,10 @@ class AmbientManager:
                 if abs(tx - center_tx) > keep_radius or abs(ty - center_ty) > keep_radius:
                     if e.awake:
                         self._active.discard(e)
+                        if e.kind in HARD_OBJECTS:
+                            self._active_hard.discard(e)
                         e.awake = False
+                        self._hibernated_n += 1
                         if e.node and not e.node.isEmpty():
                             e.node.hide()
                         for m in e.motes:
@@ -2692,7 +2833,7 @@ class AmbientManager:
     @property
     def hibernated_count(self):
         """How many entities are alive but sleeping (in purgatory)."""
-        return sum(1 for e in self._entities if not e.awake)
+        return self._hibernated_n
 
     def _make_imposter(self, entity):
         """Create a cheap dark silhouette card for a distant entity.
@@ -2726,12 +2867,19 @@ class AmbientManager:
         Uses sphere-vs-sphere: player radius + object collision radius.
         Slide vector = push along the surface normal so movement continues
         tangent to the object rather than stopping dead.
+
+        Only iterates _active_hard (collidable subset), not all active entities.
+        Collision radius uses stored base_radius when available (curtain columns,
+        mega columns scale with actual geometry width).
         """
         sx, sy = px, py
-        for e in self._active:
-            cr = HARD_OBJECTS.get(e.kind)
-            if cr is None:
-                continue
+        for e in self._active_hard:
+            # Use stored base_radius if builder tagged it, otherwise HARD_OBJECTS default
+            cr = HARD_OBJECTS.get(e.kind, 1.0)
+            if e.node and not e.node.isEmpty():
+                stored = e.node.getPythonTag("base_radius")
+                if stored is not None:
+                    cr = max(cr, stored)
             ex, ey = e.pos[0], e.pos[1]
             dx = sx - ex
             dy = sy - ey
@@ -2752,82 +2900,111 @@ class AmbientManager:
         """Per-frame update: staggered wake/sleep, tick active behaviors."""
         cx, cy = cam_pos.getX(), cam_pos.getY()
 
-        # Staggered wake/sleep — batch scales with entity count
-        # Target: full scan in ~3 seconds (8 ticks/sec × 3s = 24 ticks)
-        n = len(self._entities)
-        if n > 0:
-            batch = max(self._check_batch, n // 24)
-            for _ in range(batch):
-                if self._check_cursor >= n:
-                    self._check_cursor = 0
-                e = self._entities[self._check_cursor]
-                self._check_cursor += 1
+        import time as _time
+        _tick_start = _time.monotonic()
 
-                dx = e.pos[0] - cx
-                dy = e.pos[1] - cy
-                d2 = dx * dx + dy * dy
-
-                # Anchors wake at extended range — landmarks visible first
-                wake_mult = ANCHOR_WAKE_MULT.get(e.kind, 1.0)
-                entity_wake_r2 = self._wake_r2 * (wake_mult * wake_mult)
-
-                if not e.awake and d2 < entity_wake_r2:
-                    # Full wake — show real geometry
-                    e.awake = True
-                    e.fade_alpha = 1.0  # instant show — fog handles the transition
-                    e.node.show()
-                    e.node.setAlphaScale(1.0)
-                    self._active.add(e)
-                    # Hide imposter if it exists
-                    if e.imposter and not e.imposter.isEmpty():
-                        e.imposter.removeNode()
-                        e.imposter = None
-                    # Spawn motes on wake
-                    if not e.motes:
-                        mote_cfg = MOTE_PRESETS.get(e.kind)
-                        if mote_cfg is None:
-                            mote_cfg = e.node.getPythonTag("mote_config")
-                        if mote_cfg:
-                            origin = (e.pos[0], e.pos[1], e.pos[2])
-                            e.motes = _spawn_motes(e.node, mote_cfg, origin)
-                entity_sleep_r2 = self._sleep_r2 * (wake_mult * wake_mult)
-                if e.awake and d2 > entity_sleep_r2:
-                    # Sleep — hide real geometry, show imposter if in range
-                    e.awake = False
-                    e.node.hide()
-                    self._active.discard(e)
-                    for m in e.motes:
-                        if not m.isEmpty():
-                            m.removeNode()
-                    e.motes = []
-                    # Spawn imposter silhouette if within imposter range
-                    if d2 < self._imposter_r2 and HARD_OBJECTS.get(e.kind):
-                        self._make_imposter(e)
-                elif not e.awake and e.imposter is None and d2 < self._imposter_r2:
-                    # Not awake, no imposter, but in imposter range — create one
-                    if HARD_OBJECTS.get(e.kind):
-                        self._make_imposter(e)
-                elif e.imposter and d2 > self._imposter_r2:
-                    # Beyond imposter range — remove it
-                    if not e.imposter.isEmpty():
-                        e.imposter.removeNode()
+        # Spatial hash wake — O(1) cell lookup replaces O(n) entity scan.
+        # Query returns entities sorted by chain priority (skeleton first).
+        from core.systems.spatial_wake import WAKE_CHAINS
+        chain_config = WAKE_CHAINS.get(_active_biome, WAKE_CHAINS["cavern"])
+        should_be_awake = set()
+        wake_results = self._spatial.query_chain(cx, cy, chain_config)
+        for eid, chain_idx in wake_results:
+            e = self._entity_by_id.get(eid)
+            if e is None:
+                continue
+            should_be_awake.add(e)
+            if not e.awake:
+                # Wake — show real geometry
+                e.awake = True
+                self._hibernated_n -= 1
+                e.fade_alpha = 1.0
+                e.node.show()
+                e.node.setAlphaScale(1.0)
+                self._active.add(e)
+                if e.kind in HARD_OBJECTS:
+                    self._active_hard.add(e)
+                if e.imposter and not e.imposter.isEmpty():
+                    e.imposter.removeNode()
                     e.imposter = None
-        # Tick active behaviors + motes + spectrum drift + fade-in
+                if not e.motes:
+                    mote_cfg = biome_config("motes").get(e.kind)
+                    if mote_cfg is None:
+                        mote_cfg = e.node.getPythonTag("mote_config")
+                    if mote_cfg:
+                        origin = (e.pos[0], e.pos[1], e.pos[2])
+                        e.motes = _spawn_motes(e.node, mote_cfg, origin)
+
+        # Sleep entities that are awake but not in the wake set
+        to_sleep = [e for e in self._active if e not in should_be_awake]
+        for e in to_sleep:
+            e.awake = False
+            self._hibernated_n += 1
+            e.node.hide()
+            self._active.discard(e)
+            if e.kind in HARD_OBJECTS:
+                self._active_hard.discard(e)
+            for m in e.motes:
+                if not m.isEmpty():
+                    m.removeNode()
+            e.motes = []
+        # Tick active behaviors + motes (throttled) + spectrum drift
+        # Three optimizations:
+        # 1. Static entities skip behavior tick entirely (StaticBehavior.tick = pass)
+        # 2. Behind-camera entities tick behavior every 6th frame
+        # 3. Spectrum drift staggered: each entity drifts every 4th frame
+        self._mote_frame += 1
+        tick_motes_this_frame = (self._mote_frame % 3 == 0)
         try:
             from panda3d.core import ClockObject
             elapsed = ClockObject.getGlobalClock().getFrameTime()
         except Exception:
             elapsed = 0
-        for e in self._active:
-            e.behavior.tick(dt)
-            if e.motes:
-                tick_motes(e.motes, dt)
-            # (fade removed — fog handles visual transition, instant show is cleaner)
-            # Spectrum drift — bio-lit entities shift color over time
-            if e.spectrum and e.base_color_scale:
+
+        # Camera forward vector for behind-check (passed via cam_pos heading)
+        cam_h = getattr(self, '_cam_heading', 0.0)
+        fwd_x = -math.sin(math.radians(cam_h))
+        fwd_y = math.cos(math.radians(cam_h))
+        frame_n = self._mote_frame  # reuse as global frame counter
+
+        # Fog-distance threshold: entities beyond this are 50%+ fog-painted.
+        # Skip their tick entirely — visual noise at that distance.
+        fog_skip_r2 = 625.0  # 25m squared
+
+        for idx, e in enumerate(self._active):
+            dx = e.pos[0] - cx
+            dy = e.pos[1] - cy
+            d2 = dx * dx + dy * dy
+
+            # Fog-covered: skip everything — behavior, motes, spectrum
+            if d2 > fog_skip_r2:
+                continue
+
+            # Behind-camera check
+            dot = dx * fwd_x + dy * fwd_y
+            behind = dot < 0
+
+            # 1. Behavior tick: skip static entirely, throttle behind-camera
+            is_static = isinstance(e.behavior, StaticBehavior)
+            if not is_static:
+                if behind:
+                    if frame_n % 6 == idx % 6:
+                        e.behavior.tick(dt * 6)
+                else:
+                    e.behavior.tick(dt)
+
+            # 2. Motes: already throttled to every 3rd frame
+            if tick_motes_this_frame and e.motes:
+                tick_motes(e.motes, dt * 3)
+
+            # 3. Spectrum drift: stagger every 4th frame per entity
+            if e.spectrum and e.base_color_scale and (frame_n % 4 == idx % 4):
                 rs, gs, bs = SpectrumEngine.drift(e.spectrum, elapsed, e.seed)
                 br, bg, bb = e.base_color_scale
                 e.node.setColorScale(br + rs, bg + gs, bb + bs, 1.0)
+
+        # Record tick cost for adaptive budget
+        self._last_tick_ms = (_time.monotonic() - _tick_start) * 1000.0
 
     def reseat_ground(self, old_height_fn, new_height_fn):
         """Reseat all entities when switching ground modes.
@@ -2853,8 +3030,22 @@ class AmbientManager:
     @property
     def awake_count(self):
         """Entities that are alive and not hibernated — the real memory pressure."""
-        return sum(1 for e in self._entities if e.awake or (e.node and not e.node.isEmpty() and not e.node.isHidden()))
+        return len(self._entities) - self._hibernated_n
 
     @property
     def active_count(self):
         return len(self._active)
+
+    def kind_census(self):
+        """Per-kind entity counts: {kind: (active, total, hibernated)}."""
+        from collections import defaultdict
+        counts = defaultdict(lambda: [0, 0, 0])  # [active, total, hibernated]
+        active_set = set(id(e) for e in self._active)
+        for e in self._entities:
+            c = counts[e.kind]
+            c[1] += 1  # total
+            if id(e) in active_set:
+                c[0] += 1  # active
+            if not e.awake:
+                c[2] += 1  # hibernated
+        return {k: tuple(v) for k, v in counts.items()}
