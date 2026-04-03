@@ -127,8 +127,9 @@ def get_shaft_texture(width=32, height=64):
     if key in _shaft_tex_cache:
         return _shaft_tex_cache[key]
 
-    img = PNMImage(width, height, 3)
+    img = PNMImage(width, height, 4)  # RGBA — alpha kills card edges
     img.fill(0, 0, 0)
+    img.alphaFill(0)
     cx = width / 2.0
     for y in range(height):
         # Vertical: bottom=1.0, top=0.0
@@ -141,7 +142,9 @@ def get_shaft_texture(width=32, height=64):
             # Extra soft edge clamp — kills any residual brightness at boundary
             edge = max(0.0, 1.0 - abs(dx)) ** 2
             brightness = v_fade * h_fade * edge * 0.7  # dimmer overall = gradient not banner
-            img.setXel(x, y, brightness, brightness, brightness)
+            # Alpha fades at ALL edges — top, left, right. No visible card boundary.
+            alpha = v_fade * h_fade * edge
+            img.setXelA(x, y, brightness, brightness, brightness, alpha)
 
     tex = Texture("light_shaft")
     tex.load(img)
@@ -166,17 +169,22 @@ def make_light_shaft(parent, color, shaft_height, shaft_width=1.5, tex=None):
         tex = get_shaft_texture()
 
     cm = CardMaker("light_shaft")
-    cm.setFrame(-shaft_width / 2, shaft_width / 2, 0, shaft_height)
+    # Inset card 15% from each edge — UV maps to full texture but card
+    # boundary sits inside the alpha falloff zone, invisible.
+    inset = shaft_width * 0.15
+    cm.setFrame(-shaft_width / 2 + inset, shaft_width / 2 - inset,
+                0, shaft_height * 0.90)
     cm.setHasUvs(True)
 
     shaft = parent.attachNewNode(cm.generate())
     shaft.setTexture(tex)
     shaft.setPos(0, 0, 0.05)
     shaft.setBillboardPointEye()
-    # Additive blend for shafts — they ADD atmosphere to the scene
+    # Premultiplied alpha-additive: src*alpha + dst*1 — adds light where
+    # alpha is high, fades to invisible where alpha is zero (card edges).
     shaft.setAttrib(ColorBlendAttrib.make(
         ColorBlendAttrib.MAdd,
-        ColorBlendAttrib.OOne,
+        ColorBlendAttrib.OIncomingAlpha,
         ColorBlendAttrib.OOne,
     ))
     r, g, b = color

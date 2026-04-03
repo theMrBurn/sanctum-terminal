@@ -269,6 +269,150 @@ BEHAVIORS = {
 }
 
 
+# -- Creature behavior states --------------------------------------------------
+# Reactive states layered on top of base behaviors. Opt-in per encounter.
+# Player proximity triggers state transitions. Not active unless scenario enables.
+#
+# Each creature profile maps base_behavior → {state: {overrides}}.
+# The overrides replace speed/roam/pause when active.
+
+CREATURE_PROFILES = {
+    "cave_spider": {
+        "builder": "spider",
+        "base_behavior": "crawl",
+        "states": {
+            "default":  {"speed": 0.4, "roam": 1.5, "pause": (2.0, 6.0)},
+            "curious":  {"speed": 0.2, "roam": 3.0, "pause": (0.5, 1.5),
+                         "trigger": "player_near", "range": 8.0},
+            "panic":    {"speed": 2.5, "roam": 6.0, "pause": (0.0, 0.1),
+                         "trigger": "player_close", "range": 3.0},
+            "dazed":    {"speed": 0.1, "roam": 0.3, "pause": (3.0, 8.0),
+                         "trigger": "light_exposure"},
+        },
+    },
+    "cave_beetle": {
+        "builder": "beetle",
+        "base_behavior": "crawl",
+        "states": {
+            "default":  {"speed": 0.5, "roam": 1.0, "pause": (1.5, 4.0)},
+            "curious":  {"speed": 0.3, "roam": 2.0, "pause": (0.3, 1.0),
+                         "trigger": "player_near", "range": 6.0},
+            "panic":    {"speed": 1.8, "roam": 4.0, "pause": (0.0, 0.2),
+                         "trigger": "player_close", "range": 2.0},
+        },
+    },
+    "cave_rat": {
+        "builder": "rat",
+        "base_behavior": "scurry",
+        "states": {
+            "default":  {"speed": 2.0, "roam": 2.5, "pause": (1.0, 3.0)},
+            "curious":  {"speed": 1.0, "roam": 4.0, "pause": (0.5, 1.5),
+                         "trigger": "player_near", "range": 10.0},
+            "panic":    {"speed": 3.5, "roam": 8.0, "pause": (0.0, 0.0),
+                         "trigger": "player_close", "range": 4.0},
+        },
+    },
+    # Stub — builders not yet implemented
+    "cave_lizard":  {"builder": None, "base_behavior": "crawl", "states": {
+        "default": {"speed": 0.6, "roam": 2.0, "pause": (2.0, 5.0)},
+        "panic":   {"speed": 3.0, "roam": 5.0, "pause": (0.0, 0.0),
+                    "trigger": "player_close", "range": 3.0},
+    }},
+    "cave_snake":   {"builder": None, "base_behavior": "crawl", "states": {
+        "default": {"speed": 0.3, "roam": 1.0, "pause": (4.0, 10.0)},
+        "curious": {"speed": 0.4, "roam": 2.5, "pause": (1.0, 3.0),
+                    "trigger": "player_near", "range": 5.0},
+    }},
+}
+
+
+# -- Spatial pressure (fog density zones) --------------------------------------
+# Tile-level atmosphere variation. Each tile can override fog range + ambient
+# to create passage/chamber feel. The TensionCycle can also drive this.
+# Config-as-code: biome declares spatial_pressure per tile seed.
+
+SPATIAL_PRESSURE = {
+    "passage":  {"fog": (12.0, 35.0), "ambient_mult": 0.85, "weight": 0.60},
+    "chamber":  {"fog": (18.0, 48.0), "ambient_mult": 1.20, "weight": 0.25},
+    "alcove":   {"fog": (8.0, 20.0),  "ambient_mult": 0.70, "weight": 0.10},
+    "vault":    {"fog": (22.0, 55.0), "ambient_mult": 1.40, "weight": 0.05},
+}
+
+
+# -- Discovery pacing ---------------------------------------------------------
+# Tile-level biome variation. Most tiles are "standard" density.
+# Some tiles are special — crystal grove, fungus forest, bone field.
+# The rarity weight controls how often each variant appears.
+
+TILE_VARIANTS = {
+    "standard":       {"density_mult": 1.0, "weight": 0.60},
+    "sparse":         {"density_mult": 0.4, "weight": 0.15, "desc": "near-empty, sells absence"},
+    "crystal_grove":  {"density_mult": 0.6, "weight": 0.08,
+                       "boost": {"crystal_cluster": 3.0, "stalagmite": 1.5}},
+    "fungus_forest":  {"density_mult": 0.7, "weight": 0.07,
+                       "boost": {"giant_fungus": 3.0, "moss_patch": 2.0}},
+    "bone_field":     {"density_mult": 0.5, "weight": 0.05,
+                       "boost": {"bone_pile": 4.0, "rubble": 2.0}},
+    "wet_zone":       {"density_mult": 0.8, "weight": 0.05,
+                       "boost": {"moss_patch": 3.0, "ceiling_moss": 2.0},
+                       "surface": "wet_stone", "drip_motes": True},
+}
+
+
+# -- Relational spawn patterns (ecosystem recipes) ----------------------------
+# Instead of random density scatter, these define what spawns NEAR what.
+# When a "anchor" object spawns, it pulls companions from its recipe.
+# Built into the parent node via flattenStrong — zero extra entity overhead.
+
+# -- Collision config ----------------------------------------------------------
+# "Hard" objects the player can't walk through. Soft objects (grass, motes,
+# leaves) have no collision. Each hard kind has a collision radius derived
+# from its typical build size.
+
+HARD_OBJECTS = {
+    "boulder":          2.5,   # half-width of typical boulder
+    "column":           2.5,   # base radius — wide enough for curtain profile
+    "mega_column":      2.5,
+    "stalagmite":       0.6,
+    "giant_fungus":     1.2,
+    "crystal_cluster":  1.0,
+    "dead_log":         0.8,
+    "bone_pile":        0.4,
+    "horizon_form":     3.0,
+    "horizon_mid":      2.0,
+    "horizon_near":     1.0,
+}
+
+
+ECOSYSTEM_RECIPES = {
+    "moss_boulder": {
+        "anchor": "boulder",
+        "light_layer": "moss",
+        "companions_builtin": ["grass_tuft"],  # built into parent, not separate entity
+        "ground_catcher": True,                # gold-green moss below
+        "mote_rain": False,
+    },
+    "crystal_alcove": {
+        "anchor": "crystal_cluster",
+        "companions_builtin": ["rubble"],       # broken rock at crystal base
+        "ground_catcher": False,
+        "mote_rain": False,
+    },
+    "ceiling_drip": {
+        "anchor": "ceiling_moss",
+        "companions_builtin": [],
+        "ground_catcher": True,                 # gold-green catcher below
+        "mote_rain": True,                      # falling motes from source to catcher
+    },
+    "fungus_colony": {
+        "anchor": "giant_fungus",
+        "companions_builtin": ["small_fungus"],  # tiny accents at base
+        "ground_catcher": False,
+        "mote_rain": False,
+    },
+}
+
+
 # -- Shared cavern palette (derived from stage_floor) -------------------------
 
 # All objects reference these to stay on the same spectrum.
@@ -303,16 +447,158 @@ WORLD_GRAIN = 0.10  # base texture density for the world
 # height = max(width * STONE_MIN_HEIGHT_RATIO, requested_height)
 STONE_MIN_HEIGHT_RATIO = 0.15
 
+# -- Size-class contact system -------------------------------------------------
+# "Small touch small, big touch big" — objects of similar scale share edges.
+# Each builder pulls its size range from its class. Sub-pieces within a builder
+# use overlap_z() to ensure connected geometry — no floating gaps.
+#
+# Contact rule: child_z = parent_top - child_h * OVERLAP_FACTOR
+# This guarantees visual intersection between adjacent sections.
+
+SIZE_CLASSES = {
+    "ground_clutter": {"range": (0.1, 0.5),  "desc": "gravel, small fungus, moss blobs"},
+    "mid_feature":    {"range": (0.5, 2.5),  "desc": "stalagmites, grass, bone, rubble"},
+    "large_feature":  {"range": (2.0, 8.0),  "desc": "boulders, columns, crystal clusters"},
+    "structure":      {"range": (8.0, 25.0), "desc": "mega columns, giant fungus"},
+}
+
+OVERLAP_FACTOR = 0.50  # each section overlaps 50% into the one below it
+
+
+def overlap_z(parent_h, child_h):
+    """Calculate z-position for a child section so it overlaps into the parent.
+
+    Returns the z where the child's center should sit so its bottom
+    hemisphere intersects with the parent's top hemisphere.
+    """
+    return parent_h * (1.0 - OVERLAP_FACTOR) - child_h * 0.1
+
+
+def size_for_class(size_class, rng):
+    """Pick a random size within a size class range."""
+    lo, hi = SIZE_CLASSES[size_class]["range"]
+    return rng.uniform(lo, hi)
+
+
 # Companion spawns — objects that cluster near other objects.
 # When a base object spawns, also spawn N companions at random positions around it.
 # Grass grows near boulders, columns, moss. Not near crystals (too harsh).
 COMPANION_SPAWNS = {
-    "boulder":    {"grass_tuft": 3, "radius": 4.0},
-    "column":     {"grass_tuft": 4, "radius": 5.0},
-    "moss_patch": {"grass_tuft": 2, "radius": 2.0},
-    "dead_log":   {"grass_tuft": 2, "radius": 2.5},
-    "stalagmite": {"grass_tuft": 2, "radius": 3.0},
+    "boulder":    {"grass_tuft": 1, "radius": 4.0},
+    "column":     {"grass_tuft": 1, "radius": 5.0},
+    "moss_patch": {"grass_tuft": 1, "radius": 2.0},
+    "dead_log":   {"grass_tuft": 1, "radius": 2.5},
+    "stalagmite": {"grass_tuft": 1, "radius": 3.0},
 }
+
+
+# -- Spectrum system -----------------------------------------------------------
+# Polyrhythmic hue drift + prismatic facet offsets.
+# One class handles both: spectrum_drift for the whole entity,
+# prismatic_offset for per-shard variation within a cluster.
+#
+# Config-as-code: swap the frequency table and you get a different biome feel.
+
+SPECTRUM_PROFILES = {
+    "fungus": {
+        "base_hue": (0.22, 0.06, 0.30),
+        "drift_range": 0.18,
+        "channels": [
+            {"freq": 0.017, "amp": 1.0},    # ~60s full cycle
+            {"freq": 0.011, "amp": 0.6},    # ~90s, polyrhythmic offset
+            {"freq": 0.007, "amp": 0.3},    # ~140s, deep slow drift
+        ],
+    },
+    "crystal": {
+        "base_hue": (0.15, 0.18, 0.35),
+        "drift_range": 0.12,
+        "channels": [
+            {"freq": 0.013, "amp": 1.0},    # ~77s cycle
+            {"freq": 0.0087, "amp": 0.5},   # ~115s
+            {"freq": 0.0053, "amp": 0.25},  # ~188s
+        ],
+        "prismatic": True,                   # per-shard facet offsets
+        "facet_spread": 0.12,                # ±12% channel offset per shard
+    },
+    "moss": {
+        "base_hue": (0.08, 0.35, 0.06),
+        "drift_range": 0.10,
+        "channels": [
+            {"freq": 0.009, "amp": 1.0},    # ~111s — slowest, most organic
+            {"freq": 0.006, "amp": 0.4},    # ~167s
+        ],
+    },
+    "ceiling_moss": {
+        "base_hue": (0.80, 0.55, 0.15),
+        "drift_range": 0.08,
+        "channels": [
+            {"freq": 0.012, "amp": 1.0},
+            {"freq": 0.0073, "amp": 0.5},
+        ],
+    },
+}
+
+
+class SpectrumEngine:
+    """Polyrhythmic hue drift + prismatic facet offsets.
+
+    Each bio-lit entity gets a phase (from seed) and drifts through
+    a color gradient on overlapping sine waves. No two entities sync.
+
+    Prismatic mode (crystals): per-shard offsets on top of the drift,
+    so facets shimmer independently while the cluster moves as a family.
+    """
+
+    @staticmethod
+    def phase_for_seed(seed):
+        """Deterministic phase offset from entity seed — desynchronizes all entities."""
+        return (seed * 0.618033) % (2.0 * math.pi)  # golden ratio scatter
+
+    @staticmethod
+    def drift(profile_name, elapsed, seed):
+        """Calculate hue shift for an entity at a given time.
+
+        Returns (r_shift, g_shift, b_shift) to ADD to base colorScale.
+        """
+        profile = SPECTRUM_PROFILES.get(profile_name)
+        if not profile:
+            return (0, 0, 0)
+        phase = SpectrumEngine.phase_for_seed(seed)
+        total = 0.0
+        for ch in profile["channels"]:
+            total += math.sin(elapsed * ch["freq"] * 2.0 * math.pi + phase) * ch["amp"]
+        # Normalize to [-1, 1] range then scale by drift_range
+        max_amp = sum(ch["amp"] for ch in profile["channels"])
+        if max_amp > 0:
+            total /= max_amp
+        dr = profile["drift_range"]
+        # Shift each channel differently for organic color movement
+        r_shift = total * dr
+        g_shift = total * dr * 0.7   # green shifts less — keeps warmth
+        b_shift = total * dr * 1.2   # blue shifts more — cool/warm oscillation
+        return (r_shift, g_shift, b_shift)
+
+    @staticmethod
+    def prismatic_offset(seed, shard_index, profile_name="crystal"):
+        """Per-shard color offset for prismatic crystals.
+
+        Shard 0 (king) stays true. Others shift ± on one channel.
+        Returns (r_off, g_off, b_off) to ADD to shard colorScale.
+        """
+        profile = SPECTRUM_PROFILES.get(profile_name, {})
+        if shard_index == 0 or not profile.get("prismatic"):
+            return (0, 0, 0)
+        spread = profile.get("facet_spread", 0.10)
+        rng = random.Random(seed + shard_index * 73)
+        # Pick one dominant channel to shift — reads as prismatic refraction
+        channel = rng.randint(0, 2)
+        amount = rng.uniform(-spread, spread)
+        offsets = [0.0, 0.0, 0.0]
+        offsets[channel] = amount
+        # Subtle complementary shift on another channel
+        other = (channel + 1) % 3
+        offsets[other] = -amount * 0.3
+        return tuple(offsets)
 
 MATERIAL_RATIOS = {
     "stone_heavy":  0.80,   # finer than base — dense packed mineral
@@ -350,10 +636,10 @@ LIGHT_LAYERS = {
         "decal_surface": "wet_stone",
         "inner_darken": (0.45, 0.42, 0.40),  # inner form recedes
         "hues": [
-            {"color": (0.08, 0.35, 0.06), "glow": (2.0, 5.0, 1.5), "decal": (0.1, 0.5, 0.08)},
-            {"color": (0.35, 0.20, 0.05), "glow": (4.0, 2.5, 0.8), "decal": (1.0, 0.6, 0.15)},
-            {"color": (0.06, 0.10, 0.35), "glow": (1.5, 2.0, 5.0), "decal": (0.08, 0.15, 0.5)},
-            {"color": (0.25, 0.06, 0.30), "glow": (3.5, 1.0, 4.0), "decal": (0.5, 0.1, 0.6)},
+            {"color": (0.08, 0.35, 0.06), "glow": (2.0, 5.0, 1.5), "decal": (0.15, 0.75, 0.12)},
+            {"color": (0.35, 0.20, 0.05), "glow": (4.0, 2.5, 0.8), "decal": (1.5, 0.9, 0.22)},
+            {"color": (0.06, 0.10, 0.35), "glow": (1.5, 2.0, 5.0), "decal": (0.12, 0.22, 0.75)},
+            {"color": (0.25, 0.06, 0.30), "glow": (3.5, 1.0, 4.0), "decal": (0.75, 0.15, 0.9)},
         ],
         "motes": {
             "count": 6, "radius": 2.0, "height": 1.5,
@@ -371,14 +657,14 @@ LIGHT_LAYERS = {
         "additive_patches": True,     # crystal patches bleed light into scene
         "double_decal": True,         # inner bright + outer dim wash
         "hues": [
-            {"color": (0.15, 0.18, 0.35), "glow": (3.0, 3.5, 6.0), "decal": (0.4, 0.5, 1.2)},
-            {"color": (0.30, 0.10, 0.35), "glow": (4.0, 1.5, 5.0), "decal": (0.8, 0.25, 1.0)},
+            {"color": (0.15, 0.18, 0.35), "glow": (3.0, 3.5, 6.0), "decal": (0.6, 0.75, 1.8)},
+            {"color": (0.18, 0.08, 0.30), "glow": (3.0, 1.2, 4.5), "decal": (0.75, 0.27, 1.2)},
         ],
         "motes": {
-            "count": 4, "radius": 1.5, "height": 2.0,
-            "downward": False, "fall_speed": 0.0,
-            "sway_amp": 0.08, "sway_freq": 0.06,
-            "float_compression": 0.1,  # near-frozen sparkle
+            "count": 10, "radius": 3.0, "height": 3.0,
+            "downward": False, "fall_speed": 0.003,
+            "sway_amp": 0.12, "sway_freq": 0.08,
+            "float_compression": 0.15,  # slow mineral drift, not frozen
         },
     },
     "torch": {
@@ -405,13 +691,13 @@ LIGHT_LAYERS = {
 # Same config shape — one tick function reads all of them.
 MOTE_PRESETS = {
     "ceiling_moss": {
-        "color": (1.0, 0.7, 0.2), "count": 5, "radius": 2.0, "height": 8.0,
-        "downward": True, "fall_speed": 0.02,
-        "sway_amp": 0.05, "sway_freq": 0.08,
-        "float_compression": 0.3,       # gentle straight fall — dust in a shaft
+        "color": (0.8, 0.55, 0.15), "count": 12, "radius": 3.0, "height": 18.0,
+        "downward": True, "fall_speed": 0.015,
+        "sway_amp": 0.10, "sway_freq": 0.05,
+        "float_compression": 0.4,       # gentle rain — floaty, continuous loop
     },
     "giant_fungus": {
-        "color": (0.5, 0.1, 0.7), "count": 8, "radius": 3.0, "height": 4.0,
+        "color": (0.25, 0.08, 0.35), "count": 8, "radius": 3.0, "height": 4.0,
         "downward": False, "fall_speed": 0.005,
         "sway_amp": 0.25, "sway_freq": 0.10,
         "float_compression": 0.2,       # slow pendulum drift — spores in still air
@@ -424,10 +710,10 @@ MOTE_PRESETS = {
         "ground_bias": True,
     },
     "crystal_cluster": {
-        "color": (0.3, 0.35, 0.6), "count": 4, "radius": 1.5, "height": 2.0,
-        "downward": False, "fall_speed": 0.0,
-        "sway_amp": 0.06, "sway_freq": 0.04,
-        "float_compression": 0.08,      # frozen sparkle
+        "color": (0.3, 0.35, 0.6), "count": 10, "radius": 3.0, "height": 3.0,
+        "downward": False, "fall_speed": 0.003,
+        "sway_amp": 0.12, "sway_freq": 0.08,
+        "float_compression": 0.15,      # slow mineral drift
     },
 }
 
@@ -875,10 +1161,10 @@ def generate_stone_texture(size=64, seed=0, ground_color=(0.06, 0.05, 0.04)):
 
 
 def build_boulder(parent, seed=0):
-    """Boulder — stacked sedimentary slabs with angular breaks.
+    """Boulder — 80% connected geological mass, 20% crumbled slabs.
 
-    2-3 layers of flat make_rock slabs at slightly different widths.
-    Top slab overhangs bottom. Reads as layered geology, not a blob.
+    Connected: single large rock with surface variation from roughness.
+    Reads as eroded monolith. Crumbled: original stacked slabs for variety.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"boulder_{seed}")
@@ -886,25 +1172,41 @@ def build_boulder(parent, seed=0):
     total_height = rng.uniform(2.7, 3.3)
     base_width = rng.uniform(4.5, 7.5)
     base_depth = base_width * rng.uniform(0.6, 0.85)
-    slab_count = rng.randint(2, 3)
-    slab_h = total_height / slab_count
 
-    z = 0
-    for si in range(slab_count):
-        # Each slab slightly different width — angular, not smooth
-        sw = base_width * rng.uniform(0.85, 1.1) * (1.0 + si * 0.05)
-        sd = base_depth * rng.uniform(0.85, 1.1)
+    crumbled = rng.random() < 0.20  # 20% crumbled, 80% connected
+
+    # make_rock squashes bottom hemisphere to 20%, so we need to pass
+    # ~1.6× the desired visible height to compensate
+    vis_compensate = 1.6
+
+    if crumbled:
+        # Crumbled: 2-3 stacked slabs, slight separation
+        slab_count = rng.randint(2, 3)
+        slab_h = total_height / slab_count
+        z = 0
+        for si in range(slab_count):
+            sw = base_width * rng.uniform(0.85, 1.1) * (1.0 + si * 0.05)
+            sd = base_depth * rng.uniform(0.85, 1.1)
+            color = _cavern_color("stone", rng, 0.03)
+            slab = root.attachNewNode(make_rock(
+                sw * 0.5, slab_h * 0.5 * vis_compensate, sd * 0.5, color,
+                rings=5, segments=8, seed=seed + si * 31,
+                roughness=rng.uniform(0.15, 0.30),
+            ))
+            slab.setPos(rng.uniform(-0.3, 0.3), rng.uniform(-0.2, 0.2), z)
+            slab.setH(rng.uniform(-8, 8))
+            slab.setTwoSided(True)
+            z += slab_h * 0.8
+    else:
+        # Connected: single eroded mass — roughness provides surface detail
         color = _cavern_color("stone", rng, 0.03)
-        slab = root.attachNewNode(make_rock(
-            sw * 0.5, slab_h * 0.45, sd * 0.5, color,
-            rings=5, segments=8, seed=seed + si * 31,
-            roughness=rng.uniform(0.15, 0.30),  # lower roughness = flatter faces
+        mass = root.attachNewNode(make_rock(
+            base_width * 0.5, total_height * 0.5 * vis_compensate, base_depth * 0.5, color,
+            rings=6, segments=8, seed=seed,
+            roughness=rng.uniform(0.30, 0.50),  # higher roughness = eroded character
         ))
-        # Slight offset per slab — overhang effect
-        slab.setPos(rng.uniform(-0.3, 0.3), rng.uniform(-0.2, 0.2), z)
-        slab.setH(rng.uniform(-8, 8))
-        slab.setTwoSided(True)
-        z += slab_h * 0.8  # slight overlap
+        mass.setPos(0, 0, 0)
+        mass.setTwoSided(True)
 
     stone_tex = get_material_texture("stone_heavy", seed=seed)
     ts = TextureStage("stone")
@@ -921,33 +1223,40 @@ def build_boulder(parent, seed=0):
 
 
 def build_grass_tuft(parent, seed=0):
-    """Cave grass clump — tall dead blades leaning from a central root.
+    """Cave grass clump — dense cluster of blades from multiple growth points.
 
-    Varied heights, stronger lean, some blades curving outward.
-    Reads as a dried clump of cave sedge, not identical sticks.
+    3-4 sub-clumps packed together, each with its own blade fan.
+    No gaps — reads as a thick patch of cave sedge, not scattered sticks.
+    Similar density pattern to crystal satellites or fungus clusters.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"grass_{seed}")
-    blade_count = rng.randint(5, 12)
-    # Tallest blade sets the character — others subordinate
-    max_h = rng.uniform(0.15, 0.35)
-    for i in range(blade_count):
-        rank = i / blade_count
-        h = max_h * rng.uniform(0.4, 1.0 - rank * 0.3)
-        w = rng.uniform(0.005, 0.012)
-        color = _cavern_color("dead_organic", rng, 0.03)
-        blade = root.attachNewNode(make_rock(
-            w * 0.5, h * 0.4, w * 0.15, color,
-            rings=3, segments=3, seed=seed + i * 19, roughness=rng.uniform(0.1, 0.25),
-        ))
-        # Spread from center, lean outward
-        angle = rng.uniform(0, 360)
-        dist = rng.uniform(0.01, 0.06)
-        blade.setPos(math.cos(math.radians(angle)) * dist,
-                     math.sin(math.radians(angle)) * dist, h * 0.5)
-        blade.setH(angle + rng.uniform(-40, 40))
-        blade.setP(rng.uniform(-30, 30))
-        blade.setR(rng.uniform(-20, 20))
+    # Multiple growth points packed together — no gaps
+    clump_count = rng.randint(3, 4)
+    for ci in range(clump_count):
+        clump_angle = rng.uniform(0, 360)
+        clump_dist = rng.uniform(0.0, 0.08)  # tight packing
+        cx = math.cos(math.radians(clump_angle)) * clump_dist
+        cy = math.sin(math.radians(clump_angle)) * clump_dist
+        blade_count = rng.randint(4, 8)
+        max_h = rng.uniform(0.15, 0.35)
+        for i in range(blade_count):
+            rank = i / blade_count
+            h = max_h * rng.uniform(0.4, 1.0 - rank * 0.3)
+            w = rng.uniform(0.006, 0.014)
+            color = _cavern_color("dead_organic", rng, 0.03)
+            blade = root.attachNewNode(make_rock(
+                w * 0.5, h * 0.4, w * 0.15, color,
+                rings=3, segments=3, seed=seed + ci * 100 + i * 19,
+                roughness=rng.uniform(0.1, 0.25),
+            ))
+            angle = rng.uniform(0, 360)
+            dist = rng.uniform(0.01, 0.05)
+            blade.setPos(cx + math.cos(math.radians(angle)) * dist,
+                         cy + math.sin(math.radians(angle)) * dist, h * 0.5)
+            blade.setH(angle + rng.uniform(-40, 40))
+            blade.setP(rng.uniform(-30, 30))
+            blade.setR(rng.uniform(-20, 20))
         blade.setTwoSided(True)
     tex = get_material_texture("dry_organic", seed=seed)
     ts = TextureStage("mat")
@@ -971,37 +1280,40 @@ def build_rubble(parent, seed=0):
     rng = random.Random(seed)
     root = parent.attachNewNode(f"rubble_{seed}")
     # 1-2 medium anchor pieces + smaller scatter
+    # No setScale — sizes are world-space directly. Height ratio math works correctly.
     anchor_count = rng.randint(1, 2)
-    frag_count = rng.randint(3, 7)
+    frag_count = rng.randint(3, 5)
     for i in range(anchor_count):
-        s = rng.uniform(0.10, 0.25)
+        s = rng.uniform(0.5, 1.2)  # world-space size, no 5× scale
         color = _cavern_color("stone", rng, 0.03)
+        rw = s * rng.uniform(0.8, 1.2)
+        rh = max(rw * 0.5, s * rng.uniform(0.5, 0.9))  # chunky — height ≥ half width
         piece = make_rock(
-            s * rng.uniform(0.8, 1.4),
-            s * rng.uniform(0.5, 0.9),
-            s * rng.uniform(0.7, 1.3),
-            color, rings=5, segments=6, seed=seed + i,
+            rw, rh,
+            s * rng.uniform(0.7, 1.1),
+            color, rings=4, segments=5, seed=seed + i,
             roughness=rng.uniform(0.35, 0.55),
         )
         pn = root.attachNewNode(piece)
-        pn.setPos(rng.uniform(-0.2, 0.2), rng.uniform(-0.2, 0.2), 0)
+        pn.setPos(rng.uniform(-1.0, 1.0), rng.uniform(-1.0, 1.0), 0)
         pn.setH(rng.uniform(0, 360))
-        pn.setR(rng.uniform(-20, 20))  # tumbled angle
+        pn.setR(rng.uniform(-20, 20))
         pn.setTwoSided(True)
     for i in range(frag_count):
-        s = rng.uniform(0.03, 0.10)
+        s = rng.uniform(0.2, 0.5)  # world-space fragments
         color = _cavern_color("stone", rng, 0.02)
+        fw = s * rng.uniform(0.7, 1.2)
+        fh = max(fw * 0.5, s * rng.uniform(0.4, 0.8))  # no pancakes
         piece = make_rock(
-            s * rng.uniform(0.6, 1.4),
-            s * rng.uniform(0.3, 0.7),
-            s * rng.uniform(0.5, 1.2),
+            fw, fh,
+            s * rng.uniform(0.6, 1.0),
             color, rings=3, segments=4, seed=seed + 100 + i,
             roughness=rng.uniform(0.4, 0.7),
         )
         pn = root.attachNewNode(piece)
-        pn.setPos(rng.uniform(-0.5, 0.5), rng.uniform(-0.5, 0.5), 0)
+        pn.setPos(rng.uniform(-2.0, 2.0), rng.uniform(-2.0, 2.0), 0)
         pn.setH(rng.uniform(0, 360))
-        pn.setR(rng.uniform(-30, 30))
+        pn.setR(rng.uniform(-25, 25))
         pn.setTwoSided(True)
     tex = get_material_texture("stone_heavy", seed=seed)
     ts = TextureStage("mat")
@@ -1011,7 +1323,6 @@ def build_rubble(parent, seed=0):
     sc = _mat_scale("stone_heavy")
     root.setTexScale(ts, sc, sc)
     root.setColorScale(0.55, 0.50, 0.48, 1.0)
-    root.setScale(5.0)
     root.flattenStrong()
     return root
 
@@ -1184,38 +1495,33 @@ def build_stalagmite(parent, seed=0):
 
 
 def build_column(parent, seed=0):
-    """Massive cave column — 4 profile variants from same make_rock calls.
+    """Massive cave column — single connected make_rock per profile.
 
-    Profiles (selected by seed):
-        hourglass: wide-narrow-wide (classical)
-        pillar:    near-uniform, slight taper (structural)
-        curtain:   wide+thin like a wall/drape (flowstone)
-        broken:    base only, abrupt end (collapsed)
+    No multi-section gaps. One tall rock with roughness providing
+    the surface variation that reads as geological character.
+    Profiles control the width/depth/height ratios.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"column_{seed}")
 
-    profile = rng.choice(["hourglass", "pillar", "curtain", "broken"])
+    profile = rng.choice(["pillar", "pillar", "curtain", "broken"])  # hourglass removed — gap source
     total_height = rng.uniform(12.0, 20.0)
     base_radius = rng.uniform(1.5, 3.0)
 
-    if profile == "hourglass":
-        waist_radius = base_radius * rng.uniform(0.3, 0.5)
-        top_radius = base_radius * rng.uniform(0.8, 1.2)
-    elif profile == "pillar":
-        waist_radius = base_radius * rng.uniform(0.8, 0.95)  # nearly uniform
-        top_radius = base_radius * rng.uniform(0.7, 0.9)     # slight taper
+    if profile == "pillar":
+        w = base_radius
+        d = base_radius * rng.uniform(0.7, 1.0)
+        roughness = rng.uniform(0.25, 0.45)
     elif profile == "curtain":
-        base_radius *= rng.uniform(1.5, 2.5)  # extra wide
-        waist_radius = base_radius * rng.uniform(0.6, 0.8)
-        top_radius = base_radius * rng.uniform(0.5, 0.7)
-        # Flatten depth for curtain/wall feel
+        w = base_radius * rng.uniform(1.5, 2.5)
+        d = base_radius * 0.3  # thin wall
+        roughness = rng.uniform(0.15, 0.30)
     elif profile == "broken":
-        total_height *= rng.uniform(0.3, 0.5)  # much shorter — it broke
-        waist_radius = base_radius * rng.uniform(0.7, 0.9)
-        top_radius = base_radius * rng.uniform(0.4, 0.6)  # jagged top
+        total_height *= rng.uniform(0.3, 0.5)
+        w = base_radius
+        d = base_radius * rng.uniform(0.6, 0.9)
+        roughness = rng.uniform(0.35, 0.55)  # jagged top
 
-    # Mineral color — same cool spectrum as stalagmites
     mineral_bases = [
         (0.11, 0.11, 0.13),
         (0.13, 0.12, 0.13),
@@ -1225,47 +1531,15 @@ def build_column(parent, seed=0):
     sv = rng.uniform(-0.02, 0.02)
     color = (base_color[0] + sv, base_color[1] + sv * 0.7, base_color[2] + sv * 0.5)
 
-    # Curtain profile: flatten the depth axis for wall/drape silhouette
-    depth_scale = 0.3 if profile == "curtain" else rng.uniform(0.7, 1.0)
-
-    # Bottom section — wide base tapering to waist
-    bottom_h = total_height * rng.uniform(0.35, 0.45)
-    bottom = root.attachNewNode(make_rock(
-        base_radius, bottom_h * 0.5, base_radius * depth_scale, color,
-        rings=8, segments=8, seed=seed,
-        roughness=rng.uniform(0.2, 0.35),
+    # Single connected rock — height compensated for bottom squash
+    col = root.attachNewNode(make_rock(
+        w, total_height * 0.5 * 1.6, d, color,
+        rings=10, segments=8, seed=seed,
+        roughness=roughness,
     ))
-    bottom.setPos(0, 0, 0)
-    bottom.setTwoSided(True)
+    col.setPos(0, 0, 0)
+    col.setTwoSided(True)
 
-    # Waist section — narrow connecting neck
-    waist_h = total_height * rng.uniform(0.15, 0.25)
-    waist_z = bottom_h * 0.7
-    sv2 = rng.uniform(-0.015, 0.015)
-    waist_color = (color[0] + sv2, color[1] + sv2, color[2] + sv2)
-    waist = root.attachNewNode(make_rock(
-        waist_radius, waist_h * 0.5, waist_radius * depth_scale, waist_color,
-        rings=5, segments=6, seed=seed + 33,
-        roughness=rng.uniform(0.15, 0.3),
-    ))
-    waist.setPos(0, 0, waist_z + waist_h * 0.3)
-    waist.setTwoSided(True)
-
-    # Top section — rises into darkness (skipped for broken profile)
-    if profile != "broken":
-        top_h = total_height - bottom_h - waist_h
-        top_z = waist_z + waist_h * 0.5
-        sv3 = rng.uniform(-0.015, 0.015)
-        top_color = (color[0] + sv3, color[1] + sv3, color[2] + sv3)
-        top = root.attachNewNode(make_rock(
-            top_radius, top_h * 0.5, top_radius * depth_scale, top_color,
-            rings=8, segments=8, seed=seed + 66,
-            roughness=rng.uniform(0.2, 0.35),
-        ))
-        top.setPos(0, 0, top_z + top_h * 0.3)
-        top.setTwoSided(True)
-
-    # Texture + damping
     tex = get_material_texture("stone_light", seed=seed)
     ts = TextureStage("mat")
     ts.setMode(TextureStage.MModulate)
@@ -1341,6 +1615,52 @@ def build_mega_column(parent, seed=0):
     return root
 
 
+def build_small_fungus(parent, seed=0):
+    """Tiny bioluminescent accent — 1-3 small bulbs clustered on ground.
+
+    Companion version of the floppy_crystal fungus profile. Reads as
+    organic growth near larger objects. Same visual language as
+    giant_fungus but at ground-clutter scale.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"small_fungus_{seed}")
+
+    glow_color = (0.40, 0.08, 0.50)
+    bulb_count = rng.randint(1, 3)
+    for i in range(bulb_count):
+        h = rng.uniform(0.08, 0.25)
+        r = h * rng.uniform(0.4, 0.7)
+        bulb = root.attachNewNode(make_rock(
+            r, h * 0.4, r * rng.uniform(0.6, 0.9), glow_color,
+            rings=3, segments=4, seed=seed + i * 29,
+            roughness=rng.uniform(0.15, 0.30),
+        ))
+        if i == 0:
+            bulb.setPos(0, 0, 0)
+        else:
+            angle = rng.uniform(0, 360)
+            dist = rng.uniform(0.05, 0.15)
+            bulb.setPos(
+                math.cos(math.radians(angle)) * dist,
+                math.sin(math.radians(angle)) * dist,
+                0,
+            )
+        bulb.setTwoSided(True)
+        bulb.setLightOff()
+        bulb.setColorScale(1.5, 0.5, 1.8, 1.0)
+
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("mat")
+    ts.setMode(TextureStage.MModulate)
+    root.setTexGen(ts, TexGenAttrib.MWorldPosition)
+    root.setTexture(ts, tex)
+    sc = _mat_scale("dry_organic")
+    root.setTexScale(ts, sc, sc)
+    root.setScale(5.0)
+    root.flattenStrong()
+    return root
+
+
 def build_giant_fungus(parent, seed=0):
     """Giant bioluminescent growth — mimics column geology but organic.
 
@@ -1360,7 +1680,7 @@ def build_giant_fungus(parent, seed=0):
     profile = rng.choice(["bulged", "tapered", "floppy_crystal"])
 
     stem_color = (0.08, 0.06, 0.10)
-    glow_color = (0.45, 0.08, 0.55)
+    glow_color = (0.22, 0.06, 0.30)  # deep violet, not neon magenta
 
     tex = get_material_texture("dry_organic", seed=seed)
     ts = TextureStage("mat")
@@ -1394,7 +1714,7 @@ def build_giant_fungus(parent, seed=0):
             spire.setTexture(ts, tex)
             spire.setTexScale(ts, sc, sc)
             spire.setLightOff()
-            spire.setColorScale(2.5, 0.8, 3.0, 1.0)
+            spire.setColorScale(1.8, 0.6, 2.2, 1.0)
     else:
         # Column-mimicking profiles: bottom + waist + cap
         if profile == "bulged":
@@ -1416,11 +1736,11 @@ def build_giant_fungus(parent, seed=0):
         bottom.setTexture(ts, tex)
         bottom.setTexScale(ts, sc, sc)
 
-        # Waist — transition zone, starts glowing
+        # Waist — overlaps into bottom via contact system
         waist_h = total_h * 0.3
-        waist_z = bottom_h * 0.7
+        waist_z = overlap_z(bottom_h, waist_h)
         waist = root.attachNewNode(make_rock(
-            waist_r, waist_h * 0.4, waist_r * 0.8, glow_color,
+            waist_r, waist_h * 0.45, waist_r * 0.8, glow_color,
             rings=4, segments=6, seed=seed + 33, roughness=rng.uniform(0.12, 0.22),
         ))
         waist.setPos(0, 0, waist_z)
@@ -1431,17 +1751,17 @@ def build_giant_fungus(parent, seed=0):
         waist.setLightOff()
         waist.setColorScale(1.5, 0.5, 2.0, 1.0)
 
-        # Cap — sits ON TOP of stem, not floating. Glows hot.
-        cap_z = waist_z + waist_h * 0.6
-        cap_h = total_h * 0.25
+        # Cap — sits directly on top of waist, overlapping into it
+        cap_h = total_h * 0.30  # taller cap, less disc-like
+        cap_z = waist_z + waist_h * 0.15  # physically inside waist top
         cap = root.attachNewNode(make_rock(
-            cap_r, cap_h * 0.3, cap_r * 0.9, glow_color,
+            cap_r, cap_h * 0.5, cap_r * 0.9, glow_color,
             rings=4, segments=6, seed=seed + 99, roughness=rng.uniform(0.08, 0.18),
         ))
         cap.setPos(0, 0, cap_z)
         cap.setTwoSided(True)
         cap.setLightOff()
-        cap.setColorScale(3.0, 1.0, 4.0, 1.0)
+        cap.setColorScale(2.0, 0.7, 2.5, 1.0)
 
         # Satellites — lean outward from base, stems touching ground
         for ci in range(rng.randint(2, 5)):
@@ -1460,16 +1780,16 @@ def build_giant_fungus(parent, seed=0):
             sat.setR(rng.uniform(-15, 15))
             sat.setTwoSided(True)
             sat.setLightOff()
-            sat.setColorScale(2.0, 0.7, 2.5, 1.0)
+            sat.setColorScale(1.0, 0.35, 1.2, 1.0)
 
     # Ground glow decal — decals ARE the lighting on Metal
     glow_tex = get_glow_texture(64, surface="wet_stone")
-    make_glow_decal(root, color=(0.6, 0.15, 0.8), radius=base_r * 3.0, tex=glow_tex)
+    make_glow_decal(root, color=(0.55, 0.15, 0.75), radius=base_r * 3.0, tex=glow_tex)
 
     # Light shaft — extends from mid-height to ground
     shaft_tex = get_shaft_texture()
     shaft_h = total_h * 0.5
-    make_light_shaft(root, color=(0.6, 0.15, 0.8), shaft_height=shaft_h, shaft_width=base_r * 2.0, tex=shaft_tex)
+    make_light_shaft(root, color=(0.35, 0.10, 0.50), shaft_height=shaft_h, shaft_width=base_r * 2.0, tex=shaft_tex)
 
     return root
 
@@ -1510,7 +1830,7 @@ def build_moss_patch(parent, seed=0):
     # Ground glow decal — decals ARE the lighting on Metal
     # Moss doesn't cast light like a lamp — it IS the light, seeping from the surface
     tex = get_glow_texture(64, surface="wet_stone")
-    make_glow_decal(root, color=(0.1, 0.5, 0.08), radius=5.0, tex=tex)
+    make_glow_decal(root, color=(0.15, 0.75, 0.12), radius=5.0, tex=tex)
 
     return root
 
@@ -1551,7 +1871,9 @@ def _build_crystal_spire(root, rng, seed_offset, max_h, lean_r=0, lean_p=0, pos=
         shard.setH(rng.uniform(0, 360))
         shard.setTwoSided(True)
         shard.setLightOff()
-        shard.setColorScale(3.0, 3.5, 5.0, 1.0)
+        # Prismatic facets — each shard shifts one color channel
+        pr, pg, pb = SpectrumEngine.prismatic_offset(seed_offset, i)
+        shard.setColorScale(3.0 + pr * 3.0, 3.5 + pg * 3.5, 5.0 + pb * 5.0, 1.0)
 
 
 def build_crystal_cluster(parent, seed=0):
@@ -1605,7 +1927,7 @@ def build_crystal_cluster(parent, seed=0):
     # Ground glow decal — decals ARE the lighting on Metal. Render at higher bin so blue reads over torch amber.
     # (bin 14 > torch bin 10)
     glow_tex = get_glow_texture(64, surface="wet_stone")
-    crystal_decal = make_glow_decal(root, color=(0.4, 0.5, 1.2), radius=trunk_r * 3.0, tex=glow_tex)
+    crystal_decal = make_glow_decal(root, color=(0.6, 0.75, 1.8), radius=trunk_r * 3.0, tex=glow_tex)
     crystal_decal.setBin("transparent", 14)  # above torch (bin 10) so blue reads
 
     # Radial halo — crystal radiates outward, not upward like a lamp
@@ -1760,19 +2082,17 @@ def build_moss_boulder(parent, seed=0):
 
 
 def build_ceiling_moss(parent, seed=0):
-    """Amber bioluminescent moss — 4 cards, zero 3D geometry, zero point lights.
+    """Amber bioluminescent ceiling moss — ecosystem pattern.
 
-    The full illusion:
-    1. Billboard blob at ceiling height (impostor for moss cluster)
-    2. Mote shaft connecting ceiling to ground (baked particle specks)
-    3. Ground glow decal (warm amber pool)
-
-    Player sees: glowing amber above, motes drifting in a light column,
-    warm pool on the floor. Total cost: 3 cards + 1 decal.
+    No shaft billboard. Instead:
+    1. Small glowing blob at ceiling height (the source)
+    2. Ground moss patch below (the catcher — gold-green)
+    3. Ground glow decal (warm amber pool connecting them)
+    Motes configured via MOTE_PRESETS["ceiling_moss"] spawn at wake —
+    gentle downward rain on loop between source and catcher.
     """
     from core.systems.glow_decal import (
         make_glow_decal, get_glow_texture,
-        make_light_shaft, get_mote_shaft_texture,
         make_ceiling_blob, get_ceiling_blob_texture,
     )
 
@@ -1782,55 +2102,64 @@ def build_ceiling_moss(parent, seed=0):
     # Cluster hangs from a height — the "ceiling"
     hang_z = rng.uniform(15.0, 25.0)
 
-    # 1. Billboard blob at ceiling — one card replaces 5-12 rock meshes
-    #    Cranked brightness — this is the SOURCE, it should glow hot
+    # 1. Billboard blob at ceiling — the SOURCE, small and warm
     blob_tex = get_ceiling_blob_texture(64)
-    blob_radius = rng.uniform(2.5, 4.5)
-    blob = make_ceiling_blob(root, color=(5.0, 3.5, 1.2), blob_radius=blob_radius,
+    blob_radius = rng.uniform(1.5, 3.0)  # smaller — less UFO, more organic
+    blob = make_ceiling_blob(root, color=(4.0, 2.8, 1.0), blob_radius=blob_radius,
                              height=hang_z, tex=blob_tex)
 
-    # 2. Mote shaft — directed downlight like a lamp, baked mote specks
-    #    Narrow at top, spreads at ground = natural lamp cone
-    mote_tex = get_mote_shaft_texture(32, 128, seed=seed)
-    shaft = make_light_shaft(root, color=(1.0, 0.7, 0.2),
-                             shaft_height=hang_z - 1.0, shaft_width=4.0, tex=mote_tex)
+    # 2. Ground catcher — gold-green moss that "caught" the dripping glow
+    #    Small cluster of self-lit blobs at ground level
+    tex = get_material_texture("dry_organic", seed=seed)
+    ts = TextureStage("catch_mat")
+    ts.setMode(TextureStage.MModulate)
+    sc = _mat_scale("dry_organic")
+    for i in range(rng.randint(3, 6)):
+        r = rng.uniform(0.08, 0.25)
+        h = max(r * 0.3, rng.uniform(0.04, 0.10))
+        color = (0.12, 0.30 + rng.uniform(-0.03, 0.03), 0.06)
+        catch = root.attachNewNode(make_rock(
+            r, h, r * rng.uniform(0.7, 1.0), color,
+            rings=3, segments=4, seed=seed + 500 + i * 13, roughness=0.12,
+        ))
+        catch.setPos(rng.uniform(-1.5, 1.5), rng.uniform(-1.5, 1.5), 0)
+        catch.setH(rng.uniform(0, 360))
+        catch.setTwoSided(True)
+        catch.setTexGen(ts, TexGenAttrib.MWorldPosition)
+        catch.setTexture(ts, tex)
+        catch.setTexScale(ts, sc, sc)
+        catch.setLightOff()
+        catch.setColorScale(2.0, 3.5, 1.2, 1.0)  # gold-green glow
 
-    # 3. Ground glow decal — the actual "lamp pool" on the floor
-    #    Large radius, cranked color — this IS the illumination
+    # 3. Ground glow decal — warm amber pool, the ecosystem's light footprint
     glow_tex = get_glow_texture(128, surface="wet_stone")
-    decal = make_glow_decal(root, color=(1.2, 0.8, 0.25), radius=10.0, tex=glow_tex)
+    decal = make_glow_decal(root, color=(1.5, 1.0, 0.30), radius=8.0, tex=glow_tex)
 
     return root
 
 
 def build_hanging_vine(parent, seed=0):
-    """Thin vine draping downward — hangs from column heights, adds vertical softness.
+    """Thin vine draping downward — single tapered rock, not dashed segments.
 
     Dark organic, barely visible until backlit by bioluminescence.
+    Slight lean gives it a natural droop.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"vine_{seed}")
 
-    # Vine hangs from a random height (as if from a column or ceiling)
     hang_height = rng.uniform(8.0, 22.0)
-    # Reach half to 2/3 the distance to the ground
-    vine_length = rng.uniform(hang_height * 0.5, hang_height * 0.67)
-    segment_count = rng.randint(6, 12)
-    seg_len = vine_length / segment_count
+    vine_length = rng.uniform(hang_height * 0.4, hang_height * 0.6)
+    w = rng.uniform(0.03, 0.08)
+    color = (0.05, 0.06, 0.04)
 
-    color = (0.05, 0.06, 0.04)  # dark green-brown, nearly invisible
-    x_drift = 0.0
-    y_drift = 0.0
-
-    for i in range(segment_count):
-        w = rng.uniform(0.01, 0.025)
-        seg = root.attachNewNode(make_box(w, w, seg_len * 0.45, color))
-        z = hang_height - i * seg_len
-        x_drift += rng.uniform(-0.15, 0.15)
-        y_drift += rng.uniform(-0.15, 0.15)
-        seg.setPos(x_drift, y_drift, z)
-        seg.setR(rng.uniform(-8, 8))
-        seg.setTwoSided(True)
+    vine = root.attachNewNode(make_rock(
+        w, vine_length * 0.5, w * rng.uniform(0.5, 0.8), color,
+        rings=4, segments=4, seed=seed, roughness=rng.uniform(0.15, 0.30),
+    ))
+    vine.setPos(rng.uniform(-0.5, 0.5), rng.uniform(-0.5, 0.5), hang_height - vine_length * 0.5)
+    vine.setR(rng.uniform(-12, 12))
+    vine.setP(rng.uniform(-8, 8))
+    vine.setTwoSided(True)
 
     tex = get_material_texture("dry_organic", seed=seed)
     ts = TextureStage("mat")
@@ -2046,12 +2375,98 @@ def build_horizon_form(parent, seed=0):
         w * 0.5, h * 0.5, w * rng.uniform(0.2, 0.4), color,
         rings=4, segments=5, seed=seed, roughness=rng.uniform(0.3, 0.5),
     ))
-    shape.setPos(0, 0, h * 0.3 + rng.uniform(0, 5.0))
+    shape.setPos(0, 0, 0)  # grounded — parallax sells depth, not elevation
     shape.setTwoSided(True)
 
     # No texture, no lighting — just a dark mass at distance
     root.setLightOff()
     root.setColorScale(0.08, 0.07, 0.07, 1.0)
+
+    return root
+
+
+def build_horizon_mid(parent, seed=0):
+    """Mid-distance silhouette — between torch range and fog boundary.
+
+    Smaller than far horizon forms, more varied shapes. 2-3 dark masses
+    clustered to read as distant cave architecture. The gap between
+    near and far bands is what sells continuous depth.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"horizon_mid_{seed}")
+
+    color = (0.05, 0.045, 0.045)
+    count = rng.randint(1, 3)
+    for i in range(count):
+        w = rng.uniform(2.0, 6.0)
+        h = rng.uniform(2.0, 7.0)
+        shape = root.attachNewNode(make_rock(
+            w * 0.5, h * 0.5, w * rng.uniform(0.15, 0.35), color,
+            rings=3, segments=4, seed=seed + i * 47, roughness=rng.uniform(0.25, 0.45),
+        ))
+        angle = rng.uniform(0, 360)
+        dist = rng.uniform(0, 2.0) if count > 1 else 0
+        shape.setPos(
+            math.cos(math.radians(angle)) * dist,
+            math.sin(math.radians(angle)) * dist,
+            h * 0.2 + rng.uniform(0, 3.0),
+        )
+        shape.setTwoSided(True)
+
+    root.setLightOff()
+    root.setColorScale(0.09, 0.08, 0.08, 1.0)
+    return root
+
+
+def build_horizon_near(parent, seed=0):
+    """Near-distance silhouette — just past torch range.
+
+    Single small dark form, low to ground. Reads as rubble or low
+    formations in the middle distance. Highest parallax of the three
+    bands because closest to player.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"horizon_near_{seed}")
+
+    color = (0.06, 0.055, 0.05)
+    w = rng.uniform(1.5, 4.0)
+    h = rng.uniform(1.0, 3.5)
+    shape = root.attachNewNode(make_rock(
+        w * 0.5, h * 0.5, w * rng.uniform(0.2, 0.5), color,
+        rings=3, segments=4, seed=seed, roughness=rng.uniform(0.3, 0.5),
+    ))
+    shape.setPos(0, 0, h * 0.15 + rng.uniform(0, 1.0))
+    shape.setTwoSided(True)
+
+    root.setLightOff()
+    root.setColorScale(0.10, 0.09, 0.09, 1.0)
+    return root
+
+
+def build_exit_lure(parent, seed=0):
+    """Faint warm glow at extreme fog distance — the unreachable exit.
+
+    Single tiny self-lit point that reads as distant torchlight or daylight
+    leaking in. Always placed high and ahead. The player can never reach it
+    but it sells the illusion that the cavern leads somewhere.
+    """
+    rng = random.Random(seed)
+    root = parent.attachNewNode(f"exit_lure_{seed}")
+
+    # Tiny warm point — like a distant torch or crack of daylight
+    from core.systems.geometry import make_box
+    size = rng.uniform(0.08, 0.15)
+    point = root.attachNewNode(make_box(size, size, size, (0.95, 0.75, 0.35)))
+    point.setPos(0, 0, rng.uniform(4.0, 10.0))
+    point.setLightOff()
+    point.setColorScale(3.0, 2.2, 1.0, 0.7)
+    point.setBillboardPointEye()
+    point.setTwoSided(True)
+
+    # Faint ground kiss — tiny decal below the point
+    from core.systems.glow_decal import make_glow_decal, get_glow_texture
+    glow_tex = get_glow_texture(32, surface="smooth")
+    make_glow_decal(root, color=(0.45, 0.30, 0.12), radius=1.5, tex=glow_tex)
 
     return root
 
@@ -2072,6 +2487,7 @@ BUILDERS = {
     "column": (build_column, "static"),
     "mega_column": (build_mega_column, "static"),
     "giant_fungus": (build_giant_fungus, "static"),
+    "small_fungus": (build_small_fungus, "static"),
     "moss_patch": (build_moss_patch, "static"),
     "crystal_cluster": (build_crystal_cluster, "static"),
     "hanging_vine": (build_hanging_vine, "static"),
@@ -2081,18 +2497,34 @@ BUILDERS = {
     "firefly": (build_firefly, "wander"),
     "cave_gravel": (build_cave_gravel, "static"),
     "horizon_form": (build_horizon_form, "static"),
+    "horizon_mid": (build_horizon_mid, "static"),
+    "horizon_near": (build_horizon_near, "static"),
+    "exit_lure": (build_exit_lure, "static"),
 }
 
 
 # -- Ambient Entity ------------------------------------------------------------
 
+# Map entity kinds to spectrum profiles — only bio-lit entities drift
+_KIND_TO_SPECTRUM = {
+    "giant_fungus": "fungus",
+    "crystal_cluster": "crystal",
+    "moss_patch": "moss",
+    "moss_boulder": "moss",
+    "ceiling_moss": "ceiling_moss",
+    "small_fungus": "fungus",
+}
+
+
 class AmbientEntity:
     """A single behavior-driven entity in the world."""
 
     __slots__ = ("kind", "pos", "heading", "node", "behavior",
-                 "awake", "height_fn", "chunk_key", "motes")
+                 "awake", "height_fn", "chunk_key", "motes",
+                 "seed", "spectrum", "base_color_scale", "fade_alpha")
 
-    def __init__(self, kind, node, behavior, pos, heading, height_fn=None, chunk_key=None):
+    def __init__(self, kind, node, behavior, pos, heading, height_fn=None,
+                 chunk_key=None, seed=0):
         self.kind = kind
         self.pos = pos
         self.motes = []  # dust mote nodes spawned on wake
@@ -2102,12 +2534,23 @@ class AmbientEntity:
         self.awake = False
         self.height_fn = height_fn
         self.chunk_key = chunk_key
+        self.seed = seed
+        self.fade_alpha = 1.0  # 0→1 on wake, smooth pop-in
+        self.spectrum = _KIND_TO_SPECTRUM.get(kind)  # None for non-bio entities
+        # Capture the initial colorScale so drift is additive from base
+        if self.spectrum and node and not node.isEmpty():
+            cs = node.getColorScale()
+            self.base_color_scale = (cs.getX(), cs.getY(), cs.getZ())
+        else:
+            self.base_color_scale = None
 
 
 # -- Ambient Manager -----------------------------------------------------------
 
 class AmbientManager:
     """Manages all ambient life entities. Tick once per frame."""
+
+    MAX_ENTITIES = 25000  # hard cap — refuse spawns beyond this
 
     def __init__(self, render_node, wake_radius=40.0, sleep_radius=50.0):
         self._render = render_node
@@ -2129,6 +2572,8 @@ class AmbientManager:
         """
         if kind not in BUILDERS:
             return None
+        if len(self._entities) >= self.MAX_ENTITIES:
+            return None  # hard cap — refuse spawns, don't queue forever
         builder_fn, behavior_name = BUILDERS[kind]
         node = builder_fn(self._render, seed=seed)
 
@@ -2142,7 +2587,7 @@ class AmbientManager:
         node.hide()  # starts hidden
 
         behavior_cls = BEHAVIORS[behavior_name]
-        entity = AmbientEntity(kind, node, None, pos, heading, height_fn, chunk_key)
+        entity = AmbientEntity(kind, node, None, pos, heading, height_fn, chunk_key, seed=seed)
         entity.behavior = behavior_cls(entity, seed=seed)
 
         self._entities.append(entity)
@@ -2171,13 +2616,97 @@ class AmbientManager:
         return entity
 
     def despawn_chunk(self, chunk_key):
-        """Remove all entities belonging to a chunk."""
+        """Remove all entities belonging to a chunk — full destroy."""
         to_remove = [e for e in self._entities if e.chunk_key == chunk_key]
         for e in to_remove:
             self._active.discard(e)
             if e.node and not e.node.isEmpty():
                 e.node.removeNode()
             self._entities.remove(e)
+
+    def hibernate_chunk(self, chunk_key):
+        """Hide all entities in a chunk — keep in memory for fast re-show."""
+        for e in self._entities:
+            if e.chunk_key == chunk_key:
+                self._active.discard(e)
+                e.awake = False
+                if e.node and not e.node.isEmpty():
+                    e.node.hide()
+                for m in e.motes:
+                    if not m.isEmpty():
+                        m.removeNode()
+                e.motes = []
+
+    def wake_chunk(self, chunk_key):
+        """Re-show a hibernated chunk — zero rebuild cost."""
+        for e in self._entities:
+            if e.chunk_key == chunk_key and not e.awake:
+                if e.node and not e.node.isEmpty():
+                    # Don't force show — let the normal wake/sleep radius handle it
+                    pass  # next tick cycle will wake entities within radius
+
+    def hibernate_distant(self, cam_pos, keep_radius=1):
+        """Hibernate all chunks beyond keep_radius tiles from camera.
+
+        Used by TensionCycle dump phase — clears the world except
+        the immediate surroundings, dropping entity pressure fast.
+        """
+        cx, cy = cam_pos.getX(), cam_pos.getY()
+        tile = 288.0  # match _object_tile_size
+        center_tx = int(math.floor(cx / tile))
+        center_ty = int(math.floor(cy / tile))
+        hibernated = set()
+        for e in self._entities:
+            if e.chunk_key and isinstance(e.chunk_key, tuple) and len(e.chunk_key) == 3:
+                _, tx, ty = e.chunk_key
+                if abs(tx - center_tx) > keep_radius or abs(ty - center_ty) > keep_radius:
+                    if e.awake:
+                        self._active.discard(e)
+                        e.awake = False
+                        if e.node and not e.node.isEmpty():
+                            e.node.hide()
+                        for m in e.motes:
+                            if not m.isEmpty():
+                                m.removeNode()
+                        e.motes = []
+                    hibernated.add(e.chunk_key)
+        return hibernated
+
+    @property
+    def hibernated_count(self):
+        """How many entities are alive but sleeping (in purgatory)."""
+        return sum(1 for e in self._entities if not e.awake)
+
+    def collide_point(self, px, py, player_radius=0.4):
+        """Check if a point collides with any hard active entity.
+
+        Returns (slide_x, slide_y) — the corrected position after pushing
+        out of all colliding objects. If no collision, returns (px, py).
+
+        Uses sphere-vs-sphere: player radius + object collision radius.
+        Slide vector = push along the surface normal so movement continues
+        tangent to the object rather than stopping dead.
+        """
+        sx, sy = px, py
+        for e in self._active:
+            cr = HARD_OBJECTS.get(e.kind)
+            if cr is None:
+                continue
+            ex, ey = e.pos[0], e.pos[1]
+            dx = sx - ex
+            dy = sy - ey
+            d2 = dx * dx + dy * dy
+            min_dist = player_radius + cr
+            min_d2 = min_dist * min_dist
+            if d2 < min_d2 and d2 > 0.0001:
+                # Push out along the normal (player - entity center)
+                dist = math.sqrt(d2)
+                nx = dx / dist
+                ny = dy / dist
+                penetration = min_dist - dist
+                sx += nx * penetration
+                sy += ny * penetration
+        return sx, sy
 
     def tick(self, dt, cam_pos):
         """Per-frame update: staggered wake/sleep, tick active behaviors."""
@@ -2200,7 +2729,9 @@ class AmbientManager:
 
                 if not e.awake and d2 < self._wake_r2:
                     e.awake = True
+                    e.fade_alpha = 0.0  # start invisible, fade in
                     e.node.show()
+                    e.node.setAlphaScale(0.0)
                     self._active.add(e)
                     # Spawn motes on wake — config from MOTE_PRESETS or light layer
                     if not e.motes:
@@ -2219,11 +2750,25 @@ class AmbientManager:
                         if not m.isEmpty():
                             m.removeNode()
                     e.motes = []
-        # Tick active behaviors + motes
+        # Tick active behaviors + motes + spectrum drift + fade-in
+        try:
+            from panda3d.core import ClockObject
+            elapsed = ClockObject.getGlobalClock().getFrameTime()
+        except Exception:
+            elapsed = 0
         for e in self._active:
             e.behavior.tick(dt)
             if e.motes:
                 tick_motes(e.motes, dt)
+            # Fade-in — smooth pop-in matched to walk pace (~1.2s)
+            if e.fade_alpha < 1.0:
+                e.fade_alpha = min(1.0, e.fade_alpha + dt * 0.5)  # ~2s fade — matched to walk pace
+                e.node.setAlphaScale(e.fade_alpha)
+            # Spectrum drift — bio-lit entities shift color over time
+            if e.spectrum and e.base_color_scale:
+                rs, gs, bs = SpectrumEngine.drift(e.spectrum, elapsed, e.seed)
+                br, bg, bb = e.base_color_scale
+                e.node.setColorScale(br + rs, bg + gs, bb + bs, 1.0)
 
     def reseat_ground(self, old_height_fn, new_height_fn):
         """Reseat all entities when switching ground modes.
@@ -2245,6 +2790,11 @@ class AmbientManager:
     @property
     def total_count(self):
         return len(self._entities)
+
+    @property
+    def awake_count(self):
+        """Entities that are alive and not hibernated — the real memory pressure."""
+        return sum(1 for e in self._entities if e.awake or (e.node and not e.node.isEmpty() and not e.node.isHidden()))
 
     @property
     def active_count(self):

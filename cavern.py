@@ -76,26 +76,29 @@ BIOME_CAVERN_DEFAULT = [
     # kind               density  clearance  margin  — placed largest-first
     ("mega_column",       0.12,    10.0,      20),
     ("column",            0.30,    5.0,       10),
-    ("boulder",           0.80,    3.5,       4),
-    ("stalagmite",        1.20,    2.5,       3),
+    ("boulder",           1.20,    3.0,       3),
+    ("stalagmite",        1.80,    2.0,       2),
     ("giant_fungus",      0.30,    2.5,       3),
     ("crystal_cluster",   0.25,    2.0,       3),
     ("dead_log",          0.50,    1.5,       2),
     ("bone_pile",         0.25,    0,         2),
-    ("moss_patch",        0.70,    0,         2),
+    ("moss_patch",        0.40,    0,         2),
     ("ceiling_moss",      0.40,    0,         5),
     ("hanging_vine",      0.35,    0,         4),
-    ("filament",          1.00,    4.0,       2),
-    ("firefly",           0.80,    0,         1),
-    ("grass_tuft",        3.00,    0,         1),
-    ("rubble",            2.50,    0,         1),
-    ("leaf_pile",         1.50,    0,         1),
-    ("twig_scatter",      1.50,    0,         1),
+    ("filament",          0.50,    4.0,       2),
+    ("firefly",           0.40,    0,         1),
+    ("grass_tuft",        1.50,    0,         1),
+    ("rubble",            1.20,    0,         1),
+    ("leaf_pile",         0.80,    0,         1),
+    ("twig_scatter",      0.80,    0,         1),
     ("rat",               0.45,    0,         2),
     ("beetle",            0.25,    0,         2),
-    ("cave_gravel",       2.00,    0,         0),
-    ("horizon_form",      0.15,    8.0,       30),
-    ("leaf",              0.50,    0,         1),
+    ("cave_gravel",       1.00,    0,         0),
+    ("horizon_form",      0.12,    10.0,      30),   # far band — fog boundary silhouettes
+    ("horizon_mid",       0.08,     8.0,      20),   # mid band — closer, smaller, more detail
+    ("horizon_near",      0.10,     6.0,      12),   # near band — just past torch range, sells depth
+    ("exit_lure",         0.03,   20.0,       35),   # rare distant glow — unreachable, sells exit illusion
+    ("leaf",              0.25,    0,         1),
     ("spider",            0.12,    0,         2),
 ]
 
@@ -115,7 +118,7 @@ class Cavern(ShowBase):
         gc.disable()
 
         # -- Rendering setup ---------------------------------------------------
-        self.setBackgroundColor(0.02, 0.02, 0.03, 1)
+        self.setBackgroundColor(0.04, 0.04, 0.05, 1)  # slightly lifted — void isn't pure black
         self.disableMouse()
         self.camLens.setFov(65.0)
         self.camLens.setNear(0.5)
@@ -145,6 +148,14 @@ class Cavern(ShowBase):
         self._deferred_spawns = []  # ambient spawns queued across frames
         self._chrono = Chronometer()
         self._chrono_state = self._chrono.read()
+
+        # -- Tension Cycle (The Train) ----------------------------------------
+        from core.systems.tension_cycle import TensionCycle, CAVERN_CYCLE
+        self._tension = TensionCycle(config=CAVERN_CYCLE)
+        self._tension.on_state_change = self._on_tension_state
+        self._tension.on_dump = self._on_tension_dump
+        self._tension.on_rebirth = self._on_tension_rebirth
+        self._tension.board()  # always on by default — B toggles off for cozy
 
         # Native C++ Perlin for texture generation (fast path)
         # Python PlacementEngine Perlin stays for placement/height (still useful)
@@ -216,13 +227,14 @@ class Cavern(ShowBase):
         self.accept("l", self._toggle_daylight)
         self.accept("g", self._toggle_fake_ground)
         self.accept("9", self._showcase_light_layers)
+        self.accept("b", self._toggle_tension)  # B = Board/disembark the train
         self._daylight = False
 
         self.taskMgr.add(self._loop, "CavernLoop")
 
         console.log("[bold cyan]THE ENDLESS FLOOR[/bold cyan]")
         console.log("[WASD] move  [Mouse] look  [F1-F4] registers  [L] daylight  [ESC] quit")
-        console.log("[dim][`] debug  [0] dump  [T] tag  [Shift+T] undo  [Ctrl+T] clear  [9] showcase[/dim]")
+        console.log("[dim][`] debug  [0] dump  [T] tag  [Shift+T] undo  [Ctrl+T] clear  [9] showcase  [B] train[/dim]")
 
     # -- Helpers ---------------------------------------------------------------
 
@@ -252,7 +264,7 @@ class Cavern(ShowBase):
 
         # Ambient only — the sole pipeline light. Everything else is decals.
         amb = AmbientLight("amb")
-        amb.setColor(Vec4(0.10, 0.08, 0.06, 1))
+        amb.setColor(Vec4(0.32, 0.28, 0.26, 1))
         self._amb_np = self.render.attachNewNode(amb)
         self.render.setLight(self._amb_np)
 
@@ -280,6 +292,11 @@ class Cavern(ShowBase):
             self.render, color=(0.8, 0.55, 0.2),
             shaft_height=2.0, shaft_width=1.5, tex=shaft_tex)
 
+        # Torch disabled — refine during avatar rendering pass
+        self._torch_decal.hide()
+        self._torch_outer.hide()
+        self._torch_beam.hide()
+
         # Tiny glow marker in peripheral vision
         self._orb_np = self.cam.attachNewNode("torch_mount")
         self._orb_np.setPos(0.3, -0.8, 0.6)
@@ -287,6 +304,7 @@ class Cavern(ShowBase):
         self._orb_vis = self._orb_np.attachNewNode(orb_vis)
         self._orb_vis.setLightOff()
         self._orb_vis.setColorScale(2.5, 2.0, 1.2, 1.0)
+        self._orb_vis.hide()
 
     def _setup_grain_shader(self):
         """Screen-space film grain — constant visual motion masks frame hitches."""
@@ -409,11 +427,14 @@ void main() {
         console.log(f"[bold green]Objects ready. ({self._ambient.total_count} entities)[/bold green]")
 
     def _generate_object_template(self, seed, biome=None):
-        """Generate a tile layout from a biome density config.
+        """Generate a tile layout with honeycomb path network.
 
-        One loop over the config — tile area × density = count.
-        Clearance > 0 enforces spacing. Sorted largest-first by config order.
-        Swapping biomes = swapping the density table.
+        Scatter node points across the tile — these are walkable clearings.
+        Hard objects cluster BETWEEN nodes (forming walls/dividers).
+        Soft objects cluster NEAR nodes (visible as you walk through).
+        Result: organic branching paths like a beehive, not one corridor.
+        Mix of fungus, crystals, boulders at varying distances = natural
+        choices about which way to go.
         """
         if biome is None:
             biome = BIOME_CAVERN_DEFAULT
@@ -421,24 +442,78 @@ void main() {
         tile_area = tile * tile
         rng = __import__("random").Random(seed)
         spawns = []
-        solid_positions = []  # (x, y, clearance)
+        solid_positions = []
+
+        from core.systems.ambient_life import HARD_OBJECTS
+
+        # Honeycomb nodes = mega_column positions. Columns ARE the lattice.
+        # First pass: place mega_columns on hex grid. These anchor every chamber.
+        # All other objects fill around them.
+        node_spacing = rng.uniform(25.0, 35.0)
+        nodes = []
+        ny = node_spacing * 0.5
+        row = 0
+        while ny < tile:
+            nx = node_spacing * 0.5 + (node_spacing * 0.5 if row % 2 else 0)
+            while nx < tile:
+                jx = nx + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
+                jy = ny + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
+                nodes.append((jx, jy))
+                # Spawn a mega_column or column at each node center
+                col_kind = "mega_column" if rng.random() < 0.3 else "column"
+                spawns.append((col_kind, (jx, jy),
+                               rng.uniform(0, 360), rng.randint(0, 99999)))
+                solid_positions.append((jx, jy, 5.0))
+                nx += node_spacing
+            ny += node_spacing * 0.87
+            row += 1
+
+        # Always include (0, 0) vicinity so spawn point is in a chamber
+        nodes.append((rng.uniform(2.0, 8.0), rng.uniform(2.0, 8.0)))
+
+        path_radius = rng.uniform(6.0, 10.0)  # clearance around each node
+
+        def _dist_to_nearest_node(x, y):
+            min_d = 9999.0
+            for nx, ny in nodes:
+                dx, dy = x - nx, y - ny
+                d = math.sqrt(dx * dx + dy * dy)
+                if d < min_d:
+                    min_d = d
+            return min_d
 
         for kind, density, clearance, margin in biome:
-            # density is per 1000 sqm — scale to tile area with ±30% variance
+            # Columns already placed at honeycomb nodes — skip from density pass
+            if kind in ("mega_column", "column"):
+                continue
             base_count = density * tile_area / 1000.0
             count = max(0, int(rng.uniform(base_count * 0.7, base_count * 1.3)))
+            is_hard = kind in HARD_OBJECTS
 
             for _ in range(count):
-                # Place with spacing check if clearance > 0
                 placed = False
-                for _attempt in range(5 if clearance > 0 else 1):
+                for _attempt in range(8 if is_hard else 3):
                     x = rng.uniform(margin, tile - margin)
                     y = rng.uniform(margin, tile - margin)
+                    d = _dist_to_nearest_node(x, y)
+
+                    if is_hard:
+                        # Hard objects: BETWEEN chambers (form walls)
+                        if d < path_radius:
+                            continue
+                        # Dense near chamber edges — the walls
+                        if d > path_radius * 2.5 and rng.random() < 0.6:
+                            continue
+                    else:
+                        # Soft objects: PACKED into chambers (crowded, lived-in)
+                        if d > path_radius * 1.5 and rng.random() < 0.7:
+                            continue
+
                     if clearance > 0:
                         too_close = False
                         for sx, sy, sc in solid_positions:
-                            dx, dy = x - sx, y - sy
-                            if dx * dx + dy * dy < (clearance + sc) ** 2:
+                            ddx, ddy = x - sx, y - sy
+                            if ddx * ddx + ddy * ddy < (clearance + sc) ** 2:
                                 too_close = True
                                 break
                         if too_close:
@@ -447,8 +522,17 @@ void main() {
                     placed = True
                     break
                 if not placed:
-                    x = rng.uniform(margin, tile - margin)
-                    y = rng.uniform(margin, tile - margin)
+                    # Fallback: midpoint between two random nodes (on a path edge)
+                    if len(nodes) >= 2:
+                        n1 = nodes[rng.randint(0, len(nodes) - 1)]
+                        n2 = nodes[rng.randint(0, len(nodes) - 1)]
+                        x = (n1[0] + n2[0]) * 0.5 + rng.uniform(-3, 3)
+                        y = (n1[1] + n2[1]) * 0.5 + rng.uniform(-3, 3)
+                    else:
+                        x = rng.uniform(margin, tile - margin)
+                        y = rng.uniform(margin, tile - margin)
+                    x = max(margin, min(tile - margin, x))
+                    y = max(margin, min(tile - margin, y))
 
                 spawns.append((kind, (x, y),
                                rng.uniform(0, 360), rng.randint(0, 99999)))
@@ -464,9 +548,17 @@ void main() {
 
         # Sort by distance — center tile + 1 ring (3×3 at 288m = 864m coverage)
         candidates = []
+        if not hasattr(self, '_hibernated_tiles'):
+            self._hibernated_tiles = set()
+
         for dx in range(-1, 2):
             for dy in range(-1, 2):
                 tx, ty = center_tx + dx, center_ty + dy
+                # Wake hibernated tiles instead of re-spawning
+                if (tx, ty) in self._hibernated_tiles:
+                    self._ambient.wake_chunk(("T", tx, ty))
+                    self._hibernated_tiles.discard((tx, ty))
+                    continue
                 if (tx, ty) in self._object_tile_placed:
                     continue
                 candidates.append((dx * dx + dy * dy, tx, ty))
@@ -493,19 +585,48 @@ void main() {
                      seed + tx * 1000 + ty, entity_key))
 
     def _despawn_distant_tiles(self):
-        """Remove object tiles far from camera so they can be re-entered."""
+        """Hibernate distant tiles — keep in memory for return trips.
+
+        Tiles beyond radius 3 hibernate (hide, not destroy). Tiles beyond
+        radius 6 (50+ tiles visited) get fully destroyed to cap memory.
+        The player can turn around and find the same cave they left.
+        """
         cam_pos = self.cam.getPos()
         tile = self._object_tile_size
         center_tx = int(math.floor(cam_pos.getX() / tile))
         center_ty = int(math.floor(cam_pos.getY() / tile))
-        to_remove = [k for k in self._object_tile_placed
-                     if abs(k[0] - center_tx) > 3 or abs(k[1] - center_ty) > 3]
-        for k in to_remove:
+
+        # Track path — breadcrumb of visited tiles
+        current_tile = (center_tx, center_ty)
+        if not hasattr(self, '_path_trail'):
+            self._path_trail = []
+            self._hibernated_tiles = set()
+        if not self._path_trail or self._path_trail[-1] != current_tile:
+            self._path_trail.append(current_tile)
+
+        # Hibernate tiles beyond radius 3 (keep in memory)
+        to_hibernate = [k for k in self._object_tile_placed
+                        if abs(k[0] - center_tx) > 3 or abs(k[1] - center_ty) > 3]
+        for k in to_hibernate:
+            chunk_key = ("T", k[0], k[1])
+            if k not in self._hibernated_tiles:
+                self._ambient.hibernate_chunk(chunk_key)
+                self._hibernated_tiles.add(k)
+
+        # Hard destroy tiles beyond radius 6 — memory cap
+        to_destroy = [k for k in self._hibernated_tiles
+                      if abs(k[0] - center_tx) > 6 or abs(k[1] - center_ty) > 6]
+        for k in to_destroy:
             self._ambient.despawn_chunk(("T", k[0], k[1]))
             self._object_tile_placed.discard(k)
+            self._hibernated_tiles.discard(k)
 
     def _drip_spawn_objects(self):
         """Spawn queued objects across frames. 8 per frame — smooth drip."""
+        # Hard cap reached — flush queue, don't accumulate forever
+        if self._ambient.total_count >= self._ambient.MAX_ENTITIES:
+            self._object_spawn_queue.clear()
+            return
         h_fn = self._flat_height if self._use_fake_ground else self._height_at
         for _ in range(8):
             if not self._object_spawn_queue:
@@ -1364,6 +1485,31 @@ void main() {
                     f"look ahead, columns labeled on screen")
         console.log("[dim]Press 9 again to clear[/dim]")
 
+    # -- Tension Cycle hooks ---------------------------------------------------
+
+    def _toggle_tension(self):
+        """5 key — board or disembark the train."""
+        if self._tension.active:
+            self._tension.disembark()
+            console.log("[bold yellow]TRAIN: disembarked[/bold yellow]")
+        else:
+            self._tension.board()
+            console.log("[bold red]TRAIN: boarded[/bold red]")
+
+    def _on_tension_state(self, old, new):
+        console.log(f"[dim]TRAIN: {old} → {new}  "
+                     f"budget={self._tension.budget:.0%}[/dim]")
+
+    def _on_tension_dump(self):
+        """Dump phase — hibernate distant, clear spawn queue."""
+        console.log("[bold red]TRAIN: DUMP — hibernating distant tiles[/bold red]")
+
+    def _on_tension_rebirth(self):
+        """Rebirth phase — world re-emerges from darkness."""
+        console.log("[bold green]TRAIN: REBIRTH — world returning[/bold green]")
+
+    # -- Debug -----------------------------------------------------------------
+
     def _dump_debug_state(self):
         import traceback
         try:
@@ -1444,8 +1590,9 @@ void main() {
             f"chunk=({chunk[0]}, {chunk[1]})  loaded={len(self._chunks)}",
             f"probe: {p.get('surface', '?')}  d={p.get('distance', '?')}",
             f"reg={REGISTERS[self._register_index]}  tags={len(self._debug_tags)}  tex={self._tex_size_override}",
-            f"ambient: {self._ambient.active_count}/{self._ambient.total_count} awake",
+            f"ambient: {self._ambient.active_count}/{self._ambient.total_count} awake  hibernate={self._ambient.hibernated_count}",
             f"chrono: {self._chrono_state['day_phase']}  night={self._chrono_state['night_weight']:.2f}  moon={self._chrono_state['moon_approx']:.2f}",
+            f"TRAIN: {'ON' if self._tension.active else 'off'}  state={self._tension.state}  budget={self._tension.budget:.0%}  queue={len(self._object_spawn_queue)}",
         ]
         self._debug_hud_text.setText("\n".join(lines))
 
@@ -1490,6 +1637,9 @@ void main() {
         pos = self.cam.getPos()
         new_x = pos.getX() + move_x
         new_y = pos.getY() + move_y
+
+        # Collision — slide along hard object surfaces
+        new_x, new_y = self._ambient.collide_point(new_x, new_y)
         moving = mag > 0
 
         # Decay ground blend offset — prevents camera pop on G toggle
@@ -1560,43 +1710,30 @@ void main() {
         # Chronometer: frame 59 (1× per cycle, ~1 read per second)
         if fc == 59:
             self._chrono_state = self._chrono.read()
-            # Fog density shifts with time — denser at night
-            nw = self._chrono_state["night_weight"]
-            fog_near = 15.0 - nw * 4.0   # 15→11 at night
-            fog_far = 42.0 - nw * 8.0    # 42→34 at night
+
+        # Tension Cycle — drives fog/ambient when active, chrono drives when not
+        # Budget based on non-hibernated entities — dump actually reduces pressure
+        env = self._tension.tick(dt, self._ambient.active_count,
+                                 self._ambient.MAX_ENTITIES)
+        if self._tension.active:
+            self._fog.setLinearRange(*env.fog)
+            self._amb_np.node().setColor(Vec4(*env.ambient, 1))
+            if env.should_dump:
+                self._ambient.hibernate_distant(self.cam.getPos(), keep_radius=1)
+                self._object_spawn_queue.clear()
+        else:
+            # Default chrono-driven fog/ambient
+            nw = self._chrono_state.get("night_weight", 0)
+            fog_near = 15.0 - nw * 4.0
+            fog_far = 42.0 - nw * 8.0
             self._fog.setLinearRange(fog_near, fog_far)
-            # Ambient light dims at night
-            amb_scale = 1.0 - nw * 0.3   # 30% dimmer at deep night
+            amb_scale = 1.0 - nw * 0.3
             self._amb_np.node().setColor(Vec4(
-                0.10 * amb_scale, 0.08 * amb_scale, 0.06 * amb_scale, 1))
+                0.32 * amb_scale, 0.28 * amb_scale, 0.26 * amb_scale, 1))
 
-        # Torch flicker — drives decal brightness, not a spotlight
-        t = globalClock.getFrameTime()
-        fi = self._palette.get("flicker_intensity", 0.15)
-        flicker = 1.0 + fi * 0.4 * math.sin(t * 5.3) * math.sin(t * 7.7)
-        self._torch_decal.setColorScale(
-            1.4 * flicker, 0.95 * flicker, 0.45 * flicker, 1.0)
-
-        # Project torch cone ahead of player at ground level
+        # Torch disabled — skip flicker and positioning
         cam_pos = self.cam.getPos()
-        h_rad = math.radians(self._cam_h)
-        ahead_dist = 4.0
-        decal_x = cam_pos.getX() - math.sin(h_rad) * ahead_dist
-        decal_y = cam_pos.getY() + math.cos(h_rad) * ahead_dist
         h_fn = self._flat_height if self._use_fake_ground else self._height_at
-        decal_z = h_fn(decal_x, decal_y) + 0.05
-        self._torch_decal.setPos(decal_x, decal_y, decal_z)
-
-        # Outer wash — same direction, slightly behind main pool
-        outer_dist = 3.0
-        outer_x = cam_pos.getX() - math.sin(h_rad) * outer_dist
-        outer_y = cam_pos.getY() + math.cos(h_rad) * outer_dist
-        self._torch_outer.setPos(outer_x, outer_y, h_fn(outer_x, outer_y) + 0.04)
-
-        # Beam billboard — from shoulder height to ground at decal position
-        beam_x = cam_pos.getX() - math.sin(h_rad) * 1.5
-        beam_y = cam_pos.getY() + math.cos(h_rad) * 1.5
-        self._torch_beam.setPos(beam_x, beam_y, h_fn(beam_x, beam_y) + 0.1)
 
         # Debug
         self._check_debug_commands()
