@@ -28,6 +28,7 @@ import json
 import time
 import threading
 import gc
+from collections import deque
 
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
@@ -36,7 +37,7 @@ from panda3d.core import (
     Fog, SamplerState, TransparencyAttrib,
     WindowProperties, NodePath,
     PNMImage, Texture, CardMaker,
-    AmbientLight, PointLight, Spotlight,
+    AmbientLight,
 )
 from rich.console import Console
 
@@ -75,23 +76,30 @@ BIOME_CAVERN_DEFAULT = [
     # kind               density  clearance  margin  — placed largest-first
     ("mega_column",       0.12,    10.0,      20),
     ("column",            0.30,    5.0,       10),
-    ("boulder",           0.55,    4.0,       4),
-    ("stalagmite",        0.80,    3.0,       3),
-    ("giant_fungus",      0.20,    2.5,       3),
-    ("crystal_cluster",   0.15,    2.0,       3),
-    ("dead_log",          0.25,    2.0,       3),
-    ("bone_pile",         0.10,    0,         3),
+    ("boulder",           1.20,    3.0,       3),
+    ("stalagmite",        1.80,    2.0,       2),
+    ("giant_fungus",      0.30,    2.5,       3),
+    ("crystal_cluster",   0.25,    2.0,       3),
+    ("dead_log",          0.50,    1.5,       2),
+    ("bone_pile",         0.25,    0,         2),
     ("moss_patch",        0.40,    0,         2),
-    ("ceiling_moss",      0.25,    0,         5),
-    ("hanging_vine",      0.20,    0,         5),
+    ("ceiling_moss",      0.40,    0,         5),
+    ("hanging_vine",      0.35,    0,         4),
+    ("filament",          0.50,    4.0,       2),
+    ("firefly",           0.40,    0,         1),
     ("grass_tuft",        1.50,    0,         1),
     ("rubble",            1.20,    0,         1),
     ("leaf_pile",         0.80,    0,         1),
     ("twig_scatter",      0.80,    0,         1),
     ("rat",               0.45,    0,         2),
     ("beetle",            0.25,    0,         2),
-    ("leaf",              0.30,    0,         1),
-    ("spider",            0.08,    0,         2),
+    ("cave_gravel",       1.00,    0,         0),
+    ("horizon_form",      0.12,    10.0,      30),   # far band — fog boundary silhouettes
+    ("horizon_mid",       0.08,     8.0,      20),   # mid band — closer, smaller, more detail
+    ("horizon_near",      0.10,     6.0,      12),   # near band — just past torch range, sells depth
+    ("exit_lure",         0.03,   20.0,       35),   # rare distant glow — unreachable, sells exit illusion
+    ("leaf",              0.25,    0,         1),
+    ("spider",            0.12,    0,         2),
 ]
 
 
@@ -110,11 +118,11 @@ class Cavern(ShowBase):
         gc.disable()
 
         # -- Rendering setup ---------------------------------------------------
-        self.setBackgroundColor(0.02, 0.02, 0.03, 1)
+        self.setBackgroundColor(0.06, 0.06, 0.07, 1)  # lifted — void has depth, not pure black
         self.disableMouse()
         self.camLens.setFov(65.0)
         self.camLens.setNear(0.5)
-        self.camLens.setFar(45.0)  # match fog end — don't render what you can't see
+        self.camLens.setFar(30.0)  # match fog end — don't render what you can't see
         self.render.setAntialias(AntialiasAttrib.MMultisample)
         self.render.setShaderAuto()
 
@@ -130,12 +138,24 @@ class Cavern(ShowBase):
         self._chunk_lock = threading.Lock()
         self._chunk_seed = 42
         self._tex_size_override = TEX_SIZE
+        self._deferred_entity_spawns = deque()  # drip-spawned across frames
+        self._flat_height = lambda x, y: 0.0  # fake ground height — zero Perlin
+        self._use_fake_ground = True  # G-mode default — flat plane, zero Perlin, max perf
+        self._ground_blend_z = 0.0    # lerp offset to prevent pop on G toggle
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
-        self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=45.0)
+        self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=38.0)  # wake at fog far — objects start fully fogged, fog reveals them
         self._deferred_spawns = []  # ambient spawns queued across frames
         self._chrono = Chronometer()
         self._chrono_state = self._chrono.read()
+
+        # -- Tension Cycle (The Train) ----------------------------------------
+        from core.systems.tension_cycle import TensionCycle, CAVERN_CYCLE
+        self._tension = TensionCycle(config=CAVERN_CYCLE)
+        self._tension.on_state_change = self._on_tension_state
+        self._tension.on_dump = self._on_tension_dump
+        self._tension.on_rebirth = self._on_tension_rebirth
+        self._tension.board()  # always on by default — B toggles off for cozy
 
         # Native C++ Perlin for texture generation (fast path)
         # Python PlacementEngine Perlin stays for placement/height (still useful)
@@ -165,34 +185,32 @@ class Cavern(ShowBase):
         # -- Fog ---------------------------------------------------------------
         self._fog = Fog("cavern_fog")
         fc = self._palette["fog"]
-        self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
-        self._fog.setLinearRange(15.0, 42.0)  # tighter — nothing visible past 42m
+        self._fog.setColor(Vec4(0.06, 0.055, 0.06, 1))  # lifted fog — depth, not void
+        self._fog.setLinearRange(8.0, 28.0)  # tight — hides sparse zones, world feels denser
         self.render.setFog(self._fog)
 
         # -- Camera start ------------------------------------------------------
         self.cam.setPos(0, 0, EYE_Z)
+        self.cam.setHpr(0, 0, 0)  # heading 0 (north), pitch 0 (horizon), roll 0
         self._mouse_initialized = False
 
         # -- Stage the immediate area before player sees anything --
         self._stage_initial_chunks()
 
-        # -- Post-processing: grain + bloom + reduced render resolution ----------
-        self._bloom_on = False
-        try:
-            from direct.filter.CommonFilters import CommonFilters
-            self._filters = CommonFilters(self.win, self.cam)
-            bloom_int = self._palette.get("bloom_intensity", 0.3)
-            self._filters.setBloom(
-                blend=(0.3, 0.4, 0.3, 0.0),
-                mintrigger=0.6, maxtrigger=1.0,
-                desat=0.6, intensity=bloom_int, size="medium",
-            )
-            self._bloom_on = True
-        except Exception:
-            self._filters = None
+        # -- Fake ground (WorldRunner cheat) — toggle with G key ----------------
+        from core.systems.fake_ground import FakeGround
+        self._fake_ground = FakeGround(self.render, self._palette, self._chunk_seed)
+        self._fake_ground.show()  # G-mode is default — performance ground active
+        # Stash real chunks — they exist from _stage_initial_chunks but are hidden
+        for key, node in self._chunks.items():
+            node.stash()
 
-        # Film grain overlay — masks frame hitches + adds atmosphere
-        self._setup_grain_shader()
+        # -- Post-processing: DISABLED for decal diagnostic ----------
+        # Bloom's render-to-texture pipeline may eat additive-blended cards.
+        # Grain fullscreen overlay may obscure them. Both off until decals work.
+        self._bloom_on = False
+        self._filters = None
+        self._grain_card = None
 
         # -- Controls ----------------------------------------------------------
         self.accept("escape", sys.exit)
@@ -206,12 +224,17 @@ class Cavern(ShowBase):
         self.accept("t", self._place_tag)
         self.accept("shift-t", self._undo_last_tag)
         self.accept("control-t", self._clear_tags)
+        self.accept("l", self._toggle_daylight)
+        self.accept("g", self._toggle_fake_ground)
+        self.accept("9", self._showcase_light_layers)
+        self.accept("b", self._toggle_tension)  # B = Board/disembark the train
+        self._daylight = False
 
         self.taskMgr.add(self._loop, "CavernLoop")
 
         console.log("[bold cyan]THE ENDLESS FLOOR[/bold cyan]")
-        console.log("[WASD] move  [Mouse] look  [F1-F4] registers  [ESC] quit")
-        console.log("[dim][`] debug  [0] dump  [T] tag  [Shift+T] undo  [Ctrl+T] clear[/dim]")
+        console.log("[WASD] move  [Mouse] look  [F1-F4] registers  [L] daylight  [ESC] quit")
+        console.log("[dim][`] debug  [0] dump  [T] tag  [Shift+T] undo  [Ctrl+T] clear  [9] showcase  [B] train[/dim]")
 
     # -- Helpers ---------------------------------------------------------------
 
@@ -238,39 +261,50 @@ class Cavern(ShowBase):
 
     def _build_lighting(self):
         pal = self._palette
+
+        # Ambient only — the sole pipeline light. Everything else is decals.
         amb = AmbientLight("amb")
-        amb.setColor(Vec4(0.10, 0.08, 0.06, 1))
+        amb.setColor(Vec4(0.38, 0.34, 0.32, 1))
         self._amb_np = self.render.attachNewNode(amb)
         self.render.setLight(self._amb_np)
 
-        # Light orb — spotlight cone from behind, casting forward like a flashlight
-        lc = pal["sconce"]
+        # NO Spotlight, NO PointLight — Metal can't render them.
+        # Decals ARE the lighting on this hardware.
 
-        # Main cone: spotlight aimed forward from behind the player
-        spot = Spotlight("orb_cone")
-        spot.setColor(Vec4(lc[0] * 1.8, lc[1] * 1.6, lc[2] * 1.4, 1))
-        spot.getLens().setFov(60)
-        spot.getLens().setNearFar(0.5, 50)
-        spot.setAttenuation((0.2, 0.008, 0.002))
-        spot.setShadowCaster(True, 512, 512)
-        spot.setExponent(8.0)
-        self._orb_np = self.cam.attachNewNode(spot)
-        self._orb_np.setPos(0.3, -0.8, 0.6)  # behind right shoulder
-        self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # aim forward and slightly down
-        self.render.setLight(self._orb_np)
+        # Torch: cone-shaped ground decal + faint beam billboard + peripheral glow marker
+        from core.systems.glow_decal import (
+            make_glow_decal, get_glow_texture, make_light_shaft, get_shaft_texture,
+        )
 
-        # Fill light: dim point light for ambient spill around the orb
-        fill = PointLight("orb_fill")
-        fill.setColor(Vec4(lc[0] * 0.4, lc[1] * 0.35, lc[2] * 0.2, 1))
-        fill.setAttenuation((0.5, 0.03, 0.008))
-        self._orb_fill = self._orb_np.attachNewNode(fill)
-        self.render.setLight(self._orb_fill)
+        # Main torch pool — elongated warm cone ahead of player
+        glow_tex = get_glow_texture(128, surface="wet_stone")
+        self._torch_decal = make_glow_decal(
+            self.render, color=(1.4, 0.95, 0.45), radius=6.0, tex=glow_tex)
 
-        # Tiny glow marker visible in peripheral vision
+        # Outer ambient wash — wider, dimmer, sells the cone spread
+        outer_tex = get_glow_texture(64, surface="smooth")
+        self._torch_outer = make_glow_decal(
+            self.render, color=(0.5, 0.35, 0.15), radius=10.0, tex=outer_tex)
+
+        # Faint beam billboard — shoulder to ground, reads as light in dusty air
+        shaft_tex = get_shaft_texture(32, 64)
+        self._torch_beam = make_light_shaft(
+            self.render, color=(0.8, 0.55, 0.2),
+            shaft_height=2.0, shaft_width=1.5, tex=shaft_tex)
+
+        # Torch disabled — refine during avatar rendering pass
+        self._torch_decal.hide()
+        self._torch_outer.hide()
+        self._torch_beam.hide()
+
+        # Tiny glow marker in peripheral vision
+        self._orb_np = self.cam.attachNewNode("torch_mount")
+        self._orb_np.setPos(0.3, -0.8, 0.6)
         orb_vis = make_box(0.025, 0.025, 0.025, (0.95, 0.8, 0.45))
         self._orb_vis = self._orb_np.attachNewNode(orb_vis)
         self._orb_vis.setLightOff()
         self._orb_vis.setColorScale(2.5, 2.0, 1.2, 1.0)
+        self._orb_vis.hide()
 
     def _setup_grain_shader(self):
         """Screen-space film grain — constant visual motion masks frame hitches."""
@@ -359,6 +393,12 @@ void main() {
                     )
                     t.start()
 
+        # Flush deferred entity spawns for initial chunks — player shouldn't start empty
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
+        while self._deferred_entity_spawns:
+            kind, pos, heading, seed, chunk_key = self._deferred_entity_spawns.popleft()
+            self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
+                                height_fn=h_fn, chunk_key=chunk_key)
         console.log("[bold green]Ground ready.[/bold green]")
 
         # Pre-bake object field — baseball lineup of unique tiles
@@ -371,26 +411,33 @@ void main() {
             for i in range(7)
         ]
         self._place_object_tiles()
-        # Stage ALL initial objects synchronously — world populated before first frame
+        # Stage initial objects — cap at 3000 sync, drip the rest across first frames
         console.log("[dim]Staging objects...[/dim]")
-        while self._object_spawn_queue:
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
+        staged = 0
+        while self._object_spawn_queue and staged < 3000:
             kind, wx, wy, heading, seed, tile_key = \
                 self._object_spawn_queue.popleft()
-            wz = self._height_at(wx, wy)
+            wz = h_fn(wx, wy)
             if kind == "leaf":
                 wz += 3.0
             self._ambient.spawn(kind, pos=(wx, wy, wz),
                                 heading=heading, seed=seed,
-                                height_fn=self._height_at,
+                                height_fn=h_fn,
                                 chunk_key=tile_key)
-        console.log(f"[bold green]Objects ready. ({self._ambient.total_count} entities)[/bold green]")
+            staged += 1
+        remaining = len(self._object_spawn_queue)
+        console.log(f"[bold green]Objects ready. ({self._ambient.total_count} staged, {remaining} dripping)[/bold green]")
 
     def _generate_object_template(self, seed, biome=None):
-        """Generate a tile layout from a biome density config.
+        """Generate a tile layout with honeycomb path network.
 
-        One loop over the config — tile area × density = count.
-        Clearance > 0 enforces spacing. Sorted largest-first by config order.
-        Swapping biomes = swapping the density table.
+        Scatter node points across the tile — these are walkable clearings.
+        Hard objects cluster BETWEEN nodes (forming walls/dividers).
+        Soft objects cluster NEAR nodes (visible as you walk through).
+        Result: organic branching paths like a beehive, not one corridor.
+        Mix of fungus, crystals, boulders at varying distances = natural
+        choices about which way to go.
         """
         if biome is None:
             biome = BIOME_CAVERN_DEFAULT
@@ -398,24 +445,102 @@ void main() {
         tile_area = tile * tile
         rng = __import__("random").Random(seed)
         spawns = []
-        solid_positions = []  # (x, y, clearance)
+        solid_positions = []
+
+        from core.systems.ambient_life import HARD_OBJECTS
+
+        # Honeycomb nodes = mega_column positions. Columns ARE the lattice.
+        # First pass: place mega_columns on hex grid. These anchor every chamber.
+        # All other objects fill around them.
+        node_spacing = rng.uniform(14.0, 18.0)  # tight chambers — enclosed but won't choke staging
+        nodes = []
+        ny = node_spacing * 0.5
+        row = 0
+        while ny < tile:
+            nx = node_spacing * 0.5 + (node_spacing * 0.5 if row % 2 else 0)
+            while nx < tile:
+                jx = nx + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
+                jy = ny + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
+                nodes.append((jx, jy))
+                # 30% get a column anchor, 70% get a bio-lit landmark
+                roll = rng.random()
+                if roll < 0.15:
+                    anchor = "mega_column"
+                    solid_positions.append((jx, jy, 5.0))
+                elif roll < 0.30:
+                    anchor = "column"
+                    solid_positions.append((jx, jy, 3.0))
+                elif roll < 0.50:
+                    anchor = "crystal_cluster"
+                    solid_positions.append((jx, jy, 2.0))
+                elif roll < 0.70:
+                    anchor = "giant_fungus"
+                    solid_positions.append((jx, jy, 2.0))
+                elif roll < 0.85:
+                    anchor = "boulder"
+                    solid_positions.append((jx, jy, 3.0))
+                else:
+                    anchor = "moss_patch"  # pure light source, no collision
+                spawns.append((anchor, (jx, jy),
+                               rng.uniform(0, 360), rng.randint(0, 99999)))
+                nx += node_spacing
+            ny += node_spacing * 0.87
+            row += 1
+
+        # Front-load spawn area — guarantee dense cluster near (0, 0)
+        # Player should see a room, not a field, on first frame
+        nodes.append((0.0, 0.0))  # spawn node
+        for si in range(6):  # ring of 6 chambers around spawn
+            angle = si * 60 + rng.uniform(-10, 10)
+            dist = node_spacing * rng.uniform(0.8, 1.1)
+            nodes.append((
+                math.cos(math.radians(angle)) * dist,
+                math.sin(math.radians(angle)) * dist,
+            ))
+
+        path_radius = rng.uniform(6.0, 10.0)  # clearance around each node
+
+        def _dist_to_nearest_node(x, y):
+            min_d = 9999.0
+            for nx, ny in nodes:
+                dx, dy = x - nx, y - ny
+                d = math.sqrt(dx * dx + dy * dy)
+                if d < min_d:
+                    min_d = d
+            return min_d
 
         for kind, density, clearance, margin in biome:
-            # density is per 1000 sqm — scale to tile area with ±30% variance
+            # Anchor objects placed at honeycomb nodes — skip from density pass
+            if kind in ("mega_column", "column", "crystal_cluster", "giant_fungus"):
+                continue
             base_count = density * tile_area / 1000.0
             count = max(0, int(rng.uniform(base_count * 0.7, base_count * 1.3)))
+            is_hard = kind in HARD_OBJECTS
 
             for _ in range(count):
-                # Place with spacing check if clearance > 0
                 placed = False
-                for _attempt in range(5 if clearance > 0 else 1):
+                for _attempt in range(8 if is_hard else 3):
                     x = rng.uniform(margin, tile - margin)
                     y = rng.uniform(margin, tile - margin)
+                    d = _dist_to_nearest_node(x, y)
+
+                    if is_hard:
+                        # Hard objects: BETWEEN chambers (form walls)
+                        if d < path_radius:
+                            continue
+                        # Dense near chamber edges — the walls
+                        if d > path_radius * 2.5 and rng.random() < 0.6:
+                            continue
+                    else:
+                        # Soft objects: PACKED into chambers (crowded, lived-in)
+                        if d > path_radius * 1.5 and rng.random() < 0.7:
+                            continue
+
                     if clearance > 0:
                         too_close = False
                         for sx, sy, sc in solid_positions:
-                            dx, dy = x - sx, y - sy
-                            if dx * dx + dy * dy < (clearance + sc) ** 2:
+                            ddx, ddy = x - sx, y - sy
+                            if ddx * ddx + ddy * ddy < (clearance + sc) ** 2:
                                 too_close = True
                                 break
                         if too_close:
@@ -424,8 +549,17 @@ void main() {
                     placed = True
                     break
                 if not placed:
-                    x = rng.uniform(margin, tile - margin)
-                    y = rng.uniform(margin, tile - margin)
+                    # Fallback: midpoint between two random nodes (on a path edge)
+                    if len(nodes) >= 2:
+                        n1 = nodes[rng.randint(0, len(nodes) - 1)]
+                        n2 = nodes[rng.randint(0, len(nodes) - 1)]
+                        x = (n1[0] + n2[0]) * 0.5 + rng.uniform(-3, 3)
+                        y = (n1[1] + n2[1]) * 0.5 + rng.uniform(-3, 3)
+                    else:
+                        x = rng.uniform(margin, tile - margin)
+                        y = rng.uniform(margin, tile - margin)
+                    x = max(margin, min(tile - margin, x))
+                    y = max(margin, min(tile - margin, y))
 
                 spawns.append((kind, (x, y),
                                rng.uniform(0, 360), rng.randint(0, 99999)))
@@ -441,9 +575,17 @@ void main() {
 
         # Sort by distance — center tile + 1 ring (3×3 at 288m = 864m coverage)
         candidates = []
+        if not hasattr(self, '_hibernated_tiles'):
+            self._hibernated_tiles = set()
+
         for dx in range(-1, 2):
             for dy in range(-1, 2):
                 tx, ty = center_tx + dx, center_ty + dy
+                # Wake hibernated tiles instead of re-spawning
+                if (tx, ty) in self._hibernated_tiles:
+                    self._ambient.wake_chunk(("T", tx, ty))
+                    self._hibernated_tiles.discard((tx, ty))
+                    continue
                 if (tx, ty) in self._object_tile_placed:
                     continue
                 candidates.append((dx * dx + dy * dy, tx, ty))
@@ -470,30 +612,60 @@ void main() {
                      seed + tx * 1000 + ty, entity_key))
 
     def _despawn_distant_tiles(self):
-        """Remove object tiles far from camera so they can be re-entered."""
+        """Hibernate distant tiles — keep in memory for return trips.
+
+        Tiles beyond radius 3 hibernate (hide, not destroy). Tiles beyond
+        radius 6 (50+ tiles visited) get fully destroyed to cap memory.
+        The player can turn around and find the same cave they left.
+        """
         cam_pos = self.cam.getPos()
         tile = self._object_tile_size
         center_tx = int(math.floor(cam_pos.getX() / tile))
         center_ty = int(math.floor(cam_pos.getY() / tile))
-        to_remove = [k for k in self._object_tile_placed
-                     if abs(k[0] - center_tx) > 3 or abs(k[1] - center_ty) > 3]
-        for k in to_remove:
+
+        # Track path — breadcrumb of visited tiles
+        current_tile = (center_tx, center_ty)
+        if not hasattr(self, '_path_trail'):
+            self._path_trail = []
+            self._hibernated_tiles = set()
+        if not self._path_trail or self._path_trail[-1] != current_tile:
+            self._path_trail.append(current_tile)
+
+        # Hibernate tiles beyond radius 3 (keep in memory)
+        to_hibernate = [k for k in self._object_tile_placed
+                        if abs(k[0] - center_tx) > 3 or abs(k[1] - center_ty) > 3]
+        for k in to_hibernate:
+            chunk_key = ("T", k[0], k[1])
+            if k not in self._hibernated_tiles:
+                self._ambient.hibernate_chunk(chunk_key)
+                self._hibernated_tiles.add(k)
+
+        # Hard destroy tiles beyond radius 6 — memory cap
+        to_destroy = [k for k in self._hibernated_tiles
+                      if abs(k[0] - center_tx) > 6 or abs(k[1] - center_ty) > 6]
+        for k in to_destroy:
             self._ambient.despawn_chunk(("T", k[0], k[1]))
             self._object_tile_placed.discard(k)
+            self._hibernated_tiles.discard(k)
 
     def _drip_spawn_objects(self):
         """Spawn queued objects across frames. 8 per frame — smooth drip."""
-        for _ in range(8):
+        # Hard cap reached — flush queue, don't accumulate forever
+        if self._ambient.total_count >= self._ambient.MAX_ENTITIES:
+            self._object_spawn_queue.clear()
+            return
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
+        for _ in range(16):  # 16 per frame — clear queue faster
             if not self._object_spawn_queue:
                 return
             kind, wx, wy, heading, seed, tile_key = \
                 self._object_spawn_queue.popleft()
-            wz = self._height_at(wx, wy)
+            wz = h_fn(wx, wy)
             if kind == "leaf":
                 wz += 3.0
             self._ambient.spawn(kind, pos=(wx, wy, wz),
                                 heading=heading, seed=seed,
-                                height_fn=self._height_at,
+                                height_fn=h_fn,
                                 chunk_key=tile_key)
 
     # -- Chunk subsystems (split for 60-frame cycle) ----------------------------
@@ -890,11 +1062,18 @@ void main() {
         ground_np.setTexture(tex)
         ground_np.setTwoSided(True)
 
-        # Ambient spawns — inside time budget with the mesh
+        # Defer entity spawns — drip them across frames instead of all at once.
+        # This is what turns 121ms spikes into smooth 8ms frames.
         chunk_key = (cx, cz)
         for kind, pos, heading, seed in data["spawns"]:
-            self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
-                                height_fn=self._height_at, chunk_key=chunk_key)
+            self._deferred_entity_spawns.append((kind, pos, heading, seed, chunk_key))
+
+        # Ensure ground receives per-pixel lighting from auto shader
+        ground_np.setShaderAuto()
+
+        # If fake ground is active, stash new chunks immediately
+        if self._use_fake_ground:
+            chunk_root.stash()
 
         return chunk_root
 
@@ -1084,6 +1263,59 @@ void main() {
 
     # -- Debug telemetry (carried from dungeon) --------------------------------
 
+    def _toggle_fake_ground(self):
+        """G key — A/B test: real chunked ground vs WorldRunner cheat ground."""
+        self._use_fake_ground = not self._use_fake_ground
+        if self._use_fake_ground:
+            # Capture current terrain height so camera doesn't jump
+            pos = self.cam.getPos()
+            self._ground_blend_z = self._height_at(pos.getX(), pos.getY())
+            # Stash real chunks off the scene graph entirely — not just hidden
+            for key, node in self._chunks.items():
+                node.stash()
+            self._fake_ground.show()
+            # Reseat ALL entities from Perlin heights to Z=0
+            self._ambient.reseat_ground(self._height_at, self._flat_height)
+            console.log("[bold green]FAKE GROUND[/bold green] — one plane, one texture, zero Perlin")
+        else:
+            # Capture flat→terrain offset so camera doesn't jump
+            pos = self.cam.getPos()
+            self._ground_blend_z = -(self._height_at(pos.getX(), pos.getY()))
+            # Unstash real chunks back into the scene
+            for key, node in self._chunks.items():
+                node.unstash()
+            self._fake_ground.hide()
+            # Reseat ALL entities from Z=0 back to Perlin heights
+            self._ambient.reseat_ground(self._flat_height, self._height_at)
+            console.log("[bold green]REAL GROUND[/bold green] — chunked Perlin geometry")
+
+    def _toggle_daylight(self):
+        """L key — toggle daylight inspection mode. Fog stays, ambient cranks."""
+        self._daylight = not self._daylight
+        if self._daylight:
+            # Inspection mode — hide imposters, crank everything
+            self._amb_np.node().setColor(Vec4(0.8, 0.75, 0.7, 1))
+            self._fog.setColor(Vec4(0.12, 0.11, 0.18, 1))
+            self._fog.setLinearRange(40.0, 120.0)
+            self.camLens.setFar(130.0)
+            self.setBackgroundColor(0.06, 0.05, 0.10, 1)
+            # Hide all imposters — they're visible as boxes in daylight
+            for e in self._ambient._entities:
+                if e.imposter and not e.imposter.isEmpty():
+                    e.imposter.hide()
+            console.log("[bold]DAYLIGHT[/bold] — inspection mode")
+        else:
+            self._amb_np.node().setColor(Vec4(0.38, 0.34, 0.32, 1))
+            self._fog.setColor(Vec4(0.06, 0.055, 0.06, 1))
+            self._fog.setLinearRange(8.0, 28.0)
+            self.camLens.setFar(30.0)
+            self.setBackgroundColor(0.06, 0.06, 0.07, 1)
+            # Re-show imposters
+            for e in self._ambient._entities:
+                if e.imposter and not e.imposter.isEmpty():
+                    e.imposter.show()
+            console.log("[bold]CAVE[/bold] — darkness restored")
+
     def _toggle_debug(self):
         self._debug_mode = not self._debug_mode
         if self._debug_mode:
@@ -1198,6 +1430,120 @@ void main() {
         self._debug_tags.clear()
         self._tag_counter = 0
 
+    def _showcase_light_layers(self):
+        """Spawn a museum arc of every base×light combo in front of the camera.
+
+        Two-row arc: front row = smaller objects, back row = larger objects.
+        Columns = [dark, moss, crystal, torch] with labels overhead.
+        All objects at roughly the same viewing distance.
+        Press 9 again to clear.
+        """
+        from panda3d.core import TextNode
+        from direct.gui.OnscreenText import OnscreenText
+        from core.systems.ambient_life import (
+            BUILDERS, LIGHT_LAYERS, apply_light_layer,
+        )
+
+        # Toggle — if showcase exists, remove it
+        if hasattr(self, "_showcase_root") and self._showcase_root:
+            self._showcase_root.removeNode()
+            self._showcase_root = None
+            for txt in getattr(self, "_showcase_labels", []):
+                txt.destroy()
+            self._showcase_labels = []
+            console.log("[bold cyan]SHOWCASE[/bold cyan]  cleared")
+            return
+
+        # Rows: front (small objects) and back (large objects)
+        front_row = ["dead_log", "rubble", "bone_pile"]
+        back_row = ["boulder", "stalagmite", "column"]
+        layers = [None] + list(LIGHT_LAYERS.keys())  # dark, moss, crystal, torch
+        layer_labels = ["dark"] + list(LIGHT_LAYERS.keys())
+
+        cam = self.cam.getPos()
+        cam_h = self._cam_h
+        fwd_x = -math.sin(math.radians(cam_h))
+        fwd_y = math.cos(math.radians(cam_h))
+        right_x = fwd_y
+        right_y = -fwd_x
+
+        col_spacing = 15.0
+        front_dist = 15.0   # small objects closer
+        back_dist = 28.0    # large objects further back
+        self._showcase_root = self.render.attachNewNode("showcase_grid")
+        self._showcase_labels = []
+
+        total_w = (len(layers) - 1) * col_spacing
+        seed_base = 12345
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
+
+        def _spawn_row(kinds, forward_dist, row_idx):
+            for col, layer_name in enumerate(layers):
+                cx = col * col_spacing - total_w * 0.5
+                wx = cam.getX() + fwd_x * forward_dist + right_x * cx
+                wy = cam.getY() + fwd_y * forward_dist + right_y * cx
+                wz = h_fn(wx, wy) + 0.3  # slight lift so decals read clearly
+
+                # Cycle through row objects per column for variety
+                kind = kinds[col % len(kinds)]
+                if kind not in BUILDERS:
+                    continue
+                builder_fn, _ = BUILDERS[kind]
+                seed = seed_base + row_idx * 1000 + col * 100
+                node = builder_fn(self._showcase_root, seed=seed)
+                if layer_name is not None:
+                    apply_light_layer(node, layer_name, seed)
+                node.setPos(wx, wy, wz)
+                # Face toward camera
+                node.setH(cam_h + 180)
+
+        _spawn_row(front_row, front_dist, 0)
+        _spawn_row(back_row, back_dist, 1)
+
+        # Column labels — screen-space text at top
+        for col, label in enumerate(layer_labels):
+            # Evenly spaced across the top of the screen
+            x_ndc = -0.6 + col * (1.2 / max(1, len(layer_labels) - 1))
+            txt = OnscreenText(
+                text=label.upper(),
+                pos=(x_ndc, 0.85),
+                scale=0.06,
+                fg=(1, 1, 1, 0.7),
+                shadow=(0, 0, 0, 0.8),
+                align=TextNode.ACenter,
+            )
+            self._showcase_labels.append(txt)
+
+        count = (len(front_row) + len(back_row)) * len(layers)
+        console.log(f"[bold cyan]SHOWCASE[/bold cyan]  {len(layers)} columns × 2 rows — "
+                    f"look ahead, columns labeled on screen")
+        console.log("[dim]Press 9 again to clear[/dim]")
+
+    # -- Tension Cycle hooks ---------------------------------------------------
+
+    def _toggle_tension(self):
+        """5 key — board or disembark the train."""
+        if self._tension.active:
+            self._tension.disembark()
+            console.log("[bold yellow]TRAIN: disembarked[/bold yellow]")
+        else:
+            self._tension.board()
+            console.log("[bold red]TRAIN: boarded[/bold red]")
+
+    def _on_tension_state(self, old, new):
+        console.log(f"[dim]TRAIN: {old} → {new}  "
+                     f"budget={self._tension.budget:.0%}[/dim]")
+
+    def _on_tension_dump(self):
+        """Dump phase — hibernate distant, clear spawn queue."""
+        console.log("[bold red]TRAIN: DUMP — hibernating distant tiles[/bold red]")
+
+    def _on_tension_rebirth(self):
+        """Rebirth phase — world re-emerges from darkness."""
+        console.log("[bold green]TRAIN: REBIRTH — world returning[/bold green]")
+
+    # -- Debug -----------------------------------------------------------------
+
     def _dump_debug_state(self):
         import traceback
         try:
@@ -1278,8 +1624,9 @@ void main() {
             f"chunk=({chunk[0]}, {chunk[1]})  loaded={len(self._chunks)}",
             f"probe: {p.get('surface', '?')}  d={p.get('distance', '?')}",
             f"reg={REGISTERS[self._register_index]}  tags={len(self._debug_tags)}  tex={self._tex_size_override}",
-            f"ambient: {self._ambient.active_count}/{self._ambient.total_count} awake",
+            f"ambient: {self._ambient.active_count}/{self._ambient.total_count} awake  hibernate={self._ambient.hibernated_count}",
             f"chrono: {self._chrono_state['day_phase']}  night={self._chrono_state['night_weight']:.2f}  moon={self._chrono_state['moon_approx']:.2f}",
+            f"TRAIN: {'ON' if self._tension.active else 'off'}  state={self._tension.state}  budget={self._tension.budget:.0%}  queue={len(self._object_spawn_queue)}",
         ]
         self._debug_hud_text.setText("\n".join(lines))
 
@@ -1324,8 +1671,28 @@ void main() {
         pos = self.cam.getPos()
         new_x = pos.getX() + move_x
         new_y = pos.getY() + move_y
-        terrain_z = self._height_at(new_x, new_y)
-        self.cam.setPos(new_x, new_y, terrain_z + EYE_Z)
+
+        # Collision — slide along hard object surfaces
+        new_x, new_y = self._ambient.collide_point(new_x, new_y)
+        moving = mag > 0
+
+        # Decay ground blend offset — prevents camera pop on G toggle
+        if abs(self._ground_blend_z) > 0.001:
+            self._ground_blend_z *= 0.88  # ~8 frames to settle
+        else:
+            self._ground_blend_z = 0.0
+
+        if self._use_fake_ground:
+            # WorldRunner mode — flat plane, camera bob sells height
+            bob = self._fake_ground.update(new_x, new_y, dt, moving)
+            self.cam.setPos(new_x, new_y, EYE_Z + bob + self._ground_blend_z)
+        else:
+            # Real ground — Perlin height query
+            terrain_z = self._height_at(new_x, new_y)
+            self.cam.setPos(new_x, new_y, terrain_z + EYE_Z + self._ground_blend_z)
+            # Still update fake ground position (for seamless toggle)
+            self._fake_ground.update(new_x, new_y)
+
         self.cam.setHpr(self._cam_h, self._cam_p, 0)
 
         # 60-frame cycle — spread all subsystems across the cycle
@@ -1335,21 +1702,23 @@ void main() {
 
         fc = self._frame_counter
 
-        # Chunk scan + dispatch: frames 0, 15, 30, 45 (4× per cycle)
-        if fc % 15 == 0:
-            self._dispatch_chunks()
+        # Chunk system — skip entirely when fake ground is active
+        if not self._use_fake_ground:
+            # Chunk scan + dispatch: frames 0, 15, 30, 45 (4× per cycle)
+            if fc % 15 == 0:
+                self._dispatch_chunks()
 
-        # Chunk build: frames 5, 10, 20, 25, 35, 40, 50, 55 (8× per cycle)
-        if fc % 5 == 0 and fc % 15 != 0:
-            self._build_ready_chunk()
+            # Chunk build: frames 5, 10, 20, 25, 35, 40, 50, 55 (8× per cycle)
+            if fc % 5 == 0 and fc % 15 != 0:
+                self._build_ready_chunk()
+
+            # Despawn check: frame 47 only (1× per cycle)
+            if fc == 47:
+                self._despawn_distant()
 
         # Ambient life: frames 3, 9, 21, 27, 33, 39, 51, 57 (8× per cycle)
         if fc % 6 == 3:
             self._ambient.tick(dt * 6, self.cam.getPos())
-
-        # Despawn check: frame 47 only (1× per cycle)
-        if fc == 47:
-            self._despawn_distant()
 
         # Object tile scan: frame 29 — queue new tiles; frame 53 — despawn far tiles
         if fc == 29:
@@ -1360,6 +1729,13 @@ void main() {
         # Drip-spawn queued objects: every frame (8 per frame, ~1ms budget)
         self._drip_spawn_objects()
 
+        # Drip-spawn deferred chunk entities: 4 per frame, O(1) popleft
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
+        for _ in range(min(4, len(self._deferred_entity_spawns))):
+            kind, pos, heading, seed, chunk_key = self._deferred_entity_spawns.popleft()
+            self._ambient.spawn(kind, pos=pos, heading=heading, seed=seed,
+                                height_fn=h_fn, chunk_key=chunk_key)
+
         # Manual GC: gen-0 only during gameplay — lightweight, ~0.1ms
         # Gen-1/2 were causing 50-75ms spikes with 3000+ entity node trees
         if fc == 37:
@@ -1368,31 +1744,30 @@ void main() {
         # Chronometer: frame 59 (1× per cycle, ~1 read per second)
         if fc == 59:
             self._chrono_state = self._chrono.read()
-            # Fog density shifts with time — denser at night
-            nw = self._chrono_state["night_weight"]
-            fog_near = 15.0 - nw * 4.0   # 15→11 at night
-            fog_far = 42.0 - nw * 8.0    # 42→34 at night
-            self._fog.setLinearRange(fog_near, fog_far)
-            # Ambient light dims at night
-            amb_scale = 1.0 - nw * 0.3   # 30% dimmer at deep night
-            self._amb_np.node().setColor(Vec4(
-                0.10 * amb_scale, 0.08 * amb_scale, 0.06 * amb_scale, 1))
 
-        # Orb animation: gentle bob + flicker
-        t = globalClock.getFrameTime()
-        fi = self._palette.get("flicker_intensity", 0.15)
-        lc = self._palette["sconce"]
-        flicker = 1.0 + fi * 0.4 * math.sin(t * 5.3) * math.sin(t * 7.7)
-        self._orb_np.node().setColor(Vec4(
-            lc[0] * 1.8 * flicker, lc[1] * 1.6 * flicker,
-            lc[2] * 1.4 * flicker, 1,
-        ))
-        # Gentle drift behind shoulder
-        bob_x = 0.3 + math.sin(t * 1.1) * 0.06
-        bob_y = -0.8 + math.cos(t * 0.9) * 0.04
-        bob_z = 0.6 + math.sin(t * 1.7) * 0.08
-        self._orb_np.setPos(bob_x, bob_y, bob_z)
-        self._orb_np.lookAt(self.cam, Vec3(0, 8, -1))  # always aim forward+down
+        # Tension Cycle — drives fog/ambient when active, chrono drives when not
+        # Budget based on non-hibernated entities — dump actually reduces pressure
+        env = self._tension.tick(dt, self._ambient.active_count,
+                                 self._ambient.MAX_ENTITIES)
+        if self._tension.active:
+            self._fog.setLinearRange(*env.fog)
+            self._amb_np.node().setColor(Vec4(*env.ambient, 1))
+            if env.should_dump:
+                self._ambient.hibernate_distant(self.cam.getPos(), keep_radius=1)
+                self._object_spawn_queue.clear()
+        else:
+            # Default chrono-driven fog/ambient
+            nw = self._chrono_state.get("night_weight", 0)
+            fog_near = 8.0 - nw * 2.0
+            fog_far = 28.0 - nw * 5.0
+            self._fog.setLinearRange(fog_near, fog_far)
+            amb_scale = 1.0 - nw * 0.3
+            self._amb_np.node().setColor(Vec4(
+                0.38 * amb_scale, 0.34 * amb_scale, 0.32 * amb_scale, 1))
+
+        # Torch disabled — skip flicker and positioning
+        cam_pos = self.cam.getPos()
+        h_fn = self._flat_height if self._use_fake_ground else self._height_at
 
         # Debug
         self._check_debug_commands()

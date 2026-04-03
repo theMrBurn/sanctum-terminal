@@ -1,0 +1,428 @@
+{
+  "camera": {
+    "x": 76.604,
+    "y": -1.005,
+    "z": 2.5,
+    "h": -265.2,
+    "p": 1.3
+  },
+  "probe": {
+    "surface": "sky",
+    "distance": -1,
+    "hit": [
+      0,
+      0,
+      0
+    ]
+  },
+  "tags": [
+    {
+      "id": 1,
+      "label": "#1",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        0.0,
+        0.0,
+        0.83
+      ],
+      "chunk": [
+        0,
+        0
+      ],
+      "tile": [
+        0,
+        0
+      ],
+      "camera": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 2.5,
+        "h": 11.5,
+        "p": -0.7
+      },
+      "perf": {
+        "frame_ms": 36.4,
+        "spawn_queue": 7355,
+        "entities_total": 7220,
+        "entities_active": 55,
+        "chunks_loaded": 9,
+        "wall_time": 1775203523.968
+      }
+    },
+    {
+      "id": 2,
+      "label": "#2",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        8.08,
+        22.37,
+        1.35
+      ],
+      "chunk": [
+        0,
+        1
+      ],
+      "tile": [
+        0,
+        0
+      ],
+      "camera": {
+        "x": 8.08,
+        "y": 22.37,
+        "z": 2.47,
+        "h": -39.7,
+        "p": 0.8
+      },
+      "perf": {
+        "frame_ms": 67.0,
+        "spawn_queue": 7967,
+        "entities_total": 11907,
+        "entities_active": 67,
+        "chunks_loaded": 9,
+        "wall_time": 1775203534.153
+      }
+    },
+    {
+      "id": 3,
+      "label": "#3",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        60.56,
+        83.97,
+        0.58
+      ],
+      "chunk": [
+        3,
+        5
+      ],
+      "tile": [
+        0,
+        0
+      ],
+      "camera": {
+        "x": 60.56,
+        "y": 83.97,
+        "z": 2.49,
+        "h": -41.1,
+        "p": -0.2
+      },
+      "perf": {
+        "frame_ms": 34.0,
+        "spawn_queue": 1983,
+        "entities_total": 20151,
+        "entities_active": 104,
+        "chunks_loaded": 9,
+        "wall_time": 1775203554.729
+      }
+    },
+    {
+      "id": 4,
+      "label": "#4",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        109.15,
+        93.52,
+        1.28
+      ],
+      "chunk": [
+        6,
+        5
+      ],
+      "tile": [
+        0,
+        0
+      ],
+      "camera": {
+        "x": 109.15,
+        "y": 93.52,
+        "z": 2.52,
+        "h": -162.6,
+        "p": -1.7
+      },
+      "perf": {
+        "frame_ms": 33.8,
+        "spawn_queue": 0,
+        "entities_total": 22611,
+        "entities_active": 104,
+        "chunks_loaded": 9,
+        "wall_time": 1775203579.288
+      }
+    },
+    {
+      "id": 5,
+      "label": "#5",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        118.76,
+        85.9,
+        1.06
+      ],
+      "chunk": [
+        7,
+        5
+      ],
+      "tile": [
+        0,
+        0
+      ],
+      "camera": {
+        "x": 118.76,
+        "y": 85.9,
+        "z": 2.5,
+        "h": -246.7,
+        "p": -12.8
+      },
+      "perf": {
+        "frame_ms": 32.5,
+        "spawn_queue": 0,
+        "entities_total": 22611,
+        "entities_active": 104,
+        "chunks_loaded": 9,
+        "wall_time": 1775203587.509
+      }
+    },
+    {
+      "id": 6,
+      "label": "#6",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        115.14,
+        87.3,
+        1.01
+      ],
+      "chunk": [
+        7,
+        5
+      ],
+      "tile": [
+        0,
+        0
+      ],
+      "camera": {
+        "x": 115.14,
+        "y": 87.3,
+        "z": 2.53,
+        "h": -217.0,
+        "p": -16.9
+      },
+      "perf": {
+        "frame_ms": 33.8,
+        "spawn_queue": 0,
+        "entities_total": 22611,
+        "entities_active": 106,
+        "chunks_loaded": 9,
+        "wall_time": 1775203594.717
+      }
+    },
+    {
+      "id": 7,
+      "label": "#7",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        112.93,
+        70.43,
+        0.68
+      ],
+      "chunk": [
+        7,
+        4
+      ],
+      "tile": [
+        0,
+        0
+      ],
+      "camera": {
+        "x": 112.93,
+        "y": 70.43,
+        "z": 2.52,
+        "h": -227.4,
+        "p": -19.0
+      },
+      "perf": {
+        "frame_ms": 41.7,
+        "spawn_queue": 0,
+        "entities_total": 22611,
+        "entities_active": 111,
+        "chunks_loaded": 9,
+        "wall_time": 1775203606.396
+      }
+    },
+    {
+      "id": 8,
+      "label": "#8",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        93.39,
+        22.64,
+        0.78
+      ],
+      "chunk": [
+        5,
+        1
+      ],
+      "tile": [
+        0,
+        0
+      ],
+      "camera": {
+        "x": 93.39,
+        "y": 22.64,
+        "z": 2.47,
+        "h": -208.5,
+        "p": -2.5
+      },
+      "perf": {
+        "frame_ms": 41.8,
+        "spawn_queue": 0,
+        "entities_total": 22611,
+        "entities_active": 93,
+        "chunks_loaded": 9,
+        "wall_time": 1775203621.563
+      }
+    },
+    {
+      "id": 9,
+      "label": "#9",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        59.47,
+        -10.81,
+        1.03
+      ],
+      "chunk": [
+        3,
+        -1
+      ],
+      "tile": [
+        0,
+        -1
+      ],
+      "camera": {
+        "x": 59.47,
+        "y": -10.81,
+        "z": 2.48,
+        "h": -240.2,
+        "p": -10.3
+      },
+      "perf": {
+        "frame_ms": 100.6,
+        "spawn_queue": 3535,
+        "entities_total": 23542,
+        "entities_active": 111,
+        "chunks_loaded": 9,
+        "wall_time": 1775203665.267
+      }
+    },
+    {
+      "id": 10,
+      "label": "#10",
+      "surface": "feet",
+      "distance": 0,
+      "pos": [
+        73.21,
+        -2.95,
+        1.08
+      ],
+      "chunk": [
+        4,
+        -1
+      ],
+      "tile": [
+        0,
+        -1
+      ],
+      "camera": {
+        "x": 73.21,
+        "y": -2.95,
+        "z": 2.47,
+        "h": -240.2,
+        "p": -10.3
+      },
+      "perf": {
+        "frame_ms": 83.6,
+        "spawn_queue": 2527,
+        "entities_total": 24731,
+        "entities_active": 111,
+        "chunks_loaded": 9,
+        "wall_time": 1775203669.321
+      }
+    }
+  ],
+  "register": "survival",
+  "chunks_loaded": 9,
+  "palette": {
+    "fog": [
+      0.04,
+      0.03,
+      0.03
+    ],
+    "ambient": [
+      0.05,
+      0.04,
+      0.06
+    ],
+    "sun": [
+      1.3,
+      0.85,
+      0.55
+    ],
+    "fill": [
+      0.06,
+      0.12,
+      0.2
+    ],
+    "sconce": [
+      1.0,
+      0.7,
+      0.35
+    ],
+    "backdrop": [
+      0.03,
+      0.02,
+      0.02
+    ],
+    "midground": [
+      0.06,
+      0.05,
+      0.04
+    ],
+    "stage_wall": [
+      0.1,
+      0.08,
+      0.07
+    ],
+    "stage_floor": [
+      0.08,
+      0.06,
+      0.05
+    ],
+    "bloom_intensity": 0.3,
+    "vignette_radius": 0.85,
+    "depth_tint_far": [
+      0.7,
+      0.75,
+      0.9
+    ],
+    "depth_tint_mid": [
+      0.85,
+      0.87,
+      0.92
+    ],
+    "warmth": 0.08,
+    "contrast": 1.12,
+    "saturation": 0.88,
+    "shadow_lift": 0.015,
+    "highlight_compress": 0.92,
+    "flicker_intensity": 0.15,
+    "weathering": 0.7
+  }
+}
