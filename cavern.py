@@ -155,11 +155,11 @@ OUTDOOR_PALETTE = {
 # Each state is a complete rendering snapshot. Chrono modulates passively within.
 OUTDOOR_LIGHT_STATES = {
     "day": {
-        "ambient": (0.55, 0.50, 0.45),    # warm daylight
-        "fog_color": (0.18, 0.20, 0.25),  # blue-grey haze
+        "ambient": (0.72, 0.65, 0.58),    # bright overcast daylight (was 0.55 — too dark)
+        "fog_color": (0.22, 0.24, 0.28),  # lighter blue-grey haze
         "fog_near": 15.0,
         "fog_far": 55.0,
-        "bg_color": (0.15, 0.18, 0.25),   # daytime sky
+        "bg_color": (0.18, 0.22, 0.30),   # brighter daytime sky
         "far_clip": 60.0,
         "sun_color": (1.0, 0.90, 0.65),   # warm disc
         "sun_scale": 4.0,
@@ -559,10 +559,10 @@ class Cavern(ShowBase):
         if self._biome == "outdoor":
             pp_config = PostProcessConfig(
                 bloom=BloomConfig(threshold=0.55, intensity=0.35),
-                vignette=VignetteConfig(radius=0.90, softness=0.45),
+                vignette=VignetteConfig(radius=0.95, softness=0.50),  # was 0.90/0.45 — less crush
                 color_grade=ColorGradeConfig(
-                    warmth=0.12, contrast=1.08, saturation=0.95,
-                    shadow_lift=0.02, highlight_compress=0.90,
+                    warmth=0.10, contrast=1.05, saturation=0.98,  # subtler grade
+                    shadow_lift=0.025, highlight_compress=0.92,   # lift shadows more
                 ),
             )
         else:
@@ -858,6 +858,47 @@ void main() {
             ))
 
         path_radius = rng.uniform(6.0, 10.0)  # clearance around each node
+
+        # FrameComposer pass — compose directed views between selected hex node pairs.
+        # Only compose ~30% of adjacent pairs to keep staging fast.
+        from core.systems.frame_composer import FrameComposer, FRAMING_CONFIG
+        frame_cfg = FRAMING_CONFIG.get(self._biome, FRAMING_CONFIG.get("cavern"))
+        composer = FrameComposer(seed=seed)
+        max_neighbor_dist = node_spacing * 2.0
+        frame_rng = __import__("random").Random(seed + 777)
+        for i in range(len(nodes)):
+            if frame_rng.random() > 0.3:  # only 30% of nodes compose
+                continue
+            n1x, n1y = nodes[i]
+            # Find nearest neighbor
+            best_j, best_d = -1, 9999.0
+            for j in range(len(nodes)):
+                if j == i:
+                    continue
+                dx, dy = nodes[j][0] - n1x, nodes[j][1] - n1y
+                d = math.sqrt(dx * dx + dy * dy)
+                if d < best_d and d < max_neighbor_dist:
+                    best_d = d
+                    best_j = j
+            if best_j < 0:
+                continue
+            n2x, n2y = nodes[best_j]
+            frames = composer.compose_along_path(
+                node_a=(n1x, n1y), node_b=(n2x, n2y), config=frame_cfg)
+            for fp in frames:
+                fx, fy = fp["pos"]
+                kind = fp["kind"]
+                clearance = HARD_OBJECTS.get(kind, 0)
+                too_close = False
+                for sx, sy, sc in solid_positions:
+                    if (fx - sx) ** 2 + (fy - sy) ** 2 < (clearance + sc) ** 2:
+                        too_close = True
+                        break
+                if too_close:
+                    continue
+                spawns.append((kind, (fx, fy), fp["heading"], rng.randint(0, 99999)))
+                if clearance > 0:
+                    solid_positions.append((fx, fy, clearance))
 
         def _dist_to_nearest_node(x, y):
             min_d = 9999.0
@@ -1302,7 +1343,7 @@ void main() {
 
         if self._biome == "outdoor":
             # PNW forest floor: green-brown grass with bare earth between
-            dirt_r, dirt_g, dirt_b = 0.06, 0.08, 0.03   # dark forest earth base
+            dirt_r, dirt_g, dirt_b = 0.09, 0.11, 0.05   # forest earth (brighter)
             stone_size = 0.65
             jitter_amt = 0.95
             overscan = 2.5
@@ -1348,9 +1389,9 @@ void main() {
                 if self._biome == "outdoor":
                     # Grass clumps: green dominant, warm variation = yellowed grass
                     cell_colors.append((
-                        max(0, min(1, 0.06 + v * 0.5 + warm)),       # low red
-                        max(0, min(1, 0.12 + v + warm * 0.3)),       # green dominant
-                        max(0, min(1, 0.03 + v * 0.3 - warm * 0.2)),  # low blue
+                        max(0, min(1, 0.09 + v * 0.5 + warm)),       # slightly warm
+                        max(0, min(1, 0.16 + v + warm * 0.3)),       # visible green
+                        max(0, min(1, 0.05 + v * 0.3 - warm * 0.2)),  # low blue
                     ))
                 else:
                     cell_colors.append((
