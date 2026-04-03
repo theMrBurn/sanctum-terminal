@@ -122,7 +122,7 @@ class Cavern(ShowBase):
         self.disableMouse()
         self.camLens.setFov(65.0)
         self.camLens.setNear(0.5)
-        self.camLens.setFar(45.0)  # match fog end — don't render what you can't see
+        self.camLens.setFar(30.0)  # match fog end — don't render what you can't see
         self.render.setAntialias(AntialiasAttrib.MMultisample)
         self.render.setShaderAuto()
 
@@ -144,7 +144,7 @@ class Cavern(ShowBase):
         self._ground_blend_z = 0.0    # lerp offset to prevent pop on G toggle
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
-        self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=45.0)
+        self._ambient = AmbientManager(self.render, wake_radius=25.0, sleep_radius=32.0)
         self._deferred_spawns = []  # ambient spawns queued across frames
         self._chrono = Chronometer()
         self._chrono_state = self._chrono.read()
@@ -186,7 +186,7 @@ class Cavern(ShowBase):
         self._fog = Fog("cavern_fog")
         fc = self._palette["fog"]
         self._fog.setColor(Vec4(fc[0], fc[1], fc[2], 1))
-        self._fog.setLinearRange(15.0, 42.0)  # tighter — nothing visible past 42m
+        self._fog.setLinearRange(8.0, 28.0)  # tight — hides sparse zones, world feels denser
         self.render.setFog(self._fog)
 
         # -- Camera start ------------------------------------------------------
@@ -449,7 +449,7 @@ void main() {
         # Honeycomb nodes = mega_column positions. Columns ARE the lattice.
         # First pass: place mega_columns on hex grid. These anchor every chamber.
         # All other objects fill around them.
-        node_spacing = rng.uniform(25.0, 35.0)
+        node_spacing = rng.uniform(12.0, 16.0)  # tight chambers — 4-6 visible in wake radius
         nodes = []
         ny = node_spacing * 0.5
         row = 0
@@ -468,8 +468,16 @@ void main() {
             ny += node_spacing * 0.87
             row += 1
 
-        # Always include (0, 0) vicinity so spawn point is in a chamber
-        nodes.append((rng.uniform(2.0, 8.0), rng.uniform(2.0, 8.0)))
+        # Front-load spawn area — guarantee dense cluster near (0, 0)
+        # Player should see a room, not a field, on first frame
+        nodes.append((0.0, 0.0))  # spawn node
+        for si in range(6):  # ring of 6 chambers around spawn
+            angle = si * 60 + rng.uniform(-10, 10)
+            dist = node_spacing * rng.uniform(0.8, 1.1)
+            nodes.append((
+                math.cos(math.radians(angle)) * dist,
+                math.sin(math.radians(angle)) * dist,
+            ))
 
         path_radius = rng.uniform(6.0, 10.0)  # clearance around each node
 
@@ -1724,8 +1732,8 @@ void main() {
         else:
             # Default chrono-driven fog/ambient
             nw = self._chrono_state.get("night_weight", 0)
-            fog_near = 15.0 - nw * 4.0
-            fog_far = 42.0 - nw * 8.0
+            fog_near = 8.0 - nw * 2.0
+            fog_far = 28.0 - nw * 5.0
             self._fog.setLinearRange(fog_near, fog_far)
             amb_scale = 1.0 - nw * 0.3
             self._amb_np.node().setColor(Vec4(

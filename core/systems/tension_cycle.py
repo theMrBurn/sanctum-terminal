@@ -41,42 +41,42 @@ CAVERN_CYCLE = {
     # Budget = entity_count / MAX_ENTITIES (25K).
     # Walking to a new tile adds ~4K entities = ~0.16 budget jump.
     "open": {
-        "fog": (15.0, 42.0),
+        "fog": (8.0, 28.0),
         "ambient": (0.32, 0.28, 0.26),
         "budget_floor": 0.0,
-        "budget_ceiling": 0.50,      # ~12.5K entities
+        "budget_ceiling": 0.50,
     },
     "building": {
-        "fog": (12.0, 35.0),
-        "ambient": (0.22, 0.18, 0.16),
+        "fog": (7.0, 22.0),
+        "ambient": (0.24, 0.20, 0.18),
         "budget_floor": 0.50,
-        "budget_ceiling": 0.60,      # ~15K — one tile boundary
+        "budget_ceiling": 0.60,
     },
     "tension": {
-        "fog": (8.0, 24.0),
-        "ambient": (0.14, 0.11, 0.10),
+        "fog": (5.0, 16.0),
+        "ambient": (0.16, 0.13, 0.11),
         "budget_floor": 0.60,
-        "budget_ceiling": 0.72,      # ~18K — noticeable constriction
+        "budget_ceiling": 0.72,
     },
     "tunnel": {
-        "fog": (5.0, 14.0),
-        "ambient": (0.06, 0.05, 0.04),
+        "fog": (3.0, 10.0),
+        "ambient": (0.08, 0.06, 0.05),
         "budget_floor": 0.72,
-        "budget_ceiling": 0.82,      # ~20.5K — tight, dark
+        "budget_ceiling": 0.82,
     },
     "dump": {
-        "fog": (3.0, 8.0),
-        "ambient": (0.02, 0.02, 0.02),
+        "fog": (2.0, 5.0),
+        "ambient": (0.03, 0.02, 0.02),
         "budget_floor": 0.82,
         "budget_ceiling": 1.0,
         "hold_seconds": 2.5,
     },
     "rebirth": {
-        "fog": (8.0, 28.0),
-        "ambient": (0.16, 0.13, 0.11),
+        "fog": (5.0, 18.0),
+        "ambient": (0.18, 0.15, 0.13),
         "budget_floor": 0.0,
         "budget_ceiling": 0.15,
-        "hold_seconds": 4.0,         # slow emergence — savor the return
+        "hold_seconds": 4.0,
     },
 }
 
