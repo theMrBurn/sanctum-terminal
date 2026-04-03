@@ -392,11 +392,11 @@ OUTDOOR_PALETTE = {
 # Values are ~1.8x brighter than target to compensate for the stacking.
 # boulder target green (0.19, 0.33, 0.12) → scale (0.65, 1.20, 0.48) × baked (0.55, 0.50, 0.48)
 OUTDOOR_COLOR_SCALES = {
-    "boulder":         (0.65, 1.20, 0.48, 1.0),  # sword fern mound — visible green
+    "boulder":         (0.75, 1.45, 0.55, 1.0),  # sword fern mound — bright green
     "column":          (0.90, 0.75, 0.55, 1.0),  # tree bark — warm brown
     "mega_column":     (0.82, 0.65, 0.48, 1.0),  # old growth bark — rich brown
     "stalagmite":      (0.82, 0.70, 0.52, 1.0),  # dead stump / standing stone
-    "giant_fungus":    (0.90, 0.78, 0.52, 1.0),  # large bush / rhododendron
+    "giant_fungus":    (0.60, 1.10, 0.45, 1.0),  # large bush — green dominant, suppress magenta
     "crystal_cluster": (1.00, 0.82, 0.55, 1.0),  # flowering shrub — warm
     "moss_patch":      (0.40, 0.95, 0.25, 1.0),  # natural moss — green, not neon
     "dead_log":        (0.55, 0.78, 0.35, 1.0),  # nurse log — mossy green-brown
