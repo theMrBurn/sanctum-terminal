@@ -2885,12 +2885,21 @@ class AmbientManager:
         """Per-frame update: staggered wake/sleep, tick active behaviors."""
         cx, cy = cam_pos.getX(), cam_pos.getY()
 
-        # Adaptive wake/sleep scan — batch size self-regulates based on last tick cost.
-        # If last tick was fast (< budget), scan more. If slow (> budget), scan less.
+        # Freeze scan when stationary — skip wake/sleep if player hasn't moved 5m.
         import time as _time
         _tick_start = _time.monotonic()
+        moved = True
+        if hasattr(self, '_last_scan_pos'):
+            lx, ly = self._last_scan_pos
+            ddx, ddy = cx - lx, cy - ly
+            if ddx * ddx + ddy * ddy < 25.0:  # 5m squared
+                moved = False
+        if moved:
+            self._last_scan_pos = (cx, cy)
+
+        # Adaptive wake/sleep scan — only runs when player is moving.
         n = len(self._entities)
-        if n > 0:
+        if n > 0 and moved:
             # Adjust batch based on last tick performance
             if self._last_tick_ms > self._tick_budget_ms * 1.2:
                 self._adaptive_batch = max(50, self._adaptive_batch - 30)
@@ -2977,10 +2986,20 @@ class AmbientManager:
         fwd_y = math.cos(math.radians(cam_h))
         frame_n = self._mote_frame  # reuse as global frame counter
 
+        # Fog-distance threshold: entities beyond this are 50%+ fog-painted.
+        # Skip their tick entirely — visual noise at that distance.
+        fog_skip_r2 = 625.0  # 25m squared
+
         for idx, e in enumerate(self._active):
-            # Behind-camera check: dot product of (entity - camera) vs forward
             dx = e.pos[0] - cx
             dy = e.pos[1] - cy
+            d2 = dx * dx + dy * dy
+
+            # Fog-covered: skip everything — behavior, motes, spectrum
+            if d2 > fog_skip_r2:
+                continue
+
+            # Behind-camera check
             dot = dx * fwd_x + dy * fwd_y
             behind = dot < 0
 
@@ -2988,7 +3007,6 @@ class AmbientManager:
             is_static = isinstance(e.behavior, StaticBehavior)
             if not is_static:
                 if behind:
-                    # Behind camera: tick every 6th frame, compensate dt
                     if frame_n % 6 == idx % 6:
                         e.behavior.tick(dt * 6)
                 else:
