@@ -280,7 +280,7 @@ class Cavern(ShowBase):
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
         if self._biome == "outdoor":
-            self._ambient = AmbientManager(self.render, wake_radius=55.0, sleep_radius=65.0)
+            self._ambient = AmbientManager(self.render, wake_radius=40.0, sleep_radius=50.0)
         else:
             self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=38.0)
         self._deferred_spawns = []  # ambient spawns queued across frames
@@ -367,12 +367,11 @@ class Cavern(ShowBase):
         self.accept("g", self._toggle_fake_ground)
         self.accept("9", self._showcase_light_layers)
         self.accept("b", self._toggle_tension)  # B = Board/disembark the train
-        # -- Sky body (sun/moon) — self-lit billboard at fog boundary ----------
-        if self._biome == "outdoor":
-            self._setup_sky_bodies()
-        else:
-            self._sun_np = None
-            self._moon_np = None
+        # Sky bodies disabled — billboard rendering produces vertical line artifacts.
+        # Ambient light + fog color communicate time of day without geometry.
+        # TODO: Fix billboard rendering or use textured card approach.
+        self._sun_np = None
+        self._moon_np = None
 
         self.taskMgr.add(self._loop, "CavernLoop")
 
@@ -2033,10 +2032,11 @@ void main() {
             if fc == 47:
                 self._despawn_distant()
 
-        # Ambient life: frames 3, 9, 21, 27, 33, 39, 51, 57 (8× per cycle)
-        if fc % 6 == 3:
-            self._ambient._cam_heading = self._cam_h  # feed heading for behind-camera check
-            self._ambient.tick(dt * 6, self.cam.getPos())
+        # Ambient life: frames 3, 15, 27, 39, 51 (5× per cycle, every 12th frame)
+        # Was every 6th (8×). Rats at 5fps indistinguishable from 10fps.
+        if fc % 12 == 3:
+            self._ambient._cam_heading = self._cam_h
+            self._ambient.tick(dt * 12, self.cam.getPos())
 
         # Object tile scan: frame 29 — queue new tiles; frame 53 — despawn far tiles
         if fc == 29:
