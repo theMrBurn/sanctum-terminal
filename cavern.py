@@ -345,12 +345,9 @@ class Cavern(ShowBase):
         for key, node in self._chunks.items():
             node.stash()
 
-        # -- Post-processing: DISABLED for decal diagnostic ----------
-        # Bloom's render-to-texture pipeline may eat additive-blended cards.
-        # Grain fullscreen overlay may obscure them. Both off until decals work.
-        self._bloom_on = False
-        self._filters = None
-        self._grain_card = None
+        # -- Post-processing -------------------------------------------------------
+        self._setup_postprocess()
+        self._setup_grain_shader()
 
         # -- Controls ----------------------------------------------------------
         self.accept("escape", sys.exit)
@@ -543,6 +540,126 @@ class Cavern(ShowBase):
         self._fog.setLinearRange(ls["fog_near"], ls["fog_far"])
         self.camLens.setFar(ls["far_clip"])
         self.setBackgroundColor(*ls["bg_color"], 1)
+
+    def _setup_postprocess(self):
+        """Wire bloom (CommonFilters) + color grading (fullscreen card).
+
+        Bloom: Panda3D CommonFilters — proven on this hardware via shadowbox.
+        Color grade: fullscreen GLSL card composited over scene (same as grain).
+        Both use GLSL 1.20 (Metal-safe).
+        """
+        from core.systems.postprocess import (
+            PostProcessPipeline, PostProcessConfig, BloomConfig,
+            ColorGradeConfig, VignetteConfig,
+        )
+
+        # Biome-specific post-process tuning
+        if self._biome == "outdoor":
+            pp_config = PostProcessConfig(
+                bloom=BloomConfig(threshold=0.55, intensity=0.35),
+                vignette=VignetteConfig(radius=0.90, softness=0.45),
+                color_grade=ColorGradeConfig(
+                    warmth=0.12, contrast=1.08, saturation=0.95,
+                    shadow_lift=0.02, highlight_compress=0.90,
+                ),
+            )
+        else:
+            pp_config = PostProcessConfig(
+                bloom=BloomConfig(threshold=0.65, intensity=0.25),
+                vignette=VignetteConfig(radius=0.82, softness=0.40),
+                color_grade=ColorGradeConfig(
+                    warmth=0.05, contrast=1.12, saturation=0.88,
+                    shadow_lift=0.015, highlight_compress=0.92,
+                ),
+            )
+
+        self._pp = PostProcessPipeline(pp_config)
+        self._bloom_on = False
+        self._filters = None
+
+        # CommonFilters bloom — proven pattern from shadowbox_dungeon
+        try:
+            from direct.filter.CommonFilters import CommonFilters
+            self._filters = CommonFilters(self.win, self.cam)
+            self._filters.setBloom(
+                blend=(0.3, 0.4, 0.3, 0.0),
+                mintrigger=pp_config.bloom.threshold,
+                maxtrigger=1.0,
+                desat=0.5,
+                intensity=pp_config.bloom.intensity,
+                size="medium",
+            )
+            self._bloom_on = True
+            console.log(f"[green]Bloom ON[/green] threshold={pp_config.bloom.threshold} "
+                        f"intensity={pp_config.bloom.intensity}")
+        except Exception as e:
+            console.log(f"[yellow]Bloom unavailable:[/yellow] {e}")
+
+        # Color grading fullscreen card — same technique as grain shader
+        from panda3d.core import Shader
+        from core.systems.postprocess import FULLSCREEN_VERT
+        grade_frag = """
+#version 120
+varying vec2 texcoord;
+
+uniform float warmth;
+uniform float contrast;
+uniform float saturation;
+uniform float shadow_lift;
+uniform float highlight_compress;
+uniform float vignette_radius;
+uniform float vignette_softness;
+
+void main() {
+    // Color grade operates on the framebuffer via alpha blend
+    // Base = mid-gray, modifications shift from there
+    vec2 uv = texcoord;
+
+    // Film curves
+    float lift = shadow_lift;
+    float compress = highlight_compress;
+
+    // Warmth tint
+    float r_shift = warmth * 0.08;
+    float b_shift = -warmth * 0.04;
+
+    // Vignette
+    vec2 vc = uv * 2.0 - 1.0;
+    float dist = length(vc);
+    float vig = smoothstep(vignette_radius, vignette_radius - vignette_softness, dist);
+    float darken = 1.0 - (1.0 - vig) * 0.4;
+
+    // Composite as additive color shift
+    gl_FragColor = vec4(
+        r_shift * darken + lift,
+        lift * darken,
+        b_shift * darken + lift,
+        0.15 * darken
+    );
+}
+"""
+        try:
+            grade_shader = Shader.make(Shader.SL_GLSL, FULLSCREEN_VERT, grade_frag)
+            cm = CardMaker("color_grade")
+            cm.setFrameFullscreenQuad()
+            self._grade_card = self.render2d.attachNewNode(cm.generate())
+            self._grade_card.setShader(grade_shader)
+            self._grade_card.setTransparency(TransparencyAttrib.MAlpha)
+            self._grade_card.setBin("fixed", 90)  # before grain (100)
+            # Set uniforms
+            u = self._pp.get_composite_uniforms()
+            self._grade_card.setShaderInput("warmth", u["warmth"])
+            self._grade_card.setShaderInput("contrast", u["contrast"])
+            self._grade_card.setShaderInput("saturation", u["saturation"])
+            self._grade_card.setShaderInput("shadow_lift", u["shadow_lift"])
+            self._grade_card.setShaderInput("highlight_compress", u["highlight_compress"])
+            self._grade_card.setShaderInput("vignette_radius", u["vignette_radius"])
+            self._grade_card.setShaderInput("vignette_softness", u["vignette_softness"])
+            console.log(f"[green]Color grade ON[/green] warmth={pp_config.color_grade.warmth} "
+                        f"vignette={pp_config.vignette.radius}")
+        except Exception as e:
+            console.log(f"[yellow]Color grade unavailable:[/yellow] {e}")
+            self._grade_card = None
 
     def _setup_grain_shader(self):
         """Screen-space film grain — constant visual motion masks frame hitches."""

@@ -82,47 +82,48 @@ CAVERN_CYCLE = {
 }
 
 OUTDOOR_CYCLE = {
-    # Tighter thresholds — wider wake radius = more active entities.
-    # Fog ranges scaled to outdoor distances (15-55m baseline).
-    # Flora collapses in like cavern walls — forest swallows you.
-    "budget_max": 500,     # wake-radius capacity, not hard cap
+    # Calibrated from live UAT: 320-488 active entities with companion spawns.
+    # budget_max=800 gives headroom. Wider bands = slower progression.
+    # Lerp speed 5.0s (set on TensionCycle init) for gradual weather-like transitions.
+    "budget_max": 800,     # 320-488 active = 0.40-0.61 budget range
+    "lerp_speed": 5.0,     # seconds per transition (was 3.0 — too snappy)
     "open": {
         "fog": (15.0, 55.0),
         "ambient": (0.55, 0.50, 0.45),     # warm daylight
         "budget_floor": 0.0,
-        "budget_ceiling": 0.35,              # trigger sooner than cavern
+        "budget_ceiling": 0.50,              # was 0.35 — stay open longer
     },
     "building": {
-        "fog": (12.0, 40.0),
-        "ambient": (0.40, 0.35, 0.30),     # overcast rolling in
-        "budget_floor": 0.35,
-        "budget_ceiling": 0.45,
+        "fog": (12.0, 42.0),
+        "ambient": (0.42, 0.38, 0.32),     # overcast rolling in
+        "budget_floor": 0.50,
+        "budget_ceiling": 0.62,              # was 0.45 — wider band
     },
     "tension": {
-        "fog": (8.0, 25.0),
-        "ambient": (0.25, 0.20, 0.16),     # dim canopy
-        "budget_floor": 0.45,
-        "budget_ceiling": 0.55,
+        "fog": (8.0, 30.0),
+        "ambient": (0.28, 0.24, 0.18),     # dim canopy
+        "budget_floor": 0.62,
+        "budget_ceiling": 0.74,              # was 0.55
     },
     "tunnel": {
-        "fog": (4.0, 12.0),
-        "ambient": (0.10, 0.08, 0.06),     # deep twilight
-        "budget_floor": 0.55,
-        "budget_ceiling": 0.65,
+        "fog": (5.0, 18.0),
+        "ambient": (0.14, 0.11, 0.08),     # deep twilight (was 0.10 — too dark)
+        "budget_floor": 0.74,
+        "budget_ceiling": 0.85,
     },
     "dump": {
-        "fog": (2.0, 6.0),
-        "ambient": (0.04, 0.03, 0.03),     # near-dark, forest gone
-        "budget_floor": 0.65,
+        "fog": (3.0, 10.0),                 # was 2/6 — too claustrophobic
+        "ambient": (0.06, 0.05, 0.04),      # was 0.04 — slightly brighter
+        "budget_floor": 0.85,
         "budget_ceiling": 1.0,
-        "hold_seconds": 3.0,                # slightly longer — weight of silence
+        "hold_seconds": 5.0,                 # was 3.0 — let the silence land
     },
     "rebirth": {
-        "fog": (10.0, 35.0),
-        "ambient": (0.30, 0.25, 0.20),     # dawn breaking through canopy
+        "fog": (10.0, 38.0),
+        "ambient": (0.35, 0.30, 0.24),     # dawn — warmer than before
         "budget_floor": 0.0,
-        "budget_ceiling": 0.10,
-        "hold_seconds": 5.0,                # sunrise is slow
+        "budget_ceiling": 0.15,
+        "hold_seconds": 8.0,                 # was 5.0 — sunrise is slow
     },
 }
 
@@ -156,7 +157,7 @@ class TensionCycle:
         self._state = "open"
         self._prev_state = "open"
         self._lerp_t = 1.0
-        self._lerp_speed = 3.0      # seconds to blend between states — matched to walk pace
+        self._lerp_speed = self._config.get("lerp_speed", 3.0)
         self._hold_timer = 0.0
         self._active = False         # train is boarded
         self._envelope = CycleEnvelope()
