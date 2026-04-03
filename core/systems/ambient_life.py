@@ -476,13 +476,13 @@ COMPANION_SPAWNS = {
 }
 
 # Outdoor: anchor objects pull PNW ecosystem companions
+# Companion counts reduced — each costs a tick slot. Density table handles volume.
 OUTDOOR_COMPANION_SPAWNS = {
-    "mega_column": {"moss_patch": 2, "grass_tuft": 2, "leaf_pile": 1, "radius": 8.0},  # Doug fir base
-    "column":      {"moss_patch": 1, "grass_tuft": 1, "radius": 4.0},   # tree trunk base
-    "boulder":     {"grass_tuft": 2, "leaf_pile": 1, "radius": 4.0},    # fern cluster understory
-    "dead_log":    {"moss_patch": 2, "grass_tuft": 1, "leaf_pile": 1, "radius": 3.0},  # nurse log ecosystem
-    "stalagmite":  {"grass_tuft": 1, "rubble": 1, "radius": 3.0},       # stump with debris
-    "giant_fungus": {"moss_patch": 1, "grass_tuft": 1, "radius": 3.5},  # bush with ground cover
+    "mega_column": {"moss_patch": 1, "grass_tuft": 1, "radius": 8.0},   # Doug fir base
+    "column":      {"grass_tuft": 1, "radius": 4.0},                    # tree trunk base
+    "boulder":     {"grass_tuft": 1, "radius": 4.0},                    # fern understory
+    "dead_log":    {"moss_patch": 1, "radius": 3.0},                    # nurse log
+    "giant_fungus": {"grass_tuft": 1, "radius": 3.5},                   # bush ground cover
 }
 
 
