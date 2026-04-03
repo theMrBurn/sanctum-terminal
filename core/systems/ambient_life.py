@@ -2685,13 +2685,17 @@ class AmbientManager:
         self._imposter_r2 = (sleep_radius + 15.0) ** 2  # imposters visible beyond sleep
         self._entities = []         # all entities
         self._active = set()        # currently ticking (set for O(1) add/remove)
-        self._active_hard = []      # collidable subset — only HARD_OBJECTS entities
+        self._active_hard = set()   # collidable subset — only HARD_OBJECTS entities (set for O(1) remove)
         self._check_cursor = 0      # stagger wake/sleep checks across frames
         self._check_batch = 20      # entities to check per frame
         self._max_lights = 8        # GPU budget: nearest N bio-lights only
         self._active_lights = []    # [(dist2, glow_np, entity), ...] sorted
         self._hibernated_n = 0      # incremental counter — no full scans
         self._mote_frame = 0        # throttle: tick motes every 3rd frame
+        # Adaptive tick budget — self-regulating batch size
+        self._tick_budget_ms = 8.0  # target: 8ms max per tick (leaves 25ms for render)
+        self._last_tick_ms = 0.0
+        self._adaptive_batch = 150  # starting scan batch, adjusts per tick
 
     def spawn(self, kind, pos, heading=0, seed=0, height_fn=None, chunk_key=None,
               biome="Cavern_Default"):
@@ -2799,10 +2803,7 @@ class AmbientManager:
                     if e.awake:
                         self._active.discard(e)
                         if e.kind in HARD_OBJECTS:
-                            try:
-                                self._active_hard.remove(e)
-                            except ValueError:
-                                pass
+                            self._active_hard.discard(e)
                         e.awake = False
                         self._hibernated_n += 1
                         if e.node and not e.node.isEmpty():
@@ -2884,11 +2885,18 @@ class AmbientManager:
         """Per-frame update: staggered wake/sleep, tick active behaviors."""
         cx, cy = cam_pos.getX(), cam_pos.getY()
 
-        # Staggered wake/sleep — batch scales with entity count
-        # Target: full scan in ~3 seconds (8 ticks/sec × 3s = 24 ticks)
+        # Adaptive wake/sleep scan — batch size self-regulates based on last tick cost.
+        # If last tick was fast (< budget), scan more. If slow (> budget), scan less.
+        import time as _time
+        _tick_start = _time.monotonic()
         n = len(self._entities)
         if n > 0:
-            batch = max(self._check_batch, n // 24)
+            # Adjust batch based on last tick performance
+            if self._last_tick_ms > self._tick_budget_ms * 1.2:
+                self._adaptive_batch = max(50, self._adaptive_batch - 30)
+            elif self._last_tick_ms < self._tick_budget_ms * 0.6:
+                self._adaptive_batch = min(400, self._adaptive_batch + 20)
+            batch = self._adaptive_batch
             for _ in range(batch):
                 if self._check_cursor >= n:
                     self._check_cursor = 0
@@ -2912,7 +2920,7 @@ class AmbientManager:
                     e.node.setAlphaScale(1.0)
                     self._active.add(e)
                     if e.kind in HARD_OBJECTS:
-                        self._active_hard.append(e)
+                        self._active_hard.add(e)
                     # Hide imposter if it exists
                     if e.imposter and not e.imposter.isEmpty():
                         e.imposter.removeNode()
@@ -2933,10 +2941,7 @@ class AmbientManager:
                     e.node.hide()
                     self._active.discard(e)
                     if e.kind in HARD_OBJECTS:
-                        try:
-                            self._active_hard.remove(e)
-                        except ValueError:
-                            pass
+                        self._active_hard.discard(e)
                     for m in e.motes:
                         if not m.isEmpty():
                             m.removeNode()
@@ -2998,6 +3003,9 @@ class AmbientManager:
                 rs, gs, bs = SpectrumEngine.drift(e.spectrum, elapsed, e.seed)
                 br, bg, bb = e.base_color_scale
                 e.node.setColorScale(br + rs, bg + gs, bb + bs, 1.0)
+
+        # Record tick cost for adaptive budget
+        self._last_tick_ms = (_time.monotonic() - _tick_start) * 1000.0
 
     def reseat_ground(self, old_height_fn, new_height_fn):
         """Reseat all entities when switching ground modes.
