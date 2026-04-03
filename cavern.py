@@ -126,15 +126,15 @@ BIOME_OUTDOOR_FOREST = [
     ("crystal_cluster",   0.10,     2.0,       3),   # flowering shrub / wildflower
     ("dead_log",          0.70,     1.5,       2),   # nurse logs — more common outdoors
     ("moss_patch",        0.60,     0,         2),   # ground moss — PNW essential
-    ("grass_tuft",        2.50,     0,         1),   # dense understory grass
+    ("grass_tuft",        1.50,     0,         1),   # understory grass (was 2.50 — ground tex handles density)
     ("rubble",            0.40,     0,         1),   # scattered stones
-    ("leaf_pile",         1.20,     0,         1),   # fir needles + fallen leaves
-    ("twig_scatter",      1.00,     0,         1),   # forest floor debris
+    ("leaf_pile",         0.80,     0,         1),   # fir needles (was 1.20 — less clutter)
     ("firefly",           0.60,     0,         1),   # dusk fireflies
     ("leaf",              0.50,     0,         1),   # drifting leaves / fir needles
-    ("beetle",            0.30,     0,         2),   # forest insects
-    ("rat",               0.20,     0,         2),   # squirrel / chipmunk (color override)
-    ("cave_gravel",       0.30,     0,         0),   # dirt / pebbles
+    ("beetle",            0.20,     0,         2),   # forest insects
+    ("rat",               0.15,     0,         2),   # squirrel / chipmunk
+    # cave_gravel + twig_scatter REMOVED — imperceptible at walking speed through fog.
+    # Saves ~1000 entity slots for things that matter.
     ("horizon_form",      0.10,    12.0,      30),   # distant tree line silhouettes
     ("horizon_mid",       0.08,     8.0,      20),
     ("horizon_near",      0.10,     6.0,      12),
