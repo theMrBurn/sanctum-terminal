@@ -1915,6 +1915,7 @@ def build_giant_fungus(parent, seed=0):
     shaft_h = total_h * 0.5
     make_light_shaft(root, color=(0.35, 0.10, 0.50), shaft_height=shaft_h, shaft_width=base_r * 2.0, tex=shaft_tex)
 
+    root.flattenStrong()  # 10 GeomNodes → 1
     return root
 
 
@@ -1956,6 +1957,7 @@ def build_moss_patch(parent, seed=0):
     tex = get_glow_texture(64, surface="wet_stone")
     make_glow_decal(root, color=(0.15, 0.75, 0.12), radius=5.0, tex=tex)
 
+    root.flattenStrong()  # 10 GeomNodes → 1
     return root
 
 
@@ -2059,6 +2061,7 @@ def build_crystal_cluster(parent, seed=0):
                           halo_radius=trunk_r * 2.5, halo_height=tallest_h * 0.5)
     halo.setPos(0, 0, tallest_h * 0.4)  # sit at mid-crystal height
 
+    root.flattenStrong()  # 53 GeomNodes → 1. Critical for draw call budget.
     return root
 
 
