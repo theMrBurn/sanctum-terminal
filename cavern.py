@@ -102,6 +102,54 @@ BIOME_CAVERN_DEFAULT = [
     ("spider",            0.12,    0,         2),
 ]
 
+# -- Outdoor biome stub --------------------------------------------------------
+# Same engine, different config. Reuses existing builders where possible.
+# mega_column → "big tree" (tall, wide, landmark). column → "tree trunk".
+# boulder stays boulder. stalagmite → tall rock or dead tree stump.
+# crystal/fungus → flowering bush or berry cluster (reuse glow decal).
+# Fog: longer range, blue-grey. Ambient: warmer, brighter.
+# Clearings = honeycomb chambers. Tree trunks = chamber walls.
+#
+# ACTIVE_BIOME controls which table + palette is loaded at init.
+
+BIOME_OUTDOOR_FOREST = [
+    # kind               density  clearance  margin
+    # Trees as structure — same role as columns (chamber walls)
+    ("mega_column",       0.08,    12.0,      20),   # huge ancient trees (reuse mega_column builder)
+    ("column",            0.40,     4.0,       8),   # regular tree trunks
+    ("boulder",           0.80,     3.0,       3),   # mossy rocks in clearings
+    ("stalagmite",        0.60,     1.5,       2),   # dead stumps / standing stones
+    ("giant_fungus",      0.15,     2.5,       3),   # large bush (reuse shape, change color)
+    ("crystal_cluster",   0.10,     2.0,       3),   # flowering shrub (reuse glow)
+    ("dead_log",          0.70,     1.5,       2),   # fallen logs — more common outdoors
+    ("moss_patch",        0.60,     0,         2),   # ground cover
+    ("grass_tuft",        2.50,     0,         1),   # dense ground grass
+    ("rubble",            0.40,     0,         1),   # scattered stones
+    ("leaf_pile",         1.20,     0,         1),   # fallen leaves everywhere
+    ("twig_scatter",      1.00,     0,         1),   # forest floor debris
+    ("firefly",           0.60,     0,         1),   # more common outdoors at dusk
+    ("leaf",              0.50,     0,         1),   # drifting leaves
+    ("beetle",            0.30,     0,         2),   # insects
+    ("rat",               0.20,     0,         2),   # less common outdoors
+    ("cave_gravel",       0.30,     0,         0),   # dirt/pebbles
+    ("horizon_form",      0.10,    12.0,      30),   # distant tree silhouettes
+    ("horizon_mid",       0.08,     8.0,      20),
+    ("horizon_near",      0.10,     6.0,      12),
+]
+
+# Palette overrides for outdoor biome (layered onto base register palette)
+OUTDOOR_PALETTE = {
+    "fog_color": (0.18, 0.20, 0.25),    # blue-grey mist, not cave black
+    "fog_near": 15.0,                     # longer visibility
+    "fog_far": 55.0,                      # wide open feel
+    "far_clip": 60.0,
+    "ambient_color": (0.55, 0.50, 0.45),  # warm daylight ambient
+    "bg_color": (0.15, 0.18, 0.25),       # twilight sky
+}
+
+# Toggle: "cavern" or "outdoor"
+ACTIVE_BIOME = "cavern"
+
 
 class Cavern(ShowBase):
 
@@ -118,11 +166,20 @@ class Cavern(ShowBase):
         gc.disable()
 
         # -- Rendering setup ---------------------------------------------------
-        self.setBackgroundColor(0.06, 0.06, 0.07, 1)  # lifted — void has depth, not pure black
-        self.disableMouse()
-        self.camLens.setFov(65.0)
-        self.camLens.setNear(0.5)
-        self.camLens.setFar(30.0)  # match fog end — don't render what you can't see
+        self._biome = ACTIVE_BIOME
+        if self._biome == "outdoor":
+            op = OUTDOOR_PALETTE
+            self.setBackgroundColor(*op["bg_color"], 1)
+            self.disableMouse()
+            self.camLens.setFov(65.0)
+            self.camLens.setNear(0.5)
+            self.camLens.setFar(op["far_clip"])
+        else:
+            self.setBackgroundColor(0.06, 0.06, 0.07, 1)
+            self.disableMouse()
+            self.camLens.setFov(65.0)
+            self.camLens.setNear(0.5)
+            self.camLens.setFar(30.0)
         self.render.setAntialias(AntialiasAttrib.MMultisample)
         self.render.setShaderAuto()
 
@@ -144,7 +201,10 @@ class Cavern(ShowBase):
         self._ground_blend_z = 0.0    # lerp offset to prevent pop on G toggle
         self._placer = PlacementEngine(seed=self._chunk_seed)
         self._entropy = EntropyEngine()
-        self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=38.0)  # wake at fog far — objects start fully fogged, fog reveals them
+        if self._biome == "outdoor":
+            self._ambient = AmbientManager(self.render, wake_radius=55.0, sleep_radius=65.0)
+        else:
+            self._ambient = AmbientManager(self.render, wake_radius=30.0, sleep_radius=38.0)
         self._deferred_spawns = []  # ambient spawns queued across frames
         self._chrono = Chronometer()
         self._chrono_state = self._chrono.read()
@@ -186,9 +246,13 @@ class Cavern(ShowBase):
 
         # -- Fog ---------------------------------------------------------------
         self._fog = Fog("cavern_fog")
-        fc = self._palette["fog"]
-        self._fog.setColor(Vec4(0.06, 0.055, 0.06, 1))  # lifted fog — depth, not void
-        self._fog.setLinearRange(8.0, 28.0)  # tight — hides sparse zones, world feels denser
+        if self._biome == "outdoor":
+            op = OUTDOOR_PALETTE
+            self._fog.setColor(Vec4(*op["fog_color"], 1))
+            self._fog.setLinearRange(op["fog_near"], op["fog_far"])
+        else:
+            self._fog.setColor(Vec4(0.06, 0.055, 0.06, 1))
+            self._fog.setLinearRange(8.0, 28.0)
         self.render.setFog(self._fog)
 
         # -- Camera start ------------------------------------------------------
@@ -266,7 +330,11 @@ class Cavern(ShowBase):
 
         # Ambient only — the sole pipeline light. Everything else is decals.
         amb = AmbientLight("amb")
-        amb.setColor(Vec4(0.38, 0.34, 0.32, 1))
+        if self._biome == "outdoor":
+            ac = OUTDOOR_PALETTE["ambient_color"]
+            amb.setColor(Vec4(*ac, 1))
+        else:
+            amb.setColor(Vec4(0.38, 0.34, 0.32, 1))
         self._amb_np = self.render.attachNewNode(amb)
         self.render.setLight(self._amb_np)
 
@@ -442,7 +510,7 @@ void main() {
         choices about which way to go.
         """
         if biome is None:
-            biome = BIOME_CAVERN_DEFAULT
+            biome = BIOME_OUTDOOR_FOREST if self._biome == "outdoor" else BIOME_CAVERN_DEFAULT
         tile = self._object_tile_size
         tile_area = tile * tile
         rng = __import__("random").Random(seed)
