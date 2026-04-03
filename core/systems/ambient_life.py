@@ -365,6 +365,17 @@ TILE_VARIANTS = {
 # Built into the parent node via flattenStrong — zero extra entity overhead.
 
 # -- Collision config ----------------------------------------------------------
+# Anchor objects wake at extended range — they're the landmarks you see first.
+# Everything else uses the default wake radius.
+ANCHOR_WAKE_MULT = {
+    "mega_column":      1.8,   # visible from fog distance
+    "column":           1.6,
+    "crystal_cluster":  1.5,
+    "giant_fungus":     1.4,
+    "boulder":          1.3,
+    "ceiling_moss":     1.5,   # the glow should be visible early
+}
+
 # "Hard" objects the player can't walk through. Soft objects (grass, motes,
 # leaves) have no collision. Each hard kind has a collision radius derived
 # from its typical build size.
@@ -1180,18 +1191,21 @@ def build_boulder(parent, seed=0):
     vis_compensate = 1.6
 
     if crumbled:
-        # Crumbled: 2-3 stacked slabs, slight separation
-        slab_count = rng.randint(2, 3)
-        slab_h = total_height / slab_count
+        # Crumbled: 2 chunky blocks, not flat slabs
+        slab_count = 2
         z = 0
         for si in range(slab_count):
-            sw = base_width * rng.uniform(0.85, 1.1) * (1.0 + si * 0.05)
-            sd = base_depth * rng.uniform(0.85, 1.1)
+            sw = base_width * rng.uniform(0.7, 1.0) * (0.9 + si * 0.1)
+            sd = base_depth * rng.uniform(0.7, 1.0)
+            # Each block must be at least 40% as tall as it is wide — no pancakes
+            slab_h_raw = total_height / slab_count
+            slab_w = sw * 0.5
+            slab_h = max(slab_w * 0.4, slab_h_raw * 0.5 * vis_compensate)
             color = _cavern_color("stone", rng, 0.03)
             slab = root.attachNewNode(make_rock(
-                sw * 0.5, slab_h * 0.5 * vis_compensate, sd * 0.5, color,
+                slab_w, slab_h, sd * 0.5, color,
                 rings=5, segments=8, seed=seed + si * 31,
-                roughness=rng.uniform(0.15, 0.30),
+                roughness=rng.uniform(0.25, 0.45),
             ))
             slab.setPos(rng.uniform(-0.3, 0.3), rng.uniform(-0.2, 0.2), z)
             slab.setH(rng.uniform(-8, 8))
@@ -1439,8 +1453,8 @@ def build_stalagmite(parent, seed=0):
     rng = random.Random(seed)
     root = parent.attachNewNode(f"stalagmite_{seed}")
 
-    # Wide variety: stubby thick ones to tall thin spires
-    height = rng.uniform(1.0, 6.0)
+    # Wide variety: no stubby pancakes — minimum 2m for visual presence
+    height = rng.uniform(2.0, 6.0)
     base_w = height * rng.uniform(0.12, 0.35)  # thin spire to chunky column
     base_d = base_w * rng.uniform(0.6, 1.0)    # round to oval base
 
@@ -1457,9 +1471,9 @@ def build_stalagmite(parent, seed=0):
     sv = rng.uniform(-0.02, 0.02)
     color = (base[0] + sv, base[1] + sv * 0.7, base[2] + sv * 0.5)
 
-    # Tall narrow rock — height dominates
+    # Tall narrow rock — height compensated for bottom squash (1.6×)
     rock = root.attachNewNode(make_rock(
-        base_w, height * 0.5, base_d, color,
+        base_w, height * 0.5 * 1.6, base_d, color,
         rings=6, segments=7, seed=seed,
         roughness=rng.uniform(0.2, 0.4),
     ))
@@ -1470,7 +1484,7 @@ def build_stalagmite(parent, seed=0):
     if rng.random() < 0.4:
         s = rng.uniform(0.3, 0.6)
         small = root.attachNewNode(make_rock(
-            base_w * s, height * 0.5 * s, base_d * s, color,
+            base_w * s, height * 0.5 * 1.6 * s, base_d * s, color,
             rings=4, segments=5, seed=seed + 77,
             roughness=rng.uniform(0.25, 0.5),
         ))
@@ -2688,19 +2702,18 @@ class AmbientManager:
         Removed when entity wakes or goes beyond imposter range.
         """
         cr = HARD_OBJECTS.get(entity.kind, 1.0)
-        from panda3d.core import CardMaker
+        from panda3d.core import CardMaker, TransparencyAttrib
         cm = CardMaker("imposter")
-        hw = cr * 0.8
-        hh = cr * 1.5  # taller than wide — reads as a column/boulder silhouette
+        hw = cr * 0.5   # smaller — subtle, not obvious cards
+        hh = cr * 1.0
         cm.setFrame(-hw, hw, 0, hh)
         imp = self._render.attachNewNode(cm.generate())
         imp.setPos(entity.pos[0], entity.pos[1], entity.pos[2])
         imp.setBillboardPointEye()
-        imp.setColor(0.06, 0.055, 0.055, 0.8)
+        imp.setColor(0.05, 0.045, 0.045, 0.5)  # darker, more transparent — blends into fog
         imp.setLightOff()
         imp.setDepthWrite(False)
         imp.setBin("transparent", 5)
-        from panda3d.core import TransparencyAttrib
         imp.setTransparency(TransparencyAttrib.MAlpha)
         entity.imposter = imp
 
@@ -2754,12 +2767,20 @@ class AmbientManager:
                 dy = e.pos[1] - cy
                 d2 = dx * dx + dy * dy
 
-                if not e.awake and d2 < self._wake_r2:
+                # Anchors wake at extended range — landmarks visible first
+                wake_mult = ANCHOR_WAKE_MULT.get(e.kind, 1.0)
+                entity_wake_r2 = self._wake_r2 * (wake_mult * wake_mult)
+
+                if not e.awake and d2 < entity_wake_r2:
                     # Full wake — show real geometry
                     e.awake = True
-                    e.fade_alpha = 0.0
+                    if wake_mult > 1.0:
+                        # Anchors: instant show — they're landmarks, no ghost fade
+                        e.fade_alpha = 1.0
+                    else:
+                        e.fade_alpha = 0.0
                     e.node.show()
-                    e.node.setAlphaScale(0.0)
+                    e.node.setAlphaScale(e.fade_alpha)
                     self._active.add(e)
                     # Hide imposter if it exists
                     if e.imposter and not e.imposter.isEmpty():
@@ -2773,7 +2794,8 @@ class AmbientManager:
                         if mote_cfg:
                             origin = (e.pos[0], e.pos[1], e.pos[2])
                             e.motes = _spawn_motes(e.node, mote_cfg, origin)
-                elif e.awake and d2 > self._sleep_r2:
+                entity_sleep_r2 = self._sleep_r2 * (wake_mult * wake_mult)
+                if e.awake and d2 > entity_sleep_r2:
                     # Sleep — hide real geometry, show imposter if in range
                     e.awake = False
                     e.node.hide()

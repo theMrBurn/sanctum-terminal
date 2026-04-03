@@ -411,10 +411,11 @@ void main() {
             for i in range(7)
         ]
         self._place_object_tiles()
-        # Stage ALL initial objects synchronously — world populated before first frame
+        # Stage initial objects — cap at 3000 sync, drip the rest across first frames
         console.log("[dim]Staging objects...[/dim]")
         h_fn = self._flat_height if self._use_fake_ground else self._height_at
-        while self._object_spawn_queue:
+        staged = 0
+        while self._object_spawn_queue and staged < 3000:
             kind, wx, wy, heading, seed, tile_key = \
                 self._object_spawn_queue.popleft()
             wz = h_fn(wx, wy)
@@ -424,7 +425,9 @@ void main() {
                                 heading=heading, seed=seed,
                                 height_fn=h_fn,
                                 chunk_key=tile_key)
-        console.log(f"[bold green]Objects ready. ({self._ambient.total_count} entities)[/bold green]")
+            staged += 1
+        remaining = len(self._object_spawn_queue)
+        console.log(f"[bold green]Objects ready. ({self._ambient.total_count} staged, {remaining} dripping)[/bold green]")
 
     def _generate_object_template(self, seed, biome=None):
         """Generate a tile layout with honeycomb path network.
@@ -449,7 +452,7 @@ void main() {
         # Honeycomb nodes = mega_column positions. Columns ARE the lattice.
         # First pass: place mega_columns on hex grid. These anchor every chamber.
         # All other objects fill around them.
-        node_spacing = rng.uniform(12.0, 16.0)  # tight chambers — 4-6 visible in wake radius
+        node_spacing = rng.uniform(18.0, 24.0)  # balanced — dense enough to feel enclosed, light enough to stage fast
         nodes = []
         ny = node_spacing * 0.5
         row = 0
@@ -459,11 +462,27 @@ void main() {
                 jx = nx + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
                 jy = ny + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
                 nodes.append((jx, jy))
-                # Spawn a mega_column or column at each node center
-                col_kind = "mega_column" if rng.random() < 0.3 else "column"
-                spawns.append((col_kind, (jx, jy),
+                # 30% get a column anchor, 70% get a bio-lit landmark
+                roll = rng.random()
+                if roll < 0.15:
+                    anchor = "mega_column"
+                    solid_positions.append((jx, jy, 5.0))
+                elif roll < 0.30:
+                    anchor = "column"
+                    solid_positions.append((jx, jy, 3.0))
+                elif roll < 0.50:
+                    anchor = "crystal_cluster"
+                    solid_positions.append((jx, jy, 2.0))
+                elif roll < 0.70:
+                    anchor = "giant_fungus"
+                    solid_positions.append((jx, jy, 2.0))
+                elif roll < 0.85:
+                    anchor = "boulder"
+                    solid_positions.append((jx, jy, 3.0))
+                else:
+                    anchor = "moss_patch"  # pure light source, no collision
+                spawns.append((anchor, (jx, jy),
                                rng.uniform(0, 360), rng.randint(0, 99999)))
-                solid_positions.append((jx, jy, 5.0))
                 nx += node_spacing
             ny += node_spacing * 0.87
             row += 1
@@ -491,8 +510,8 @@ void main() {
             return min_d
 
         for kind, density, clearance, margin in biome:
-            # Columns already placed at honeycomb nodes — skip from density pass
-            if kind in ("mega_column", "column"):
+            # Anchor objects placed at honeycomb nodes — skip from density pass
+            if kind in ("mega_column", "column", "crystal_cluster", "giant_fungus"):
                 continue
             base_count = density * tile_area / 1000.0
             count = max(0, int(rng.uniform(base_count * 0.7, base_count * 1.3)))
@@ -636,7 +655,7 @@ void main() {
             self._object_spawn_queue.clear()
             return
         h_fn = self._flat_height if self._use_fake_ground else self._height_at
-        for _ in range(8):
+        for _ in range(16):  # 16 per frame — clear queue faster
             if not self._object_spawn_queue:
                 return
             kind, wx, wy, heading, seed, tile_key = \
