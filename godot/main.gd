@@ -338,6 +338,7 @@ func _cycle_outline_mode() -> void:
 	if outline_material:
 		outline_material.set_shader_parameter("outline_mode", outline_mode)
 	print("Outline: %s" % OUTLINE_MODE_NAMES[outline_mode])
+	_show_toast("Outline: %s" % OUTLINE_MODE_NAMES[outline_mode])
 
 
 func _spawn_ground() -> void:
@@ -352,7 +353,7 @@ func _spawn_ground() -> void:
 		var mat := ShaderMaterial.new()
 		mat.shader = shader
 		var palette: Array = manifest.get("ambient", [0.12, 0.10, 0.06])
-		mat.set_shader_parameter("color_base", Color(0.03, 0.025, 0.02))  # near-black — light defines the ground
+		mat.set_shader_parameter("color_base", Color(0.18, 0.15, 0.12))  # visible stone — OmniLights paint this
 		var fc_arr: Array = manifest.get("fog", {}).get("color", [0.1, 0.1, 0.1])
 		mat.set_shader_parameter("fog_color", Color(fc_arr[0], fc_arr[1], fc_arr[2]))
 		var grain: Texture2D = load("res://world_grain.png")
@@ -362,8 +363,8 @@ func _spawn_ground() -> void:
 		if nmap:
 			mat.set_shader_parameter("normal_tex", nmap)
 		mat.set_shader_parameter("grain_scale", 0.35)
-		mat.set_shader_parameter("grain_strength", 0.12)
-		mat.set_shader_parameter("normal_strength", 0.4)
+		mat.set_shader_parameter("grain_strength", 0.40)  # visible stone texture — gives scale and distance
+		mat.set_shader_parameter("normal_strength", 0.8)  # surface relief from OmniLights
 		mesh.material = mat
 	else:
 		var mat := StandardMaterial3D.new()
@@ -527,14 +528,30 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 		kind_nodes["Hull_%s_v%d" % [kind, variant]] = hull_mmi
 
 
+var toast_label: Label
+var toast_timer: float = 0.0
+
+func _show_toast(msg: String) -> void:
+	if toast_label:
+		toast_label.text = msg
+		toast_label.modulate.a = 1.0
+		toast_timer = 2.0
+
 func _setup_hud() -> void:
 	hud_label = Label.new()
 	hud_label.name = "HUD"
 	hud_label.position = Vector2(12, 8)
 	hud_label.add_theme_font_size_override("font_size", 14)
 	hud_label.add_theme_color_override("font_color", Color(0.7, 0.65, 0.55))
+	toast_label = Label.new()
+	toast_label.name = "Toast"
+	toast_label.position = Vector2(12, 30)
+	toast_label.add_theme_font_size_override("font_size", 16)
+	toast_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.6))
+	toast_label.modulate.a = 0.0
 	var canvas := CanvasLayer.new()
 	canvas.add_child(hud_label)
+	canvas.add_child(toast_label)
 	add_child(canvas)
 	_update_hud()
 
@@ -559,6 +576,14 @@ func _connect_to_brain() -> void:
 
 
 func _process(delta: float) -> void:
+	# Toast fade
+	if toast_timer > 0.0:
+		toast_timer -= delta
+		if toast_timer <= 0.0 and toast_label:
+			toast_label.modulate.a = 0.0
+		elif toast_timer < 0.5 and toast_label:
+			toast_label.modulate.a = toast_timer / 0.5
+
 	# Poll TCP connection
 	if tcp:
 		tcp.poll()
@@ -689,6 +714,8 @@ func _update_atmosphere() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
+	# Cave is dark — light comes from emissives, not ambient
+	godot_env.ambient_light_energy = 0.15
 
 	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
 	godot_env.background_color = Color(bg[0], bg[1], bg[2])
@@ -781,6 +808,39 @@ func _update_creatures(delta: float) -> void:
 # -- Telemetry tags ------------------------------------------------------------
 
 var tag_count: int = 0
+var tag_markers: Array[Node3D] = []
+
+func _drop_tag_marker(num: int, pos: Vector3) -> void:
+	var marker := Node3D.new()
+	marker.position = Vector3(pos.x, 0.5, pos.z)  # ground level, slightly raised
+	# Billboard label
+	var label := Label3D.new()
+	label.text = "#%d" % num
+	label.font_size = 48
+	label.modulate = Color(1.0, 0.85, 0.3, 0.9)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.position.y = 0.5
+	marker.add_child(label)
+	# Small sphere at ground to mark the spot
+	var dot := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.08
+	sphere.height = 0.16
+	sphere.radial_segments = 6
+	sphere.rings = 3
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.85, 0.3)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.85, 0.3)
+	mat.emission_energy_multiplier = 3.0
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sphere.material = mat
+	dot.mesh = sphere
+	marker.add_child(dot)
+	marker.name = "TagMarker_%d" % num
+	add_child(marker)
+	tag_markers.append(marker)
 
 func _save_tag() -> void:
 	tag_count += 1
@@ -792,19 +852,43 @@ func _save_tag() -> void:
 	var vis: int = manifest.get("entities", []).size()
 	var fname: String = "sanctum_tag_%02d_x%s_y%s_h%s_%s_%dvis.png" % [
 		tag_count, str(cx), str(cy), str(ch), tension_st, vis]
-	# Save to project directory (godot/tags/) — accessible by Claude
-	var dir_path: String = "res://tags"
-	DirAccess.make_dir_recursive_absolute(dir_path)
-	var path: String = dir_path + "/" + fname
+	# Save to absolute path — res:// is read-only at runtime
+	var tag_dir: String = "/Users/themrburn/git/sanctum-terminal/godot/tags"
+	DirAccess.make_dir_recursive_absolute(tag_dir)
+	var path: String = tag_dir + "/" + fname
 	var err: int = img.save_png(path)
-	if err == OK:
-		print("TAG #%d: %s" % [tag_count, fname])
-	else:
-		# Fallback: try absolute path
-		var abs_path: String = "/Users/themrburn/git/sanctum-terminal/godot/tags/" + fname
-		DirAccess.make_dir_recursive_absolute("/Users/themrburn/git/sanctum-terminal/godot/tags")
-		err = img.save_png(abs_path)
-		print("TAG #%d: %s (err=%d)" % [tag_count, abs_path, err])
+	print("TAG #%d: %s (err=%d)" % [tag_count, path, err])
+	# Sidecar JSON with full telemetry
+	var telemetry := {
+		"tag": tag_count,
+		"camera": {
+			"x": snapped(camera.position.x, 0.01),
+			"y": snapped(camera.position.z, 0.01),
+			"z": snapped(camera.position.y, 0.01),
+			"heading": snapped(camera.rotation_degrees.y, 0.1),
+			"pitch": snapped(camera.rotation_degrees.x, 0.1),
+			"fov": camera.fov,
+		},
+		"tension_state": manifest.get("tension_state", ""),
+		"tension_budget": manifest.get("tension_budget", 0.0),
+		"biome": manifest.get("biome", ""),
+		"entities_visible": manifest.get("entities", []).size(),
+		"tiles": manifest.get("stats", {}).get("tiles", 0),
+		"outline_mode": OUTLINE_MODE_NAMES[outline_mode],
+		"light_catches": 0,  # removed — ground receives light naturally
+		"emissive_lights": emissive_lights.size(),
+		"fog": manifest.get("fog", {}),
+		"ambient": manifest.get("ambient", []),
+		"connected": connected,
+	}
+	var json_path: String = path.replace(".png", ".json")
+	var jfile := FileAccess.open(json_path, FileAccess.WRITE)
+	if jfile:
+		jfile.store_string(JSON.stringify(telemetry, "  "))
+		jfile.close()
+	_show_toast("TAG #%d saved" % tag_count)
+	# Drop 3D marker at tag position
+	_drop_tag_marker(tag_count, camera.position)
 
 
 # -- Lighting + Motes ----------------------------------------------------------
@@ -833,7 +917,7 @@ const LIGHT_KINDS := {
 		"mote_height": 3.0,
 	},
 	"giant_fungus": {
-		"color": Color(0.18, 0.30, 0.10),  # warm green-amber, organic not crystal
+		"color": Color(0.18, 0.30, 0.10),
 		"energy": 8.0,
 		"range": 10.0,
 		"attenuation": 1.4,
@@ -843,7 +927,7 @@ const LIGHT_KINDS := {
 		"mote_height": 4.0,
 	},
 	"moss_patch": {
-		"color": Color(0.10, 0.40, 0.08),  # green glow
+		"color": Color(0.10, 0.40, 0.08),
 		"energy": 6.0,
 		"range": 8.0,
 		"attenuation": 1.3,
@@ -853,7 +937,7 @@ const LIGHT_KINDS := {
 		"mote_height": 1.0,
 	},
 	"firefly": {
-		"color": Color(0.95, 0.75, 0.30),  # warm amber
+		"color": Color(0.95, 0.75, 0.30),
 		"energy": 1.0,
 		"range": 3.0,
 		"attenuation": 2.0,
@@ -863,7 +947,7 @@ const LIGHT_KINDS := {
 		"mote_height": 1.5,
 	},
 	"filament": {
-		"color": Color(0.30, 0.40, 0.55),  # cool blue thread
+		"color": Color(0.30, 0.40, 0.55),
 		"energy": 1.5,
 		"range": 4.0,
 		"attenuation": 1.8,
@@ -873,7 +957,7 @@ const LIGHT_KINDS := {
 		"mote_height": 2.5,
 	},
 	"ceiling_moss": {
-		"color": Color(0.6, 0.40, 0.12),  # amber drip glow
+		"color": Color(0.6, 0.40, 0.12),
 		"energy": 6.0,
 		"range": 12.0,
 		"attenuation": 1.3,
@@ -1117,25 +1201,21 @@ func _input(event: InputEvent) -> void:
 		else:
 			get_tree().quit()
 
-	# T key — telemetry tag (screenshot + position)
-	if event is InputEventKey and event.pressed and event.keycode == KEY_T:
-		_save_tag()
-
-	# L key — cycle light state
-	if event is InputEventKey and event.pressed and event.keycode == KEY_L:
-		if connected:
-			var msg := JSON.stringify({"cmd": "light_cycle"}) + "\n"
-			tcp.put_data(msg.to_utf8_buffer())
-
-	# O key — cycle outline mode (Moebius / Manga / Sable)
-	if event is InputEventKey and event.pressed and event.keycode == KEY_O:
-		_cycle_outline_mode()
-
-	# B key — toggle tension cycle
-	if event is InputEventKey and event.pressed and event.keycode == KEY_B:
-		if connected:
-			var msg := JSON.stringify({"cmd": "tension_toggle"}) + "\n"
-			tcp.put_data(msg.to_utf8_buffer())
+	# Key bindings — use physical_keycode for layout-independent matching
+	if event is InputEventKey and event.pressed and not event.echo:
+		match event.physical_keycode:
+			KEY_T, KEY_0:  # telemetry tag (screenshot + position)
+				_save_tag()
+			KEY_L:  # cycle light state
+				if connected:
+					var msg := JSON.stringify({"cmd": "light_cycle"}) + "\n"
+					tcp.put_data(msg.to_utf8_buffer())
+			KEY_O:  # cycle outline mode (Moebius / Manga / Sable)
+				_cycle_outline_mode()
+			KEY_B:  # toggle tension cycle
+				if connected:
+					var msg := JSON.stringify({"cmd": "tension_toggle"}) + "\n"
+					tcp.put_data(msg.to_utf8_buffer())
 
 
 func _unhandled_input(event: InputEvent) -> void:
