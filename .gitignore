@@ -41,3 +41,7 @@ tests/mock_exports/
 
 # ── Reference model packs (CC0, downloaded locally) ──────────────────────────
 assets/kenney/
+
+# ── Godot ─────────────────────────────────────────────────────────────────────
+godot/.godot/
+godot/manifest.json

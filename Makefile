@@ -71,3 +71,19 @@ cavern:
 
 viewer:
 	PYTHONPATH=. ./.venv/bin/python template_viewer.py
+
+# ── Godot Bridge ──────────────────────────────────────────────────────────────
+godot-export:
+	PYTHONPATH=. ./.venv/bin/python godot_export.py outdoor
+
+godot-export-cavern:
+	PYTHONPATH=. ./.venv/bin/python godot_export.py cavern
+
+godot-meshes:
+	PYTHONPATH=. ./.venv/bin/python tools/export_glb.py
+
+brain:
+	PYTHONPATH=. ./.venv/bin/python brain_server.py outdoor
+
+brain-cavern:
+	PYTHONPATH=. ./.venv/bin/python brain_server.py cavern
