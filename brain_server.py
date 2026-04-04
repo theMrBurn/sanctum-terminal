@@ -148,6 +148,9 @@ class BrainWorld:
             sx, sy_s, sz = props["scale"]
             r, g, b = props["color"]
 
+            # Light hue index — which color from LIGHT_LAYERS this emissive rolls
+            light_hue_idx = srng.randint(0, 3)
+
             ent = {
                 "kind": kind,
                 "x": round(x, 2),
@@ -155,6 +158,7 @@ class BrainWorld:
                 "z": round(z, 2),
                 "heading": round(heading, 1),
                 "sv": round(sv, 3),
+                "light_hue": light_hue_idx,
                 "sx": round(sx * sv, 3),
                 "sy": round(sy_s * sv, 3),
                 "sz": round(sz * srng.uniform(0.80, 1.20), 3),
