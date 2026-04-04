@@ -1,0 +1,172 @@
+{
+  "_class_defaults": {
+    "geological": {
+      "shading": "smooth",
+      "material": "stone_heavy",
+      "material_ratio": 0.80,
+      "roughness": {"base": 0.85, "wet": 0.25, "wet_height": 0.3},
+      "light_response": 0.35,
+      "contact": {"radius": 3.0, "darkness": 0.4},
+      "normal_map": "world_grain_normal",
+      "normal_strength": 0.8,
+      "surface_effects": ["wet_base"],
+      "spectrum_susceptibility": {
+        "wet": 0.8, "mold": 0.4, "fungal": 0.2,
+        "heat": 0.6, "cold": 0.7, "radioactive": 0.1
+      },
+      "destruction": {"vector": "crack_radial", "intensity": 0.0, "facing": [0, 0, 0]},
+      "sink": -0.15,
+      "scale_override": null
+    },
+    "structural": {
+      "shading": "smooth",
+      "material": "stone_heavy",
+      "material_ratio": 0.80,
+      "roughness": {"base": 0.90, "wet": 0.30, "wet_height": 0.2},
+      "light_response": 0.15,
+      "contact": {"radius": 6.0, "darkness": 0.5},
+      "normal_map": "world_grain_normal",
+      "normal_strength": 1.0,
+      "surface_effects": ["wet_base", "moss_climb"],
+      "spectrum_susceptibility": {
+        "wet": 0.9, "mold": 0.6, "fungal": 0.3,
+        "heat": 0.3, "cold": 0.5, "radioactive": 0.05
+      },
+      "destruction": {"vector": "erosion_wind", "intensity": 0.0, "facing": [0, 0, 0]},
+      "sink": -0.3,
+      "scale_override": {"x": 2.2, "y": 1.0, "z": 2.2}
+    },
+    "crystalline": {
+      "shading": "flat",
+      "material": "stone_light",
+      "material_ratio": 1.00,
+      "roughness": {"base": 0.15, "wet": 0.05, "wet_height": 0.0},
+      "light_response": 0.9,
+      "contact": {"radius": 4.0, "darkness": 0.3},
+      "normal_map": "world_grain_normal",
+      "normal_strength": 0.0,
+      "surface_effects": [],
+      "spectrum_susceptibility": {
+        "wet": 0.2, "mold": 0.0, "fungal": 0.0,
+        "heat": 0.8, "cold": 0.3, "radioactive": 0.9
+      },
+      "destruction": {"vector": "thermal_split", "intensity": 0.0, "facing": [0, 0, 0]},
+      "sink": -0.05,
+      "scale_override": null,
+      "transparency": 0.15,
+      "inner_glow": 0.6,
+      "pulse_rate": 0.02
+    },
+    "organic_flora": {
+      "shading": "smooth",
+      "material": "dry_organic",
+      "material_ratio": 1.20,
+      "roughness": {"base": 0.75, "wet": 0.35, "wet_height": 0.5},
+      "light_response": 0.25,
+      "contact": {"radius": 1.5, "darkness": 0.2},
+      "normal_map": "world_grain_normal",
+      "normal_strength": 0.5,
+      "surface_effects": ["wet_base", "moss_patches"],
+      "spectrum_susceptibility": {
+        "wet": 1.0, "mold": 0.8, "fungal": 0.7,
+        "heat": 0.4, "cold": 0.6, "radioactive": 0.05
+      },
+      "destruction": {"vector": null, "intensity": 0.0, "facing": [0, 0, 0]},
+      "sink": -0.05,
+      "scale_override": null,
+      "subsurface": 0.3,
+      "growth_direction": "up"
+    },
+    "atmosphere": {
+      "shading": "smooth",
+      "material": "dry_organic",
+      "material_ratio": 1.20,
+      "roughness": {"base": 0.70, "wet": 0.40, "wet_height": 1.0},
+      "light_response": 0.20,
+      "contact": {"radius": 0.0, "darkness": 0.0},
+      "normal_map": null,
+      "normal_strength": 0.0,
+      "surface_effects": [],
+      "spectrum_susceptibility": {
+        "wet": 1.0, "mold": 0.5, "fungal": 0.3,
+        "heat": 0.1, "cold": 0.2, "radioactive": 0.0
+      },
+      "destruction": {"vector": null, "intensity": 0.0, "facing": [0, 0, 0]},
+      "sink": 0.0,
+      "scale_override": null,
+      "alpha_fade": 0.3,
+      "sway_amplitude": 0.1
+    },
+    "life": {
+      "shading": "smooth",
+      "material": "dry_organic",
+      "material_ratio": 1.20,
+      "roughness": {"base": 0.60, "wet": 0.30, "wet_height": 0.0},
+      "light_response": 0.10,
+      "contact": {"radius": 0.0, "darkness": 0.0},
+      "normal_map": null,
+      "normal_strength": 0.0,
+      "surface_effects": [],
+      "spectrum_susceptibility": {
+        "wet": 0.0, "mold": 0.0, "fungal": 0.0,
+        "heat": 0.0, "cold": 0.0, "radioactive": 0.0
+      },
+      "destruction": {"vector": null, "intensity": 0.0, "facing": [0, 0, 0]},
+      "sink": 0.0,
+      "scale_override": null,
+      "billboard": false
+    },
+    "horizon": {
+      "shading": "smooth",
+      "material": "stone_heavy",
+      "material_ratio": 0.80,
+      "roughness": {"base": 0.95, "wet": 0.0, "wet_height": 0.0},
+      "light_response": 0.0,
+      "contact": {"radius": 0.0, "darkness": 0.0},
+      "normal_map": null,
+      "normal_strength": 0.0,
+      "surface_effects": [],
+      "spectrum_susceptibility": {},
+      "destruction": {"vector": null, "intensity": 0.0, "facing": [0, 0, 0]},
+      "sink": 0.0,
+      "scale_override": null,
+      "always_silhouette": true,
+      "fog_locked": true
+    }
+  },
+
+  "kinds": {
+    "boulder":         {"class": "geological", "contact": {"radius": 3.0, "darkness": 0.4}, "surface_effects": ["wet_base", "moss_patches"]},
+    "stalagmite":      {"class": "geological", "shading": "flat", "contact": {"radius": 1.0, "darkness": 0.3}, "surface_effects": ["wet_base"]},
+    "rubble":          {"class": "geological", "contact": {"radius": 1.5, "darkness": 0.2}, "sink": -0.1},
+    "cave_gravel":     {"class": "geological", "shading": "flat", "contact": {"radius": 0.0, "darkness": 0.0}, "sink": -0.02, "normal_map": null},
+
+    "mega_column":     {"class": "structural", "contact": {"radius": 8.0, "darkness": 0.6}, "surface_effects": ["wet_base", "moss_climb"]},
+    "column":          {"class": "structural", "contact": {"radius": 4.0, "darkness": 0.5}, "surface_effects": ["wet_base", "moss_climb"]},
+
+    "crystal_cluster": {"class": "crystalline", "transparency": 0.15, "inner_glow": 0.6, "pulse_rate": 0.02},
+    "filament":        {"class": "crystalline", "transparency": 0.3, "inner_glow": 0.8, "pulse_rate": 0.01, "shading": "flat"},
+    "exit_lure":       {"class": "crystalline", "inner_glow": 1.0, "pulse_rate": 0.05},
+
+    "giant_fungus":    {"class": "organic_flora", "subsurface": 0.5, "growth_direction": "up", "surface_effects": ["wet_base", "fungal_spots"]},
+    "moss_patch":      {"class": "organic_flora", "subsurface": 0.4, "growth_direction": "ground_hug", "surface_effects": ["wet_all"], "sink": -0.03},
+    "grass_tuft":      {"class": "organic_flora", "subsurface": 0.2, "growth_direction": "up", "sway_amplitude": 0.15},
+    "dead_log":        {"class": "organic_flora", "surface_effects": ["wet_base", "moss_patches", "fungal_spots"], "growth_direction": "horizontal", "decay_stage": 0.3},
+    "leaf_pile":       {"class": "organic_flora", "growth_direction": "ground_hug", "decay_stage": 0.5, "sink": -0.02},
+    "twig_scatter":    {"class": "organic_flora", "shading": "flat", "growth_direction": "ground_hug", "sink": -0.01},
+    "bone_pile":       {"class": "organic_flora", "surface_effects": ["wet_base", "mold_patches"], "decay_stage": 0.6, "roughness": {"base": 0.70, "wet": 0.20, "wet_height": 0.4}},
+
+    "ceiling_moss":    {"class": "atmosphere", "alpha_fade": 0.3, "sway_amplitude": 0.05, "drip_particles": true},
+    "hanging_vine":    {"class": "atmosphere", "alpha_fade": 0.2, "sway_amplitude": 0.12},
+
+    "firefly":         {"class": "life", "billboard": true, "pulse_rate": 0.08},
+    "leaf":            {"class": "life", "billboard": true},
+    "beetle":          {"class": "life", "behavior": "scurry"},
+    "rat":             {"class": "life", "behavior": "scurry", "flee_radius": 6.0},
+    "spider":          {"class": "life", "behavior": "crawl", "flee_radius": 4.0},
+
+    "horizon_form":    {"class": "horizon"},
+    "horizon_mid":     {"class": "horizon"},
+    "horizon_near":    {"class": "horizon"}
+  }
+}

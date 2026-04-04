@@ -1321,7 +1321,7 @@ def build_boulder(parent, seed=0):
             color = _cavern_color("stone", rng, 0.03)
             slab = root.attachNewNode(make_rock(
                 slab_w, slab_h, sd * 0.5, color,
-                rings=5, segments=8, seed=seed + si * 31,
+                rings=8, segments=10, seed=seed + si * 31,
                 roughness=rng.uniform(0.25, 0.45),
             ))
             slab.setPos(rng.uniform(-0.3, 0.3), rng.uniform(-0.2, 0.2), z)
@@ -1333,7 +1333,7 @@ def build_boulder(parent, seed=0):
         color = _cavern_color("stone", rng, 0.03)
         mass = root.attachNewNode(make_rock(
             base_width * 0.5, total_height * 0.5 * vis_compensate, base_depth * 0.5, color,
-            rings=6, segments=8, seed=seed,
+            rings=10, segments=12, seed=seed,
             roughness=rng.uniform(0.30, 0.50),  # higher roughness = eroded character
         ))
         mass.setPos(0, 0, 0)
@@ -1665,7 +1665,7 @@ def build_column(parent, seed=0):
     # Single connected rock — height compensated for bottom squash
     col = root.attachNewNode(make_rock(
         w, total_height * 0.5 * 1.6, d, color,
-        rings=10, segments=8, seed=seed,
+        rings=14, segments=12, seed=seed,
         roughness=roughness,
     ))
     col.setPos(0, 0, 0)
@@ -1719,7 +1719,7 @@ def build_mega_column(parent, seed=0):
 
     col = root.attachNewNode(make_rock(
         base_radius, render_height * 0.5 * 1.6, base_radius * depth_scale, color,
-        rings=8, segments=8, seed=seed, roughness=rng.uniform(0.2, 0.35),
+        rings=16, segments=14, seed=seed, roughness=rng.uniform(0.2, 0.35),
     ))
     col.setPos(0, 0, 0)
     col.setTwoSided(True)
@@ -1828,7 +1828,7 @@ def build_giant_fungus(parent, seed=0):
                 sy = math.sin(math.radians(angle)) * dist
             spire = root.attachNewNode(make_rock(
                 sr, sh * 0.45, sr * rng.uniform(0.6, 0.9), glow_color,
-                rings=5, segments=6, seed=seed + si * 41,
+                rings=8, segments=10, seed=seed + si * 41,
                 roughness=rng.uniform(0.20, 0.35),  # bulbous, not sharp
             ))
             spire.setPos(sx, sy, 0)
@@ -1852,7 +1852,7 @@ def build_giant_fungus(parent, seed=0):
         bottom_h = total_h * 0.4
         bottom = root.attachNewNode(make_rock(
             base_r, bottom_h * 0.45, base_r * 0.85, stem_color,
-            rings=5, segments=7, seed=seed, roughness=rng.uniform(0.15, 0.25),
+            rings=8, segments=10, seed=seed, roughness=rng.uniform(0.15, 0.25),
         ))
         bottom.setPos(0, 0, 0)
         bottom.setTwoSided(True)
@@ -1865,7 +1865,7 @@ def build_giant_fungus(parent, seed=0):
         waist_z = overlap_z(bottom_h, waist_h)
         waist = root.attachNewNode(make_rock(
             waist_r, waist_h * 0.45, waist_r * 0.8, glow_color,
-            rings=4, segments=6, seed=seed + 33, roughness=rng.uniform(0.12, 0.22),
+            rings=8, segments=10, seed=seed + 33, roughness=rng.uniform(0.12, 0.22),
         ))
         waist.setPos(0, 0, waist_z)
         waist.setTwoSided(True)
@@ -1880,7 +1880,7 @@ def build_giant_fungus(parent, seed=0):
         cap_z = waist_z + waist_h * 0.15  # physically inside waist top
         cap = root.attachNewNode(make_rock(
             cap_r, cap_h * 0.5, cap_r * 0.9, glow_color,
-            rings=4, segments=6, seed=seed + 99, roughness=rng.uniform(0.08, 0.18),
+            rings=8, segments=10, seed=seed + 99, roughness=rng.uniform(0.08, 0.18),
         ))
         cap.setPos(0, 0, cap_z)
         cap.setTwoSided(True)
@@ -1940,7 +1940,7 @@ def build_moss_patch(parent, seed=0):
         color = (0.06, 0.40 + green_v + rng.uniform(-0.03, 0.03), 0.08)
         blob = root.attachNewNode(make_rock(
             r, h, r * rng.uniform(0.7, 1.0), color,
-            rings=3, segments=4, seed=seed + i * 17, roughness=0.15,
+            rings=6, segments=8, seed=seed + i * 17, roughness=0.15,
         ))
         blob.setPos(rng.uniform(-1.0, 1.0), rng.uniform(-1.0, 1.0), rng.uniform(0, 0.03))
         blob.setH(rng.uniform(0, 360))
