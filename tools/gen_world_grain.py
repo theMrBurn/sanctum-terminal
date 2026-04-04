@@ -128,12 +128,12 @@ def main():
 
             cell_d, edge_d, cell_id = voronoi(u, v, size)
 
-            # Mortar line: dark line at cell boundaries
-            mortar_width = 0.08
-            mortar = 1.0 - max(0, 1.0 - edge_d / mortar_width)
+            # Mortar line: subtle dark line at cell boundaries
+            mortar_width = 0.12
+            mortar = 1.0 - max(0, 1.0 - edge_d / mortar_width) * 0.4  # 40% darkening, not 100%
 
-            # Cell-to-cell color variation (subtle, from cell_id)
-            cell_var = 0.85 + cell_id * 0.30  # 0.85-1.15 range
+            # Cell-to-cell color variation (very subtle)
+            cell_var = 0.92 + cell_id * 0.16  # 0.92-1.08 range — tight
 
             # Perlin noise overlay — surface grain
             noise_val = fbm(x * 0.15, y * 0.15, size, octaves=4)
@@ -141,8 +141,8 @@ def main():
             # Fine grit
             grit = fbm(x * 0.5, y * 0.5, size, octaves=2) * 0.15
 
-            # Combine: base value + cell variation + mortar darkening + noise
-            val = (0.45 + noise_val * 0.25 + grit) * cell_var * mortar
+            # Combine: high base, subtle variation — detail not domination
+            val = (0.55 + noise_val * 0.15 + grit * 0.5) * cell_var * mortar
             val = max(0.0, min(1.0, val))
 
             pixels_gray.append(int(val * 255))
@@ -156,8 +156,8 @@ def main():
             # Central differences
             hx = heightmap[y * size + (x + 1) % size]
             hy = heightmap[((y + 1) % size) * size + x]
-            dx = (hx - h) * 3.0  # strength multiplier
-            dy = (hy - h) * 3.0
+            dx = (hx - h) * 1.5  # gentle — fine grain, not deep cracks
+            dy = (hy - h) * 1.5
 
             length = math.sqrt(dx*dx + dy*dy + 1.0)
             nx = dx / length

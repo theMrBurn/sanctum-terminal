@@ -120,48 +120,33 @@ func _create_kind_material(kind: String) -> Material:
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 
-	# Roughness
+	# Palette — everything starts from cave stone, tinted per kind
+	var pb: Array = params.get("palette_base", [0.12, 0.11, 0.10])
+	mat.set_shader_parameter("palette_base", Color(pb[0], pb[1], pb[2]))
+	var kt: Array = params.get("kind_tint", [1.0, 1.0, 1.0])
+	mat.set_shader_parameter("kind_tint", Color(kt[0], kt[1], kt[2]))
+	mat.set_shader_parameter("vertex_color_blend", params.get("vertex_color_blend", 0.15))
+
+	# Roughness + light response
 	var rough: Dictionary = params.get("roughness", {})
 	mat.set_shader_parameter("roughness_base", rough.get("base", 0.85))
-	mat.set_shader_parameter("roughness_wet", rough.get("wet", 0.25))
-	mat.set_shader_parameter("wet_height", rough.get("wet_height", 0.3))
-
-	# Light response
 	mat.set_shader_parameter("light_response", params.get("light_response", 0.35))
 
-	# World grain — one pattern, all surfaces
-	mat.set_shader_parameter("world_grain", 0.10)
-	mat.set_shader_parameter("material_ratio", params.get("material_ratio", 1.0))
+	# World grain from global config — same scale on everything
+	var gcfg: Dictionary = kind_config.get("_global", {}).get("world_grain", {})
+	mat.set_shader_parameter("grain_scale", gcfg.get("grain_scale", 0.35))
 	var grain_albedo: Texture2D = load("res://world_grain.png")
 	if grain_albedo:
 		mat.set_shader_parameter("grain_tex", grain_albedo)
-		mat.set_shader_parameter("grain_strength", 0.35)
+	mat.set_shader_parameter("grain_strength", gcfg.get("grain_strength", 0.10))
+	var nmap: Texture2D = load("res://world_grain_normal.png")
+	if nmap:
+		mat.set_shader_parameter("normal_tex", nmap)
+	mat.set_shader_parameter("normal_strength", gcfg.get("normal_strength", params.get("normal_strength", 0.5)))
 
-	# Normal map (world grain normal by default)
-	var nmap_name: String = str(params.get("normal_map", ""))
-	if nmap_name != "" and nmap_name != "null":
-		var nmap_path := "res://%s.png" % nmap_name
-		var nmap: Texture2D = load(nmap_path)
-		if nmap:
-			mat.set_shader_parameter("normal_tex", nmap)
-			mat.set_shader_parameter("normal_strength", params.get("normal_strength", 0.8))
-
-	# Contact darkening
-	var contact: Dictionary = params.get("contact", {})
-	mat.set_shader_parameter("contact_darkness", contact.get("darkness", 0.4))
-	mat.set_shader_parameter("contact_height", contact.get("radius", 3.0) * 0.05)
-
-	# Surface effects
-	var effects: Array = params.get("surface_effects", [])
-	mat.set_shader_parameter("wet_base_enabled", "wet_base" in effects or "wet_all" in effects)
-	mat.set_shader_parameter("moss_patches_enabled", "moss_patches" in effects or "moss_climb" in effects)
-
-	# Inner glow (crystalline)
+	# Emissive
 	mat.set_shader_parameter("inner_glow", params.get("inner_glow", 0.0))
 	mat.set_shader_parameter("pulse_rate", params.get("pulse_rate", 0.0))
-
-	# Subsurface (organic)
-	mat.set_shader_parameter("subsurface", params.get("subsurface", 0.0))
 
 	return mat
 
@@ -231,7 +216,7 @@ func _setup_environment() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	godot_env.ambient_light_energy = 0.5  # dim but visible — shapes everywhere, emissives pop as accent
+	godot_env.ambient_light_energy = 0.15  # near-dark — negative space IS the texture, light defines form
 	godot_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 
 	godot_env.tonemap_mode = 2
@@ -313,28 +298,46 @@ func _setup_camera() -> void:
 	add_child(camera)
 
 
+var outline_material: ShaderMaterial
+var outline_mode: int = 2  # 0=Moebius, 1=Manga, 2=Sable
+const OUTLINE_MODE_NAMES := ["Moebius", "Manga", "Sable"]
+
 func _setup_outline() -> void:
-	# Screen-space outline post-process — thin dark lines at silhouettes
+	# Use a CanvasLayer + ColorRect for screen-space post-process
 	var outline_shader: Shader = load("res://outline_post.gdshader")
 	if not outline_shader:
+		print("WARN: outline shader not found")
 		return
 
-	var mat := ShaderMaterial.new()
-	mat.shader = outline_shader
-	mat.set_shader_parameter("outline_thickness", 1.0)
-	mat.set_shader_parameter("depth_threshold", 0.002)
-	mat.set_shader_parameter("normal_threshold", 0.4)
-	mat.set_shader_parameter("outline_color", Color(0.0, 0.0, 0.0, 0.5))
+	outline_material = ShaderMaterial.new()
+	outline_material.shader = outline_shader
+	var ocfg: Dictionary = kind_config.get("_global", {}).get("outline", {})
+	outline_mode = int(ocfg.get("mode", 2))
+	outline_material.set_shader_parameter("outline_mode", outline_mode)
+	outline_material.set_shader_parameter("outline_thickness", ocfg.get("thickness", 1.5))
+	outline_material.set_shader_parameter("edge_threshold", ocfg.get("edge_threshold", 0.06))
+	var lc: Array = ocfg.get("line_color", [0.0, 0.0, 0.0])
+	outline_material.set_shader_parameter("line_color", Color(lc[0], lc[1], lc[2]))
+	outline_material.set_shader_parameter("line_opacity", ocfg.get("line_opacity", 0.7))
+	outline_material.set_shader_parameter("gap_frequency", ocfg.get("gap_frequency", 14.0))
+	outline_material.set_shader_parameter("gap_width", ocfg.get("gap_width", 0.35))
 
-	# Full-screen quad attached to camera
-	var quad := MeshInstance3D.new()
-	var qm := QuadMesh.new()
-	qm.size = Vector2(2.0, 2.0)
-	quad.mesh = qm
-	quad.material_override = mat
-	quad.position = Vector3(0, 0, -0.1)  # just in front of camera near plane
-	quad.extra_cull_margin = 10000.0
-	camera.add_child(quad)
+	var canvas := CanvasLayer.new()
+	canvas.layer = 10  # on top of everything
+	var rect := ColorRect.new()
+	rect.anchors_preset = Control.PRESET_FULL_RECT
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.material = outline_material
+	canvas.add_child(rect)
+	add_child(canvas)
+	print("Outline shader active: %s" % OUTLINE_MODE_NAMES[outline_mode])
+
+
+func _cycle_outline_mode() -> void:
+	outline_mode = (outline_mode + 1) % 3
+	if outline_material:
+		outline_material.set_shader_parameter("outline_mode", outline_mode)
+	print("Outline: %s" % OUTLINE_MODE_NAMES[outline_mode])
 
 
 func _spawn_ground() -> void:
@@ -343,27 +346,29 @@ func _spawn_ground() -> void:
 	mesh.subdivide_width = 4
 	mesh.subdivide_depth = 4
 
-	# Procedural ground shader
+	# Ground shader — same world_grain as all objects
 	var shader := load("res://ground.gdshader")
 	if shader:
 		var mat := ShaderMaterial.new()
 		mat.shader = shader
-		# Tint ground colors from biome palette
 		var palette: Array = manifest.get("ambient", [0.12, 0.10, 0.06])
-		var dark := Color(palette[0] * 0.12, palette[1] * 0.10, palette[2] * 0.08)
-		var mid := Color(palette[0] * 0.25, palette[1] * 0.22, palette[2] * 0.18)
-		var light := Color(palette[0] * 0.38, palette[1] * 0.35, palette[2] * 0.28)
-		mat.set_shader_parameter("color_dark", dark)
-		mat.set_shader_parameter("color_mid", mid)
-		mat.set_shader_parameter("color_light", light)
+		mat.set_shader_parameter("color_base", Color(0.03, 0.025, 0.02))  # near-black — light defines the ground
 		var fc_arr: Array = manifest.get("fog", {}).get("color", [0.1, 0.1, 0.1])
 		mat.set_shader_parameter("fog_color", Color(fc_arr[0], fc_arr[1], fc_arr[2]))
+		var grain: Texture2D = load("res://world_grain.png")
+		if grain:
+			mat.set_shader_parameter("grain_tex", grain)
+		var nmap: Texture2D = load("res://world_grain_normal.png")
+		if nmap:
+			mat.set_shader_parameter("normal_tex", nmap)
+		mat.set_shader_parameter("grain_scale", 0.35)
+		mat.set_shader_parameter("grain_strength", 0.12)
+		mat.set_shader_parameter("normal_strength", 0.4)
 		mesh.material = mat
 	else:
-		# Fallback flat color
 		var mat := StandardMaterial3D.new()
 		var palette: Array = manifest.get("ambient", [0.12, 0.10, 0.06])
-		mat.albedo_color = Color(palette[0] * 0.4, palette[1] * 0.4, palette[2] * 0.4)
+		mat.albedo_color = Color(palette[0] * 0.15, palette[1] * 0.13, palette[2] * 0.10)
 		mat.roughness = 0.95
 		mesh.material = mat
 
@@ -490,6 +495,36 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 	mmi.material_override = mat
 	add_child(mmi)
 	kind_nodes["Kind_%s_v%d" % [kind, variant]] = mmi
+
+	# Inverted hull outline — second pass, slightly larger, dark, front-face culled
+	var hull_kinds: Array = ["crystal_cluster", "stalagmite", "boulder",
+		"mega_column", "column", "giant_fungus"]
+	if kind in hull_kinds and has_real_mesh:
+		var hull_mm := MultiMesh.new()
+		hull_mm.transform_format = MultiMesh.TRANSFORM_3D
+		hull_mm.mesh = base_mesh
+		hull_mm.instance_count = ents.size()
+
+		var hull_scale: float = 1.04  # 4% larger = outline thickness
+		for hi in range(ents.size()):
+			var src_xform: Transform3D = mm.get_instance_transform(hi)
+			# Scale up slightly from the object's own center
+			var hull_xform := src_xform.scaled_local(Vector3.ONE * hull_scale)
+			hull_mm.set_instance_transform(hi, hull_xform)
+
+		var hull_mat := StandardMaterial3D.new()
+		hull_mat.albedo_color = Color(0.0, 0.0, 0.0)
+		hull_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		hull_mat.cull_mode = BaseMaterial3D.CULL_FRONT  # only back faces = dark silhouette
+		hull_mat.no_depth_test = false
+
+		var hull_mmi := MultiMeshInstance3D.new()
+		hull_mmi.multimesh = hull_mm
+		hull_mmi.name = "Hull_%s_v%d" % [kind, variant]
+		hull_mmi.material_override = hull_mat
+		hull_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(hull_mmi)
+		kind_nodes["Hull_%s_v%d" % [kind, variant]] = hull_mmi
 
 
 func _setup_hud() -> void:
@@ -885,16 +920,23 @@ func _update_motes() -> void:
 
 		var pos := Vector3(ent.get("x", 0.0), ent.get("z", 0.0) + 1.0, ent.get("y", 0.0))
 
-		# OmniLight — casts color on nearby surfaces
+		# OmniLight — color from LIGHT_LAYERS hue array per instance
 		var light := OmniLight3D.new()
+		var hue_idx: int = ent.get("light_hue", 0)
+		# Hue palettes per kind (from biome_data LIGHT_LAYERS)
+		var hue_palettes: Dictionary = {
+			"crystal_cluster": [Color(0.15, 0.18, 0.35), Color(0.18, 0.08, 0.30)],
+			"giant_fungus": [Color(0.12, 0.28, 0.08), Color(0.22, 0.06, 0.30)],
+			"moss_patch": [Color(0.08, 0.35, 0.06), Color(0.35, 0.20, 0.05),
+						   Color(0.06, 0.10, 0.35), Color(0.25, 0.06, 0.30)],
+			"ceiling_moss": [Color(0.40, 0.28, 0.10), Color(0.30, 0.35, 0.12)],
+			"firefly": [Color(0.95, 0.75, 0.30), Color(0.80, 0.60, 0.20)],
+			"filament": [Color(0.20, 0.30, 0.50), Color(0.30, 0.20, 0.45)],
+		}
+		var palette: Array = hue_palettes.get(kind, [cfg["color"]])
+		var light_color: Color = palette[hue_idx % palette.size()]
+		light.light_color = light_color
 		var hue_seed: float = abs(sin(ent.get("x", 0.0) * 12.9898 + ent.get("y", 0.0) * 78.233))
-		var hue_shift: float = (hue_seed - 0.5) * 0.15
-		var base_c: Color = cfg["color"]
-		var shifted := Color(
-			clampf(base_c.r + hue_shift * 0.3, 0.0, 1.0),
-			clampf(base_c.g + hue_shift * 0.1, 0.0, 1.0),
-			clampf(base_c.b - hue_shift * 0.2, 0.0, 1.0))
-		light.light_color = shifted
 		var e_var: float = 0.7 + hue_seed * 0.6
 		light.light_energy = cfg["energy"] * e_var
 		light.omni_range = cfg["range"]
@@ -966,6 +1008,59 @@ func _update_motes() -> void:
 		add_child(particles)
 		mote_particles.append(particles)
 
+	# -- Ceiling light shafts (breaks in rock above, faint directional pools) --
+	# Spawn a few SpotLights pointing down at random positions near emissives
+	var shaft_count: int = 0
+	for ent_s: Dictionary in emissive_ents:
+		if shaft_count >= 6:
+			break
+		# Only some emissives get a shaft (40% chance)
+		var shaft_seed: float = abs(sin(ent_s.get("x", 0.0) * 7.31 + ent_s.get("y", 0.0) * 13.37))
+		if shaft_seed > 0.4:
+			continue
+
+		var spot := SpotLight3D.new()
+		# Positioned high above the emissive, slightly offset
+		spot.position = Vector3(
+			ent_s.get("x", 0.0) + (shaft_seed - 0.2) * 4.0,
+			12.0 + shaft_seed * 5.0,  # high up — ceiling break
+			ent_s.get("y", 0.0) + (shaft_seed - 0.3) * 3.0
+		)
+		spot.rotation_degrees = Vector3(-80 - shaft_seed * 15.0, shaft_seed * 60.0, 0)
+		# Dim warm light — not a spotlight, a shaft of ambient leaking in
+		spot.light_color = Color(0.20, 0.18, 0.25)  # cool blue-gray, like indirect sky
+		spot.light_energy = 3.0 + shaft_seed * 4.0
+		spot.spot_range = 20.0
+		spot.spot_angle = 15.0 + shaft_seed * 10.0  # narrow cone
+		spot.spot_attenuation = 0.8
+		spot.shadow_enabled = true  # shadows from shaft = silhouettes
+		add_child(spot)
+		emissive_lights.append(spot)
+		shaft_count += 1
+
+	# -- Crystal SpotLights — dramatic projected beams onto surfaces --
+	for ent_c: Dictionary in emissive_ents:
+		if ent_c.get("kind", "") != "crystal_cluster":
+			continue
+		var cseed: float = abs(sin(ent_c.get("x", 0.0) * 5.17 + ent_c.get("y", 0.0) * 9.73))
+		if cseed > 0.5:  # 50% of crystals get a projected beam
+			continue
+		var beam := SpotLight3D.new()
+		beam.position = Vector3(ent_c.get("x", 0.0), 1.5, ent_c.get("y", 0.0))
+		# Beam projects outward at a low angle — hits the floor/wall dramatically
+		var beam_angle: float = cseed * 360.0
+		beam.rotation_degrees = Vector3(-30 - cseed * 30.0, beam_angle, 0)
+		var hue_idx: int = ent_c.get("light_hue", 0)
+		var beam_colors: Array = [Color(0.15, 0.18, 0.40), Color(0.20, 0.10, 0.35)]
+		beam.light_color = beam_colors[hue_idx % beam_colors.size()]
+		beam.light_energy = 8.0 + cseed * 6.0
+		beam.spot_range = 15.0
+		beam.spot_angle = 20.0
+		beam.spot_attenuation = 1.2
+		beam.shadow_enabled = false
+		add_child(beam)
+		emissive_lights.append(beam)
+
 	# -- Ceiling drip particles (amber drops falling from ceiling_moss) --
 	for ent: Dictionary in manifest.get("entities", []):
 		if ent.get("kind", "") != "ceiling_moss":
@@ -1031,6 +1126,10 @@ func _input(event: InputEvent) -> void:
 		if connected:
 			var msg := JSON.stringify({"cmd": "light_cycle"}) + "\n"
 			tcp.put_data(msg.to_utf8_buffer())
+
+	# O key — cycle outline mode (Moebius / Manga / Sable)
+	if event is InputEventKey and event.pressed and event.keycode == KEY_O:
+		_cycle_outline_mode()
 
 	# B key — toggle tension cycle
 	if event is InputEventKey and event.pressed and event.keycode == KEY_B:
