@@ -2,6 +2,9 @@
 data/*.db
 *.db
 
+# ── Godot telemetry tags — session screenshots, not source ────────────────────
+godot/tags/
+
 # ── Large binary assets — use asset storage, not git ─────────────────────────
 exports/
 data/live_assets/*/Texture_*.png
