@@ -175,7 +175,9 @@ func _load_mesh_bounds() -> void:
 const NUM_VARIANTS := 4
 
 const MESH_ALIAS := {
-	"buttress": "boulder",  # buttress reuses boulder mesh, tilted + stretched
+	"buttress": "boulder",        # buttress = rounded mass (foundation archetype)
+	"mega_column": "stalagmite",  # column = inverted stalagmite (tapered spike archetype)
+	"column": "stalagmite",       # same — shared shape language with stalagmites, just flipped
 }
 
 func _get_mesh_for_kind(kind: String, variant: int = 0) -> Mesh:
@@ -242,11 +244,11 @@ func _setup_environment() -> void:
 	# Bloom — crystals and moss GLOW and bleed into surroundings
 	godot_env.glow_enabled = true
 	godot_env.glow_enabled = true
-	godot_env.glow_intensity = 0.8
-	godot_env.glow_bloom = 0.25
+	godot_env.glow_intensity = 4.0   # 5x boost — blooms overlap and contrast dramatically
+	godot_env.glow_bloom = 0.6       # stronger additive blend
 	godot_env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	godot_env.glow_hdr_threshold = 0.12  # very aggressive — distant lights contribute to bloom smoothly, no POP
-	godot_env.glow_hdr_scale = 2.5
+	godot_env.glow_hdr_scale = 8.0   # 3.2x boost — bright lights blow out dramatically
 
 	# Adjustments — desaturate world, color lives only in light sources
 	godot_env.adjustment_enabled = true
@@ -451,9 +453,9 @@ func _spawn_ground() -> void:
 		var nmap: Texture2D = load("res://world_grain_normal.png")
 		if nmap:
 			mat.set_shader_parameter("normal_tex", nmap)
-		mat.set_shader_parameter("grain_scale", 0.35)
-		mat.set_shader_parameter("grain_strength", 0.40)  # visible stone texture — gives scale and distance
-		mat.set_shader_parameter("normal_strength", 0.8)  # surface relief from OmniLights
+		mat.set_shader_parameter("grain_scale", 0.22)     # bigger tile repeats — more distinct stones per frame
+		mat.set_shader_parameter("grain_strength", 0.65)  # stronger pattern — walkable ground reads as textured
+		mat.set_shader_parameter("normal_strength", 1.3)  # stronger bump relief
 		mesh.material = mat
 	else:
 		var mat := StandardMaterial3D.new()
@@ -503,7 +505,11 @@ func _create_multimesh_for_kind(kind: String, ents: Array) -> void:
 
 func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 	var base_mesh: Mesh = _get_mesh_for_kind(kind, variant)
-	var bounds_key: String = MESH_ALIAS.get(kind, kind)
+	# Bounds lookup: prefer the ORIGINAL kind's bounds (for correct sizing),
+	# fall back to alias only if the original kind has no entry. This lets
+	# mega_column/column use stalagmite mesh geometry at their own native scale
+	# (45m / 12m) instead of stalagmite's small scale (4.5m).
+	var bounds_key: String = kind if mesh_bounds.has(kind) else MESH_ALIAS.get(kind, kind)
 	var bounds: Dictionary = mesh_bounds.get(bounds_key, {})
 	var has_real_mesh: bool = bounds.size() > 0 and not (base_mesh is BoxMesh)
 
@@ -527,18 +533,47 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 
 		var xform := Transform3D()
 		var effective_y_height: float = 1.0  # tracks visible Y extent for burial cap
+		var inversion_y_offset: float = 0.0   # compensate for 180° rotation on inverted kinds
 		if has_real_mesh:
 			var base_s: float = orig_scale * sv
 			var p_hash: float = abs(sin(ent.get("x", 0.0) * 3.17 + ent.get("y", 0.0) * 7.31))
 			var p_hash2: float = abs(sin(ent.get("x", 0.0) * 11.9 + ent.get("y", 0.0) * 5.47))
-			# Columns: asymmetric geological scaling — no more "planted tree" squish
-			# Shrunk 10% from prior values to give walking clearance more margin
+			# Columns use stalagmite mesh via MESH_ALIAS (shared shape language).
+			# Per-instance roll: 70% stay upright (standard column = wide-base stalagmite
+			# shape = classical column), 30% become STALACTITE VARIANTS hanging from
+			# the ceiling (inverted, narrow tip pointing down, wide base at ceiling).
+			# Together these create the real eroded-cavern look: stalagmites rising
+			# from the floor AND stalactites hanging from above.
 			if kind == "mega_column" or kind == "column":
-				var sx_col: float = base_s * (1.26 + p_hash * 0.72)  # 1.26-1.98 range
-				var sz_col: float = base_s * (1.26 + p_hash2 * 0.72)
-				var sy_col: float = base_s * (0.99 + p_hash * 0.54)  # 0.99-1.53 range
-				effective_y_height = sy_col
-				xform = xform.scaled(Vector3(sx_col, sy_col, sz_col))
+				var variant_hash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
+				var is_stalactite: bool = variant_hash < 0.30  # 30% hang from ceiling
+				if is_stalactite:
+					# Stalactite variant — smaller scale, hangs from ceiling height
+					var sx_sc: float = base_s * (0.50 + p_hash * 0.30)   # 0.50-0.80
+					var sz_sc: float = base_s * (0.50 + p_hash2 * 0.30)
+					var sy_sc: float = base_s * (0.40 + p_hash * 0.30)   # 0.40-0.70
+					effective_y_height = sy_sc
+					xform = Transform3D().scaled(Vector3(sx_sc, sy_sc, sz_sc))
+					xform = xform.rotated(Vector3.RIGHT, PI)  # flip 180° around X
+					# Ceiling height offset: 20m above ground. After rotation, wide base
+					# sits at y=20, narrow tip dangles down toward (20 - sy_sc_scaled).
+					# With sy_sc ~ 0.4-0.7 × base_s and base_s ~10-50m, mesh is 4-35m.
+					# Tip lands at y=20-35 to y=20-4 = -15 to +16. We clamp to ensure
+					# tip stays above ground (min 3m).
+					var mesh_height_world: float = sy_sc  # stalagmite mesh max Y is 1.0
+					var ceiling_y: float = 20.0
+					var tip_min_y: float = 3.0
+					var base_y: float = max(ceiling_y, tip_min_y + mesh_height_world)
+					inversion_y_offset = base_y
+				else:
+					# Standard column — upright stalagmite shape = classical wide-base
+					# tapering-up column. Same mesh as the stalactite variant, but no
+					# rotation. Wider multipliers so it feels massive, not pencil-thin.
+					var sx_col: float = base_s * (1.20 + p_hash * 0.60)  # 1.20-1.80
+					var sz_col: float = base_s * (1.20 + p_hash2 * 0.60)
+					var sy_col: float = base_s * (1.00 + p_hash * 0.40)  # 1.00-1.40
+					effective_y_height = sy_col
+					xform = xform.scaled(Vector3(sx_col, sy_col, sz_col))
 			elif kind == "buttress":
 				# Buttress: manifest-driven per-axis scale (lean arm proportions)
 				var bs_x: float = base_s * ent.get("scale_x", 1.0)
@@ -608,25 +643,16 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 				var max_frac: float = burial_cfg.get("max_frac", 0.35)
 				var burial_frac: float = min_frac + burial_hash * (max_frac - min_frac)
 				var raw_sink: float = bounds_scale * burial_frac
-				# BURIAL CAP — visible above-ground height must stay above minimum
-				# regardless of burial fraction + Y scale variance. Prevents
-				# stubby-dome silhouettes when short instances are buried deep.
-				var min_above_ground: float = 1.0  # default for small kinds
-				if kind == "mega_column" or kind == "column":
-					min_above_ground = 4.0
-				elif kind == "buttress":
-					min_above_ground = 2.5
-				elif kind == "boulder":
-					min_above_ground = 0.8
-				elif kind == "stalagmite":
-					min_above_ground = 0.6
+				# BURIAL CAP — visible above-ground height must stay above per-kind
+				# minimum from kind_config.json. Prevents stubby-dome silhouettes.
+				var min_above_ground: float = burial_cfg.get("min_above_ground", 1.0)
 				var max_allowed_sink: float = max(0.3, effective_y_height - min_above_ground)
 				sink = -min(raw_sink, max_allowed_sink)
 			elif kind == "moss_patch" or kind == "leaf_pile" or kind == "twig_scatter" or kind == "cave_gravel":
 				sink = -0.05  # ground cover sinks into floor (not erosion — placement)
 		var pos := Vector3(
 			ent.get("x", 0.0),
-			ent.get("z", 0.0) + y_offset + sink,
+			ent.get("z", 0.0) + y_offset + sink + inversion_y_offset,
 			ent.get("y", 0.0)
 		)
 		xform.origin = pos

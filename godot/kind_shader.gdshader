@@ -65,11 +65,12 @@ void fragment() {
 		NORMAL_MAP_DEPTH = normal_strength;
 	}
 
-	// 6. Flat shading — override per-vertex normal with per-face normal
-	// Uses screen-space derivatives to compute facet normal per fragment
+	// 6. Flat shading — blend per-face normal with vertex normal.
+	// 70% face + 30% vertex softens the hardest silhouette edges in dark
+	// frames while preserving the low-poly rock facet look.
 	if (flat_shading > 0.5) {
 		vec3 face_normal = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
-		NORMAL = face_normal;
+		NORMAL = normalize(mix(NORMAL, face_normal, 0.7));
 	}
 
 	ALBEDO = col;

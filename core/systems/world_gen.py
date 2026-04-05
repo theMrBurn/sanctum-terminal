@@ -12,45 +12,15 @@ Output: list of (kind, (x, y), heading, seed) tuples per tile.
 import math
 import random
 
-import os
-
 from core.systems.biome_data import (
     BIOME_CAVERN_DEFAULT, BIOME_OUTDOOR_FOREST,
     HARD_OBJECTS, BIOME_REGISTRY, FORMATION_ARCHETYPES,
     CAVERN_FLOURISH_POOLS, OUTDOOR_FLOURISH_POOLS,
     FLOURISH_COUNT_RANGE, FLOURISH_RADIUS_RANGE,
-    CAVERN_CLUSTER_ARCHETYPES, OUTDOOR_CLUSTER_ARCHETYPES,
     CAVERN_ROOM_BEACONS, OUTDOOR_ROOM_BEACONS,
-    ROOM_EVERY_NTH_NODE, ROOM_CLEARANCE_RADIUS,
-    ROOM_ANCHOR_EDGE_MIN, ROOM_ANCHOR_EDGE_MAX, ROOM_CLUSTER_COUNT,
-    ROOM_PERIMETER_ANCHOR_RANGE, ROOM_EXIT_GAP_DEGREES,
 )
 from core.systems.frame_composer import FrameComposer, FRAMING_CONFIG
 from core.systems.roster_pool import RosterPool
-
-
-# -- Strip mode: baseline sanity check ----------------------------------------
-# When SANCTUM_STRIP=1 in env, world generates only the structural skeleton:
-#   - honeycomb mega_column lattice (+ formations + buttresses)
-#   - minimal flourishes near anchors (rubble, cave_gravel, moss_patch only)
-#   - no density scatter pass (no stalagmites, no fungus, no creatures, etc.)
-# Purpose: see what the bare architecture looks like before layering back in.
-# Set with: SANCTUM_STRIP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py
-
-STRIP_MODE = os.environ.get("SANCTUM_STRIP", "0") == "1"
-
-STRIP_FLOURISH_POOLS = {
-    "mega_column":   ["rubble", "cave_gravel", "moss_patch"],
-    "buttress":      ["rubble", "cave_gravel", "moss_patch"],
-}
-
-STRIP_DENSITY_TABLE = [
-    ("rubble",         0.30, 0,    1),   # sparse ground debris
-    ("cave_gravel",    0.50, 0,    0),   # ground scatter
-    ("firefly",        1.20, 0,    1),   # minimum lighting — navigation requires beacons
-    ("filament",       0.60, 4,    2),   # tall emissive stalks as landmarks
-    ("crystal_cluster",0.20, 2.0,  3),   # color variety — purple/magenta prismatic register
-]
 
 
 # Kinds that get base aprons — populated from kind_config.json at module load.
@@ -289,10 +259,7 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     Coordinate system: (0, 0) to (tile_size, tile_size).
     """
     if biome is None:
-        if STRIP_MODE:
-            biome = STRIP_DENSITY_TABLE
-        else:
-            biome = BIOME_OUTDOOR_FOREST if biome_name == "outdoor" else BIOME_CAVERN_DEFAULT
+        biome = BIOME_OUTDOOR_FOREST if biome_name == "outdoor" else BIOME_CAVERN_DEFAULT
     tile = tile_size
     tile_area = tile * tile
     rng = random.Random(seed)
@@ -328,29 +295,17 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     landmark_positions = []
 
     # Flourish rosters — per-anchor-kind RosterPool for ground density variation
-    # In strip mode, use the minimal flourish pools (rubble/cave_gravel/moss_patch only)
-    if STRIP_MODE:
-        flourish_source = STRIP_FLOURISH_POOLS
-    else:
-        flourish_source = OUTDOOR_FLOURISH_POOLS if biome_name == "outdoor" else CAVERN_FLOURISH_POOLS
+    flourish_source = OUTDOOR_FLOURISH_POOLS if biome_name == "outdoor" else CAVERN_FLOURISH_POOLS
     flourish_rosters = {
         anchor_kind: RosterPool(pool, seed=seed + hash(anchor_kind) % 10000)
         for anchor_kind, pool in flourish_source.items()
     }
 
-    # Cluster roster — feature cluster archetypes placed inside room interiors.
-    # LRU-cycled so adjacent rooms get different cluster types.
-    cluster_source = OUTDOOR_CLUSTER_ARCHETYPES if biome_name == "outdoor" else CAVERN_CLUSTER_ARCHETYPES
-    cluster_roster = RosterPool(cluster_source, seed=seed + 12345)
-
-    # Beacon roster — center-of-room light sources. Every room gets one.
-    # Pulls eye INTO the room (Oblivion campfire reference).
+    # Beacon roster — feature cluster pools for formation column beacons.
+    # LRU-cycled so adjacent formations get different beacon types.
     beacon_source = OUTDOOR_ROOM_BEACONS if biome_name == "outdoor" else CAVERN_ROOM_BEACONS
     beacon_roster = RosterPool(beacon_source, seed=seed + 54321)
 
-    # Room/corridor distinction — every Nth honeycomb node becomes a room.
-    # Rooms get: cleared center, edge-pushed perimeter anchors, interior clusters.
-    # Corridors keep: center anchor, tight framing.
     node_index = 0
 
     ny = node_spacing * 0.5
@@ -362,20 +317,8 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
             jy = ny + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
             nodes.append((jx, jy))
 
-            # (Room system reverted — was causing anchor overlap + navigation deadlocks.
-            # Beacon concept now applied selectively to mega_column formations instead.)
             node_index += 1
-
-            # STRIP MODE: honeycomb only spawns mega_columns (and formations).
-            # Every 4th node gets a mega_column; others are empty walkable space.
-            if STRIP_MODE:
-                if node_index % 4 == 0:
-                    roll = 0.05  # force mega_column branch
-                else:
-                    nx += node_spacing
-                    continue
-            else:
-                roll = rng.random()
+            roll = rng.random()
             if roll < 0.15:
                 anchor = "mega_column"
                 # Every 3rd mega_column becomes a formation — not a plain column
@@ -432,12 +375,10 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                     # Beacon at the formation base — one guaranteed light source
                     # per formation creates a visible landmark without walling off space.
                     # Placed 3m off the column center in the direction opposite the main arms.
-                    # Skipped in strip mode (only structural kinds allowed).
-                    if not STRIP_MODE:
-                        beacon = beacon_roster.next()
-                        beacon_x = jx + math.cos(col_oa + math.pi) * 3.0
-                        beacon_y = jy + math.sin(col_oa + math.pi) * 3.0
-                        _emit_cluster(beacon, beacon_x, beacon_y, spawns, solid_positions, rng)
+                    beacon = beacon_roster.next()
+                    beacon_x = jx + math.cos(col_oa + math.pi) * 3.0
+                    beacon_y = jy + math.sin(col_oa + math.pi) * 3.0
+                    _emit_cluster(beacon, beacon_x, beacon_y, spawns, solid_positions, rng)
                     mega_column_count += 1
                     nx += node_spacing
                     continue  # skip the default anchor spawn — formation replaced it
@@ -523,45 +464,42 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                 landmarks_with_reward.add(j)
 
     # FrameComposer pass — compose directed views between hex node pairs.
-    # Skipped in strip mode (adds soft kinds we want suppressed), but the
-    # density scatter below still runs so fireflies/filaments still spawn.
-    if not STRIP_MODE:
-        frame_cfg = FRAMING_CONFIG.get(biome_name, FRAMING_CONFIG.get("cavern"))
-        composer = FrameComposer(seed=seed)
-        max_neighbor_dist = node_spacing * 2.0
-        frame_rng = random.Random(seed + 777)
-        for i in range(len(nodes)):
-            if frame_rng.random() > 0.30:
+    frame_cfg = FRAMING_CONFIG.get(biome_name, FRAMING_CONFIG.get("cavern"))
+    composer = FrameComposer(seed=seed)
+    max_neighbor_dist = node_spacing * 2.0
+    frame_rng = random.Random(seed + 777)
+    for i in range(len(nodes)):
+        if frame_rng.random() > 0.30:
+            continue
+        n1x, n1y = nodes[i]
+        best_j, best_d = -1, 9999.0
+        for j in range(len(nodes)):
+            if j == i:
                 continue
-            n1x, n1y = nodes[i]
-            best_j, best_d = -1, 9999.0
-            for j in range(len(nodes)):
-                if j == i:
-                    continue
-                dx, dy = nodes[j][0] - n1x, nodes[j][1] - n1y
-                d = math.sqrt(dx * dx + dy * dy)
-                if d < best_d and d < max_neighbor_dist:
-                    best_d = d
-                    best_j = j
-            if best_j < 0:
+            dx, dy = nodes[j][0] - n1x, nodes[j][1] - n1y
+            d = math.sqrt(dx * dx + dy * dy)
+            if d < best_d and d < max_neighbor_dist:
+                best_d = d
+                best_j = j
+        if best_j < 0:
+            continue
+        n2x, n2y = nodes[best_j]
+        frames = composer.compose_along_path(
+            node_a=(n1x, n1y), node_b=(n2x, n2y), config=frame_cfg)
+        for fp in frames:
+            fx, fy = fp["pos"]
+            kind = fp["kind"]
+            clearance = HARD_OBJECTS.get(kind, 0)
+            too_close = False
+            for sx, sy, sc in solid_positions:
+                if (fx - sx) ** 2 + (fy - sy) ** 2 < (clearance + sc) ** 2:
+                    too_close = True
+                    break
+            if too_close:
                 continue
-            n2x, n2y = nodes[best_j]
-            frames = composer.compose_along_path(
-                node_a=(n1x, n1y), node_b=(n2x, n2y), config=frame_cfg)
-            for fp in frames:
-                fx, fy = fp["pos"]
-                kind = fp["kind"]
-                clearance = HARD_OBJECTS.get(kind, 0)
-                too_close = False
-                for sx, sy, sc in solid_positions:
-                    if (fx - sx) ** 2 + (fy - sy) ** 2 < (clearance + sc) ** 2:
-                        too_close = True
-                        break
-                if too_close:
-                    continue
-                spawns.append((kind, (fx, fy), fp["heading"], rng.randint(0, 99999), None))
-                if clearance > 0:
-                    solid_positions.append((fx, fy, clearance))
+            spawns.append((kind, (fx, fy), fp["heading"], rng.randint(0, 99999), None))
+            if clearance > 0:
+                solid_positions.append((fx, fy, clearance))
 
     def _dist_to_nearest_node(x, y):
         min_d = 9999.0
@@ -572,10 +510,8 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                 min_d = d
         return min_d
 
-    # Density scatter
-    # In strip mode, don't skip crystal_cluster — it's our color variety kind
-    DENSITY_SKIP = ("mega_column", "column", "giant_fungus") if STRIP_MODE \
-                    else ("mega_column", "column", "crystal_cluster", "giant_fungus")
+    # Density scatter — skip kinds placed via honeycomb anchor roll
+    DENSITY_SKIP = ("mega_column", "column", "crystal_cluster", "giant_fungus")
     for kind, density, clearance, margin in biome:
         if kind in DENSITY_SKIP:
             continue
@@ -638,16 +574,22 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     SPAWN_CLEARANCE_RADIUS = 18.0
     cx_spawn = tile * 0.5
     cy_spawn = tile * 0.5
+    # Filter hard anchors AND visually-enclosing landmarks (filaments, fungi, crystals)
+    # from the spawn bubble. User framing: "make the dome transparent" — any
+    # tall or clustered visible element that would form walls/enclosure at spawn
+    # gets filtered so the player's first frame is actually open.
     HARD_KIND_SET = set(HARD_OBJECTS.keys())
+    VISUAL_LANDMARK_KINDS = {"filament", "giant_fungus", "crystal_cluster"}
+    FILTER_KINDS = HARD_KIND_SET | VISUAL_LANDMARK_KINDS
     filtered = []
     for spawn in spawns:
         kind = spawn[0]
         sx, sy = spawn[1]
-        if kind in HARD_KIND_SET:
+        if kind in FILTER_KINDS:
             dx = sx - cx_spawn
             dy = sy - cy_spawn
             if dx * dx + dy * dy < SPAWN_CLEARANCE_RADIUS * SPAWN_CLEARANCE_RADIUS:
-                continue  # drop this hard anchor — inside spawn safety zone
+                continue  # drop this landmark — inside spawn safety zone
         filtered.append(spawn)
 
     # Spawn staging — deliberate composition at world origin, placed AFTER

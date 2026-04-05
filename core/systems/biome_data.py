@@ -333,68 +333,12 @@ FLOURISH_RADIUS_RANGE = (1.2, 2.8)  # tighter than before (was 1.0-3.5) — stay
 # Each cluster: kind + count range + internal spread radius + z_height_offset
 # for overhead variants (stalactite-style hanging formations).
 
-CAVERN_CLUSTER_ARCHETYPES = [
-    {"name": "spore_trio",       "kind": "giant_fungus",
-     "count": 3, "spread": 1.8, "z_offset": 0.0},
-    {"name": "stalagmite_pair",  "kind": "stalagmite",
-     "count": 2, "spread": 2.5, "z_offset": 0.0},
-    {"name": "stalagmite_trio",  "kind": "stalagmite",
-     "count": 3, "spread": 3.5, "z_offset": 0.0},
-    {"name": "crystal_cluster_3","kind": "crystal_cluster",
-     "count": 3, "spread": 2.8, "z_offset": 0.0},
-    {"name": "boulder_pile",     "kind": "boulder",
-     "count": 3, "spread": 3.2, "z_offset": 0.0},
-    {"name": "mossy_rubble",     "kind": "rubble",
-     "count": 5, "spread": 2.0, "z_offset": 0.0},
-    {"name": "bone_scatter",     "kind": "bone_pile",
-     "count": 4, "spread": 2.2, "z_offset": 0.0},
-    # Overhead clusters — upper frame density hanging from the vast cavern ceiling
-    # z_offset at 14-18m reads as "high cave ceiling" not "low basement"
-    # (reference: Oblivion Hackdirt stalactites, Sable monolith tops)
-    {"name": "vine_fall",        "kind": "hanging_vine",
-     "count": 4, "spread": 3.0, "z_offset": 14.0},
-    {"name": "ceiling_moss_mat", "kind": "ceiling_moss",
-     "count": 3, "spread": 3.5, "z_offset": 17.0},
-]
-
-OUTDOOR_CLUSTER_ARCHETYPES = [
-    {"name": "fern_hollow",      "kind": "moss_patch",
-     "count": 5, "spread": 2.5, "z_offset": 0.0},
-    {"name": "fungus_ring",      "kind": "giant_fungus",
-     "count": 4, "spread": 3.0, "z_offset": 0.0},
-    {"name": "boulder_pile",     "kind": "boulder",
-     "count": 3, "spread": 3.2, "z_offset": 0.0},
-    {"name": "grass_patch",      "kind": "grass_tuft",
-     "count": 7, "spread": 2.5, "z_offset": 0.0},
-    {"name": "dead_log_pair",    "kind": "dead_log",
-     "count": 2, "spread": 3.0, "z_offset": 0.0},
-    {"name": "stump_cluster",    "kind": "stalagmite",
-     "count": 3, "spread": 2.8, "z_offset": 0.0},
-]
-
-
-# -- Room/corridor honeycomb discipline ----------------------------------------
+# -- Formation beacon pool (RosterPool source for formation column beacons) ---
 #
-# Every Nth honeycomb node becomes a ROOM instead of a corridor anchor.
-# Rooms get: cleared interior, edge-pushed anchors, feature clusters.
-# Corridors keep: center anchors, tight framing elements.
-
-ROOM_EVERY_NTH_NODE = 3  # 1 in 3 nodes becomes a room
-ROOM_CLEARANCE_RADIUS = 5.5  # walkable interior radius
-ROOM_ANCHOR_EDGE_MIN = 4.5   # anchors push this far from room center
-ROOM_ANCHOR_EDGE_MAX = 7.0   # max distance for perimeter anchors
-ROOM_CLUSTER_COUNT = (1, 2)  # how many feature clusters per room
-ROOM_PERIMETER_ANCHOR_RANGE = (2, 3)   # 2-3 anchors (was 3-5), leaves visible gaps
-ROOM_EXIT_GAP_DEGREES = 110.0          # guaranteed angular gap toward "exit"
-
-
-# -- Room beacon pool (RosterPool source for center light sources) -------------
-#
-# Every room gets ONE guaranteed beacon element at its center. This pulls
-# the player's eye INTO the room and makes it read as an inhabited space,
-# not a dark pocket. Reference: Oblivion campfire anchoring the space.
-#
-# The LRU roster cycles through beacon types so adjacent rooms differ.
+# Every formation column gets one beacon element placed 3m off its base.
+# The LRU roster cycles through beacon types so adjacent formations differ.
+# (Name kept as ROOM_BEACONS for historical reasons — consumer is formation
+# beacon emission in world_gen.py, not the reverted room system.)
 
 CAVERN_ROOM_BEACONS = [
     {"name": "filament_spire",  "kind": "filament",

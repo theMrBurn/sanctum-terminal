@@ -186,19 +186,19 @@
 
   "kinds": {
     "boulder":         {"class": "geological", "shading": "flat", "contact": {"radius": 3.0, "darkness": 0.4}, "surface_effects": ["wet_base", "moss_patches"],
-      "burial": {"min_frac": 0.25, "max_frac": 0.65}, "base_apron": true},
+      "burial": {"min_frac": 0.25, "max_frac": 0.65, "min_above_ground": 0.8}, "base_apron": true},
     "stalagmite":      {"class": "geological", "shading": "flat", "contact": {"radius": 1.0, "darkness": 0.3}, "surface_effects": ["wet_base"],
-      "burial": {"min_frac": 0.10, "max_frac": 0.20}, "base_apron": true},
+      "burial": {"min_frac": 0.10, "max_frac": 0.20, "min_above_ground": 0.6}, "base_apron": true},
     "rubble":          {"class": "geological", "shading": "flat", "contact": {"radius": 1.5, "darkness": 0.2},
-      "burial": {"min_frac": 0.30, "max_frac": 0.55}},
+      "burial": {"min_frac": 0.30, "max_frac": 0.55, "min_above_ground": 0.3}},
     "cave_gravel":     {"class": "geological", "shading": "flat", "contact": {"radius": 0.0, "darkness": 0.0}, "sink": -0.02, "normal_map": null},
 
     "mega_column":     {"class": "structural", "shading": "flat", "contact": {"radius": 8.0, "darkness": 0.6}, "surface_effects": ["wet_base", "moss_climb"],
-      "burial": {"min_frac": 0.30, "max_frac": 0.50}, "base_apron": true},
+      "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0}, "base_apron": true},
     "column":          {"class": "structural", "shading": "flat", "contact": {"radius": 4.0, "darkness": 0.5}, "surface_effects": ["wet_base", "moss_climb"],
-      "burial": {"min_frac": 0.30, "max_frac": 0.50}, "base_apron": true},
+      "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0}, "base_apron": true},
     "buttress":        {"class": "structural", "shading": "flat", "contact": {"radius": 3.0, "darkness": 0.5}, "surface_effects": ["wet_base", "moss_climb"],
-      "burial": {"min_frac": 0.25, "max_frac": 0.55}, "base_apron": true},
+      "burial": {"min_frac": 0.25, "max_frac": 0.55, "min_above_ground": 2.5}, "base_apron": true},
 
     "crystal_cluster": {"class": "crystalline", "transparency": 0.15, "inner_glow": 0.6, "pulse_rate": 0.02,
       "decal": {"emission_radius": 8.0, "emission_energy": 0.5, "tint_blend": 0.85},
@@ -221,7 +221,7 @@
     "leaf_pile":       {"class": "organic_flora", "growth_direction": "ground_hug", "decay_stage": 0.5, "sink": -0.02},
     "twig_scatter":    {"class": "organic_flora", "shading": "flat", "growth_direction": "ground_hug", "sink": -0.01},
     "bone_pile":       {"class": "organic_flora", "shading": "flat", "surface_effects": ["wet_base", "mold_patches"], "decay_stage": 0.6, "roughness": {"base": 0.70, "wet": 0.20, "wet_height": 0.4},
-      "burial": {"min_frac": 0.20, "max_frac": 0.45}, "base_apron": true},
+      "burial": {"min_frac": 0.20, "max_frac": 0.45, "min_above_ground": 0.5}, "base_apron": true},
 
     "ceiling_moss":    {"class": "atmosphere", "alpha_fade": 0.3, "sway_amplitude": 0.05, "drip_particles": true,
       "decal": {"emission_radius": 7.0, "emission_energy": 0.35, "tint_blend": 0.8}},
