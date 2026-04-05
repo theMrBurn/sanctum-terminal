@@ -10,6 +10,11 @@ const EYE_HEIGHT := 2.5
 const SERVER_HOST := "127.0.0.1"
 const SERVER_PORT := 9877
 
+# Plane-attachment architecture (Design Law #14 — pending verification).
+# Canonical ceiling height for the near-layer cavern. Stalactites and other
+# ceiling-attached kinds bind their base_y to this value. Phase 1.
+const CEILING_PLANE_Y: float = 15.0
+
 var camera: Camera3D
 var env_node: WorldEnvironment
 var godot_env: Environment
@@ -33,8 +38,9 @@ const UPDATE_INTERVAL := 0.1  # send camera 10x/sec
 # MultiMesh nodes per kind (for live rebuild)
 var kind_nodes: Dictionary = {}
 
-# Ground
+# Ground + ceiling planes (plane-attachment architecture)
 var ground_node: MeshInstance3D
+var ceiling_node: MeshInstance3D
 
 # HUD
 var hud_label: Label
@@ -62,6 +68,7 @@ func _ready() -> void:
 	_setup_camera()
 	_setup_outline()
 	_spawn_ground()
+	_spawn_ceiling_plane()
 	_spawn_entities()
 	_update_motes()
 	_setup_hud()
@@ -471,6 +478,53 @@ func _spawn_ground() -> void:
 	ground_node = mi
 
 
+func _spawn_ceiling_plane() -> void:
+	# Phase 1: concrete ceiling plane (near layer of the multi-layer plane
+	# architecture). Inverted copy of the ground — same shader, flipped normal,
+	# offset at CEILING_PLANE_Y. Stalactites bind to this surface. Follows
+	# camera in X/Z so ceiling exists everywhere player walks.
+	var mesh := PlaneMesh.new()
+	mesh.size = Vector2(2000, 2000)
+	mesh.subdivide_width = 4
+	mesh.subdivide_depth = 4
+
+	var shader := load("res://ground.gdshader")
+	if shader:
+		var mat := ShaderMaterial.new()
+		mat.shader = shader
+		# Ceiling palette: darker + cooler than ground. Reads as "less light
+		# reaches up here." Cave geology cliché: ceiling is dimmer than floor.
+		mat.set_shader_parameter("color_base", Color(0.10, 0.09, 0.08))
+		var fc_arr: Array = manifest.get("fog", {}).get("color", [0.1, 0.1, 0.1])
+		mat.set_shader_parameter("fog_color", Color(fc_arr[0], fc_arr[1], fc_arr[2]))
+		var grain: Texture2D = load("res://world_grain.png")
+		if grain:
+			mat.set_shader_parameter("grain_tex", grain)
+		var nmap: Texture2D = load("res://world_grain_normal.png")
+		if nmap:
+			mat.set_shader_parameter("normal_tex", nmap)
+		mat.set_shader_parameter("grain_scale", 0.22)
+		mat.set_shader_parameter("grain_strength", 0.55)  # slightly subtler than ground
+		mat.set_shader_parameter("normal_strength", 1.1)
+		mesh.material = mat
+	else:
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.10, 0.09, 0.08)
+		mat.roughness = 0.98
+		mesh.material = mat
+
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.name = "Ceiling"
+	# 180° X-axis rotation flips the plane so its normal points DOWN
+	# (toward the player). Determinant stays positive so backface culling
+	# sees the bottom face as the front face.
+	mi.rotation_degrees.x = 180.0
+	mi.position.y = CEILING_PLANE_Y
+	add_child(mi)
+	ceiling_node = mi
+
+
 func _spawn_entities() -> void:
 	var by_kind: Dictionary = {}
 	collision_objects.clear()
@@ -561,9 +615,10 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 					# (15 - sy_sc_scaled). Tip clamped to stay ≥ 4m above ground
 					# so it doesn't clip player head height (2.5m).
 					var mesh_height_world: float = sy_sc
-					var ceiling_y: float = 15.0
+					# Attach to the canonical ceiling plane — stalactites now bind to
+					# a real rendered surface at CEILING_PLANE_Y, not an abstract height
 					var tip_min_y: float = 4.0
-					var base_y: float = max(ceiling_y, tip_min_y + mesh_height_world)
+					var base_y: float = max(CEILING_PLANE_Y, tip_min_y + mesh_height_world)
 					inversion_y_offset = base_y
 				else:
 					# Standard column — upright stalagmite shape = classical wide-base
@@ -1511,7 +1566,11 @@ func _physics_process(delta: float) -> void:
 	# Creatures react to camera
 	_update_creatures(delta)
 
-	# Ground follows camera so it never ends
+	# Ground + ceiling planes follow camera in X/Z so they're always under/above
+	# the player. Y stays locked at 0 (ground) and CEILING_PLANE_Y (ceiling).
 	if ground_node:
 		ground_node.position.x = new_pos.x
 		ground_node.position.z = new_pos.z
+	if ceiling_node:
+		ceiling_node.position.x = new_pos.x
+		ceiling_node.position.z = new_pos.z
