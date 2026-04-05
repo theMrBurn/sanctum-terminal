@@ -27,6 +27,11 @@ uniform float pulse_rate : hint_range(0.0, 0.2) = 0.0;
 // 0 = smooth (vertex normals), 1 = flat (per-triangle facet normals)
 uniform float flat_shading : hint_range(0.0, 1.0) = 0.0;
 
+// Phase 2 — Merkabah plane-attachment layer fade.
+// fog_layer_color is the color entities fade toward as they migrate from
+// near → mid → far → void layers. Usually matches scene fog color.
+uniform vec3 fog_layer_color : source_color = vec3(0.2, 0.14, 0.1);
+
 // Triplanar sampling
 vec4 triplanar(sampler2D tex, vec3 pos, vec3 norm, float scale) {
 	vec3 blend = pow(abs(norm), vec3(1.5));
@@ -38,10 +43,14 @@ vec4 triplanar(sampler2D tex, vec3 pos, vec3 norm, float scale) {
 
 varying vec3 world_pos;
 varying vec3 world_norm;
+// Phase 2 — layer membership passed from vertex to fragment via INSTANCE_CUSTOM.
+// Encoded as: .r = near weight, .g = mid weight, .b = far weight, .a = void weight
+varying vec4 layer_mem;
 
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_norm = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	layer_mem = INSTANCE_CUSTOM;
 }
 
 void fragment() {
@@ -72,6 +81,26 @@ void fragment() {
 		vec3 face_normal = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
 		NORMAL = normalize(mix(NORMAL, face_normal, 0.7));
 	}
+
+	// Phase 2 — Merkabah layer fade. Entities in deeper layers mix toward
+	// the fog color (atmospheric perspective) and reduce visibility.
+	// Defaults are safe: if INSTANCE_CUSTOM is zero (legacy path), treat as
+	// fully near-layer (near_w=1) so nothing changes for old behavior.
+	float near_w = layer_mem.r;
+	float mid_w  = layer_mem.g;
+	float far_w  = layer_mem.b;
+	float void_w = layer_mem.a;
+	float layer_total = near_w + mid_w + far_w + void_w;
+	if (layer_total < 0.001) {
+		near_w = 1.0;  // legacy default — no layer data → fully near
+		layer_total = 1.0;
+	}
+	// Atmospheric perspective: entities in deeper layers blend toward fog
+	float fog_blend = mid_w * 0.25 + far_w * 0.65 + void_w * 0.95;
+	col = mix(col, fog_layer_color, fog_blend);
+	// Visibility falls off with depth but never to zero (asymptotic)
+	float visibility = near_w + mid_w * 0.85 + far_w * 0.55 + void_w * 0.15;
+	col *= visibility;
 
 	ALBEDO = col;
 	ROUGHNESS = roughness_base;

@@ -166,6 +166,11 @@ func _create_kind_material(kind: String) -> Material:
 	var shading: String = params.get("shading", "smooth")
 	mat.set_shader_parameter("flat_shading", 1.0 if shading == "flat" else 0.0)
 
+	# Phase 2 — layer fade target color (atmospheric perspective mix target)
+	var fog_data: Dictionary = manifest.get("fog", {})
+	var fog_c: Array = fog_data.get("color", [0.2, 0.14, 0.1])
+	mat.set_shader_parameter("fog_layer_color", Color(fog_c[0], fog_c[1], fog_c[2]))
+
 	return mat
 
 
@@ -575,6 +580,7 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
+	mm.use_custom_data = true  # Phase 2 — per-instance layer membership
 	mm.mesh = base_mesh
 	mm.instance_count = ents.size()
 
@@ -713,6 +719,18 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 		xform.origin = pos
 		mm.set_instance_transform(i, xform)
 
+		# Phase 2 — encode layer membership into custom data (per instance).
+		# r=near, g=mid, b=far, a=void. Shader reads via INSTANCE_CUSTOM and
+		# applies atmospheric perspective fade (near=crisp, void=nearly invisible).
+		var lm: Dictionary = ent.get("layer_membership", {"near": 1.0})
+		var custom := Color(
+			lm.get("near", 0.0),
+			lm.get("mid", 0.0),
+			lm.get("far", 0.0),
+			lm.get("void", 0.0)
+		)
+		mm.set_instance_custom_data(i, custom)
+
 		var r: float = ent.get("r", 0.5)
 		var g: float = ent.get("g", 0.5)
 		var b: float = ent.get("b", 0.5)
@@ -807,8 +825,25 @@ func _update_hud() -> void:
 	var budget: float = manifest.get("tension_budget", 0.0)
 	var tiles: int = manifest.get("stats", {}).get("tiles", 1)
 	var conn_str := " [LIVE]" if connected else " [static]"
-	hud_label.text = "Sanctum — %s | %d visible | tension: %s (%.0f%%) | %d tiles%s | ESC quit / L light / B tension" % [
-		biome, ent_count, tension, budget * 100, tiles, conn_str]
+
+	# Phase 1.5 — layer distribution readout. Sum layer membership weights
+	# across all visible entities to show the Merkabah wheel distribution
+	# in real time as the player moves. Each entity contributes its weights
+	# to the totals (entities in transition bands contribute to both layers).
+	var near_total: float = 0.0
+	var mid_total: float = 0.0
+	var far_total: float = 0.0
+	var void_total: float = 0.0
+	for ent: Dictionary in manifest.get("entities", []):
+		var lm: Dictionary = ent.get("layer_membership", {"near": 1.0})
+		near_total += lm.get("near", 0.0)
+		mid_total += lm.get("mid", 0.0)
+		far_total += lm.get("far", 0.0)
+		void_total += lm.get("void", 0.0)
+
+	hud_label.text = "Sanctum — %s | %d visible | tension: %s (%.0f%%) | %d tiles%s | N:%.0f M:%.0f F:%.0f V:%.0f | ESC/L/B" % [
+		biome, ent_count, tension, budget * 100, tiles, conn_str,
+		near_total, mid_total, far_total, void_total]
 
 
 # -- Brain server connection ---------------------------------------------------

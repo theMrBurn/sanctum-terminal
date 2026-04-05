@@ -32,6 +32,7 @@ from core.systems.biome_data import (
 from core.systems.spatial_wake import SpatialHash, WakeChain, WAKE_CHAINS
 from core.systems.world_gen import generate_tile
 from core.systems.tension_cycle import TensionCycle, OUTDOOR_CYCLE, CAVERN_CYCLE
+from core.systems.plane_exchange import classify_all_entities, CAVERN_EXCHANGE_NODES
 
 
 # -- Kind properties (same as godot_export.py) --------------------------------
@@ -280,6 +281,14 @@ class BrainWorld:
                 visible.append(ent)
                 if ent["kind"] in EMISSIVE_LIGHT_COLORS:
                     emissives.append((ent["x"], ent["y"], EMISSIVE_LIGHT_COLORS[ent["kind"]]))
+
+        # Phase 1.5: Merkabah plane-attachment — annotate each visible entity
+        # with its layer membership based on distance to the observer (camera).
+        # classify_all_entities mutates entities in place, adding a
+        # 'layer_membership' dict (e.g. {"near": 1.0} or {"mid": 0.5, "far": 0.5}).
+        # The wheels turn: entities migrate between Hekhalot halls as the throne moves.
+        classify_all_entities(visible, observer_x=cam_x, observer_y=cam_y,
+                              nodes=CAVERN_EXCHANGE_NODES)
 
         # Bake light influence: tint non-emissive entities from nearby emissives
         for i in range(len(visible)):
