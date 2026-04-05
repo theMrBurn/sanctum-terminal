@@ -1276,8 +1276,9 @@ const LIGHT_KINDS := {
 		"facet_spread": 2.5,
 		"mote_color": Color(0.3, 0.35, 0.6),
 		"mote_count": 10,
-		"mote_radius": 3.0,
+		"mote_radius": 3.0,   # emission sphere radius (spawn area)
 		"mote_height": 3.0,
+		"mote_size": 0.32,    # mesh radius — the Tron Bit pole, biggest motes
 	},
 	"giant_fungus": {
 		"color": Color(0.18, 0.30, 0.10),
@@ -1288,6 +1289,7 @@ const LIGHT_KINDS := {
 		"mote_count": 8,
 		"mote_radius": 3.0,
 		"mote_height": 4.0,
+		"mote_size": 0.22,    # spore-bit, deliberate heptagons
 	},
 	"moss_patch": {
 		"color": Color(0.10, 0.40, 0.08),
@@ -1296,8 +1298,9 @@ const LIGHT_KINDS := {
 		"attenuation": 1.3,
 		"mote_color": Color(0.1, 0.5, 0.08),
 		"mote_count": 4,
-		"mote_radius": 1.5,
-		"mote_height": 1.0,
+		"mote_radius": 1.0,   # tightened from 1.5 so emission stays above ground
+		"mote_height": 2.0,   # raised from 1.0 — center emission above mesh clip
+		"mote_size": 0.12,    # spore dust, small but legible
 	},
 	"firefly": {
 		"color": Color(0.95, 0.75, 0.30),
@@ -1308,6 +1311,7 @@ const LIGHT_KINDS := {
 		"mote_count": 1,
 		"mote_radius": 0.5,
 		"mote_height": 1.5,
+		"mote_size": 0.10,    # firefly butt — smallest size on the spectrum
 	},
 	"filament": {
 		"color": Color(0.30, 0.40, 0.55),
@@ -1318,6 +1322,7 @@ const LIGHT_KINDS := {
 		"mote_count": 5,
 		"mote_radius": 1.0,
 		"mote_height": 2.5,
+		"mote_size": 0.15,    # drifting crystal shard
 	},
 	"ceiling_moss": {
 		"color": Color(0.6, 0.40, 0.12),
@@ -1328,6 +1333,7 @@ const LIGHT_KINDS := {
 		"mote_count": 8,
 		"mote_radius": 3.0,
 		"mote_height": 5.0,
+		"mote_size": 0.22,    # amber drip glyph
 	},
 }
 
@@ -1545,8 +1551,12 @@ func _update_motes() -> void:
 		pmat.initial_velocity_min = 0.05
 		pmat.initial_velocity_max = 0.15
 		pmat.gravity = Vector3(0, -0.02, 0)
-		pmat.scale_min = 0.02
-		pmat.scale_max = 0.06
+		# Natural ±20% variance so particles don't all look identical, but the
+		# authored mesh size is respected. The previous 0.02–0.06 range was
+		# shrinking the draw mesh to 2–6% of its authored size, which is why
+		# motes were invisible regardless of mesh radius.
+		pmat.scale_min = 0.8
+		pmat.scale_max = 1.2
 		particles.process_material = pmat
 
 		# Seven-sided mote — the signature test fixture for the whole visual
@@ -1554,7 +1564,9 @@ func _update_motes() -> void:
 		# against this shape first; if it reads right on the mote, it scales.
 		# Flat heptagonal disc, billboarded so all seven edges always face the
 		# camera. Non-tiling shape + prime rotation count + Merkabah number.
-		var smesh: ArrayMesh = _build_heptagonal_mote_mesh(0.05)
+		# Per-kind mesh radius — firefly butt (0.10) to Tron Bit (0.32).
+		var mote_mesh_radius: float = cfg.get("mote_size", 0.15)
+		var smesh: ArrayMesh = _build_heptagonal_mote_mesh(mote_mesh_radius)
 		var smat := StandardMaterial3D.new()
 		smat.albedo_color = Color(cfg["mote_color"].r, cfg["mote_color"].g, cfg["mote_color"].b, 0.5)
 		smat.emission_enabled = true
@@ -1642,12 +1654,14 @@ func _update_motes() -> void:
 		dmat.initial_velocity_min = 0.5
 		dmat.initial_velocity_max = 1.5
 		dmat.gravity = Vector3(0, -2.0, 0)
-		dmat.scale_min = 0.02
-		dmat.scale_max = 0.04
+		# Natural variance at authored size (same fix as ambient motes).
+		dmat.scale_min = 0.8
+		dmat.scale_max = 1.2
 		drip.process_material = dmat
 		# Prime-mote doctrine: ceiling drips are motes that happen to fall.
 		# Same heptagonal test fixture — see design_heptagonal_mote.md.
-		var dmesh: ArrayMesh = _build_heptagonal_mote_mesh(0.035)
+		# Bumped from 0.035 to 0.10 so falling drips are visible at game distance.
+		var dmesh: ArrayMesh = _build_heptagonal_mote_mesh(0.10)
 		var dsmat := StandardMaterial3D.new()
 		dsmat.albedo_color = Color(0.6, 0.4, 0.12, 0.7)
 		dsmat.emission_enabled = true
