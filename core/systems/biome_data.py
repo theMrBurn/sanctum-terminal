@@ -722,9 +722,14 @@ BIOME_PLANES = {
                 "shader": "ground",
                 "surface": "stone_rough",
                 "color_base": [0.18, 0.15, 0.12],
-                "grain_scale": 0.22,
-                "grain_strength": 0.65,
-                "normal_strength": 1.3,
+                # grain_scale 0.22 → 0.06 stretches tile repeat from ~4.5m to
+                # ~16m, pushing the pattern beyond typical fog distance so the
+                # ground reads as textured stone rather than tiled stone.
+                # normal_strength 1.3 → 0.7 softens the bump relief that was
+                # amplifying the repeat signal. Observed in tag_03 playtest.
+                "grain_scale": 0.06,
+                "grain_strength": 0.55,
+                "normal_strength": 0.7,
             },
             "size": 2000.0,
             "follow_camera": True,
@@ -739,9 +744,11 @@ BIOME_PLANES = {
                 "shader": "ground",
                 "surface": "stone_weathered",
                 "color_base": [0.10, 0.09, 0.08],
-                "grain_scale": 0.22,
-                "grain_strength": 0.55,
-                "normal_strength": 1.1,
+                # Same stretch treatment as ground, slightly softer relief
+                # because the ceiling is farther from the camera on average.
+                "grain_scale": 0.06,
+                "grain_strength": 0.50,
+                "normal_strength": 0.6,
             },
             "size": 2000.0,
             "follow_camera": True,
@@ -758,9 +765,9 @@ BIOME_PLANES = {
                 "shader": "ground",
                 "surface": "stone_rough",
                 "color_base": [0.22, 0.20, 0.15],
-                "grain_scale": 0.22,
-                "grain_strength": 0.65,
-                "normal_strength": 1.3,
+                "grain_scale": 0.06,
+                "grain_strength": 0.55,
+                "normal_strength": 0.7,
             },
             "size": 2000.0,
             "follow_camera": True,
