@@ -90,6 +90,11 @@ class BrainWorld:
         self.tension = TensionCycle(cycle_cfg)
         self.tension.board()
 
+        # Plane-attachment architecture (Design Law #14, Phase 3).
+        # Biome-declared planes streamed to the viewer; renderer instantiates
+        # one MeshInstance3D per entry. Adding a plane is a pure config edit.
+        self.planes = BIOME_REGISTRY.get(biome_name, {}).get("planes", [])
+
         # Light states
         self.light_states = OUTDOOR_LIGHT_STATES if biome_name == "outdoor" else CAVERN_LIGHT_STATES
         self.light_state_names = list(self.light_states.keys())
@@ -331,6 +336,7 @@ class BrainWorld:
                 "scale": ls.get("moon_scale", 0.0),
             },
             "entities": visible,
+            "planes": self.planes,
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),
             "stats": {

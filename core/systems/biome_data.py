@@ -688,6 +688,86 @@ CAVERN_LIGHT_STATES = {
 }
 
 
+# -- Plane-attachment architecture (Design Law #14, Phase 3) -------------------
+#
+# Each biome declares its own set of rendered planes. A plane is the data
+# substrate a rendered primitive binds to — ground, ceiling, sky dome, interior
+# wall, etc. The brain emits this list in the manifest; the Godot viewer
+# instantiates a MeshInstance3D per entry. New planes are added purely by
+# editing this config — no renderer code changes required.
+#
+# Fields:
+#   tag            — unique identifier (used by kinds for attachment lookups)
+#   kind           — semantic role (ground, ceiling, sky, wall, …)
+#   normal         — plane normal in brain-space (z-up). [0,0,1]=up, [0,0,-1]=down
+#   offset         — distance from world origin along world-Y (Godot convention)
+#   layer          — Merkabah layer tag (near/mid/far/void) for future fade hooks
+#   material       — shader parameters; renderer resolves by kind
+#   size           — world-unit edge length of the plane quad
+#   follow_camera  — if true, plane X/Z tracks camera so it's always under/over
+#
+# This list is the canonical answer to "where can things physically attach?"
+# for each biome. The ceiling plane in cavern matches the former hardcoded
+# CEILING_PLANE_Y=15 in main.gd; stalactites resolve their base_y from it.
+
+BIOME_PLANES = {
+    "cavern": [
+        {
+            "tag": "ground_near",
+            "kind": "ground",
+            "normal": [0.0, 0.0, 1.0],
+            "offset": 0.0,
+            "layer": "near",
+            "material": {
+                "shader": "ground",
+                "color_base": [0.18, 0.15, 0.12],
+                "grain_scale": 0.22,
+                "grain_strength": 0.65,
+                "normal_strength": 1.3,
+            },
+            "size": 2000.0,
+            "follow_camera": True,
+        },
+        {
+            "tag": "ceiling_near",
+            "kind": "ceiling",
+            "normal": [0.0, 0.0, -1.0],
+            "offset": 15.0,
+            "layer": "near",
+            "material": {
+                "shader": "ground",
+                "color_base": [0.10, 0.09, 0.08],
+                "grain_scale": 0.22,
+                "grain_strength": 0.55,
+                "normal_strength": 1.1,
+            },
+            "size": 2000.0,
+            "follow_camera": True,
+        },
+    ],
+    "outdoor": [
+        {
+            "tag": "ground_near",
+            "kind": "ground",
+            "normal": [0.0, 0.0, 1.0],
+            "offset": 0.0,
+            "layer": "near",
+            "material": {
+                "shader": "ground",
+                "color_base": [0.22, 0.20, 0.15],
+                "grain_scale": 0.22,
+                "grain_strength": 0.65,
+                "normal_strength": 1.3,
+            },
+            "size": 2000.0,
+            "follow_camera": True,
+        },
+        # No ceiling plane outdoors — sky is the dome. A future sky_dome plane
+        # can be added here without touching any renderer code.
+    ],
+}
+
+
 # -- Biome registry (unified lookup) ------------------------------------------
 
 BIOME_REGISTRY = {
@@ -700,6 +780,7 @@ BIOME_REGISTRY = {
         "tile_variants": TILE_VARIANTS,
         "light_states": CAVERN_LIGHT_STATES,
         "density": BIOME_CAVERN_DEFAULT,
+        "planes": BIOME_PLANES["cavern"],
     },
     "outdoor": {
         "palette": OUTDOOR_PALETTE,
@@ -710,5 +791,6 @@ BIOME_REGISTRY = {
         "tile_variants": OUTDOOR_TILE_VARIANTS,
         "light_states": OUTDOOR_LIGHT_STATES,
         "density": BIOME_OUTDOOR_FOREST,
+        "planes": BIOME_PLANES["outdoor"],
     },
 }

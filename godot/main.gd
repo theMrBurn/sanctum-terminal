@@ -10,10 +10,12 @@ const EYE_HEIGHT := 2.5
 const SERVER_HOST := "127.0.0.1"
 const SERVER_PORT := 9877
 
-# Plane-attachment architecture (Design Law #14 — pending verification).
-# Canonical ceiling height for the near-layer cavern. Stalactites and other
-# ceiling-attached kinds bind their base_y to this value. Phase 1.
-const CEILING_PLANE_Y: float = 15.0
+# Plane-attachment architecture (Design Law #14, Phase 3).
+# Canonical ceiling height is now config-driven: resolved from the manifest's
+# `planes` array at spawn time and cached in `active_ceiling_y`. The constant
+# remains as the legacy fallback if the manifest omits planes entirely.
+const CEILING_PLANE_Y_DEFAULT: float = 15.0
+var active_ceiling_y: float = CEILING_PLANE_Y_DEFAULT
 
 var camera: Camera3D
 var env_node: WorldEnvironment
@@ -38,9 +40,9 @@ const UPDATE_INTERVAL := 0.1  # send camera 10x/sec
 # MultiMesh nodes per kind (for live rebuild)
 var kind_nodes: Dictionary = {}
 
-# Ground + ceiling planes (plane-attachment architecture)
-var ground_node: MeshInstance3D
-var ceiling_node: MeshInstance3D
+# Plane-attachment architecture: tag → {node, follow} dict, driven by
+# manifest.planes. Ground/ceiling/future walls all live here.
+var plane_nodes: Dictionary = {}
 
 # HUD
 var hud_label: Label
@@ -67,8 +69,7 @@ func _ready() -> void:
 	_setup_environment()
 	_setup_camera()
 	_setup_outline()
-	_spawn_ground()
-	_spawn_ceiling_plane()
+	_spawn_planes()
 	_spawn_entities()
 	_update_motes()
 	_setup_hud()
@@ -444,19 +445,86 @@ func _cycle_outline_mode() -> void:
 	_show_toast("Outline: %s" % OUTLINE_MODE_NAMES[outline_mode])
 
 
-func _spawn_ground() -> void:
+func _spawn_planes() -> void:
+	# Phase 3: plane-attachment architecture is fully config-driven.
+	# Each biome declares its planes in biome_data.BIOME_PLANES; the brain
+	# streams them in manifest.planes; we instantiate one MeshInstance3D per
+	# entry. Adding a new plane (wall, sky dome, mezzanine floor) is a pure
+	# config edit — zero lines of renderer code.
+	var planes: Array = manifest.get("planes", [])
+	if planes.is_empty():
+		# Legacy fallback: manifest omitted planes (static JSON, old server).
+		# Synthesize a cavern default so the scene still renders.
+		planes = _legacy_cavern_planes()
+	for p in planes:
+		_spawn_plane(p)
+
+
+func _legacy_cavern_planes() -> Array:
+	return [
+		{
+			"tag": "ground_near", "kind": "ground",
+			"normal": [0.0, 0.0, 1.0], "offset": 0.0, "layer": "near",
+			"size": 2000.0, "follow_camera": true,
+			"material": {
+				"color_base": [0.18, 0.15, 0.12], "grain_scale": 0.22,
+				"grain_strength": 0.65, "normal_strength": 1.3,
+			},
+		},
+		{
+			"tag": "ceiling_near", "kind": "ceiling",
+			"normal": [0.0, 0.0, -1.0], "offset": CEILING_PLANE_Y_DEFAULT, "layer": "near",
+			"size": 2000.0, "follow_camera": true,
+			"material": {
+				"color_base": [0.10, 0.09, 0.08], "grain_scale": 0.22,
+				"grain_strength": 0.55, "normal_strength": 1.1,
+			},
+		},
+	]
+
+
+func _spawn_plane(p: Dictionary) -> void:
+	var tag: String = p.get("tag", "untagged")
+	var size: float = p.get("size", 2000.0)
+
 	var mesh := PlaneMesh.new()
-	mesh.size = Vector2(2000, 2000)
+	mesh.size = Vector2(size, size)
 	mesh.subdivide_width = 4
 	mesh.subdivide_depth = 4
+	mesh.material = _create_plane_material(p.get("material", {}))
 
-	# Ground shader — same world_grain as all objects
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.name = "Plane_" + tag
+
+	# Normal in brain-space (z-up). [0,0,1] = plane faces up (ground).
+	# [0,0,-1] = plane faces down (ceiling) — 180° around X flips the Godot
+	# PlaneMesh default +Y normal to -Y, keeping determinant positive so
+	# backface culling sees the visible face as front.
+	var normal: Array = p.get("normal", [0.0, 0.0, 1.0])
+	var normal_z: float = float(normal[2]) if normal.size() >= 3 else 1.0
+	if normal_z < 0.0:
+		mi.rotation_degrees.x = 180.0
+	mi.position.y = float(p.get("offset", 0.0))
+	add_child(mi)
+
+	plane_nodes[tag] = {
+		"node": mi,
+		"follow": bool(p.get("follow_camera", true)),
+	}
+
+	# Cache canonical ceiling Y for kinds that resolve attachment by tag.
+	if tag == "ceiling_near":
+		active_ceiling_y = float(p.get("offset", CEILING_PLANE_Y_DEFAULT))
+
+
+func _create_plane_material(m: Dictionary) -> Material:
 	var shader := load("res://ground.gdshader")
 	if shader:
 		var mat := ShaderMaterial.new()
 		mat.shader = shader
-		var palette: Array = manifest.get("ambient", [0.12, 0.10, 0.06])
-		mat.set_shader_parameter("color_base", Color(0.18, 0.15, 0.12))  # visible stone — OmniLights paint this
+		var cb: Array = m.get("color_base", [0.18, 0.15, 0.12])
+		mat.set_shader_parameter("color_base", Color(cb[0], cb[1], cb[2]))
 		var fc_arr: Array = manifest.get("fog", {}).get("color", [0.1, 0.1, 0.1])
 		mat.set_shader_parameter("fog_color", Color(fc_arr[0], fc_arr[1], fc_arr[2]))
 		var grain: Texture2D = load("res://world_grain.png")
@@ -465,69 +533,15 @@ func _spawn_ground() -> void:
 		var nmap: Texture2D = load("res://world_grain_normal.png")
 		if nmap:
 			mat.set_shader_parameter("normal_tex", nmap)
-		mat.set_shader_parameter("grain_scale", 0.22)     # bigger tile repeats — more distinct stones per frame
-		mat.set_shader_parameter("grain_strength", 0.65)  # stronger pattern — walkable ground reads as textured
-		mat.set_shader_parameter("normal_strength", 1.3)  # stronger bump relief
-		mesh.material = mat
-	else:
-		var mat := StandardMaterial3D.new()
-		var palette: Array = manifest.get("ambient", [0.12, 0.10, 0.06])
-		mat.albedo_color = Color(palette[0] * 0.15, palette[1] * 0.13, palette[2] * 0.10)
-		mat.roughness = 0.95
-		mesh.material = mat
-
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.name = "Ground"
-	add_child(mi)
-	ground_node = mi
-
-
-func _spawn_ceiling_plane() -> void:
-	# Phase 1: concrete ceiling plane (near layer of the multi-layer plane
-	# architecture). Inverted copy of the ground — same shader, flipped normal,
-	# offset at CEILING_PLANE_Y. Stalactites bind to this surface. Follows
-	# camera in X/Z so ceiling exists everywhere player walks.
-	var mesh := PlaneMesh.new()
-	mesh.size = Vector2(2000, 2000)
-	mesh.subdivide_width = 4
-	mesh.subdivide_depth = 4
-
-	var shader := load("res://ground.gdshader")
-	if shader:
-		var mat := ShaderMaterial.new()
-		mat.shader = shader
-		# Ceiling palette: darker + cooler than ground. Reads as "less light
-		# reaches up here." Cave geology cliché: ceiling is dimmer than floor.
-		mat.set_shader_parameter("color_base", Color(0.10, 0.09, 0.08))
-		var fc_arr: Array = manifest.get("fog", {}).get("color", [0.1, 0.1, 0.1])
-		mat.set_shader_parameter("fog_color", Color(fc_arr[0], fc_arr[1], fc_arr[2]))
-		var grain: Texture2D = load("res://world_grain.png")
-		if grain:
-			mat.set_shader_parameter("grain_tex", grain)
-		var nmap: Texture2D = load("res://world_grain_normal.png")
-		if nmap:
-			mat.set_shader_parameter("normal_tex", nmap)
-		mat.set_shader_parameter("grain_scale", 0.22)
-		mat.set_shader_parameter("grain_strength", 0.55)  # slightly subtler than ground
-		mat.set_shader_parameter("normal_strength", 1.1)
-		mesh.material = mat
-	else:
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.10, 0.09, 0.08)
-		mat.roughness = 0.98
-		mesh.material = mat
-
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.name = "Ceiling"
-	# 180° X-axis rotation flips the plane so its normal points DOWN
-	# (toward the player). Determinant stays positive so backface culling
-	# sees the bottom face as the front face.
-	mi.rotation_degrees.x = 180.0
-	mi.position.y = CEILING_PLANE_Y
-	add_child(mi)
-	ceiling_node = mi
+		mat.set_shader_parameter("grain_scale", float(m.get("grain_scale", 0.22)))
+		mat.set_shader_parameter("grain_strength", float(m.get("grain_strength", 0.65)))
+		mat.set_shader_parameter("normal_strength", float(m.get("normal_strength", 1.3)))
+		return mat
+	var fallback := StandardMaterial3D.new()
+	var cb: Array = m.get("color_base", [0.18, 0.15, 0.12])
+	fallback.albedo_color = Color(cb[0], cb[1], cb[2])
+	fallback.roughness = 0.95
+	return fallback
 
 
 func _spawn_entities() -> void:
@@ -622,9 +636,9 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 					# so it doesn't clip player head height (2.5m).
 					var mesh_height_world: float = sy_sc
 					# Attach to the canonical ceiling plane — stalactites now bind to
-					# a real rendered surface at CEILING_PLANE_Y, not an abstract height
+					# a real rendered surface resolved from the manifest plane list.
 					var tip_min_y: float = 4.0
-					var base_y: float = max(CEILING_PLANE_Y, tip_min_y + mesh_height_world)
+					var base_y: float = max(active_ceiling_y, tip_min_y + mesh_height_world)
 					inversion_y_offset = base_y
 				else:
 					# Standard column — upright stalagmite shape = classical wide-base
@@ -1601,11 +1615,11 @@ func _physics_process(delta: float) -> void:
 	# Creatures react to camera
 	_update_creatures(delta)
 
-	# Ground + ceiling planes follow camera in X/Z so they're always under/above
-	# the player. Y stays locked at 0 (ground) and CEILING_PLANE_Y (ceiling).
-	if ground_node:
-		ground_node.position.x = new_pos.x
-		ground_node.position.z = new_pos.z
-	if ceiling_node:
-		ceiling_node.position.x = new_pos.x
-		ceiling_node.position.z = new_pos.z
+	# All follow_camera planes track X/Z so they're always under/over the
+	# player. Y stays locked at each plane's configured offset.
+	for tag in plane_nodes:
+		var entry: Dictionary = plane_nodes[tag]
+		if entry.get("follow", true):
+			var node: MeshInstance3D = entry["node"]
+			node.position.x = new_pos.x
+			node.position.z = new_pos.z
