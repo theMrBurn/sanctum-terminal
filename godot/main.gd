@@ -1186,21 +1186,20 @@ func _drop_tag_marker(num: int, pos: Vector3) -> void:
 	label.no_depth_test = true
 	label.position.y = 0.5
 	marker.add_child(label)
-	# Small sphere at ground to mark the spot
+	# Prime-mote doctrine: tag markers are motes dropped by the player by
+	# hand. Same heptagonal test fixture — see design_heptagonal_mote.md.
+	# You tag the world with the world's unit cell.
 	var dot := MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.08
-	sphere.height = 0.16
-	sphere.radial_segments = 6
-	sphere.rings = 3
+	var hep: ArrayMesh = _build_heptagonal_mote_mesh(0.10)
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(1.0, 0.85, 0.3)
 	mat.emission_enabled = true
 	mat.emission = Color(1.0, 0.85, 0.3)
 	mat.emission_energy_multiplier = 3.0
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	sphere.material = mat
-	dot.mesh = sphere
+	hep.surface_set_material(0, mat)
+	dot.mesh = hep
 	marker.add_child(dot)
 	marker.name = "TagMarker_%d" % num
 	add_child(marker)
@@ -1364,6 +1363,58 @@ func _get_decal_texture(tint: Color) -> GradientTexture2D:
 	decal_texture_cache[key] = tex
 	return tex
 
+func _build_heptagonal_mote_mesh(radius: float) -> ArrayMesh:
+	"""Build a flat 7-vertex heptagonal disc for use as a mote draw pass.
+
+	Seven rim verts + one center vert = 7 triangles. Billboarded at the
+	particle material level so the seven edges always face the camera. The
+	canonical test fixture for the visual system — see
+	design_heptagonal_mote.md. One ArrayMesh is built per mote emitter
+	(not per particle) so the caller can set_surface_material with that
+	emitter's color; cost is ~negligible (8 verts, 7 tris).
+	"""
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+
+	# Center vertex
+	verts.append(Vector3.ZERO)
+	normals.append(Vector3(0, 0, 1))
+	uvs.append(Vector2(0.5, 0.5))
+
+	# Seven rim vertices — one prime-rotation around Z.
+	# Offset by -PI/2 so one vertex points straight up in mesh space,
+	# giving the silhouette a canonical orientation when billboarded.
+	var n: int = 7
+	for i in range(n):
+		var theta: float = -PI * 0.5 + TAU * float(i) / float(n)
+		verts.append(Vector3(cos(theta) * radius, sin(theta) * radius, 0))
+		normals.append(Vector3(0, 0, 1))
+		uvs.append(Vector2(0.5 + cos(theta) * 0.5, 0.5 + sin(theta) * 0.5))
+
+	# Seven triangles fanning out from center. Wind counter-clockwise so
+	# the +Z face is the front face under default culling.
+	for i in range(n):
+		var a: int = 0
+		var b: int = 1 + i
+		var c: int = 1 + ((i + 1) % n)
+		indices.append(a)
+		indices.append(b)
+		indices.append(c)
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
 func _update_motes() -> void:
 	# Remove old
 	for l: Node3D in emissive_lights:
@@ -1498,11 +1549,12 @@ func _update_motes() -> void:
 		pmat.scale_max = 0.06
 		particles.process_material = pmat
 
-		var smesh := SphereMesh.new()
-		smesh.radius = 0.04
-		smesh.height = 0.08
-		smesh.radial_segments = 4
-		smesh.rings = 2
+		# Seven-sided mote — the signature test fixture for the whole visual
+		# system (design_heptagonal_mote.md). Every subsystem is validated
+		# against this shape first; if it reads right on the mote, it scales.
+		# Flat heptagonal disc, billboarded so all seven edges always face the
+		# camera. Non-tiling shape + prime rotation count + Merkabah number.
+		var smesh: ArrayMesh = _build_heptagonal_mote_mesh(0.05)
 		var smat := StandardMaterial3D.new()
 		smat.albedo_color = Color(cfg["mote_color"].r, cfg["mote_color"].g, cfg["mote_color"].b, 0.5)
 		smat.emission_enabled = true
@@ -1511,7 +1563,7 @@ func _update_motes() -> void:
 		smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		smesh.material = smat
+		smesh.surface_set_material(0, smat)
 		particles.draw_pass_1 = smesh
 
 		particles.position = Vector3(
@@ -1593,19 +1645,18 @@ func _update_motes() -> void:
 		dmat.scale_min = 0.02
 		dmat.scale_max = 0.04
 		drip.process_material = dmat
-		var dmesh := SphereMesh.new()
-		dmesh.radius = 0.03
-		dmesh.height = 0.06
-		dmesh.radial_segments = 4
-		dmesh.rings = 2
+		# Prime-mote doctrine: ceiling drips are motes that happen to fall.
+		# Same heptagonal test fixture — see design_heptagonal_mote.md.
+		var dmesh: ArrayMesh = _build_heptagonal_mote_mesh(0.035)
 		var dsmat := StandardMaterial3D.new()
 		dsmat.albedo_color = Color(0.6, 0.4, 0.12, 0.7)
 		dsmat.emission_enabled = true
 		dsmat.emission = Color(0.5, 0.35, 0.10)
 		dsmat.emission_energy_multiplier = 3.0
+		dsmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		dsmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		dsmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		dmesh.material = dsmat
+		dmesh.surface_set_material(0, dsmat)
 		drip.draw_pass_1 = dmesh
 		drip.position = Vector3(ent.get("x", 0.0), ent.get("z", 0.0), ent.get("y", 0.0))
 		add_child(drip)
