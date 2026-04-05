@@ -17,7 +17,7 @@ BIOME_CAVERN_DEFAULT = [
     ("mega_column",       0.12,    10.0,      20),
     ("column",            0.30,    5.0,       10),
     ("boulder",           1.20,    3.0,       3),
-    ("stalagmite",        1.80,    2.0,       2),
+    ("stalagmite",        1.80,    3.0,       2),
     ("giant_fungus",      0.30,    2.5,       3),
     ("crystal_cluster",   0.25,    2.0,       3),
     ("dead_log",          0.50,    1.5,       2),
@@ -68,10 +68,14 @@ BIOME_OUTDOOR_FOREST = [
 # -- Collision radii -----------------------------------------------------------
 
 HARD_OBJECTS = {
+    # Increased for mega_column/column/buttress to create walking margin around
+    # landmarks — the visible silhouette becomes a "keep out" zone other anchors
+    # respect, preserving walkable paths around every major landmark.
     "boulder":          2.5,
-    "column":           2.5,
-    "mega_column":      2.5,
-    "stalagmite":       0.6,
+    "column":           4.0,   # was 2.5 — walking margin
+    "mega_column":      5.0,   # was 2.5 — walking margin
+    "buttress":         3.0,   # was 1.8 — walking margin
+    "stalagmite":       1.2,
     "giant_fungus":     1.2,
     "crystal_cluster":  1.0,
     "dead_log":         0.8,
@@ -80,6 +84,93 @@ HARD_OBJECTS = {
     "horizon_mid":      2.0,
     "horizon_near":     1.0,
 }
+
+
+# -- Formation archetypes (RosterPool source) ----------------------------------
+#
+# Each formation is a RECIPE that produces one integrated geological mass:
+# buttress arms + a central column that reads as a single silhouette.
+# The column is the PEAK of the mound, not a separate object with supports.
+#
+# Scale anchors (FOV 52°, eye height 2.5m):
+#   - buttress arm length: 3-6m (fits in viewing frustum without dominating)
+#   - column peak height:  6-10m (tall enough to read as landmark, short enough to fit under dome height 30m)
+#   - formation footprint: 8-14m wide (sits within the 10-13m honeycomb spacing)
+#
+# Fields:
+#   - "column": {"kind", "scale_mult", "z_offset"} — central peak
+#   - "arms":   list of {offset_distance, offset_angle, lean_angle, scale_x/y/z}
+#
+# RosterPool cycles through formations so adjacent buttressed columns differ.
+
+FORMATION_ARCHETYPES = [
+    # F0 — tripod mound: 3 stretched slabs merging at center, column as peak tip
+    # Lean capped at 45°, scale_z at 2.0, offsets ≤4.0m for cleaner navigation
+    {
+        "name": "tripod_mound",
+        "column": {"kind": "mega_column", "scale_mult": 0.75, "z_offset": 0.0},
+        "arms": [
+            {"offset_distance": 3.0, "offset_angle": 0.0,
+             "lean_angle": 42.0, "scale_x": 1.1, "scale_y": 1.1, "scale_z": 1.8},
+            {"offset_distance": 3.0, "offset_angle": 120.0,
+             "lean_angle": 42.0, "scale_x": 1.1, "scale_y": 1.1, "scale_z": 1.8},
+            {"offset_distance": 3.0, "offset_angle": 240.0,
+             "lean_angle": 42.0, "scale_x": 1.1, "scale_y": 1.1, "scale_z": 1.8},
+        ],
+    },
+    # F1 — cliff back: one dominant slab, column rises adjacent to slab peak
+    {
+        "name": "cliff_back",
+        "column": {"kind": "mega_column", "scale_mult": 0.85, "z_offset": 0.0,
+                   "offset_distance": 2.5, "offset_angle": 0.0},
+        "arms": [
+            {"offset_distance": 2.0, "offset_angle": 180.0,
+             "lean_angle": 45.0, "scale_x": 1.8, "scale_y": 1.5, "scale_z": 2.2},
+        ],
+    },
+    # F2 — wedge pair: 2 slabs forming a V, column in the throat
+    {
+        "name": "wedge_pair",
+        "column": {"kind": "mega_column", "scale_mult": 0.70, "z_offset": 0.0},
+        "arms": [
+            {"offset_distance": 3.5, "offset_angle": 45.0,
+             "lean_angle": 42.0, "scale_x": 1.0, "scale_y": 1.0, "scale_z": 2.0},
+            {"offset_distance": 3.5, "offset_angle": 315.0,
+             "lean_angle": 42.0, "scale_x": 1.0, "scale_y": 1.0, "scale_z": 2.0},
+        ],
+    },
+    # F3 — ridge line: 3-4 small masses stretched along axis, column at midpoint
+    {
+        "name": "ridge_line",
+        "column": {"kind": "mega_column", "scale_mult": 0.65, "z_offset": 0.0},
+        "arms": [
+            {"offset_distance": 2.5, "offset_angle": 30.0,
+             "lean_angle": 38.0, "scale_x": 0.8, "scale_y": 0.9, "scale_z": 1.6},
+            {"offset_distance": 4.0, "offset_angle": 30.0,
+             "lean_angle": 35.0, "scale_x": 0.7, "scale_y": 0.8, "scale_z": 1.5},
+            {"offset_distance": 2.5, "offset_angle": 210.0,
+             "lean_angle": 38.0, "scale_x": 0.8, "scale_y": 0.9, "scale_z": 1.6},
+            {"offset_distance": 4.0, "offset_angle": 210.0,
+             "lean_angle": 35.0, "scale_x": 0.7, "scale_y": 0.8, "scale_z": 1.5},
+        ],
+    },
+    # F4 — collapsed pile: 2-3 flat slabs at shallow angles, column from center
+    {
+        "name": "collapsed_pile",
+        "column": {"kind": "mega_column", "scale_mult": 0.80, "z_offset": 0.0},
+        "arms": [
+            {"offset_distance": 2.5, "offset_angle": 60.0,
+             "lean_angle": 25.0, "scale_x": 1.3, "scale_y": 1.0, "scale_z": 1.6},
+            {"offset_distance": 2.8, "offset_angle": 200.0,
+             "lean_angle": 30.0, "scale_x": 1.1, "scale_y": 0.9, "scale_z": 1.8},
+            {"offset_distance": 2.5, "offset_angle": 320.0,
+             "lean_angle": 22.0, "scale_x": 1.2, "scale_y": 1.1, "scale_z": 1.6},
+        ],
+    },
+]
+
+# Legacy alias — old BUTTRESS_VARIANTS name kept for import compatibility
+BUTTRESS_VARIANTS = FORMATION_ARCHETYPES
 
 ANCHOR_WAKE_MULT = {
     "mega_column":      1.8,
@@ -193,6 +284,143 @@ OUTDOOR_COMPANION_SPAWNS = {
     "dead_log":    {"moss_patch": 1, "radius": 3.0},
     "giant_fungus": {"grass_tuft": 1, "radius": 3.5},
 }
+
+
+# -- Flourish pools (RosterPool variety for eye-tricking density near anchors) -
+#
+# Each anchor kind has a POOL of possible flourish kinds. The world generator
+# picks 1-3 flourishes per anchor via RosterPool rotation, so adjacent anchors
+# get different flourish mixes — creates visual density variation without
+# literal "grass ring around every boulder" rules.
+#
+# Scale anchor: flourishes should sit WITHIN the anchor's footprint silhouette
+# so they read as "ground near the rock" not "a separate feature."
+
+CAVERN_FLOURISH_POOLS = {
+    "boulder":       ["moss_patch", "rubble", "twig_scatter", "cave_gravel",
+                      "grass_tuft", "leaf_pile"],
+    "mega_column":   ["rubble", "moss_patch", "cave_gravel", "twig_scatter",
+                      "bone_pile", "stalagmite"],
+    "column":        ["rubble", "cave_gravel", "moss_patch", "grass_tuft"],
+    "buttress":      ["rubble", "cave_gravel", "moss_patch", "twig_scatter"],
+    "giant_fungus":  ["moss_patch", "grass_tuft", "leaf_pile", "twig_scatter"],
+    "crystal_cluster": ["cave_gravel", "rubble", "moss_patch"],
+    "dead_log":      ["moss_patch", "grass_tuft", "leaf_pile", "twig_scatter",
+                      "rubble"],
+}
+
+OUTDOOR_FLOURISH_POOLS = {
+    "boulder":       ["moss_patch", "grass_tuft", "leaf_pile", "rubble",
+                      "twig_scatter"],
+    "mega_column":   ["moss_patch", "grass_tuft", "dead_log", "leaf_pile",
+                      "twig_scatter", "rubble"],
+    "column":        ["grass_tuft", "moss_patch", "leaf_pile"],
+    "buttress":      ["moss_patch", "rubble", "grass_tuft", "twig_scatter"],
+    "giant_fungus":  ["grass_tuft", "leaf_pile", "moss_patch"],
+    "dead_log":      ["moss_patch", "grass_tuft", "leaf_pile"],
+}
+
+FLOURISH_COUNT_RANGE = (1, 3)  # per anchor
+FLOURISH_RADIUS_RANGE = (1.2, 2.8)  # tighter than before (was 1.0-3.5) — stays close to anchor, doesn't block corridors
+
+
+# -- Cluster archetypes (RosterPool source for room feature clusters) ----------
+#
+# A cluster is a small group of 2-5 same-kind entities placed as a single
+# composition element (like the spore-pod trio in Tag 4). Rooms get 1-2
+# cluster placements as scene-setting features that read as ONE thing.
+#
+# Each cluster: kind + count range + internal spread radius + z_height_offset
+# for overhead variants (stalactite-style hanging formations).
+
+CAVERN_CLUSTER_ARCHETYPES = [
+    {"name": "spore_trio",       "kind": "giant_fungus",
+     "count": 3, "spread": 1.8, "z_offset": 0.0},
+    {"name": "stalagmite_pair",  "kind": "stalagmite",
+     "count": 2, "spread": 2.5, "z_offset": 0.0},
+    {"name": "stalagmite_trio",  "kind": "stalagmite",
+     "count": 3, "spread": 3.5, "z_offset": 0.0},
+    {"name": "crystal_cluster_3","kind": "crystal_cluster",
+     "count": 3, "spread": 2.8, "z_offset": 0.0},
+    {"name": "boulder_pile",     "kind": "boulder",
+     "count": 3, "spread": 3.2, "z_offset": 0.0},
+    {"name": "mossy_rubble",     "kind": "rubble",
+     "count": 5, "spread": 2.0, "z_offset": 0.0},
+    {"name": "bone_scatter",     "kind": "bone_pile",
+     "count": 4, "spread": 2.2, "z_offset": 0.0},
+    # Overhead clusters — upper frame density hanging from the vast cavern ceiling
+    # z_offset at 14-18m reads as "high cave ceiling" not "low basement"
+    # (reference: Oblivion Hackdirt stalactites, Sable monolith tops)
+    {"name": "vine_fall",        "kind": "hanging_vine",
+     "count": 4, "spread": 3.0, "z_offset": 14.0},
+    {"name": "ceiling_moss_mat", "kind": "ceiling_moss",
+     "count": 3, "spread": 3.5, "z_offset": 17.0},
+]
+
+OUTDOOR_CLUSTER_ARCHETYPES = [
+    {"name": "fern_hollow",      "kind": "moss_patch",
+     "count": 5, "spread": 2.5, "z_offset": 0.0},
+    {"name": "fungus_ring",      "kind": "giant_fungus",
+     "count": 4, "spread": 3.0, "z_offset": 0.0},
+    {"name": "boulder_pile",     "kind": "boulder",
+     "count": 3, "spread": 3.2, "z_offset": 0.0},
+    {"name": "grass_patch",      "kind": "grass_tuft",
+     "count": 7, "spread": 2.5, "z_offset": 0.0},
+    {"name": "dead_log_pair",    "kind": "dead_log",
+     "count": 2, "spread": 3.0, "z_offset": 0.0},
+    {"name": "stump_cluster",    "kind": "stalagmite",
+     "count": 3, "spread": 2.8, "z_offset": 0.0},
+]
+
+
+# -- Room/corridor honeycomb discipline ----------------------------------------
+#
+# Every Nth honeycomb node becomes a ROOM instead of a corridor anchor.
+# Rooms get: cleared interior, edge-pushed anchors, feature clusters.
+# Corridors keep: center anchors, tight framing elements.
+
+ROOM_EVERY_NTH_NODE = 3  # 1 in 3 nodes becomes a room
+ROOM_CLEARANCE_RADIUS = 5.5  # walkable interior radius
+ROOM_ANCHOR_EDGE_MIN = 4.5   # anchors push this far from room center
+ROOM_ANCHOR_EDGE_MAX = 7.0   # max distance for perimeter anchors
+ROOM_CLUSTER_COUNT = (1, 2)  # how many feature clusters per room
+ROOM_PERIMETER_ANCHOR_RANGE = (2, 3)   # 2-3 anchors (was 3-5), leaves visible gaps
+ROOM_EXIT_GAP_DEGREES = 110.0          # guaranteed angular gap toward "exit"
+
+
+# -- Room beacon pool (RosterPool source for center light sources) -------------
+#
+# Every room gets ONE guaranteed beacon element at its center. This pulls
+# the player's eye INTO the room and makes it read as an inhabited space,
+# not a dark pocket. Reference: Oblivion campfire anchoring the space.
+#
+# The LRU roster cycles through beacon types so adjacent rooms differ.
+
+CAVERN_ROOM_BEACONS = [
+    {"name": "filament_spire",  "kind": "filament",
+     "count": 1, "spread": 0.0, "z_offset": 0.0},
+    {"name": "crystal_hearth",  "kind": "crystal_cluster",
+     "count": 1, "spread": 0.0, "z_offset": 0.0},
+    {"name": "crystal_trio",    "kind": "crystal_cluster",
+     "count": 3, "spread": 1.5, "z_offset": 0.0},
+    {"name": "firefly_swarm",   "kind": "firefly",
+     "count": 5, "spread": 2.2, "z_offset": 1.5},
+    {"name": "fungus_beacon",   "kind": "giant_fungus",
+     "count": 1, "spread": 0.0, "z_offset": 0.0},
+    {"name": "filament_trio",   "kind": "filament",
+     "count": 3, "spread": 1.8, "z_offset": 0.0},
+]
+
+OUTDOOR_ROOM_BEACONS = [
+    {"name": "firefly_swarm",   "kind": "firefly",
+     "count": 6, "spread": 2.5, "z_offset": 1.5},
+    {"name": "fungus_ring",     "kind": "giant_fungus",
+     "count": 3, "spread": 2.0, "z_offset": 0.0},
+    {"name": "moss_glow",       "kind": "moss_patch",
+     "count": 4, "spread": 2.0, "z_offset": 0.0},
+    {"name": "crystal_hearth",  "kind": "crystal_cluster",
+     "count": 1, "spread": 0.0, "z_offset": 0.0},
+]
 
 
 # -- Spectrum profiles (hue drift configs) -------------------------------------
@@ -427,8 +655,8 @@ LIGHT_AFFINITY = {
 # -- Render dome height per biome ----------------------------------------------
 
 DOME_HEIGHT = {
-    "cavern": 30.0,
-    "outdoor": 45.0,
+    "cavern": 45.0,   # raised from 30 → ceiling feels vast, hangs decoration at 14-18m
+    "outdoor": 55.0,  # raised from 45 → sky reads as open, not lid
 }
 
 
@@ -490,12 +718,12 @@ OUTDOOR_LIGHT_STATES = {
 
 CAVERN_LIGHT_STATES = {
     "cave": {
-        "ambient": (0.38, 0.34, 0.32),
+        "ambient": (0.58, 0.54, 0.48),
         "fog_color": (0.06, 0.055, 0.06),
-        "fog_near": 8.0,
-        "fog_far": 28.0,
+        "fog_near": 12.0,
+        "fog_far": 48.0,
         "bg_color": (0.06, 0.06, 0.07),
-        "far_clip": 30.0,
+        "far_clip": 52.0,
         "sun_color": (0.0, 0.0, 0.0),
         "sun_scale": 0.0,
         "moon_color": (0.0, 0.0, 0.0),

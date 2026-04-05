@@ -67,7 +67,7 @@ def generate_world(biome_name, seed=42, tile_size=288.0):
 
     half = tile_size / 2.0
     spawns = []
-    for kind, (tx, ty), heading, kseed in tile_spawns:
+    for kind, (tx, ty), heading, kseed, _meta in tile_spawns:
         x = tx - half
         y = ty - half
         z = 0.0

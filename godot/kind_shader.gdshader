@@ -1,5 +1,7 @@
 shader_type spatial;
-render_mode cull_disabled;
+// Backface culling enabled by default (no cull_disabled) — prevents
+// the "solid wall from inside the mesh" artifact when camera clips
+// a mesh edge. Interior surfaces no longer render as opaque walls.
 
 // Simplified kind shader — palette first, one grain, clean.
 // Get cohesion before adding effects.
@@ -20,6 +22,10 @@ uniform float normal_strength : hint_range(0.0, 2.0) = 0.5;
 // Emissive
 uniform float inner_glow : hint_range(0.0, 1.0) = 0.0;
 uniform float pulse_rate : hint_range(0.0, 0.2) = 0.0;
+
+// Flat shading — recompute per-face normal from position derivatives
+// 0 = smooth (vertex normals), 1 = flat (per-triangle facet normals)
+uniform float flat_shading : hint_range(0.0, 1.0) = 0.0;
 
 // Triplanar sampling
 vec4 triplanar(sampler2D tex, vec3 pos, vec3 norm, float scale) {
@@ -57,6 +63,13 @@ void fragment() {
 		vec3 n = triplanar(normal_tex, world_pos, world_norm, grain_scale).rgb;
 		NORMAL_MAP = n;
 		NORMAL_MAP_DEPTH = normal_strength;
+	}
+
+	// 6. Flat shading — override per-vertex normal with per-face normal
+	// Uses screen-space derivatives to compute facet normal per fragment
+	if (flat_shading > 0.5) {
+		vec3 face_normal = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+		NORMAL = face_normal;
 	}
 
 	ALBEDO = col;

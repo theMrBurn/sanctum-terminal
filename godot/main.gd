@@ -65,6 +65,7 @@ func _ready() -> void:
 	_spawn_entities()
 	_update_motes()
 	_setup_hud()
+	_aim_spawn_heading()  # Point camera at nearest natural landmark for spawn composition
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -133,20 +134,30 @@ func _create_kind_material(kind: String) -> Material:
 	mat.set_shader_parameter("light_response", params.get("light_response", 0.35))
 
 	# World grain from global config — same scale on everything
+	# EXCEPT crystalline: hard optical surfaces, grain reads as dragonscale on reflective faces
 	var gcfg: Dictionary = kind_config.get("_global", {}).get("world_grain", {})
+	var kind_class: String = kind_config.get("kinds", {}).get(kind, {}).get("class", "geological")
+	var is_crystalline: bool = (kind_class == "crystalline")
 	mat.set_shader_parameter("grain_scale", gcfg.get("grain_scale", 0.35))
 	var grain_albedo: Texture2D = load("res://world_grain.png")
 	if grain_albedo:
 		mat.set_shader_parameter("grain_tex", grain_albedo)
-	mat.set_shader_parameter("grain_strength", gcfg.get("grain_strength", 0.10))
+	# Crystalline: zero grain → smooth optical surface, no scale pattern
+	var eff_grain_strength: float = 0.0 if is_crystalline else gcfg.get("grain_strength", 0.10)
+	mat.set_shader_parameter("grain_strength", eff_grain_strength)
 	var nmap: Texture2D = load("res://world_grain_normal.png")
 	if nmap:
 		mat.set_shader_parameter("normal_tex", nmap)
-	mat.set_shader_parameter("normal_strength", gcfg.get("normal_strength", params.get("normal_strength", 0.5)))
+	var eff_normal_strength: float = 0.0 if is_crystalline else gcfg.get("normal_strength", params.get("normal_strength", 0.5))
+	mat.set_shader_parameter("normal_strength", eff_normal_strength)
 
 	# Emissive
 	mat.set_shader_parameter("inner_glow", params.get("inner_glow", 0.0))
 	mat.set_shader_parameter("pulse_rate", params.get("pulse_rate", 0.0))
+
+	# Shading mode — flat gives visible facets (geological rock look)
+	var shading: String = params.get("shading", "smooth")
+	mat.set_shader_parameter("flat_shading", 1.0 if shading == "flat" else 0.0)
 
 	return mat
 
@@ -163,15 +174,20 @@ func _load_mesh_bounds() -> void:
 
 const NUM_VARIANTS := 4
 
+const MESH_ALIAS := {
+	"buttress": "boulder",  # buttress reuses boulder mesh, tilted + stretched
+}
+
 func _get_mesh_for_kind(kind: String, variant: int = 0) -> Mesh:
-	var cache_key: String = "%s_v%d" % [kind, variant]
+	var mesh_kind: String = MESH_ALIAS.get(kind, kind)
+	var cache_key: String = "%s_v%d" % [mesh_kind, variant]
 	if mesh_cache.has(cache_key):
 		return mesh_cache[cache_key]
 
 	# Try variant file first, fall back to base name
-	var glb_path := "res://meshes/%s_v%d.glb" % [kind, variant]
+	var glb_path := "res://meshes/%s_v%d.glb" % [mesh_kind, variant]
 	if not ResourceLoader.exists(glb_path):
-		glb_path = "res://meshes/%s.glb" % kind  # legacy fallback
+		glb_path = "res://meshes/%s.glb" % mesh_kind  # legacy fallback
 
 	if ResourceLoader.exists(glb_path):
 		var scene: PackedScene = load(glb_path)
@@ -216,7 +232,7 @@ func _setup_environment() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	godot_env.ambient_light_energy = 0.15  # near-dark — negative space IS the texture, light defines form
+	godot_env.ambient_light_energy = 1.0  # raised from 0.60 — cavern must be navigable, not oppressively dark
 	godot_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 
 	godot_env.tonemap_mode = 2
@@ -229,14 +245,14 @@ func _setup_environment() -> void:
 	godot_env.glow_intensity = 0.8
 	godot_env.glow_bloom = 0.25
 	godot_env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	godot_env.glow_hdr_threshold = 0.4  # aggressive bloom on any lit surface
+	godot_env.glow_hdr_threshold = 0.12  # very aggressive — distant lights contribute to bloom smoothly, no POP
 	godot_env.glow_hdr_scale = 2.5
 
 	# Adjustments — desaturate world, color lives only in light sources
 	godot_env.adjustment_enabled = true
 	godot_env.adjustment_brightness = 1.1
 	godot_env.adjustment_contrast = 1.1
-	godot_env.adjustment_saturation = 0.50
+	godot_env.adjustment_saturation = 0.62  # enough color for Decal pools to read
 
 	# Volumetric fog — ground haze, light shafts from emissives
 	godot_env.volumetric_fog_enabled = true
@@ -254,8 +270,9 @@ func _setup_environment() -> void:
 
 	# SSIL — indirect light bounce from emissives onto nearby surfaces
 	godot_env.ssil_enabled = true
-	godot_env.ssil_radius = 5.0
-	godot_env.ssil_intensity = 1.0
+	godot_env.ssil_radius = 8.0   # wider bounce reach — fills dark mid-ground
+	godot_env.ssil_intensity = 1.5  # stronger indirect to complement Decal pools
+	godot_env.ssil_normal_rejection = 0.5  # allow bounce around corners
 
 	env_node = WorldEnvironment.new()
 	env_node.environment = godot_env
@@ -292,6 +309,75 @@ func _setup_camera() -> void:
 	var cam_data: Dictionary = manifest.get("camera", {})
 	camera.position = Vector3(cam_data.get("x", 0.0), EYE_HEIGHT, cam_data.get("y", 0.0))
 	camera.rotation_degrees.y = cam_data.get("heading", 0.0)
+	camera.rotation_degrees.x = 5.0  # slight pitch up — spawn heading refined in _aim_spawn_heading
+	# Head light — personal illumination bubble attached to the camera.
+	# Solves perception-vs-collision confusion in dark areas. Soft warm-neutral
+	# glow with smooth attenuation — reveals nearby surfaces without flooding scene.
+	# Reference: Styx Amber vision glow, Dark Souls torch, Alien Isolation tracker.
+	var head_light := OmniLight3D.new()
+	head_light.name = "HeadLight"
+	head_light.light_color = Color(1.0, 0.92, 0.80)  # warm-neutral, not pure white
+	head_light.light_energy = 1.4
+	head_light.omni_range = 12.0
+	head_light.omni_attenuation = 1.0  # smooth linear-ish falloff
+	head_light.shadow_enabled = false
+	head_light.position = Vector3.ZERO  # at camera origin, moves with it
+	camera.add_child(head_light)
+
+
+func _aim_spawn_heading() -> void:
+	"""Point camera at the nearest natural mega_column outside the spawn clearance.
+
+	The foreground silhouette comes from the world's existing honeycomb, not from
+	a staged blocking object. Camera is aimed with a 20° offset so the landmark
+	falls in the right-forward peripheral instead of dead-center.
+	"""
+	const SPAWN_CLEARANCE: float = 18.0
+	const IDEAL_MIN_DIST: float = 18.0
+	const IDEAL_MAX_DIST: float = 32.0
+	var cam_x: float = camera.position.x
+	var cam_z: float = camera.position.z
+	var best_dist: float = 9999.0
+	var best_x: float = 0.0
+	var best_z: float = 0.0
+	var found: bool = false
+	for ent: Dictionary in manifest.get("entities", []):
+		if ent.get("kind", "") != "mega_column":
+			continue
+		var ex: float = ent.get("x", 0.0)
+		var ez: float = ent.get("y", 0.0)
+		var dx: float = ex - cam_x
+		var dz: float = ez - cam_z
+		var dist: float = sqrt(dx * dx + dz * dz)
+		if dist < SPAWN_CLEARANCE:
+			continue  # skip anything inside clearance (shouldn't be any, but safety)
+		# Prefer landmarks in the ideal framing range
+		var score: float = dist
+		if dist < IDEAL_MIN_DIST:
+			score = IDEAL_MIN_DIST + (IDEAL_MIN_DIST - dist) * 2.0  # penalty for too close
+		elif dist > IDEAL_MAX_DIST:
+			score = dist  # mild penalty for too far
+		if score < best_dist:
+			best_dist = score
+			best_x = ex
+			best_z = ez
+			found = true
+	if not found:
+		print("Spawn aim: no mega_column found, keeping default heading")
+		return
+	# Compute heading to face landmark, then offset 20° so it sits in right peripheral
+	var dx: float = best_x - cam_x
+	var dz: float = best_z - cam_z
+	# Godot: -Z is forward. atan2(-dx, dz) gives heading where 0 = +Z forward
+	var landmark_heading: float = atan2(dx, -dz)
+	# Offset 35° LEFT so the landmark sits clearly in right-forward peripheral,
+	# not center-blocking. FOV 52° means 20° was still near-center; 35° pushes
+	# the landmark to the right edge of the frame so foreground is open.
+	var peripheral_offset: float = deg_to_rad(-35.0)
+	var final_heading: float = landmark_heading + peripheral_offset
+	camera.rotation.y = final_heading
+	print("Spawn aim: landmark at (%.1f, %.1f), dist %.1fm, heading %.1f°" % [
+		best_x, best_z, sqrt(dx*dx + dz*dz), rad_to_deg(final_heading)])
 	var fog_data: Dictionary = manifest.get("fog", {})
 	camera.far = fog_data.get("far", 55.0) * 2.5  # extended for skeleton silhouettes
 	camera.fov = 52.0  # very tight — columns ARE walls, forced through corridors
@@ -321,6 +407,9 @@ func _setup_outline() -> void:
 	outline_material.set_shader_parameter("line_opacity", ocfg.get("line_opacity", 0.7))
 	outline_material.set_shader_parameter("gap_frequency", ocfg.get("gap_frequency", 14.0))
 	outline_material.set_shader_parameter("gap_width", ocfg.get("gap_width", 0.35))
+	outline_material.set_shader_parameter("depth_weight", ocfg.get("depth_weight", 1.0))
+	outline_material.set_shader_parameter("normal_weight", ocfg.get("normal_weight", 0.8))
+	outline_material.set_shader_parameter("lum_weight", ocfg.get("lum_weight", 0.4))
 
 	var canvas := CanvasLayer.new()
 	canvas.layer = 10  # on top of everything
@@ -414,7 +503,8 @@ func _create_multimesh_for_kind(kind: String, ents: Array) -> void:
 
 func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 	var base_mesh: Mesh = _get_mesh_for_kind(kind, variant)
-	var bounds: Dictionary = mesh_bounds.get(kind, {})
+	var bounds_key: String = MESH_ALIAS.get(kind, kind)
+	var bounds: Dictionary = mesh_bounds.get(bounds_key, {})
 	var has_real_mesh: bool = bounds.size() > 0 and not (base_mesh is BoxMesh)
 
 	# Real mesh: normalized to max_dim=1.0. To restore original builder size,
@@ -436,31 +526,104 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 		var sv: float = ent.get("sv", 1.0)
 
 		var xform := Transform3D()
+		var effective_y_height: float = 1.0  # tracks visible Y extent for burial cap
 		if has_real_mesh:
 			var base_s: float = orig_scale * sv
-			# Columns: widen X and Z to feel like walls, not pillars
+			var p_hash: float = abs(sin(ent.get("x", 0.0) * 3.17 + ent.get("y", 0.0) * 7.31))
+			var p_hash2: float = abs(sin(ent.get("x", 0.0) * 11.9 + ent.get("y", 0.0) * 5.47))
+			# Columns: asymmetric geological scaling — no more "planted tree" squish
+			# Shrunk 10% from prior values to give walking clearance more margin
 			if kind == "mega_column" or kind == "column":
-				xform = xform.scaled(Vector3(base_s * 2.2, base_s, base_s * 2.2))
+				var sx_col: float = base_s * (1.26 + p_hash * 0.72)  # 1.26-1.98 range
+				var sz_col: float = base_s * (1.26 + p_hash2 * 0.72)
+				var sy_col: float = base_s * (0.99 + p_hash * 0.54)  # 0.99-1.53 range
+				effective_y_height = sy_col
+				xform = xform.scaled(Vector3(sx_col, sy_col, sz_col))
+			elif kind == "buttress":
+				# Buttress: manifest-driven per-axis scale (lean arm proportions)
+				var bs_x: float = base_s * ent.get("scale_x", 1.0)
+				var bs_y: float = base_s * ent.get("scale_z", 2.5)  # Z brain = Y up Godot
+				var bs_z: float = base_s * ent.get("scale_y", 1.0)
+				effective_y_height = bs_y
+				xform = xform.scaled(Vector3(bs_x, bs_y, bs_z))
+			elif kind == "boulder":
+				# Boulder: asymmetric mass distribution, squash/stretch by position
+				var b_x: float = base_s * (0.85 + p_hash * 0.45)     # 0.85-1.30
+				var b_y: float = base_s * (0.70 + p_hash2 * 0.45)    # 0.70-1.15 (shorter)
+				var b_z: float = base_s * (0.85 + (1.0 - p_hash) * 0.45)
+				effective_y_height = b_y
+				xform = xform.scaled(Vector3(b_x, b_y, b_z))
+			elif kind == "stalagmite":
+				# Stalagmite: narrow base variance, heavy height variance
+				var sm_xz: float = base_s * (0.80 + p_hash * 0.40)
+				var sm_y: float = base_s * (0.75 + p_hash2 * 0.95)   # 0.75-1.70
+				effective_y_height = sm_y
+				xform = xform.scaled(Vector3(sm_xz, sm_y, sm_xz * (0.9 + p_hash2 * 0.2)))
+			elif kind == "rubble":
+				# Rubble: always flat, X/Z ratios vary
+				var r_x: float = base_s * (0.80 + p_hash * 0.50)
+				var r_y: float = base_s * (0.40 + p_hash2 * 0.25)    # always short
+				var r_z: float = base_s * (0.70 + p_hash2 * 0.60)
+				effective_y_height = r_y
+				xform = xform.scaled(Vector3(r_x, r_y, r_z))
 			else:
+				effective_y_height = base_s
 				xform = xform.scaled(Vector3.ONE * base_s)
 		else:
 			var sx: float = ent.get("sx", 1.0)
 			var sy: float = ent.get("sy", 1.0)
 			var sz: float = ent.get("sz", 1.0)
 			xform = xform.scaled(Vector3(sx, sz, sy))
-		xform = xform.rotated(Vector3.UP, heading)
+		# Random rotation for geological kinds (break repeating mesh silhouettes)
+		var final_heading: float = heading
+		if kind == "mega_column" or kind == "column" or kind == "boulder" \
+				or kind == "stalagmite" or kind == "rubble" or kind == "bone_pile":
+			var rot_hash: float = sin(ent.get("x", 0.0) * 4.73 + ent.get("y", 0.0) * 9.11)
+			final_heading = rot_hash * PI
+		xform = xform.rotated(Vector3.UP, final_heading)
+		# Buttress lean — tilt the arm toward the parent column after yaw rotation
+		# Heading already points lean direction; tilt local X axis forward
+		if kind == "buttress":
+			var lean_deg: float = ent.get("lean_angle", 40.0)
+			var lean_rad: float = deg_to_rad(lean_deg)
+			# Local tilt axis perpendicular to lean direction (heading + 90°)
+			var tilt_axis := Vector3(cos(heading + PI * 0.5), 0.0, sin(heading + PI * 0.5))
+			xform = xform.rotated(tilt_axis.normalized(), lean_rad)
 
 		# Position: manifest (x, y, z) → Godot (x, z_up, y_forward)
-		# Sink objects slightly into ground so they grow FROM it
+		# Erosion physics: burial config comes from kind_config.json per-kind.
+		# Each kind that erodes declares a "burial" block with min_frac/max_frac.
+		# Per-instance position hash picks a burial depth in that range →
+		# natural bouldering variance (some exposed, some mostly buried).
 		var y_offset: float = 0.0 if has_real_mesh else ent.get("sz", 1.0) * 0.5
 		var sink: float = 0.0
 		if has_real_mesh:
-			if kind == "moss_patch" or kind == "leaf_pile" or kind == "twig_scatter" or kind == "cave_gravel":
-				sink = -0.05  # ground cover sinks into floor
-			elif kind == "boulder" or kind == "rubble" or kind == "bone_pile":
-				sink = -0.15  # partially buried
-			elif kind == "mega_column" or kind == "column" or kind == "stalagmite":
-				sink = -0.3  # grows from the ground
+			var bounds_scale: float = bounds.get("scale", 1.0) * sv
+			var kind_params: Dictionary = _get_kind_params(kind)
+			var burial_cfg: Dictionary = kind_params.get("burial", {})
+			if burial_cfg.size() > 0:
+				# Config-driven burial — deterministic per-position hash in min-max range
+				var burial_hash: float = abs(sin(ent.get("x", 0.0) * 8.31 + ent.get("y", 0.0) * 14.7))
+				var min_frac: float = burial_cfg.get("min_frac", 0.15)
+				var max_frac: float = burial_cfg.get("max_frac", 0.35)
+				var burial_frac: float = min_frac + burial_hash * (max_frac - min_frac)
+				var raw_sink: float = bounds_scale * burial_frac
+				# BURIAL CAP — visible above-ground height must stay above minimum
+				# regardless of burial fraction + Y scale variance. Prevents
+				# stubby-dome silhouettes when short instances are buried deep.
+				var min_above_ground: float = 1.0  # default for small kinds
+				if kind == "mega_column" or kind == "column":
+					min_above_ground = 4.0
+				elif kind == "buttress":
+					min_above_ground = 2.5
+				elif kind == "boulder":
+					min_above_ground = 0.8
+				elif kind == "stalagmite":
+					min_above_ground = 0.6
+				var max_allowed_sink: float = max(0.3, effective_y_height - min_above_ground)
+				sink = -min(raw_sink, max_allowed_sink)
+			elif kind == "moss_patch" or kind == "leaf_pile" or kind == "twig_scatter" or kind == "cave_gravel":
+				sink = -0.05  # ground cover sinks into floor (not erosion — placement)
 		var pos := Vector3(
 			ent.get("x", 0.0),
 			ent.get("z", 0.0) + y_offset + sink,
@@ -714,8 +877,8 @@ func _update_atmosphere() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	# Cave is dark — light comes from emissives, not ambient
-	godot_env.ambient_light_energy = 0.15
+	# Navigability floor — player must always read silhouettes + pathways
+	godot_env.ambient_light_energy = 1.0
 
 	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
 	godot_env.background_color = Color(bg[0], bg[1], bg[2])
@@ -938,9 +1101,9 @@ const LIGHT_KINDS := {
 	},
 	"firefly": {
 		"color": Color(0.95, 0.75, 0.30),
-		"energy": 1.0,
-		"range": 3.0,
-		"attenuation": 2.0,
+		"energy": 5.5,
+		"range": 9.0,
+		"attenuation": 0.9,
 		"mote_color": Color(0.95, 0.8, 0.3),
 		"mote_count": 1,
 		"mote_radius": 0.5,
@@ -948,9 +1111,9 @@ const LIGHT_KINDS := {
 	},
 	"filament": {
 		"color": Color(0.30, 0.40, 0.55),
-		"energy": 1.5,
-		"range": 4.0,
-		"attenuation": 1.8,
+		"energy": 6.0,
+		"range": 18.0,
+		"attenuation": 0.8,
 		"mote_color": Color(0.35, 0.45, 0.6),
 		"mote_count": 5,
 		"mote_radius": 1.0,
@@ -969,7 +1132,36 @@ const LIGHT_KINDS := {
 }
 
 var emissive_lights: Array[Node3D] = []
+var emissive_decals: Array[Decal] = []
+var decal_texture_cache: Dictionary = {}  # color_key → GradientTexture2D
 var mote_particles: Array[GPUParticles3D] = []
+
+
+func _get_decal_texture(tint: Color) -> GradientTexture2D:
+	"""Radial falloff texture for ground Decals, tinted per emissive kind.
+	Uses RGB falloff (bright center → black edge) so emission naturally fades.
+	Alpha channel provides the Decal shape mask."""
+	var key: String = "%d_%d_%d" % [int(tint.r * 255), int(tint.g * 255), int(tint.b * 255)]
+	if decal_texture_cache.has(key):
+		return decal_texture_cache[key]
+
+	var grad := Gradient.new()
+	# Center: tinted color with full alpha → edge: black with zero alpha
+	grad.set_color(0, Color(tint.r, tint.g, tint.b, 0.8))
+	grad.add_point(0.3, Color(tint.r * 0.6, tint.g * 0.6, tint.b * 0.6, 0.5))
+	grad.add_point(0.7, Color(tint.r * 0.15, tint.g * 0.15, tint.b * 0.15, 0.15))
+	grad.set_color(grad.get_point_count() - 1, Color(0.0, 0.0, 0.0, 0.0))
+
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(0.5, 0.0)
+	tex.width = 128
+	tex.height = 128
+
+	decal_texture_cache[key] = tex
+	return tex
 
 func _update_motes() -> void:
 	# Remove old
@@ -977,6 +1169,10 @@ func _update_motes() -> void:
 		if is_instance_valid(l):
 			l.queue_free()
 	emissive_lights.clear()
+	for d: Decal in emissive_decals:
+		if is_instance_valid(d):
+			d.queue_free()
+	emissive_decals.clear()
 	for p: GPUParticles3D in mote_particles:
 		if is_instance_valid(p):
 			p.queue_free()
@@ -1030,26 +1226,58 @@ func _update_motes() -> void:
 		add_child(light)
 		emissive_lights.append(light)
 
-		# Prismatic caustics — colored light patches refracted through crystal
+		# Ground Decal — projects colored pool onto floor (NWN2 approach)
+		var kind_entry: Dictionary = kind_config.get("kinds", {}).get(kind, {})
+		var decal_cfg: Dictionary = kind_entry.get("decal", {})
+		if decal_cfg.size() > 0:
+			var decal := Decal.new()
+			var d_radius: float = decal_cfg.get("emission_radius", 6.0) * ent.get("sv", 1.0)
+			decal.size = Vector3(d_radius * 2.0, 4.0, d_radius * 2.0)
+			var d_tint_blend: float = decal_cfg.get("tint_blend", 0.8)
+			var d_tint := Color(
+				light_color.r * d_tint_blend + (1.0 - d_tint_blend),
+				light_color.g * d_tint_blend + (1.0 - d_tint_blend),
+				light_color.b * d_tint_blend + (1.0 - d_tint_blend))
+			var d_tex: GradientTexture2D = _get_decal_texture(d_tint)
+			decal.texture_albedo = d_tex   # alpha channel = decal shape mask
+			decal.texture_emission = d_tex  # RGB = emission glow
+			decal.emission_energy = decal_cfg.get("emission_energy", 0.5) * e_var
+			decal.albedo_mix = 0.12  # subtle ground tint + alpha mask
+			decal.modulate = Color(1.0, 1.0, 1.0, 0.85)  # let texture do the tinting
+			decal.upper_fade = 0.1
+			decal.lower_fade = 0.8
+			decal.normal_fade = 0.5
+			decal.position = Vector3(pos.x, 0.2, pos.z)
+			add_child(decal)
+			emissive_decals.append(decal)
+
+		# Prismatic caustics — small colored Decal patches refracted through crystal
+		# Replaces 3 OmniLights with 3 tiny Decals — zero light draw calls
 		if cfg.get("prismatic", false) and hue_seed > 0.4:  # ~60% of crystals
 			var spread: float = cfg.get("facet_spread", 2.5)
 			var c_energy: float = cfg.get("caustic_intensity", 0.4) * e_var
-			var c_range: float = cfg.get("caustic_radius", 3.5)
+			var c_radius: float = cfg.get("caustic_radius", 3.5) * 0.4  # small patches, not floods
 			for ci in range(CAUSTIC_COLORS.size()):
 				var angle: float = (hue_seed * 360.0 + float(ci) * 120.0)
 				var c_offset := Vector3(
 					cos(deg_to_rad(angle)) * spread,
-					0.2,  # near ground
+					0.0,
 					sin(deg_to_rad(angle)) * spread)
-				var caustic := OmniLight3D.new()
-				caustic.light_color = CAUSTIC_COLORS[ci]
-				caustic.light_energy = c_energy * cfg["energy"] * 0.15
-				caustic.omni_range = c_range
-				caustic.omni_attenuation = 1.5
-				caustic.shadow_enabled = false
-				caustic.position = pos + c_offset
-				add_child(caustic)
-				emissive_lights.append(caustic)
+				var caustic_decal := Decal.new()
+				caustic_decal.size = Vector3(c_radius * 2.0, 3.0, c_radius * 2.0)
+				var cc: Color = CAUSTIC_COLORS[ci]
+				var c_tex: GradientTexture2D = _get_decal_texture(cc)
+				caustic_decal.texture_albedo = c_tex    # alpha = shape mask
+				caustic_decal.texture_emission = c_tex
+				caustic_decal.emission_energy = c_energy * 1.2  # visible colored patches
+				caustic_decal.albedo_mix = 0.08  # alpha mask + faint tint
+				caustic_decal.modulate = Color(1.0, 1.0, 1.0, 0.7)
+				caustic_decal.upper_fade = 0.1
+				caustic_decal.lower_fade = 0.8
+				caustic_decal.normal_fade = 0.5
+				caustic_decal.position = Vector3(pos.x + c_offset.x, 0.15, pos.z + c_offset.z)
+				add_child(caustic_decal)
+				emissive_decals.append(caustic_decal)
 
 		# Mote particles
 		var particles := GPUParticles3D.new()

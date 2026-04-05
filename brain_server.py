@@ -39,6 +39,7 @@ from core.systems.tension_cycle import TensionCycle, OUTDOOR_CYCLE, CAVERN_CYCLE
 KIND_PROPS = {
     "mega_column":     {"scale": [3.0, 3.0, 12.0], "color": [0.28, 0.22, 0.16], "emissive": 0.0},
     "column":          {"scale": [1.8, 1.8, 8.0],  "color": [0.30, 0.25, 0.18], "emissive": 0.0},
+    "buttress":        {"scale": [2.5, 2.5, 6.0],  "color": [0.26, 0.21, 0.16], "emissive": 0.0},
     "boulder":         {"scale": [4.0, 3.5, 2.5],  "color": [0.25, 0.42, 0.16], "emissive": 0.0},
     "stalagmite":      {"scale": [0.8, 0.8, 3.0],  "color": [0.28, 0.24, 0.18], "emissive": 0.0},
     "crystal_cluster": {"scale": [1.5, 1.2, 2.0],  "color": [0.35, 0.29, 0.19], "emissive": 1.0},
@@ -58,7 +59,7 @@ KIND_PROPS = {
     "spider":          {"scale": [0.05, 0.05, 0.03],"color": [0.08, 0.07, 0.06], "emissive": 0.0},
     "ceiling_moss":    {"scale": [1.0, 1.0, 0.8],  "color": [0.12, 0.18, 0.08], "emissive": 0.9},
     "hanging_vine":    {"scale": [0.3, 0.3, 2.5],  "color": [0.10, 0.16, 0.07], "emissive": 0.0},
-    "filament":        {"scale": [0.05, 0.05, 3.0], "color": [0.30, 0.40, 0.55], "emissive": 1.0},
+    "filament":        {"scale": [0.08, 0.08, 5.0], "color": [0.30, 0.40, 0.55], "emissive": 1.0},
     "horizon_form":    {"scale": [6.0, 4.0, 10.0], "color": [0.08, 0.10, 0.05], "emissive": 0.0},
     "horizon_mid":     {"scale": [4.0, 3.0, 7.0],  "color": [0.10, 0.12, 0.06], "emissive": 0.0},
     "horizon_near":    {"scale": [3.0, 2.0, 5.0],  "color": [0.12, 0.14, 0.08], "emissive": 0.0},
@@ -116,13 +117,16 @@ class BrainWorld:
         rng = random.Random(seed)
 
         tile_spawns = generate_tile(
-            seed=seed, biome_name=self.biome_name, tile_size=self.tile_size)
+            seed=seed, biome_name=self.biome_name, tile_size=self.tile_size,
+            is_spawn_tile=(tx == 0 and ty == 0))
 
         offset_x = tx * self.tile_size
         offset_y = ty * self.tile_size
         half = self.tile_size / 2.0
 
-        for kind, (lx, ly), heading, kseed in tile_spawns:
+        for spawn in tile_spawns:
+            # Spawns are 5-tuples: (kind, (x,y), heading, seed, metadata_or_None)
+            kind, (lx, ly), heading, kseed, meta = spawn
             props = KIND_PROPS.get(kind)
             if not props:
                 continue
@@ -169,6 +173,34 @@ class BrainWorld:
                 "collision_radius": COLLISION_RADII.get(kind, 0.0),
             }
 
+            # Buttress metadata — lean angle, stretch axes (for renderer tilt)
+            if meta and kind == "buttress":
+                ent["lean_angle"] = round(meta["lean_angle"], 1)
+                ent["scale_x"] = round(meta["scale_x"], 3)
+                ent["scale_y"] = round(meta["scale_y"], 3)
+                ent["scale_z"] = round(meta["scale_z"], 3)
+                ent["formation"] = meta.get("formation", "")
+
+            # Formation-scaled mega_column — columns inside formations get shrunk
+            # so buttress arms dominate the silhouette (column is the PEAK, not the mass)
+            if meta and kind == "mega_column" and "formation_scale_mult" in meta:
+                mult = meta["formation_scale_mult"]
+                ent["sx"] = round(ent["sx"] * mult, 3)
+                ent["sy"] = round(ent["sy"] * mult, 3)
+                ent["sz"] = round(ent["sz"] * mult, 3)
+                ent["formation"] = meta.get("formation", "")
+
+            # Overhead cluster z-offset (hanging_vine / ceiling_moss from ceilings)
+            if meta and "cluster_z_offset" in meta:
+                ent["z"] = round(ent["z"] + meta["cluster_z_offset"], 2)
+
+            # Satellite scale multiplier (fungus satellites, etc.)
+            if meta and "scale_mult" in meta and kind != "mega_column":
+                mult = meta["scale_mult"]
+                ent["sx"] = round(ent["sx"] * mult, 3)
+                ent["sy"] = round(ent["sy"] * mult, 3)
+                ent["sz"] = round(ent["sz"] * mult, 3)
+
             eid = self.next_eid
             self.next_eid += 1
             self.entities[eid] = ent
@@ -210,11 +242,21 @@ class BrainWorld:
         # Current light state (base values)
         ls = self.light_states[self.light_state_names[self.light_state_idx]]
 
-        # Tension envelope overrides fog/ambient when active
+        # Tension envelope overrides fog/ambient when active,
+        # but clamped to floors so player can always navigate the scene.
+        # Min ambient keeps silhouettes readable; min fog_far keeps depth usable.
+        AMBIENT_FLOOR = (0.58, 0.54, 0.48)
+        FOG_FAR_FLOOR = 55.0
+        FOG_NEAR_CEIL = 12.0  # don't let fog pull closer than 12m
         if self.tension.active and envelope:
-            fog_near = envelope.fog[0]
-            fog_far = envelope.fog[1]
-            ambient = list(envelope.ambient)
+            fog_near = min(envelope.fog[0], FOG_NEAR_CEIL)
+            fog_far = max(envelope.fog[1], FOG_FAR_FLOOR)
+            amb = envelope.ambient
+            ambient = [
+                max(amb[0], AMBIENT_FLOOR[0]),
+                max(amb[1], AMBIENT_FLOOR[1]),
+                max(amb[2], AMBIENT_FLOOR[2]),
+            ]
         else:
             fog_near = ls["fog_near"]
             fog_far = ls["fog_far"]
