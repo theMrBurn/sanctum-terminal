@@ -5,6 +5,43 @@
       "grain_strength": 0.45,
       "normal_strength": 0.5
     },
+    "surface_library": {
+      "default": {
+        "albedo": "res://world_grain.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.35,
+        "grain_strength": 0.45,
+        "normal_strength": 0.5
+      },
+      "stone_rough": {
+        "albedo": "res://stone_128.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.18,
+        "grain_strength": 0.60,
+        "normal_strength": 1.1
+      },
+      "stone_weathered": {
+        "albedo": "res://world_grain.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.28,
+        "grain_strength": 0.50,
+        "normal_strength": 0.9
+      },
+      "organic_soft": {
+        "albedo": "res://organic_64.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.14,
+        "grain_strength": 0.35,
+        "normal_strength": 0.4
+      },
+      "mineral_fine": {
+        "albedo": "res://noise_64.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.10,
+        "grain_strength": 0.20,
+        "normal_strength": 0.2
+      }
+    },
     "outline": {
       "mode": 2,
       "thickness": 1.5,
@@ -30,6 +67,7 @@
   "_class_defaults": {
     "geological": {
       "shading": "smooth",
+      "surface": "stone_rough",
       "material": "stone_heavy",
       "material_ratio": 0.80,
       "palette_base": [0.05, 0.045, 0.04],
@@ -51,6 +89,7 @@
     },
     "structural": {
       "shading": "smooth",
+      "surface": "stone_weathered",
       "material": "stone_heavy",
       "material_ratio": 0.80,
       "palette_base": [0.04, 0.035, 0.03],
@@ -72,6 +111,7 @@
     },
     "crystalline": {
       "shading": "flat",
+      "surface": "mineral_fine",
       "material": "stone_light",
       "material_ratio": 1.00,
       "palette_base": [0.06, 0.055, 0.07],
@@ -96,6 +136,7 @@
     },
     "organic_flora": {
       "shading": "smooth",
+      "surface": "organic_soft",
       "material": "dry_organic",
       "material_ratio": 1.20,
       "palette_base": [0.04, 0.03, 0.025],

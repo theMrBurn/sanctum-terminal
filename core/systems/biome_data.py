@@ -720,6 +720,7 @@ BIOME_PLANES = {
             "layer": "near",
             "material": {
                 "shader": "ground",
+                "surface": "stone_rough",
                 "color_base": [0.18, 0.15, 0.12],
                 "grain_scale": 0.22,
                 "grain_strength": 0.65,
@@ -736,6 +737,7 @@ BIOME_PLANES = {
             "layer": "near",
             "material": {
                 "shader": "ground",
+                "surface": "stone_weathered",
                 "color_base": [0.10, 0.09, 0.08],
                 "grain_scale": 0.22,
                 "grain_strength": 0.55,
@@ -754,6 +756,7 @@ BIOME_PLANES = {
             "layer": "near",
             "material": {
                 "shader": "ground",
+                "surface": "stone_rough",
                 "color_base": [0.22, 0.20, 0.15],
                 "grain_scale": 0.22,
                 "grain_strength": 0.65,

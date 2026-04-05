@@ -115,6 +115,50 @@ func _get_kind_params(kind: String) -> Dictionary:
 	return base
 
 
+func _resolve_surface(kind: String) -> Dictionary:
+	"""Look up the surface_library entry a kind should render with.
+
+	Resolution: kinds[kind].surface → class_defaults[class].surface →
+	library 'default'. Returns the library entry dict (albedo/normal paths
+	plus default grain_scale/strength/normal_strength tuning).
+	"""
+	var library: Dictionary = kind_config.get("_global", {}).get("surface_library", {})
+	var kind_entry: Dictionary = kind_config.get("kinds", {}).get(kind, {})
+	var kind_class: String = kind_entry.get("class", "geological")
+	var class_defaults: Dictionary = kind_config.get("_class_defaults", {}).get(kind_class, {})
+
+	var surface_name: String = kind_entry.get("surface",
+		class_defaults.get("surface", "default"))
+	if library.has(surface_name):
+		return library[surface_name]
+	if library.has("default"):
+		return library["default"]
+	# Library missing entirely — return hardcoded fallback so rendering still works
+	return {
+		"albedo": "res://world_grain.png",
+		"normal": "res://world_grain_normal.png",
+		"grain_scale": 0.35,
+		"grain_strength": 0.45,
+		"normal_strength": 0.5,
+	}
+
+
+func _resolve_surface_by_name(surface_name: String) -> Dictionary:
+	"""Look up a named surface in the library (used by planes, not kinds)."""
+	var library: Dictionary = kind_config.get("_global", {}).get("surface_library", {})
+	if library.has(surface_name):
+		return library[surface_name]
+	if library.has("default"):
+		return library["default"]
+	return {
+		"albedo": "res://world_grain.png",
+		"normal": "res://world_grain_normal.png",
+		"grain_scale": 0.35,
+		"grain_strength": 0.45,
+		"normal_strength": 0.5,
+	}
+
+
 func _create_kind_material(kind: String) -> Material:
 	"""Create a ShaderMaterial configured from kind_config for this kind."""
 	var params: Dictionary = _get_kind_params(kind)
@@ -141,22 +185,37 @@ func _create_kind_material(kind: String) -> Material:
 	mat.set_shader_parameter("roughness_base", rough.get("base", 0.85))
 	mat.set_shader_parameter("light_response", params.get("light_response", 0.35))
 
-	# World grain from global config — same scale on everything
-	# EXCEPT crystalline: hard optical surfaces, grain reads as dragonscale on reflective faces
-	var gcfg: Dictionary = kind_config.get("_global", {}).get("world_grain", {})
+	# Surface library lookup — per-kind surface identity.
+	# Resolution order: kinds[kind].surface → class_defaults[class].surface →
+	# global surface_library "default". The library entry provides texture
+	# paths + default tuning; per-kind can override scale/strength on top.
 	var kind_class: String = kind_config.get("kinds", {}).get(kind, {}).get("class", "geological")
 	var is_crystalline: bool = (kind_class == "crystalline")
-	mat.set_shader_parameter("grain_scale", gcfg.get("grain_scale", 0.35))
-	var grain_albedo: Texture2D = load("res://world_grain.png")
+	var surface_entry: Dictionary = _resolve_surface(kind)
+
+	var grain_albedo: Texture2D = load(surface_entry.get("albedo", "res://world_grain.png"))
 	if grain_albedo:
 		mat.set_shader_parameter("grain_tex", grain_albedo)
-	# Crystalline: zero grain → smooth optical surface, no scale pattern
-	var eff_grain_strength: float = 0.0 if is_crystalline else gcfg.get("grain_strength", 0.10)
-	mat.set_shader_parameter("grain_strength", eff_grain_strength)
-	var nmap: Texture2D = load("res://world_grain_normal.png")
+	var nmap: Texture2D = load(surface_entry.get("normal", "res://world_grain_normal.png"))
 	if nmap:
 		mat.set_shader_parameter("normal_tex", nmap)
-	var eff_normal_strength: float = 0.0 if is_crystalline else gcfg.get("normal_strength", params.get("normal_strength", 0.5))
+
+	# Global world_grain entry still acts as the scale baseline; surface lib
+	# and per-kind params override it in that order.
+	var gcfg: Dictionary = kind_config.get("_global", {}).get("world_grain", {})
+	var grain_scale: float = params.get("grain_scale",
+		surface_entry.get("grain_scale", gcfg.get("grain_scale", 0.35)))
+	mat.set_shader_parameter("grain_scale", grain_scale)
+
+	var base_grain_strength: float = params.get("grain_strength",
+		surface_entry.get("grain_strength", gcfg.get("grain_strength", 0.10)))
+	# Crystalline: zero grain → smooth optical surface, no scale pattern
+	var eff_grain_strength: float = 0.0 if is_crystalline else base_grain_strength
+	mat.set_shader_parameter("grain_strength", eff_grain_strength)
+
+	var base_normal_strength: float = params.get("normal_strength",
+		surface_entry.get("normal_strength", gcfg.get("normal_strength", 0.5)))
+	var eff_normal_strength: float = 0.0 if is_crystalline else base_normal_strength
 	mat.set_shader_parameter("normal_strength", eff_normal_strength)
 
 	# Emissive
@@ -519,6 +578,15 @@ func _spawn_plane(p: Dictionary) -> void:
 
 
 func _create_plane_material(m: Dictionary) -> Material:
+	# Resolve texture paths through the surface library if the plane material
+	# declares a `surface` field; otherwise fall back to world_grain. Per-plane
+	# grain_scale/strength/normal_strength still override whatever the surface
+	# library entry suggests, so biome_data stays in full control of tuning.
+	var surface_name: String = String(m.get("surface", ""))
+	var surface_entry: Dictionary = _resolve_surface_by_name(surface_name) if surface_name != "" else {}
+	var albedo_path: String = surface_entry.get("albedo", "res://world_grain.png")
+	var normal_path: String = surface_entry.get("normal", "res://world_grain_normal.png")
+
 	var shader := load("res://ground.gdshader")
 	if shader:
 		var mat := ShaderMaterial.new()
@@ -527,15 +595,18 @@ func _create_plane_material(m: Dictionary) -> Material:
 		mat.set_shader_parameter("color_base", Color(cb[0], cb[1], cb[2]))
 		var fc_arr: Array = manifest.get("fog", {}).get("color", [0.1, 0.1, 0.1])
 		mat.set_shader_parameter("fog_color", Color(fc_arr[0], fc_arr[1], fc_arr[2]))
-		var grain: Texture2D = load("res://world_grain.png")
+		var grain: Texture2D = load(albedo_path)
 		if grain:
 			mat.set_shader_parameter("grain_tex", grain)
-		var nmap: Texture2D = load("res://world_grain_normal.png")
+		var nmap: Texture2D = load(normal_path)
 		if nmap:
 			mat.set_shader_parameter("normal_tex", nmap)
-		mat.set_shader_parameter("grain_scale", float(m.get("grain_scale", 0.22)))
-		mat.set_shader_parameter("grain_strength", float(m.get("grain_strength", 0.65)))
-		mat.set_shader_parameter("normal_strength", float(m.get("normal_strength", 1.3)))
+		mat.set_shader_parameter("grain_scale",
+			float(m.get("grain_scale", surface_entry.get("grain_scale", 0.22))))
+		mat.set_shader_parameter("grain_strength",
+			float(m.get("grain_strength", surface_entry.get("grain_strength", 0.65))))
+		mat.set_shader_parameter("normal_strength",
+			float(m.get("normal_strength", surface_entry.get("normal_strength", 1.3))))
 		return mat
 	var fallback := StandardMaterial3D.new()
 	var cb: Array = m.get("color_base", [0.18, 0.15, 0.12])
