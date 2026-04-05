@@ -10,6 +10,8 @@ const EYE_HEIGHT := 2.5
 const SERVER_HOST := "127.0.0.1"
 const SERVER_PORT := 9877
 
+const MoteMaterials = preload("res://mote_materials.gd")
+
 # Plane-attachment architecture (Design Law #14, Phase 3).
 # Canonical ceiling height is now config-driven: resolved from the manifest's
 # `planes` array at spawn time and cached in `active_ceiling_y`. The constant
@@ -1567,20 +1569,10 @@ func _update_motes() -> void:
 		# Per-kind mesh radius — firefly butt (0.10) to Tron Bit (0.32).
 		var mote_mesh_radius: float = cfg.get("mote_size", 0.15)
 		var smesh: ArrayMesh = _build_heptagonal_mote_mesh(mote_mesh_radius)
-		var smat := StandardMaterial3D.new()
-		smat.albedo_color = Color(cfg["mote_color"].r, cfg["mote_color"].g, cfg["mote_color"].b, 0.5)
-		smat.emission_enabled = true
-		smat.emission = cfg["mote_color"]
-		smat.emission_energy_multiplier = 8.0
-		# BILLBOARD_PARTICLES is the correct mode for GPUParticles3D draw
-		# passes — it respects per-particle transforms. BILLBOARD_ENABLED
-		# (used previously) collapsed all particles to the emitter origin,
-		# which killed both visibility and bloom contribution. Revealed by
-		# the heptagon commit because flat discs showed the bug that sphere
-		# meshes had been hiding via their volume.
-		smat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-		smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		# Particle draw pass material via shared factory (mote_materials.gd).
+		# BILLBOARD_PARTICLES is the load-bearing setting — see the regression
+		# test at godot/tests/test_mote_materials.gd.
+		var smat: StandardMaterial3D = MoteMaterials.make_particle_mote_material(cfg["mote_color"])
 		smesh.surface_set_material(0, smat)
 		particles.draw_pass_1 = smesh
 
@@ -1666,16 +1658,12 @@ func _update_motes() -> void:
 		drip.process_material = dmat
 		# Prime-mote doctrine: ceiling drips are motes that happen to fall.
 		# Same heptagonal test fixture — see design_heptagonal_mote.md.
-		# Bumped from 0.035 to 0.10 so falling drips are visible at game distance.
+		# Uses the same MoteMaterials factory so the BILLBOARD_PARTICLES
+		# invariant is enforced by the same regression test.
 		var dmesh: ArrayMesh = _build_heptagonal_mote_mesh(0.10)
-		var dsmat := StandardMaterial3D.new()
-		dsmat.albedo_color = Color(0.6, 0.4, 0.12, 0.7)
-		dsmat.emission_enabled = true
-		dsmat.emission = Color(0.5, 0.35, 0.10)
-		dsmat.emission_energy_multiplier = 3.0
-		dsmat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-		dsmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		dsmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		var dsmat: StandardMaterial3D = MoteMaterials.make_particle_mote_material(Color(0.5, 0.35, 0.10))
+		dsmat.albedo_color = Color(0.6, 0.4, 0.12, 0.7)  # drips are slightly less transparent
+		dsmat.emission_energy_multiplier = 3.0            # softer than ambient motes
 		dmesh.surface_set_material(0, dsmat)
 		drip.draw_pass_1 = dmesh
 		drip.position = Vector3(ent.get("x", 0.0), ent.get("z", 0.0), ent.get("y", 0.0))
