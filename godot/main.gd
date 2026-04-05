@@ -1449,15 +1449,24 @@ func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
 		return
 
 	var atom_radius: float = cfg.get("mote_size", 0.15)
+	# Structure spawns at full mote_height above entity base — NOT half.
+	# Half was burying the arrangement inside the host mesh (crystal clusters
+	# etc. are several meters tall; a structure at 1.5m is inside the volume).
 	var center: Vector3 = Vector3(
 		ent.get("x", 0.0),
-		ent.get("z", 0.0) + cfg.get("mote_height", 2.0) * 0.5,
+		ent.get("z", 0.0) + cfg.get("mote_height", 2.0),
 		ent.get("y", 0.0)
 	)
 
 	for offset in offsets:
 		var atom_mesh: ArrayMesh = _build_heptagonal_mote_mesh(atom_radius)
 		var atom_mat: StandardMaterial3D = MoteMaterials.make_particle_mote_material(cfg["mote_color"])
+		# Override billboard mode for static use. The factory returns
+		# BILLBOARD_PARTICLES (correct for GPUParticles3D draw passes and
+		# enforced by test_mote_materials.gd), but a plain MeshInstance3D
+		# needs BILLBOARD_ENABLED — without it the flat disc stays locked
+		# facing +Z in world space and disappears when viewed edge-on.
+		atom_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		# Boost emission energy slightly so the structural atoms read as
 		# brighter than the ambient drift particles around them.
 		atom_mat.emission_energy_multiplier = 10.0
@@ -1466,6 +1475,14 @@ func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = atom_mesh
 		mi.position = center + (offset as Vector3)
+		# Force an oversized custom AABB so Godot's frustum culling doesn't
+		# eat the atom when billboard rotates the flat disc at runtime.
+		# The auto-computed AABB is ~(atom_radius)³ which is smaller than
+		# the actual rendered pixel extent after billboard rotation.
+		mi.custom_aabb = AABB(
+			Vector3(-atom_radius * 2.0, -atom_radius * 2.0, -atom_radius * 2.0),
+			Vector3(atom_radius * 4.0, atom_radius * 4.0, atom_radius * 4.0)
+		)
 		mi.name = "MoteAtom_%s_%s" % [ent.get("kind", "?"), arrangement_name]
 		add_child(mi)
 		mote_particles.append(mi as Node3D)  # reuse cleanup path

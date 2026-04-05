@@ -51,7 +51,10 @@ static func _solo() -> Array:
 # is the Merkabah count.
 static func _lattice_7() -> Array:
 	var offsets: Array = [Vector3.ZERO]
-	var radius: float = 0.45  # ~45cm rim — tight enough to read as one object
+	# Rim radius 1.0m = 2m-wide rosette, visible at game distance against
+	# crystal-cluster-scale entities. Previous 0.45m read as a point from
+	# more than a few meters out. Still within the test's [0.1, 2.0] bound.
+	var radius: float = 1.0
 	# Six rim atoms — 60° apart. (We use six not seven because 6+center=7,
 	# preserving the Merkabah count without forcing an awkward 7-fold rim.)
 	for i in range(6):
