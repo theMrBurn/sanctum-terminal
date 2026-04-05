@@ -11,6 +11,7 @@ const SERVER_HOST := "127.0.0.1"
 const SERVER_PORT := 9877
 
 const MoteMaterials = preload("res://mote_materials.gd")
+const MoteArrangements = preload("res://mote_arrangements.gd")
 
 # Plane-attachment architecture (Design Law #14, Phase 3).
 # Canonical ceiling height is now config-driven: resolved from the manifest's
@@ -1281,6 +1282,7 @@ const LIGHT_KINDS := {
 		"mote_radius": 3.0,   # emission sphere radius (spawn area)
 		"mote_height": 3.0,
 		"mote_size": 0.32,    # mesh radius — the Tron Bit pole, biggest motes
+		"mote_arrangement": "lattice_7",  # center + heptagonal rim = mineral lattice
 	},
 	"giant_fungus": {
 		"color": Color(0.18, 0.30, 0.10),
@@ -1292,6 +1294,7 @@ const LIGHT_KINDS := {
 		"mote_radius": 3.0,
 		"mote_height": 4.0,
 		"mote_size": 0.22,    # spore-bit, deliberate heptagons
+		"mote_arrangement": "scatter_7",  # loose organic spore cloud
 	},
 	"moss_patch": {
 		"color": Color(0.10, 0.40, 0.08),
@@ -1303,6 +1306,7 @@ const LIGHT_KINDS := {
 		"mote_radius": 1.0,   # tightened from 1.5 so emission stays above ground
 		"mote_height": 2.0,   # raised from 1.0 — center emission above mesh clip
 		"mote_size": 0.12,    # spore dust, small but legible
+		"mote_arrangement": "ground_hug_4",  # low arc of four atoms
 	},
 	"firefly": {
 		"color": Color(0.95, 0.75, 0.30),
@@ -1314,6 +1318,7 @@ const LIGHT_KINDS := {
 		"mote_radius": 0.5,
 		"mote_height": 1.5,
 		"mote_size": 0.10,    # firefly butt — smallest size on the spectrum
+		"mote_arrangement": "solo",  # single atom, degenerate meta-pixel case
 	},
 	"filament": {
 		"color": Color(0.30, 0.40, 0.55),
@@ -1325,6 +1330,7 @@ const LIGHT_KINDS := {
 		"mote_radius": 1.0,
 		"mote_height": 2.5,
 		"mote_size": 0.15,    # drifting crystal shard
+		"mote_arrangement": "chain_5",  # vertical current flowing through filament
 	},
 	"ceiling_moss": {
 		"color": Color(0.6, 0.40, 0.12),
@@ -1336,13 +1342,14 @@ const LIGHT_KINDS := {
 		"mote_radius": 3.0,
 		"mote_height": 5.0,
 		"mote_size": 0.22,    # amber drip glyph
+		"mote_arrangement": "stream_vert_5",  # staggered drip descent
 	},
 }
 
 var emissive_lights: Array[Node3D] = []
 var emissive_decals: Array[Decal] = []
 var decal_texture_cache: Dictionary = {}  # color_key → GradientTexture2D
-var mote_particles: Array[GPUParticles3D] = []
+var mote_particles: Array[Node3D] = []  # mixed: GPUParticles3D (flow) + MeshInstance3D (structural atoms)
 
 
 func _get_decal_texture(tint: Color) -> GradientTexture2D:
@@ -1423,6 +1430,47 @@ func _build_heptagonal_mote_mesh(radius: float) -> ArrayMesh:
 	return mesh
 
 
+## Meta-pixel mote structure spawner — places heptagonal atom MeshInstance3Ds
+## at each offset returned by the kind's arrangement template, centered on the
+## entity's light position. Each atom uses the shared MoteMaterials factory
+## (same BILLBOARD_PARTICLES invariant as the ambient particles, though these
+## are static — billboarding still rotates each atom to face camera).
+##
+## Arrangements live in mote_arrangements.gd and are validated by
+## tests/test_mote_arrangements.gd. Config lookup is
+## LIGHT_KINDS[kind]["mote_arrangement"] defaulting to "solo".
+##
+## Static atoms + drift particle flow = structure + motion. The structure is
+## the meta-pixel reading; the particles are the ambient life around it.
+func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
+	var arrangement_name: String = cfg.get("mote_arrangement", "solo")
+	var offsets: Array = MoteArrangements.get_offsets(arrangement_name)
+	if offsets.is_empty():
+		return
+
+	var atom_radius: float = cfg.get("mote_size", 0.15)
+	var center: Vector3 = Vector3(
+		ent.get("x", 0.0),
+		ent.get("z", 0.0) + cfg.get("mote_height", 2.0) * 0.5,
+		ent.get("y", 0.0)
+	)
+
+	for offset in offsets:
+		var atom_mesh: ArrayMesh = _build_heptagonal_mote_mesh(atom_radius)
+		var atom_mat: StandardMaterial3D = MoteMaterials.make_particle_mote_material(cfg["mote_color"])
+		# Boost emission energy slightly so the structural atoms read as
+		# brighter than the ambient drift particles around them.
+		atom_mat.emission_energy_multiplier = 10.0
+		atom_mesh.surface_set_material(0, atom_mat)
+
+		var mi := MeshInstance3D.new()
+		mi.mesh = atom_mesh
+		mi.position = center + (offset as Vector3)
+		mi.name = "MoteAtom_%s_%s" % [ent.get("kind", "?"), arrangement_name]
+		add_child(mi)
+		mote_particles.append(mi as Node3D)  # reuse cleanup path
+
+
 func _update_motes() -> void:
 	# Remove old
 	for l: Node3D in emissive_lights:
@@ -1433,7 +1481,7 @@ func _update_motes() -> void:
 		if is_instance_valid(d):
 			d.queue_free()
 	emissive_decals.clear()
-	for p: GPUParticles3D in mote_particles:
+	for p: Node3D in mote_particles:
 		if is_instance_valid(p):
 			p.queue_free()
 	mote_particles.clear()
@@ -1538,6 +1586,15 @@ func _update_motes() -> void:
 				caustic_decal.position = Vector3(pos.x + c_offset.x, 0.15, pos.z + c_offset.z)
 				add_child(caustic_decal)
 				emissive_decals.append(caustic_decal)
+
+		# Meta-pixel mote structure — sub-mote atoms composed into a larger
+		# visible shape per the kind's arrangement template. The prime-mote
+		# (heptagonal atom) is the unit cell; the arrangement is the cluster.
+		# See design_heptagonal_mote.md + design_meta_pixel_mote.md + the
+		# arrangement library in mote_arrangements.gd + its regression test.
+		# Runs alongside the ambient particle emitter below — this layer is
+		# the visible STRUCTURE, the particles are the ambient FLOW.
+		_spawn_mote_structure(ent, cfg)
 
 		# Mote particles
 		var particles := GPUParticles3D.new()
