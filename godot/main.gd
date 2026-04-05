@@ -311,7 +311,7 @@ func _setup_camera() -> void:
 	var cam_data: Dictionary = manifest.get("camera", {})
 	camera.position = Vector3(cam_data.get("x", 0.0), EYE_HEIGHT, cam_data.get("y", 0.0))
 	camera.rotation_degrees.y = cam_data.get("heading", 0.0)
-	camera.rotation_degrees.x = 5.0  # slight pitch up — spawn heading refined in _aim_spawn_heading
+	camera.rotation_degrees.x = 10.0  # upward tilt — catches stalactites + ceiling features naturally
 	# Head light — personal illumination bubble attached to the camera.
 	# Solves perception-vs-collision confusion in dark areas. Soft warm-neutral
 	# glow with smooth attenuation — reveals nearby surfaces without flooding scene.
@@ -382,7 +382,7 @@ func _aim_spawn_heading() -> void:
 		best_x, best_z, sqrt(dx*dx + dz*dz), rad_to_deg(final_heading)])
 	var fog_data: Dictionary = manifest.get("fog", {})
 	camera.far = fog_data.get("far", 55.0) * 2.5  # extended for skeleton silhouettes
-	camera.fov = 52.0  # very tight — columns ARE walls, forced through corridors
+	camera.fov = 62.0  # wider peripheral — catches ceiling features + passive pull cues
 	add_child(camera)
 
 
@@ -546,23 +546,23 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			# from the floor AND stalactites hanging from above.
 			if kind == "mega_column" or kind == "column":
 				var variant_hash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
-				var is_stalactite: bool = variant_hash < 0.30  # 30% hang from ceiling
+				var is_stalactite: bool = variant_hash < 0.40  # 40% hang from ceiling (was 30%)
 				if is_stalactite:
-					# Stalactite variant — smaller scale, hangs from ceiling height
-					var sx_sc: float = base_s * (0.50 + p_hash * 0.30)   # 0.50-0.80
-					var sz_sc: float = base_s * (0.50 + p_hash2 * 0.30)
+					# Stalactite variant — wider mass, hangs from lower ceiling
+					var sx_sc: float = base_s * (0.70 + p_hash * 0.40)   # 0.70-1.10 (was 0.50-0.80)
+					var sz_sc: float = base_s * (0.70 + p_hash2 * 0.40)
 					var sy_sc: float = base_s * (0.40 + p_hash * 0.30)   # 0.40-0.70
 					effective_y_height = sy_sc
 					xform = Transform3D().scaled(Vector3(sx_sc, sy_sc, sz_sc))
 					xform = xform.rotated(Vector3.RIGHT, PI)  # flip 180° around X
-					# Ceiling height offset: 20m above ground. After rotation, wide base
-					# sits at y=20, narrow tip dangles down toward (20 - sy_sc_scaled).
-					# With sy_sc ~ 0.4-0.7 × base_s and base_s ~10-50m, mesh is 4-35m.
-					# Tip lands at y=20-35 to y=20-4 = -15 to +16. We clamp to ensure
-					# tip stays above ground (min 3m).
-					var mesh_height_world: float = sy_sc  # stalagmite mesh max Y is 1.0
-					var ceiling_y: float = 20.0
-					var tip_min_y: float = 3.0
+					# Ceiling height offset: 15m above ground (was 20m). Lower ceiling
+					# puts stalactite base in clearer view at default pitch +10°.
+					# After rotation, wide base sits at y=15, narrow tip dangles toward
+					# (15 - sy_sc_scaled). Tip clamped to stay ≥ 4m above ground
+					# so it doesn't clip player head height (2.5m).
+					var mesh_height_world: float = sy_sc
+					var ceiling_y: float = 15.0
+					var tip_min_y: float = 4.0
 					var base_y: float = max(ceiling_y, tip_min_y + mesh_height_world)
 					inversion_y_offset = base_y
 				else:
