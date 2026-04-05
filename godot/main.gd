@@ -1281,7 +1281,7 @@ const LIGHT_KINDS := {
 		"mote_count": 10,
 		"mote_radius": 3.0,   # emission sphere radius (spawn area)
 		"mote_height": 3.0,
-		"mote_size": 0.32,    # mesh radius — the Tron Bit pole, biggest motes
+		"mote_size": 0.55,    # bumped from 0.32 — FOV presence for bokeh bloom
 		"mote_arrangement": "lattice_7",  # center + heptagonal rim = mineral lattice
 	},
 	"giant_fungus": {
@@ -1293,7 +1293,7 @@ const LIGHT_KINDS := {
 		"mote_count": 8,
 		"mote_radius": 3.0,
 		"mote_height": 4.0,
-		"mote_size": 0.22,    # spore-bit, deliberate heptagons
+		"mote_size": 0.40,    # bumped from 0.22 — FOV presence for bokeh bloom
 		"mote_arrangement": "scatter_7",  # loose organic spore cloud
 	},
 	"moss_patch": {
@@ -1305,7 +1305,7 @@ const LIGHT_KINDS := {
 		"mote_count": 4,
 		"mote_radius": 1.0,   # tightened from 1.5 so emission stays above ground
 		"mote_height": 2.0,   # raised from 1.0 — center emission above mesh clip
-		"mote_size": 0.12,    # spore dust, small but legible
+		"mote_size": 0.22,    # bumped from 0.12 — still smallest non-firefly
 		"mote_arrangement": "ground_hug_4",  # low arc of four atoms
 	},
 	"firefly": {
@@ -1317,7 +1317,7 @@ const LIGHT_KINDS := {
 		"mote_count": 1,
 		"mote_radius": 0.5,
 		"mote_height": 1.5,
-		"mote_size": 0.10,    # firefly butt — smallest size on the spectrum
+		"mote_size": 0.18,    # bumped from 0.10 — still smallest on the spectrum
 		"mote_arrangement": "solo",  # single atom, degenerate meta-pixel case
 	},
 	"filament": {
@@ -1329,7 +1329,7 @@ const LIGHT_KINDS := {
 		"mote_count": 5,
 		"mote_radius": 1.0,
 		"mote_height": 2.5,
-		"mote_size": 0.15,    # drifting crystal shard
+		"mote_size": 0.28,    # bumped from 0.15 — chain atoms resolve at distance
 		"mote_arrangement": "chain_5",  # vertical current flowing through filament
 	},
 	"ceiling_moss": {
@@ -1341,7 +1341,7 @@ const LIGHT_KINDS := {
 		"mote_count": 8,
 		"mote_radius": 3.0,
 		"mote_height": 5.0,
-		"mote_size": 0.22,    # amber drip glyph
+		"mote_size": 0.40,    # bumped from 0.22 — drip glyph reads at a distance
 		"mote_arrangement": "stream_vert_5",  # staggered drip descent
 	},
 }
