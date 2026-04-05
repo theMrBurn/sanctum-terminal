@@ -1572,7 +1572,13 @@ func _update_motes() -> void:
 		smat.emission_enabled = true
 		smat.emission = cfg["mote_color"]
 		smat.emission_energy_multiplier = 8.0
-		smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		# BILLBOARD_PARTICLES is the correct mode for GPUParticles3D draw
+		# passes — it respects per-particle transforms. BILLBOARD_ENABLED
+		# (used previously) collapsed all particles to the emitter origin,
+		# which killed both visibility and bloom contribution. Revealed by
+		# the heptagon commit because flat discs showed the bug that sphere
+		# meshes had been hiding via their volume.
+		smat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 		smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		smesh.surface_set_material(0, smat)
@@ -1667,7 +1673,7 @@ func _update_motes() -> void:
 		dsmat.emission_enabled = true
 		dsmat.emission = Color(0.5, 0.35, 0.10)
 		dsmat.emission_energy_multiplier = 3.0
-		dsmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		dsmat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 		dsmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		dsmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		dmesh.surface_set_material(0, dsmat)
