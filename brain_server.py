@@ -337,6 +337,7 @@ class BrainWorld:
             },
             "entities": visible,
             "planes": self.planes,
+            "biome": self.biome_name,
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),
             "stats": {
