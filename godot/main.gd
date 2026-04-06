@@ -1173,8 +1173,17 @@ func _rebuild_entities() -> void:
 	# Contact shadow Decals — grounding for all rebuilt entities
 	_spawn_contact_shadows(new_by_kind)
 
-	# Update mote particles
-	_update_motes()
+	# Motes: only rebuild when scene actually changes.
+	# Check entity count + tension state as dirty triggers.
+	var ent_count: int = manifest.get("entities", []).size()
+	var t_state: String = manifest.get("tension_state", "open")
+	if ent_count != last_entity_count or t_state != last_tension_state:
+		mote_dirty = true
+	if mote_dirty:
+		_update_motes()
+		mote_dirty = false
+		last_entity_count = ent_count
+		last_tension_state = t_state
 
 
 func _update_atmosphere() -> void:
@@ -1488,6 +1497,14 @@ var emissive_lights: Array[Node3D] = []
 var emissive_decals: Array[Decal] = []
 var decal_texture_cache: Dictionary = {}  # color_key → GradientTexture2D
 var mote_particles: Array[Node3D] = []  # mixed: GPUParticles3D (flow) + MeshInstance3D (structural atoms)
+
+# Mote dirty flag — only rebuild lights/decals/particles when the scene
+# actually changes, not every manifest tick. Motes are ambient decoration;
+# they loop in place. Rebuild triggers: new tile, tension state change,
+# entity count change. Config hook for encounter-driven rebuilds.
+var mote_dirty: bool = true
+var last_entity_count: int = 0
+var last_tension_state: String = ""
 
 
 func _get_decal_texture(tint: Color) -> GradientTexture2D:
