@@ -345,8 +345,14 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                     # Landmark beacon — filament adjacent to column for wayfinding
                     _emit_landmark_beacon(col_x, col_y, spawns, rng)
                     landmark_positions.append((col_x, col_y))
-                    # Spawn the arms — placement relative to node center, not shifted column
+                    # Spawn the arms — but ONLY if the parent column is floor-attached.
+                    # Stalactite columns (ceiling) can't have buttresses leaning on them.
+                    # Uses the same hash the brain/Godot use for inversion.
+                    parent_hash = abs(math.sin(col_x * 2.71 + col_y * 5.43))
+                    parent_is_stalactite = parent_hash < 0.40
                     for arm in formation["arms"]:
+                        if parent_is_stalactite:
+                            continue  # skip — no buttresses on ceiling columns
                         arm_rad = math.radians(arm["offset_angle"])
                         bx = jx + math.cos(arm_rad) * arm["offset_distance"]
                         by = jy + math.sin(arm_rad) * arm["offset_distance"]

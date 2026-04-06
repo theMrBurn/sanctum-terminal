@@ -210,6 +210,16 @@ class BrainWorld:
                 "decay_stage": KIND_DECAY.get(kind, 0.0),
             }
 
+            # Stalactite inversion — brain owns this decision so buttresses
+            # and other formation logic can respect it. Same hash Godot used
+            # to use, now authoritative from the brain side.
+            if kind in ("mega_column", "column"):
+                variant_hash = abs(math.sin(x * 2.71 + y * 5.43))
+                if variant_hash < 0.40:
+                    ent["attachment_plane"] = "ceiling"
+                else:
+                    ent["attachment_plane"] = "floor"
+
             # Buttress metadata — lean angle, stretch axes (for renderer tilt)
             if meta and kind == "buttress":
                 ent["lean_angle"] = round(meta["lean_angle"], 1)

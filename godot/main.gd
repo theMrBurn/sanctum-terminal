@@ -671,14 +671,8 @@ func _spawn_entities() -> void:
 
 		var coll_r: float = ent.get("collision_radius", 0.0)
 		if coll_r > 0.0:
-			# Skip collision for stalactite variants — they hang above head height.
-			# Same hash check as _create_multimesh_for_kind stalactite branching.
-			var skip_coll := false
-			if kind == "mega_column" or kind == "column":
-				var vhash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
-				if vhash < 0.40:
-					skip_coll = true
-			if not skip_coll:
+			# Skip collision for ceiling-attached entities — they hang above head height.
+			if ent.get("attachment_plane", "") != "ceiling":
 				collision_objects.append({"x": ent.get("x", 0.0), "z": ent.get("y", 0.0), "r": coll_r})
 
 	for kind: String in by_kind:
@@ -713,11 +707,9 @@ func _spawn_contact_shadows(by_kind: Dictionary) -> void:
 			continue
 		var base_radius: float = CONTACT_SHADOW_KINDS[kind]
 		for ent: Dictionary in by_kind[kind]:
-			# Skip stalactite variants — they don't touch the ground
-			if kind == "mega_column" or kind == "column":
-				var vhash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
-				if vhash < 0.40:
-					continue
+			# Skip ceiling-attached entities — they don't touch the ground
+			if ent.get("attachment_plane", "") == "ceiling":
+				continue
 			var sv: float = ent.get("sv", 1.0)
 			var radius: float = base_radius * sv
 			var decal := Decal.new()
@@ -791,8 +783,12 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			# Together these create the real eroded-cavern look: stalagmites rising
 			# from the floor AND stalactites hanging from above.
 			if kind == "mega_column" or kind == "column":
-				var variant_hash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
-				var is_stalactite: bool = variant_hash < 0.40  # 40% hang from ceiling (was 30%)
+				# Brain owns the stalactite decision via attachment_plane field.
+				# Fallback to hash for static manifests without the field.
+				var is_stalactite: bool = ent.get("attachment_plane", "") == "ceiling"
+				if not ent.has("attachment_plane"):
+					var variant_hash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
+					is_stalactite = variant_hash < 0.40
 				if is_stalactite:
 					# Stalactite variant — narrow hanging form, elongated not fat
 					var sx_sc: float = base_s * (0.40 + p_hash * 0.25)   # 0.40-0.65
@@ -1149,12 +1145,7 @@ func _rebuild_entities() -> void:
 		new_by_kind[kind].append(ent)
 		var coll_r: float = ent.get("collision_radius", 0.0)
 		if coll_r > 0.0:
-			var skip_coll := false
-			if kind == "mega_column" or kind == "column":
-				var vhash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
-				if vhash < 0.40:
-					skip_coll = true
-			if not skip_coll:
+			if ent.get("attachment_plane", "") != "ceiling":
 				collision_objects.append({"x": ent.get("x", 0.0), "z": ent.get("y", 0.0), "r": coll_r})
 
 	# Remove kinds no longer present
