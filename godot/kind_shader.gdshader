@@ -23,6 +23,12 @@ uniform float normal_strength : hint_range(0.0, 2.0) = 0.5;
 uniform float inner_glow : hint_range(0.0, 1.0) = 0.0;
 uniform float pulse_rate : hint_range(0.0, 0.2) = 0.0;
 
+// Horizontal strata — Sable-style color banding on geological surfaces.
+// Two band colors mix with base via world-space Y position.
+uniform vec3 band_color_a : source_color = vec3(0.0);
+uniform vec3 band_color_b : source_color = vec3(0.0);
+uniform float band_scale : hint_range(0.0, 2.0) = 0.0;  // 0 = disabled
+
 // Flat shading — recompute per-face normal from position derivatives
 // 0 = smooth (vertex normals), 1 = flat (per-triangle facet normals)
 uniform float flat_shading : hint_range(0.0, 1.0) = 0.0;
@@ -62,6 +68,18 @@ void fragment() {
 
 	// 3. Apply kind tint
 	col *= kind_tint;
+
+	// 3.5 Horizontal strata — world-space Y banding for geological surface variety.
+	// Creates readable layered-rock detail without texture resolution.
+	if (band_scale > 0.01) {
+		float band_y = world_pos.y * band_scale;
+		// Two overlapping sine waves at different frequencies = organic strata
+		float band_a = smoothstep(0.3, 0.7, sin(band_y * 3.14) * 0.5 + 0.5);
+		float band_b = smoothstep(0.2, 0.8, sin(band_y * 1.57 + 1.0) * 0.5 + 0.5);
+		vec3 banded = mix(col, band_color_a, band_a * 0.25);
+		banded = mix(banded, band_color_b, band_b * 0.15);
+		col = banded;
+	}
 
 	// 4. World grain — subtle multiply for surface texture
 	float grain = triplanar(grain_tex, world_pos, world_norm, grain_scale).r;

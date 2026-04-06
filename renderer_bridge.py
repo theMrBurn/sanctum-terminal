@@ -80,7 +80,7 @@ def generate_world(biome_name, seed=42, tile_size=288.0):
     world-space (kind, x, y, z, heading, seed) with z offsets for floating kinds.
     """
     rng = random.Random(seed)
-    tile_spawns = generate_tile(seed=seed, biome_name=biome_name, tile_size=tile_size)
+    _variant, tile_spawns = generate_tile(seed=seed, biome_name=biome_name, tile_size=tile_size)
 
     # Convert to world-space with z offsets
     half = tile_size / 2.0

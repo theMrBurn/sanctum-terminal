@@ -255,7 +255,8 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     Hard objects cluster BETWEEN nodes (forming walls/dividers).
     Soft objects cluster NEAR nodes (visible as you walk through).
 
-    Returns list of (kind, (x, y), heading, seed) tuples.
+    Returns (variant_name, spawns) where spawns is a list of
+    (kind, (x, y), heading, seed, meta) tuples.
     Coordinate system: (0, 0) to (tile_size, tile_size).
     """
     if biome is None:
@@ -417,12 +418,26 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
         ny += node_spacing * 0.87
         row += 1
 
-    # Front-load spawn area — guarantee dense cluster near tile center
+    # Spawn corridor — clear the forward view, frame with flanking geometry.
+    # NO node at tile center (player spawns here, don't wall them in).
+    # Place nodes in a broken ring that opens toward heading 0 (north in
+    # brain-space), creating a natural corridor the player looks down.
+    # Flanking nodes at ±60-120° create the "something around the corner"
+    # silhouettes. Forward nodes pushed to 1.5-2x spacing for depth.
     cx, cy = tile * 0.5, tile * 0.5
-    nodes.append((cx, cy))
-    for si in range(6):
-        angle = si * 60 + rng.uniform(-10, 10)
-        dist = node_spacing * rng.uniform(0.8, 1.1)
+    spawn_corridor_angles = [
+        # Flanking left/right — close, creates corridor walls
+        (-70, 0.9),  (-110, 0.9),
+        # Rear — behind the player, not immediately visible
+        (150, 0.8), (-150, 0.8), (180, 1.0),
+        # Forward — PUSHED BACK for depth perspective
+        (-25, 1.8), (25, 1.8),
+        # Mid-forward — staggered depth for parallax
+        (-40, 1.3), (40, 1.3),
+    ]
+    for angle_deg, dist_mult in spawn_corridor_angles:
+        angle = angle_deg + rng.uniform(-8, 8)
+        dist = node_spacing * dist_mult * rng.uniform(0.9, 1.1)
         nodes.append((
             cx + math.cos(math.radians(angle)) * dist,
             cy + math.sin(math.radians(angle)) * dist,
@@ -598,4 +613,4 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     if is_spawn_tile:
         _stage_spawn_composition(filtered, solid_positions, rng, cx_spawn, cy_spawn)
 
-    return filtered
+    return variant_name, filtered

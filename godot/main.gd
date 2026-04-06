@@ -229,6 +229,17 @@ func _create_kind_material(kind: String) -> Material:
 	var shading: String = params.get("shading", "smooth")
 	mat.set_shader_parameter("flat_shading", 1.0 if shading == "flat" else 0.0)
 
+	# Horizontal strata — Sable-style color banding. Config-driven per class.
+	var strata: Dictionary = params.get("strata", {})
+	if strata.size() > 0:
+		mat.set_shader_parameter("band_scale", strata.get("scale", 0.0))
+		var warm: Array = strata.get("warm", [1.0, 1.0, 1.0])
+		var cool: Array = strata.get("cool", [1.0, 1.0, 1.0])
+		mat.set_shader_parameter("band_color_a",
+			Color(pb[0] * warm[0], pb[1] * warm[1], pb[2] * warm[2]))
+		mat.set_shader_parameter("band_color_b",
+			Color(pb[0] * cool[0], pb[1] * cool[1], pb[2] * cool[2]))
+
 	# Phase 2 — layer fade target color (atmospheric perspective mix target)
 	var fog_data: Dictionary = manifest.get("fog", {})
 	var fog_c: Array = fog_data.get("color", [0.2, 0.14, 0.1])
@@ -319,11 +330,11 @@ func _setup_environment() -> void:
 	# Bloom — crystals and moss GLOW and bleed into surroundings
 	godot_env.glow_enabled = true
 	godot_env.glow_enabled = true
-	godot_env.glow_intensity = 4.0   # 5x boost — blooms overlap and contrast dramatically
-	godot_env.glow_bloom = 0.6       # stronger additive blend
+	godot_env.glow_intensity = 4.0   # proven — bloom INTO fog creates atmospheric fill
+	godot_env.glow_bloom = 0.6       # proven — additive overlap is the visual language
 	godot_env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	godot_env.glow_hdr_threshold = 0.12  # very aggressive — distant lights contribute to bloom smoothly, no POP
-	godot_env.glow_hdr_scale = 8.0   # 3.2x boost — bright lights blow out dramatically
+	godot_env.glow_hdr_threshold = 0.12  # proven — aggressive, distant lights contribute smoothly
+	godot_env.glow_hdr_scale = 8.0   # proven — bright lights blow out dramatically into fog
 
 	# Adjustments — desaturate world, color lives only in light sources
 	godot_env.adjustment_enabled = true
@@ -559,20 +570,38 @@ func _spawn_plane(p: Dictionary) -> void:
 	mi.mesh = mesh
 	mi.name = "Plane_" + tag
 
-	# Normal in brain-space (z-up). [0,0,1] = plane faces up (ground).
-	# [0,0,-1] = plane faces down (ceiling) — 180° around X flips the Godot
-	# PlaneMesh default +Y normal to -Y, keeping determinant positive so
-	# backface culling sees the visible face as front.
+	# Normal in brain-space (z-up). Godot PlaneMesh default faces +Y.
+	# Floor  [0,0,+1] → no rotation, position.y = offset
+	# Ceiling [0,0,-1] → 180° X rotation, position.y = offset
+	# Wall-L [+1,0,0] → 90° Z rotation, position.x = offset
+	# Wall-R [-1,0,0] → -90° Z rotation, position.x = offset
+	# Wall-B [0,+1,0] → 90° X rotation, position.z = offset (brain Y → godot Z)
+	# Wall-F [0,-1,0] → -90° X rotation, position.z = offset
 	var normal: Array = p.get("normal", [0.0, 0.0, 1.0])
-	var normal_z: float = float(normal[2]) if normal.size() >= 3 else 1.0
-	if normal_z < 0.0:
-		mi.rotation_degrees.x = 180.0
-	mi.position.y = float(p.get("offset", 0.0))
+	var nx: float = float(normal[0]) if normal.size() >= 1 else 0.0
+	var ny: float = float(normal[1]) if normal.size() >= 2 else 0.0
+	var nz: float = float(normal[2]) if normal.size() >= 3 else 1.0
+	var offset: float = float(p.get("offset", 0.0))
+
+	if abs(nz) > 0.5:
+		# Floor or ceiling — vertical plane
+		if nz < 0.0:
+			mi.rotation_degrees.x = 180.0
+		mi.position.y = offset
+	elif abs(nx) > 0.5:
+		# Left/right wall — rotate around Z to face laterally
+		mi.rotation_degrees.z = 90.0 if nx > 0.0 else -90.0
+		mi.position.x = offset
+	elif abs(ny) > 0.5:
+		# Front/back wall — rotate around X (brain Y = godot Z)
+		mi.rotation_degrees.x = 90.0 if ny > 0.0 else -90.0
+		mi.position.z = offset
 	add_child(mi)
 
 	plane_nodes[tag] = {
 		"node": mi,
 		"follow": bool(p.get("follow_camera", true)),
+		"kind": p.get("kind", "ground"),
 	}
 
 	# Cache canonical ceiling Y for kinds that resolve attachment by tag.
@@ -610,6 +639,8 @@ func _create_plane_material(m: Dictionary) -> Material:
 			float(m.get("grain_strength", surface_entry.get("grain_strength", 0.65))))
 		mat.set_shader_parameter("normal_strength",
 			float(m.get("normal_strength", surface_entry.get("normal_strength", 1.3))))
+		mat.set_shader_parameter("roughness_val",
+			float(m.get("roughness", 0.95)))
 		return mat
 	var fallback := StandardMaterial3D.new()
 	var cb: Array = m.get("color_base", [0.18, 0.15, 0.12])
@@ -696,10 +727,10 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 				var variant_hash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
 				var is_stalactite: bool = variant_hash < 0.40  # 40% hang from ceiling (was 30%)
 				if is_stalactite:
-					# Stalactite variant — wider mass, hangs from lower ceiling
-					var sx_sc: float = base_s * (0.70 + p_hash * 0.40)   # 0.70-1.10 (was 0.50-0.80)
-					var sz_sc: float = base_s * (0.70 + p_hash2 * 0.40)
-					var sy_sc: float = base_s * (0.40 + p_hash * 0.30)   # 0.40-0.70
+					# Stalactite variant — narrow hanging form, elongated not fat
+					var sx_sc: float = base_s * (0.40 + p_hash * 0.25)   # 0.40-0.65
+					var sz_sc: float = base_s * (0.40 + p_hash2 * 0.25)
+					var sy_sc: float = base_s * (0.55 + p_hash * 0.35)   # 0.55-0.90
 					effective_y_height = sy_sc
 					xform = Transform3D().scaled(Vector3(sx_sc, sy_sc, sz_sc))
 					xform = xform.rotated(Vector3.RIGHT, PI)  # flip 180° around X
@@ -715,12 +746,11 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 					var base_y: float = max(active_ceiling_y, tip_min_y + mesh_height_world)
 					inversion_y_offset = base_y
 				else:
-					# Standard column — upright stalagmite shape = classical wide-base
-					# tapering-up column. Same mesh as the stalactite variant, but no
-					# rotation. Wider multipliers so it feels massive, not pencil-thin.
-					var sx_col: float = base_s * (1.20 + p_hash * 0.60)  # 1.20-1.80
-					var sz_col: float = base_s * (1.20 + p_hash2 * 0.60)
-					var sy_col: float = base_s * (1.00 + p_hash * 0.40)  # 1.00-1.40
+					# Standard column — geological spire, taller than wide.
+					# Width restrained so they read as eroded rock, not tree trunks.
+					var sx_col: float = base_s * (0.55 + p_hash * 0.30)  # 0.55-0.85
+					var sz_col: float = base_s * (0.55 + p_hash2 * 0.30)
+					var sy_col: float = base_s * (1.10 + p_hash * 0.50)  # 1.10-1.60 (height dominant)
 					effective_y_height = sy_col
 					xform = xform.scaled(Vector3(sx_col, sy_col, sz_col))
 			elif kind == "buttress":
@@ -731,10 +761,12 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 				effective_y_height = bs_y
 				xform = xform.scaled(Vector3(bs_x, bs_y, bs_z))
 			elif kind == "boulder":
-				# Boulder: asymmetric mass distribution, squash/stretch by position
-				var b_x: float = base_s * (0.85 + p_hash * 0.45)     # 0.85-1.30
-				var b_y: float = base_s * (0.70 + p_hash2 * 0.45)    # 0.70-1.15 (shorter)
-				var b_z: float = base_s * (0.85 + (1.0 - p_hash) * 0.45)
+				# Boulder: irregular geological mass — some tall, some wide, never spherical.
+				# p_hash drives which axis dominates, creating natural variety.
+				var stretch_axis: float = p_hash * 3.0  # 0-1: tall, 1-2: wide, 2-3: deep
+				var b_x: float = base_s * (0.55 + p_hash * 0.35)     # 0.55-0.90
+				var b_y: float = base_s * (0.50 + p_hash2 * 0.55)    # 0.50-1.05
+				var b_z: float = base_s * (0.55 + (1.0 - p_hash) * 0.35)
 				effective_y_height = b_y
 				xform = xform.scaled(Vector3(b_x, b_y, b_z))
 			elif kind == "stalagmite":
@@ -929,9 +961,18 @@ func _update_hud() -> void:
 		far_total += lm.get("far", 0.0)
 		void_total += lm.get("void", 0.0)
 
-	hud_label.text = "Sanctum — %s | %d visible | tension: %s (%.0f%%) | %d tiles%s | N:%.0f M:%.0f F:%.0f V:%.0f | ESC/L/B" % [
-		biome, ent_count, tension, budget * 100, tiles, conn_str,
-		near_total, mid_total, far_total, void_total]
+	var chrono: Dictionary = manifest.get("chronometer", {})
+	var phase: String = chrono.get("day_phase", "?")
+	var env: Dictionary = manifest.get("tension_envelope", {})
+	var lerp_t: float = env.get("lerp_t", 1.0)
+	var trans_str: String = " LERP" if env.get("transitioning", false) else ""
+	var dissoc: bool = env.get("dissociating", false)
+	var dwell: float = env.get("dwell_time", 0.0)
+	var dissoc_str: String = " | DISSOCIATING %.0fs" % dwell if dissoc else ""
+
+	hud_label.text = "Sanctum — %s | %d vis | %s (%.0f%% t=%.2f%s) | %s | N:%.0f M:%.0f F:%.0f V:%.0f | %d tiles%s%s" % [
+		biome, ent_count, tension, budget * 100, lerp_t, trans_str, phase,
+		near_total, mid_total, far_total, void_total, tiles, conn_str, dissoc_str]
 
 
 # -- Brain server connection ---------------------------------------------------
@@ -1087,6 +1128,54 @@ func _update_atmosphere() -> void:
 	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
 	godot_env.background_color = Color(bg[0], bg[1], bg[2])
 
+	# Chronometer modulation — subtle, never fight the cavern's ambient floor
+	var chrono: Dictionary = manifest.get("chronometer", {})
+	var night_w: float = chrono.get("night_weight", 0.0)
+	# Night: barely perceptible dim — 5% max, cavern ambient is already low
+	godot_env.ambient_light_energy = 1.0 - night_w * 0.05
+
+	# Tension envelope — make the cavern BREATHE
+	var env: Dictionary = manifest.get("tension_envelope", {})
+	var lerp_t: float = env.get("lerp_t", 1.0)
+	var tstate: String = manifest.get("tension_state", "open")
+	# Tension intensity: 0.0=open, ~1.0=dump (maps state progression to 0-1)
+	# "open" maps to 0.0 — NO visual effect at baseline
+	var tension_map := {"open": 0.0, "building": 0.2, "tension": 0.5,
+		"tunnel": 0.75, "dump": 1.0, "rebirth": 0.15}
+	var t_intensity: float = tension_map.get(tstate, 0.0)
+	# Only apply lerp_t modulation when transitioning, otherwise full intensity
+	if env.get("transitioning", false):
+		t_intensity *= lerp_t
+	# Dissociation pressure adds to visual intensity directly
+	var pressure: float = env.get("pressure", 0.0)
+	t_intensity = clampf(t_intensity + pressure * 0.5, 0.0, 1.0)
+	# Bloom spikes with tension — crystals and emissives FLARE
+	godot_env.glow_intensity = 4.0 + t_intensity * 8.0
+	godot_env.glow_hdr_threshold = 0.12 - t_intensity * 0.08
+	godot_env.glow_bloom = 0.6 + t_intensity * 0.3
+	# Volumetric fog thickens — the cave closes in
+	godot_env.volumetric_fog_density = 0.04 + t_intensity * 0.06
+	# Saturation drains as tension rises — color lives only in emissives
+	godot_env.adjustment_saturation = 0.62 - t_intensity * 0.30
+	# Contrast sharpens — silhouettes become harder
+	godot_env.adjustment_contrast = 1.1 + t_intensity * 0.3
+
+	# Vertigo — FOV narrows as dissociation deepens, slow involuntary drift
+	var dissoc: bool = env.get("dissociating", false)
+	var dwell: float = env.get("dwell_time", 0.0)
+	if dissoc:
+		var vertigo_t: float = clampf((dwell - 7.0) / 20.0, 0.0, 1.0)
+		# FOV narrows from 52 → 38 (tunnel vision)
+		camera.fov = lerpf(52.0, 38.0, vertigo_t)
+		# Subtle involuntary camera sway — sine on two axes, slow
+		var sway_x: float = sin(dwell * 0.4) * vertigo_t * 0.3
+		var sway_y: float = sin(dwell * 0.27) * vertigo_t * 0.2
+		camera.rotation_degrees.x += sway_x
+		camera.rotation_degrees.z = sway_y  # roll = disorientation
+	else:
+		camera.fov = lerpf(camera.fov, 52.0, 0.05)  # ease back to normal
+		camera.rotation_degrees.z = lerpf(camera.rotation_degrees.z, 0.0, 0.1)
+
 	# Update camera far clip
 	camera.far = fog_far * 1.5
 
@@ -1225,6 +1314,19 @@ func _save_tag() -> void:
 	var err: int = img.save_png(path)
 	print("TAG #%d: %s (err=%d)" % [tag_count, path, err])
 	# Sidecar JSON with full telemetry
+	# Count per-kind entity breakdown for telemetry
+	var kind_counts: Dictionary = {}
+	var tile_variants_seen: Dictionary = {}
+	var emissive_with_spectrum: int = 0
+	for ent_t: Dictionary in manifest.get("entities", []):
+		var k: String = ent_t.get("kind", "?")
+		kind_counts[k] = kind_counts.get(k, 0) + 1
+		var tv: String = ent_t.get("tile_variant", "")
+		if tv != "":
+			tile_variants_seen[tv] = tile_variants_seen.get(tv, 0) + 1
+		if ent_t.has("spectrum_state"):
+			emissive_with_spectrum += 1
+
 	var telemetry := {
 		"tag": tag_count,
 		"camera": {
@@ -1237,11 +1339,15 @@ func _save_tag() -> void:
 		},
 		"tension_state": manifest.get("tension_state", ""),
 		"tension_budget": manifest.get("tension_budget", 0.0),
+		"tension_envelope": manifest.get("tension_envelope", {}),  # includes dissociating, dwell_time, pressure
+		"chronometer": manifest.get("chronometer", {}),
 		"biome": manifest.get("biome", ""),
 		"entities_visible": manifest.get("entities", []).size(),
+		"kind_counts": kind_counts,
+		"tile_variants": tile_variants_seen,
+		"emissive_with_spectrum": emissive_with_spectrum,
 		"tiles": manifest.get("stats", {}).get("tiles", 0),
 		"outline_mode": OUTLINE_MODE_NAMES[outline_mode],
-		"light_catches": 0,  # removed — ground receives light naturally
 		"emissive_lights": emissive_lights.size(),
 		"fog": manifest.get("fog", {}),
 		"ambient": manifest.get("ambient", []),
@@ -1279,10 +1385,10 @@ const LIGHT_KINDS := {
 		"facet_spread": 2.5,
 		"mote_color": Color(0.3, 0.35, 0.6),
 		"mote_count": 10,
-		"mote_radius": 3.0,   # emission sphere radius (spawn area)
+		"mote_radius": 3.0,
 		"mote_height": 3.0,
-		"mote_size": 0.55,    # bumped from 0.32 — FOV presence for bokeh bloom
-		"mote_arrangement": "lattice_7",  # center + heptagonal rim = mineral lattice
+		"mote_size": 0.85,    # 2.7x base — Tron Bit presence through fog haze
+		"mote_arrangement": "lattice_7",
 	},
 	"giant_fungus": {
 		"color": Color(0.18, 0.30, 0.10),
@@ -1293,8 +1399,8 @@ const LIGHT_KINDS := {
 		"mote_count": 8,
 		"mote_radius": 3.0,
 		"mote_height": 4.0,
-		"mote_size": 0.40,    # bumped from 0.22 — FOV presence for bokeh bloom
-		"mote_arrangement": "scatter_7",  # loose organic spore cloud
+		"mote_size": 0.65,    # spore cloud reads at mid-distance
+		"mote_arrangement": "scatter_7",
 	},
 	"moss_patch": {
 		"color": Color(0.10, 0.40, 0.08),
@@ -1303,10 +1409,10 @@ const LIGHT_KINDS := {
 		"attenuation": 1.3,
 		"mote_color": Color(0.1, 0.5, 0.08),
 		"mote_count": 4,
-		"mote_radius": 1.0,   # tightened from 1.5 so emission stays above ground
-		"mote_height": 2.0,   # raised from 1.0 — center emission above mesh clip
-		"mote_size": 0.22,    # bumped from 0.12 — still smallest non-firefly
-		"mote_arrangement": "ground_hug_4",  # low arc of four atoms
+		"mote_radius": 1.0,
+		"mote_height": 2.0,
+		"mote_size": 0.35,    # small but visible ground-level glints
+		"mote_arrangement": "ground_hug_4",
 	},
 	"firefly": {
 		"color": Color(0.95, 0.75, 0.30),
@@ -1317,20 +1423,20 @@ const LIGHT_KINDS := {
 		"mote_count": 1,
 		"mote_radius": 0.5,
 		"mote_height": 1.5,
-		"mote_size": 0.18,    # bumped from 0.10 — still smallest on the spectrum
-		"mote_arrangement": "solo",  # single atom, degenerate meta-pixel case
+		"mote_size": 0.30,    # warm dot — must read as a point of interest
+		"mote_arrangement": "solo",
 	},
 	"filament": {
 		"color": Color(0.30, 0.40, 0.55),
-		"energy": 6.0,
+		"energy": 12.0,  # doubled — mid-height beacon, not background noise
 		"range": 18.0,
 		"attenuation": 0.8,
 		"mote_color": Color(0.35, 0.45, 0.6),
 		"mote_count": 5,
 		"mote_radius": 1.0,
 		"mote_height": 2.5,
-		"mote_size": 0.28,    # bumped from 0.15 — chain atoms resolve at distance
-		"mote_arrangement": "chain_5",  # vertical current flowing through filament
+		"mote_size": 0.45,    # chain links resolve at distance
+		"mote_arrangement": "chain_5",
 	},
 	"ceiling_moss": {
 		"color": Color(0.6, 0.40, 0.12),
@@ -1341,8 +1447,8 @@ const LIGHT_KINDS := {
 		"mote_count": 8,
 		"mote_radius": 3.0,
 		"mote_height": 5.0,
-		"mote_size": 0.40,    # bumped from 0.22 — drip glyph reads at a distance
-		"mote_arrangement": "stream_vert_5",  # staggered drip descent
+		"mote_size": 0.65,    # drip glyph reads as warm descending trail
+		"mote_arrangement": "stream_vert_5",
 	},
 }
 
@@ -1469,7 +1575,7 @@ func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
 		atom_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		# Boost emission energy slightly so the structural atoms read as
 		# brighter than the ambient drift particles around them.
-		atom_mat.emission_energy_multiplier = 10.0
+		atom_mat.emission_energy_multiplier = 16.0  # structural atoms must punch through fog haze
 		atom_mesh.surface_set_material(0, atom_mat)
 
 		var mi := MeshInstance3D.new()
@@ -1523,7 +1629,11 @@ func _update_motes() -> void:
 		var kind: String = ent.get("kind", "")
 		var cfg: Dictionary = LIGHT_KINDS[kind]
 
-		var pos := Vector3(ent.get("x", 0.0), ent.get("z", 0.0) + 1.0, ent.get("y", 0.0))
+		var base_y: float = ent.get("z", 0.0)
+		# Primary light at mid-height — light falls DOWN onto objects,
+		# creating lit tops/dark bottoms. Objects between player and light
+		# become backlit silhouettes (Styx/Hackdirt reference technique).
+		var pos := Vector3(ent.get("x", 0.0), base_y + 7.0, ent.get("y", 0.0))
 
 		# OmniLight — color from LIGHT_LAYERS hue array per instance
 		var light := OmniLight3D.new()
@@ -1540,6 +1650,13 @@ func _update_motes() -> void:
 		}
 		var palette: Array = hue_palettes.get(kind, [cfg["color"]])
 		var light_color: Color = palette[hue_idx % palette.size()]
+		# Apply spectrum drift from brain (SpectrumEngine hue shift)
+		var spec: Array = ent.get("spectrum_state", [])
+		if spec.size() == 3:
+			light_color = Color(
+				clampf(light_color.r + spec[0], 0.0, 1.0),
+				clampf(light_color.g + spec[1], 0.0, 1.0),
+				clampf(light_color.b + spec[2], 0.0, 1.0))
 		light.light_color = light_color
 		var hue_seed: float = abs(sin(ent.get("x", 0.0) * 12.9898 + ent.get("y", 0.0) * 78.233))
 		var e_var: float = 0.7 + hue_seed * 0.6
@@ -1550,6 +1667,18 @@ func _update_motes() -> void:
 		light.position = pos
 		add_child(light)
 		emissive_lights.append(light)
+
+		# Ground fill light — low, dim, keeps Decal pools readable while
+		# the main light at y=7 does atmospheric/backlight work above
+		var fill := OmniLight3D.new()
+		fill.light_color = light_color
+		fill.light_energy = cfg["energy"] * e_var * 0.20  # 20% of main
+		fill.omni_range = cfg["range"] * 0.6  # tighter pool
+		fill.omni_attenuation = cfg["attenuation"] * 1.2
+		fill.shadow_enabled = false
+		fill.position = Vector3(pos.x, base_y + 0.5, pos.z)
+		add_child(fill)
+		emissive_lights.append(fill)
 
 		# Ground Decal — projects colored pool onto floor (NWN2 approach)
 		var kind_entry: Dictionary = kind_config.get("kinds", {}).get(kind, {})
@@ -1774,9 +1903,13 @@ func _input(event: InputEvent) -> void:
 					tcp.put_data(msg.to_utf8_buffer())
 			KEY_O:  # cycle outline mode (Moebius / Manga / Sable)
 				_cycle_outline_mode()
-			KEY_B:  # toggle tension cycle
+			KEY_B:  # toggle tension cycle on/off
 				if connected:
 					var msg := JSON.stringify({"cmd": "tension_toggle"}) + "\n"
+					tcp.put_data(msg.to_utf8_buffer())
+			KEY_N:  # advance to next tension state (for live tuning)
+				if connected:
+					var msg := JSON.stringify({"cmd": "tension_advance"}) + "\n"
 					tcp.put_data(msg.to_utf8_buffer())
 
 
@@ -1819,11 +1952,27 @@ func _physics_process(delta: float) -> void:
 	# Creatures react to camera
 	_update_creatures(delta)
 
-	# All follow_camera planes track X/Z so they're always under/over the
-	# player. Y stays locked at each plane's configured offset.
+	# Follow-camera planes track the player on their parallel axes.
+	# Floor/ceiling: track X/Z, keep Y at configured offset.
+	# Walls: track Y/Z (or Y/X), keep lateral offset fixed.
 	for tag in plane_nodes:
 		var entry: Dictionary = plane_nodes[tag]
 		if entry.get("follow", true):
 			var node: MeshInstance3D = entry["node"]
-			node.position.x = new_pos.x
-			node.position.z = new_pos.z
+			var pkind: String = entry.get("kind", "ground")
+			if pkind == "wall":
+				# Wall planes keep their lateral offset, track the other two axes
+				# X-normal walls: keep X, track Y and Z
+				# Z-normal walls (brain Y): keep Z, track X and Y
+				if abs(node.rotation_degrees.z) > 45.0:
+					# X-normal wall — rotated around Z
+					node.position.y = new_pos.y
+					node.position.z = new_pos.z
+				else:
+					# Z-normal wall — rotated around X
+					node.position.x = new_pos.x
+					node.position.y = new_pos.y
+			else:
+				# Floor/ceiling — track X/Z, keep Y
+				node.position.x = new_pos.x
+				node.position.z = new_pos.z

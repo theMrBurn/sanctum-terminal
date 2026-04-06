@@ -27,13 +27,13 @@ BIOME_CAVERN_DEFAULT = [
     ("hanging_vine",      0.35,    0,         4),
     ("filament",          0.50,    4.0,       2),
     ("firefly",           0.40,    0,         1),
-    ("grass_tuft",        1.50,    0,         1),
-    ("rubble",            1.20,    0,         1),
-    ("leaf_pile",         0.80,    0,         1),
-    ("twig_scatter",      0.80,    0,         1),
+    ("grass_tuft",        0.60,    0,         1),
+    ("rubble",            0.50,    0,         1),
+    ("leaf_pile",         0.30,    0,         1),
+    ("twig_scatter",      0.30,    0,         1),
     ("rat",               0.45,    0,         2),
     ("beetle",            0.25,    0,         2),
-    ("cave_gravel",       1.00,    0,         0),
+    ("cave_gravel",       0.40,    0,         0),
     ("horizon_form",      0.12,    10.0,      30),
     ("horizon_mid",       0.08,     8.0,      20),
     ("horizon_near",      0.10,     6.0,      12),
@@ -712,6 +712,7 @@ CAVERN_LIGHT_STATES = {
 
 BIOME_PLANES = {
     "cavern": [
+        # Layer 1: Near-floor — immediate ground, full detail
         {
             "tag": "ground_near",
             "kind": "ground",
@@ -722,18 +723,15 @@ BIOME_PLANES = {
                 "shader": "ground",
                 "surface": "stone_rough",
                 "color_base": [0.18, 0.15, 0.12],
-                # grain_scale 0.22 → 0.06 stretches tile repeat from ~4.5m to
-                # ~16m, pushing the pattern beyond typical fog distance so the
-                # ground reads as textured stone rather than tiled stone.
-                # normal_strength 1.3 → 0.7 softens the bump relief that was
-                # amplifying the repeat signal. Observed in tag_03 playtest.
                 "grain_scale": 0.06,
                 "grain_strength": 0.55,
                 "normal_strength": 0.7,
+                "roughness": 0.35,  # wet cave floor — catches emissive reflections
             },
             "size": 2000.0,
             "follow_camera": True,
         },
+        # Layer 2: Near-ceiling — inverted floor, stalactites anchor here
         {
             "tag": "ceiling_near",
             "kind": "ceiling",
@@ -744,11 +742,49 @@ BIOME_PLANES = {
                 "shader": "ground",
                 "surface": "stone_weathered",
                 "color_base": [0.10, 0.09, 0.08],
-                # Same stretch treatment as ground, slightly softer relief
-                # because the ceiling is farther from the camera on average.
                 "grain_scale": 0.06,
                 "grain_strength": 0.50,
                 "normal_strength": 0.6,
+                "roughness": 0.85,  # dry ceiling — matte
+            },
+            "size": 2000.0,
+            "follow_camera": True,
+        },
+        # Wall planes — lateral surfaces creating converging corridor perspective.
+        # Normals point INWARD (toward observer). Offsets from center axis.
+        # Near-black albedo — walls read by OCCLUDING bloom haze, not by
+        # being directly lit. Same principle as the ceiling plane.
+        # Offset 25m matches node_spacing so walls appear at column cluster edges.
+        {
+            "tag": "wall_left",
+            "kind": "wall",
+            "normal": [1.0, 0.0, 0.0],
+            "offset": -25.0,
+            "layer": "near",
+            "material": {
+                "shader": "ground",
+                "surface": "stone_weathered",
+                "color_base": [0.05, 0.045, 0.04],
+                "grain_scale": 0.08,
+                "grain_strength": 0.25,
+                "normal_strength": 0.8,
+            },
+            "size": 2000.0,
+            "follow_camera": True,
+        },
+        {
+            "tag": "wall_right",
+            "kind": "wall",
+            "normal": [-1.0, 0.0, 0.0],
+            "offset": 25.0,
+            "layer": "near",
+            "material": {
+                "shader": "ground",
+                "surface": "stone_weathered",
+                "color_base": [0.05, 0.045, 0.04],
+                "grain_scale": 0.08,
+                "grain_strength": 0.25,
+                "normal_strength": 0.8,
             },
             "size": 2000.0,
             "follow_camera": True,

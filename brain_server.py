@@ -33,6 +33,8 @@ from core.systems.spatial_wake import SpatialHash, WakeChain, WAKE_CHAINS
 from core.systems.world_gen import generate_tile
 from core.systems.tension_cycle import TensionCycle, OUTDOOR_CYCLE, CAVERN_CYCLE
 from core.systems.plane_exchange import classify_all_entities, CAVERN_EXCHANGE_NODES
+from core.systems.chronometer import Chronometer
+from core.systems.ambient_life import SpectrumEngine, set_active_biome
 
 
 # -- Kind properties (same as godot_export.py) --------------------------------
@@ -67,6 +69,15 @@ KIND_PROPS = {
     "exit_lure":       {"scale": [1.0, 1.0, 2.0],  "color": [0.60, 0.45, 0.20], "emissive": 1.0},
 }
 
+# Per-kind behavior type and decay stage (from kind_config.json)
+KIND_BEHAVIOR = {
+    "beetle": "scurry", "rat": "scurry", "spider": "crawl",
+    "firefly": "drift", "leaf": "drift",
+}
+KIND_DECAY = {
+    "dead_log": 0.3, "leaf_pile": 0.5, "bone_pile": 0.6,
+}
+
 COLLISION_RADII = {k: v for k, v in HARD_OBJECTS.items()}
 
 
@@ -80,6 +91,9 @@ class BrainWorld:
         self.base_seed = base_seed
         self.tile_size = tile_size
 
+        # Set active biome for SpectrumEngine profile lookup
+        set_active_biome(biome_name)
+
         # Spatial indexing
         chain_key = biome_name if biome_name in WAKE_CHAINS else "outdoor"
         self.wake_chain = WakeChain(WAKE_CHAINS[chain_key])
@@ -89,6 +103,19 @@ class BrainWorld:
         cycle_cfg = OUTDOOR_CYCLE if biome_name == "outdoor" else CAVERN_CYCLE
         self.tension = TensionCycle(cycle_cfg)
         self.tension.board()
+
+        # Chronometer — real-time binding, no game clock
+        self.chronometer = Chronometer()
+
+        # SpectrumEngine elapsed counter (for hue drift)
+        self.spectrum_elapsed = 0.0
+
+        # Tile variant tracking — per (tx,ty) → variant name
+        self.tile_variants = {}
+
+        # Dissociation state — tracked per frame, read by get_manifest
+        self.dwell_time = 0.0
+        self.dissociation_pressure = 0.0
 
         # Plane-attachment architecture (Design Law #14, Phase 3).
         # Biome-declared planes streamed to the viewer; renderer instantiates
@@ -122,9 +149,10 @@ class BrainWorld:
         seed = self.base_seed + tx * 7919 + ty * 6271
         rng = random.Random(seed)
 
-        tile_spawns = generate_tile(
+        variant_name, tile_spawns = generate_tile(
             seed=seed, biome_name=self.biome_name, tile_size=self.tile_size,
             is_spawn_tile=(tx == 0 and ty == 0))
+        self.tile_variants[(tx, ty)] = variant_name
 
         offset_x = tx * self.tile_size
         offset_y = ty * self.tile_size
@@ -177,6 +205,9 @@ class BrainWorld:
                 "b": round(b * srng.uniform(0.85, 1.15), 3),
                 "emissive": props["emissive"],
                 "collision_radius": COLLISION_RADII.get(kind, 0.0),
+                "tile_variant": self.tile_variants.get((tx, ty), "standard"),
+                "behavior_type": KIND_BEHAVIOR.get(kind, ""),
+                "decay_stage": KIND_DECAY.get(kind, 0.0),
             }
 
             # Buttress metadata — lean angle, stretch axes (for renderer tilt)
@@ -240,6 +271,12 @@ class BrainWorld:
                 wake_set.append((eid, chain_idx))
                 wake_ids.add(eid)
 
+        # Accumulate elapsed time for spectrum drift
+        self.spectrum_elapsed += dt
+
+        # Chronometer — real time of day
+        chrono_state = self.chronometer.read()
+
         # Tension cycle tick
         entity_count = len(wake_set)
         budget_max = self.tension._config.get("budget_max", 800)
@@ -278,11 +315,27 @@ class BrainWorld:
             "ceiling_moss":    (0.40, 0.28, 0.10),
         }
 
+        # Spectrum profile mapping — emissive kind → SpectrumEngine profile name
+        SPECTRUM_MAP = {
+            "crystal_cluster": "crystal", "filament": "crystal",
+            "exit_lure": "crystal",
+            "giant_fungus": "fungus", "ceiling_moss": "fungus",
+            "moss_patch": "moss", "firefly": "moss",
+        }
+
         visible = []
         emissives = []
         for eid, _ in wake_set:
             ent = self.entities.get(eid)
             if ent:
+                # Spectrum state for emissive kinds — hue drift via SpectrumEngine
+                spec_profile = SPECTRUM_MAP.get(ent["kind"])
+                if spec_profile and ent.get("emissive", 0) > 0:
+                    seed = hash((ent["x"], ent["y"])) & 0xFFFF
+                    r_s, g_s, b_s = SpectrumEngine.drift(
+                        spec_profile, self.spectrum_elapsed, seed)
+                    ent["spectrum_state"] = [
+                        round(r_s, 4), round(g_s, 4), round(b_s, 4)]
                 visible.append(ent)
                 if ent["kind"] in EMISSIVE_LIGHT_COLORS:
                     emissives.append((ent["x"], ent["y"], EMISSIVE_LIGHT_COLORS[ent["kind"]]))
@@ -340,6 +393,23 @@ class BrainWorld:
             "biome": self.biome_name,
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),
+            "tension_envelope": {
+                "lerp_t": round(envelope.lerp_t, 3) if envelope else 1.0,
+                "transitioning": envelope.transitioning if envelope else False,
+                "should_dump": envelope.should_dump if envelope else False,
+                "dissociating": self.dwell_time > 7.0,
+                "dwell_time": round(self.dwell_time, 1),
+                "pressure": round(self.dissociation_pressure, 3),
+            },
+            "chronometer": {
+                "time_of_day": round(chrono_state["time_of_day"], 4),
+                "day_phase": chrono_state["day_phase"],
+                "night_weight": round(chrono_state["night_weight"], 3),
+                "dawn_weight": round(chrono_state["dawn_weight"], 3),
+                "dusk_weight": round(chrono_state["dusk_weight"], 3),
+                "moon_approx": round(chrono_state["moon_approx"], 3),
+                "season": round(chrono_state["season"], 3),
+            },
             "stats": {
                 "visible": len(visible),
                 "total": len(self.entities),
@@ -374,6 +444,12 @@ def run_server(biome_name, port=9877):
     client = None
     buf = b""
     last_wake_ids = set()
+
+    # Dissociation detector — tension triggered by absence of input
+    prev_cam = (0.0, 0.0, 0.0, 0.0)  # x, y, heading, pitch
+    DWELL_THRESHOLD = 0.15    # movement+look delta below this = "still"
+    DISSOCIATE_ONSET = 7.0    # seconds before tension starts building
+    DISSOCIATE_RATE = 0.08    # budget push per second while dissociating
 
     try:
         while True:
@@ -424,8 +500,23 @@ def run_server(biome_name, port=9877):
                     continue
 
                 if msg.get("cmd") == "tension_toggle":
-                    if hasattr(world.tension, 'toggle'):
+                    # If dissociating, B is the release valve — snap out of it
+                    if world.dissociation_pressure > 0.01:
+                        world.dissociation_pressure = 0.0
+                        world.tension._dissociation_pressure = 0.0
+                        world.dwell_time = 0.0
+                        world.tension.force_state("rebirth")
+                        print("  Tension RELEASED (dissociation broken)", flush=True)
+                    else:
                         world.tension.toggle()
+                        print(f"  Tension: {'ON' if world.tension.active else 'OFF'}", flush=True)
+                    last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "tension_advance":
+                    world.tension.force_advance()
+                    print(f"  Tension → {world.tension.state}", flush=True)
+                    last_wake_ids = set()
                     continue
 
                 # Camera update → manifest
@@ -435,6 +526,29 @@ def run_server(biome_name, port=9877):
                 heading = msg.get("heading", 0.0)
                 pitch = msg.get("pitch", 0.0)
                 dt = msg.get("dt", 0.016)
+
+                # Dissociation detection — the cave notices you stopped
+                dx = abs(cam_x - prev_cam[0])
+                dy = abs(cam_y - prev_cam[1])
+                dh = abs(heading - prev_cam[2])
+                # Handle heading wraparound
+                if dh > 180.0:
+                    dh = 360.0 - dh
+                dp = abs(pitch - prev_cam[3])
+                input_delta = dx + dy + dh * 0.05 + dp * 0.05
+                prev_cam = (cam_x, cam_y, heading, pitch)
+
+                if input_delta < DWELL_THRESHOLD:
+                    world.dwell_time += dt
+                    if world.dwell_time > DISSOCIATE_ONSET and world.tension.active:
+                        world.dissociation_pressure += DISSOCIATE_RATE * dt
+                        world.tension._dissociation_pressure = world.dissociation_pressure
+                else:
+                    # Movement breaks the spell — pressure bleeds off
+                    world.dwell_time = max(0.0, world.dwell_time - dt * 3.0)
+                    world.dissociation_pressure = max(
+                        0.0, world.dissociation_pressure - dt * 0.5)
+                    world.tension._dissociation_pressure = world.dissociation_pressure
 
                 manifest = world.get_manifest(
                     cam_x, cam_y, cam_z, heading, pitch, dt)
