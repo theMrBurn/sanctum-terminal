@@ -334,7 +334,7 @@ func _setup_environment() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	godot_env.ambient_light_energy = 0.45  # low floor — silhouettes readable, detail lives in light pools only
+	godot_env.ambient_light_energy = 0.30  # low floor — silhouettes readable, detail lives in light pools only
 	godot_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 
 	godot_env.tonemap_mode = 2
@@ -862,6 +862,12 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			var rot_hash: float = sin(ent.get("x", 0.0) * 4.73 + ent.get("y", 0.0) * 9.11)
 			final_heading = rot_hash * PI
 		xform = xform.rotated(Vector3.UP, final_heading)
+		# Ceiling-attached emissives — flip upside-down so they hang from above.
+		# Same inversion as stalactites but for crystal_cluster, giant_fungus, etc.
+		# Columns/mega_columns handle their own inversion above.
+		if ent.get("attachment_plane", "") == "ceiling" \
+				and kind != "mega_column" and kind != "column":
+			xform = xform.rotated(Vector3.RIGHT, PI)
 		# Buttress lean — tilt the arm toward the parent column after yaw rotation
 		# Heading already points lean direction; tilt local X axis forward
 		if kind == "buttress":
@@ -920,9 +926,10 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 		var g: float = ent.get("g", 0.5)
 		var b: float = ent.get("b", 0.5)
 		if emissive > 0.0:
-			# Emissive objects: hold their COLOR, don't blow to white
-			# The OmniLight does the brightness, the object stays tinted
-			var boost: float = 1.0 + emissive * 0.5  # subtle, not blinding
+			# Emissive objects: bright enough that inner_glow * color pushes
+			# past the bloom HDR threshold (0.25). The OBJECT is the light
+			# source — it needs to visibly glow, not just cast a floor Decal.
+			var boost: float = 1.0 + emissive * 0.9  # was 1.8 — dialed back, inner_glow does the work
 			mm.set_instance_color(i, Color(r * boost, g * boost, b * boost))
 		else:
 			var avg: float = (r + g + b) / 3.0
@@ -1208,7 +1215,7 @@ func _update_atmosphere() -> void:
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
 	# Navigability floor — silhouettes readable, light pools carry the detail
-	godot_env.ambient_light_energy = 0.45
+	godot_env.ambient_light_energy = 0.30
 
 	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
 	godot_env.background_color = Color(bg[0], bg[1], bg[2])
@@ -1217,13 +1224,13 @@ func _update_atmosphere() -> void:
 	var chrono: Dictionary = manifest.get("chronometer", {})
 	var night_w: float = chrono.get("night_weight", 0.0)
 	# Night: barely perceptible dim from the ambient floor
-	godot_env.ambient_light_energy = 0.45 - night_w * 0.03
+	godot_env.ambient_light_energy = 0.30 - night_w * 0.02
 
 	# Tension visual effects — PARKED. System proven as PoC, but modulating
 	# bloom/fog/saturation/FOV fights the baseline rendering we're stabilizing.
 	# Re-enable when game engine state changes are wired in. Until then, fixed baseline.
 	# (Tension state still tracked in manifest for telemetry/tags — just no visual effect.)
-	camera.fov = lerpf(camera.fov, 52.0, 0.05)
+	camera.fov = lerpf(camera.fov, 62.0, 0.05)  # was 52 — ghost delta regression
 	camera.rotation_degrees.z = lerpf(camera.rotation_degrees.z, 0.0, 0.1)
 
 	# Update camera far clip
@@ -1398,7 +1405,7 @@ func _save_tag() -> void:
 		"emissive_with_spectrum": emissive_with_spectrum,
 		"tiles": manifest.get("stats", {}).get("tiles", 0),
 		"outline_mode": OUTLINE_MODE_NAMES[outline_mode],
-		"emissive_lights": emissive_lights.size(),
+		"emissive_lights": persistent_lights.size(),
 		"fog": manifest.get("fog", {}),
 		"ambient": manifest.get("ambient", []),
 		"connected": connected,
@@ -1418,9 +1425,9 @@ func _save_tag() -> void:
 
 # Light configs derived from biome_data.py LIGHT_LAYERS
 const CAUSTIC_COLORS := [
-	Color(0.85, 0.20, 0.10),  # warm red edge
-	Color(0.15, 0.75, 0.25),  # green refract
-	Color(0.10, 0.20, 0.90),  # cool blue edge
+	Color(0.45, 0.35, 0.15),  # warm amber — mineral refraction
+	Color(0.20, 0.35, 0.25),  # muted teal — wet stone scatter
+	Color(0.25, 0.22, 0.40),  # desaturated violet — deep crystal
 ]
 
 const LIGHT_KINDS := {
@@ -1490,9 +1497,9 @@ const LIGHT_KINDS := {
 	},
 	"ceiling_moss": {
 		"color": Color(0.6, 0.40, 0.12),
-		"energy": 6.0,
-		"range": 12.0,
-		"attenuation": 1.3,
+		"energy": 14.0,   # boosted — one light covers the whole colony cluster
+		"range": 18.0,    # wider — matches crystal_cluster, covers 5m spore spread
+		"attenuation": 1.0,
 		"mote_color": Color(0.8, 0.55, 0.15),
 		"mote_count": 8,
 		"mote_radius": 3.0,
@@ -1506,6 +1513,11 @@ var emissive_lights: Array[Node3D] = []
 var emissive_decals: Array[Decal] = []
 var decal_texture_cache: Dictionary = {}  # color_key → GradientTexture2D
 var mote_particles: Array[Node3D] = []  # mixed: GPUParticles3D (flow) + MeshInstance3D (structural atoms)
+
+# Persistent light registry — lights are created once, energy updated per frame.
+# Only destroyed on environment exit. Keyed by cluster position string.
+# Value: {"primary": OmniLight3D, "fill": OmniLight3D, "energy": float}
+var persistent_lights: Dictionary = {}
 
 # Mote dirty flag — only rebuild lights/decals/particles when the scene
 # actually changes, not every manifest tick. Motes are ambient decoration;
@@ -1633,7 +1645,7 @@ func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
 		atom_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		# Boost emission energy slightly so the structural atoms read as
 		# brighter than the ambient drift particles around them.
-		atom_mat.emission_energy_multiplier = 16.0  # structural atoms must punch through fog haze
+		atom_mat.emission_energy_multiplier = 28.0  # structural atoms must punch through fog haze
 		atom_mesh.surface_set_material(0, atom_mat)
 
 		var mi := MeshInstance3D.new()
@@ -1653,11 +1665,9 @@ func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
 
 
 func _update_motes() -> void:
-	# Remove old
-	for l: Node3D in emissive_lights:
-		if is_instance_valid(l):
-			l.queue_free()
-	emissive_lights.clear()
+	# Decals and particles rebuild each update (cheap, position-dependent).
+	# OmniLights are PERSISTENT — see persistent_lights dict. They stay alive
+	# and get energy updates, never destroyed until env exit.
 	for d: Decal in emissive_decals:
 		if is_instance_valid(d):
 			d.queue_free()
@@ -1687,6 +1697,9 @@ func _update_motes() -> void:
 			var db: float = (b["x"] - cam_x) ** 2 + (b["y"] - cam_z) ** 2
 			return da < db)
 
+	# Track which cluster centers have already had lights placed — dedup
+	var placed_cluster_keys: Dictionary = {}  # "x_y_z" → true
+
 	for i in range(emissive_ents.size()):
 		var ent: Dictionary = emissive_ents[i]
 		var tier: int = ent.get("render_tier", 0 if i < 4 else (1 if i < 16 else 2))
@@ -1698,17 +1711,28 @@ func _update_motes() -> void:
 		var is_beacon: bool = (tier == 0)  # tier 0 = full treatment, tier 1 = decal only
 
 		var base_y: float = ent.get("z", 0.0)
-		var pos := Vector3(ent.get("x", 0.0), base_y + 7.0, ent.get("y", 0.0))
+		var is_ceiling: bool = ent.get("attachment_plane", "") == "ceiling"
+		# Use cluster center if available — one light covers the whole group
+		var cl_center: Array = ent.get("cluster_center", [])
+		var light_x: float = cl_center[0] if cl_center.size() >= 3 else ent.get("x", 0.0)
+		var light_z: float = cl_center[1] if cl_center.size() >= 3 else ent.get("y", 0.0)
+		var light_base_y: float = cl_center[2] if cl_center.size() >= 3 else base_y
+		# Ceiling emissives cast light DOWN — OmniLight below the source.
+		# Ground emissives cast light UP — OmniLight above the source.
+		var light_y: float = light_base_y - 3.0 if is_ceiling else light_base_y + 7.0
+		var pos := Vector3(light_x, light_y, light_z)
 		# Color computation — both beacon and mid tiers need this for Decals
 		var hue_idx: int = ent.get("light_hue", 0)
+		# Light palettes — natural bioluminescent tones only.
+		# Warm ambers, muted teals, desaturated blue-greens. No saturated RGB.
 		var hue_palettes: Dictionary = {
-			"crystal_cluster": [Color(0.15, 0.18, 0.35), Color(0.18, 0.08, 0.30)],
-			"giant_fungus": [Color(0.12, 0.28, 0.08), Color(0.22, 0.06, 0.30)],
-			"moss_patch": [Color(0.08, 0.35, 0.06), Color(0.35, 0.20, 0.05),
-						   Color(0.06, 0.10, 0.35), Color(0.25, 0.06, 0.30)],
-			"ceiling_moss": [Color(0.40, 0.28, 0.10), Color(0.30, 0.35, 0.12)],
-			"firefly": [Color(0.95, 0.75, 0.30), Color(0.80, 0.60, 0.20)],
-			"filament": [Color(0.20, 0.30, 0.50), Color(0.30, 0.20, 0.45)],
+			"crystal_cluster": [Color(0.18, 0.20, 0.30), Color(0.22, 0.18, 0.28)],
+			"giant_fungus": [Color(0.15, 0.25, 0.10), Color(0.20, 0.15, 0.22)],
+			"moss_patch": [Color(0.10, 0.30, 0.08), Color(0.30, 0.22, 0.08),
+						   Color(0.12, 0.18, 0.22), Color(0.20, 0.12, 0.18)],
+			"ceiling_moss": [Color(0.35, 0.25, 0.10), Color(0.28, 0.30, 0.12)],
+			"firefly": [Color(0.85, 0.65, 0.25), Color(0.70, 0.55, 0.20)],
+			"filament": [Color(0.22, 0.28, 0.38), Color(0.28, 0.22, 0.35)],
 		}
 		var palette: Array = hue_palettes.get(kind, [cfg["color"]])
 		var light_color: Color = palette[hue_idx % palette.size()]
@@ -1721,27 +1745,42 @@ func _update_motes() -> void:
 		var hue_seed: float = abs(sin(ent.get("x", 0.0) * 12.9898 + ent.get("y", 0.0) * 78.233))
 		var e_var: float = 0.7 + hue_seed * 0.6
 
-		# OmniLights — BEACON ONLY (tier 0). Mid-tier gets Decals below.
-		if is_beacon:
-			var light := OmniLight3D.new()
-			light.light_color = light_color
-			light.light_energy = cfg["energy"] * e_var
-			light.omni_range = cfg["range"]
-			light.omni_attenuation = cfg["attenuation"]
-			light.shadow_enabled = false
-			light.position = pos
-			add_child(light)
-			emissive_lights.append(light)
+		# OmniLights — ALL emissive clusters, not tier-gated. Energy scales with
+		# distance so far lights are naturally dim. No beacon shuffling = no pop.
+		# The light was always there. Persistent until out of range.
+		if true:  # was: if is_beacon — now all emissives get lights
+			var cluster_key: String = "%.1f_%.1f_%.1f" % [pos.x, pos.y, pos.z]
+			if not placed_cluster_keys.has(cluster_key):
+				placed_cluster_keys[cluster_key] = true
+				# Static energy — the light is ALWAYS ON at full power.
+				# Fog + OmniLight attenuation + range handle all visibility.
+				# No energy management, no lerping, no nightclub.
+				var full_energy: float = cfg["energy"] * e_var
 
-			var fill := OmniLight3D.new()
-			fill.light_color = light_color
-			fill.light_energy = cfg["energy"] * e_var * 0.20
-			fill.omni_range = cfg["range"] * 0.6
-			fill.omni_attenuation = cfg["attenuation"] * 1.2
-			fill.shadow_enabled = false
-			fill.position = Vector3(pos.x, base_y + 0.5, pos.z)
-			add_child(fill)
-			emissive_lights.append(fill)
+				if not persistent_lights.has(cluster_key):
+					var light := OmniLight3D.new()
+					light.light_color = light_color
+					light.light_energy = full_energy
+					light.omni_range = cfg["range"]
+					light.omni_attenuation = cfg["attenuation"]
+					light.shadow_enabled = false
+					light.position = pos
+					add_child(light)
+
+					var fill := OmniLight3D.new()
+					fill.light_color = light_color
+					fill.light_energy = full_energy * 0.20
+					fill.omni_range = cfg["range"] * 0.6
+					fill.omni_attenuation = cfg["attenuation"] * 1.2
+					fill.shadow_enabled = false
+					var fill_y: float = light_base_y - 7.0 if is_ceiling else light_base_y + 0.5
+					fill.position = Vector3(pos.x, fill_y, pos.z)
+					add_child(fill)
+
+					persistent_lights[cluster_key] = {
+						"primary": light, "fill": fill,
+					}
+				# Existing lights: no update needed — they're static.
 
 		# Ground Decal — projects colored pool onto floor (NWN2 approach)
 		var kind_entry: Dictionary = kind_config.get("kinds", {}).get(kind, {})
@@ -1761,10 +1800,17 @@ func _update_motes() -> void:
 			decal.emission_energy = decal_cfg.get("emission_energy", 0.5) * e_var
 			decal.albedo_mix = 0.12  # subtle ground tint + alpha mask
 			decal.modulate = Color(1.0, 1.0, 1.0, 0.85)  # let texture do the tinting
-			decal.upper_fade = 0.1
-			decal.lower_fade = 0.8
 			decal.normal_fade = 0.5
-			decal.position = Vector3(pos.x, 0.2, pos.z)
+			if is_ceiling:
+				# Ceiling decal — project UP onto ceiling plane, flipped fade
+				decal.upper_fade = 0.8
+				decal.lower_fade = 0.1
+				decal.size = Vector3(d_radius * 2.0, 6.0, d_radius * 2.0)  # taller projection range
+				decal.position = Vector3(pos.x, active_ceiling_y - 0.2, pos.z)
+			else:
+				decal.upper_fade = 0.1
+				decal.lower_fade = 0.8
+				decal.position = Vector3(pos.x, 0.2, pos.z)
 			add_child(decal)
 			emissive_decals.append(decal)
 
@@ -1772,8 +1818,8 @@ func _update_motes() -> void:
 		# Replaces 3 OmniLights with 3 tiny Decals — zero light draw calls
 		if cfg.get("prismatic", false) and hue_seed > 0.4:  # ~60% of crystals
 			var spread: float = cfg.get("facet_spread", 2.5)
-			var c_energy: float = cfg.get("caustic_intensity", 0.4) * e_var
-			var c_radius: float = cfg.get("caustic_radius", 3.5) * 0.4  # small patches, not floods
+			var c_energy: float = cfg.get("caustic_intensity", 0.4) * e_var * 0.5  # halved — subtle refractions
+			var c_radius: float = cfg.get("caustic_radius", 3.5) * 0.6  # wider, softer patches
 			for ci in range(CAUSTIC_COLORS.size()):
 				var angle: float = (hue_seed * 360.0 + float(ci) * 120.0)
 				var c_offset := Vector3(
@@ -1850,6 +1896,22 @@ func _update_motes() -> void:
 			ent.get("y", 0.0))
 		add_child(particles)
 		mote_particles.append(particles)
+
+	# Cull persistent lights no longer in the manifest — entity left the
+	# wake set entirely (tile unloaded). Destroy to free GPU.
+	var keys_to_remove: Array[String] = []
+	for key: String in persistent_lights:
+		if placed_cluster_keys.has(key):
+			continue  # still in manifest — keep
+		# Not in manifest anymore — destroy
+		var entry: Dictionary = persistent_lights[key]
+		if is_instance_valid(entry["primary"]):
+			entry["primary"].queue_free()
+		if is_instance_valid(entry["fill"]):
+			entry["fill"].queue_free()
+		keys_to_remove.append(key)
+	for key: String in keys_to_remove:
+		persistent_lights.erase(key)
 
 	# -- Ceiling light shafts (breaks in rock above, faint directional pools) --
 	# Spawn a few SpotLights pointing down at random positions near emissives

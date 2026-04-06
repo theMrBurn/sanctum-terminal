@@ -23,9 +23,9 @@ BIOME_CAVERN_DEFAULT = [
     ("dead_log",          0.50,    1.5,       2),
     ("bone_pile",         0.25,    0,         2),
     ("moss_patch",        0.40,    0,         2),
-    ("ceiling_moss",      0.40,    0,         5),
+    ("ceiling_moss",      0.10,    0,         5),  # reduced — most placed via spore-spread from columns
     ("hanging_vine",      0.35,    0,         4),
-    ("filament",          0.50,    4.0,       2),
+    ("filament",          0.15,    4.0,       2),  # reduced — most placed via landmarks/stamps
     ("firefly",           0.40,    0,         1),
     ("grass_tuft",        0.60,    0,         1),
     ("rubble",            0.50,    0,         1),
@@ -365,6 +365,350 @@ OUTDOOR_ROOM_BEACONS = [
     {"name": "crystal_hearth",  "kind": "crystal_cluster",
      "count": 1, "spread": 0.0, "z_offset": 0.0},
 ]
+
+
+# -- Stamps (authored compositions placed at honeycomb nodes) ------------------
+#
+# A stamp is a multi-object composition that replaces the single-anchor roll
+# at a honeycomb node. Instead of "one boulder + flourishes", a stamp places
+# an integrated scene: "two boulders flanking a gap with a crystal accent."
+#
+# Fields:
+#   name      — unique identifier
+#   footprint — radius the stamp claims (no other hard objects inside)
+#   members   — list of relative placements:
+#       kind       — entity kind name
+#       dx, dy     — offset from stamp center (meters)
+#       scale_mult — optional scale multiplier (None = 1.0)
+#       hard       — whether this member needs collision reservation
+#
+# Stamps are selected via RosterPool rotation at ~25% of honeycomb nodes.
+# The rest stay as single-anchor rolls (preserving existing scatter baseline).
+
+CAVERN_STAMPS = [
+    # Crystal grotto — emissive focal point, the "room with a light"
+    {
+        "name": "crystal_grotto",
+        "footprint": 6.0,
+        "members": [
+            {"kind": "crystal_cluster", "dx": 0.0, "dy": 0.0, "scale_mult": 1.3, "hard": True},
+            {"kind": "stalagmite", "dx": -3.0, "dy": -1.5, "scale_mult": None, "hard": True},
+            {"kind": "stalagmite", "dx": 2.8, "dy": -1.8, "scale_mult": None, "hard": True},
+            {"kind": "moss_patch", "dx": -1.0, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 1.2, "dy": 2.0, "scale_mult": None, "hard": False},
+            {"kind": "filament", "dx": 0.5, "dy": -3.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -2.0, "dy": 0.8, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 1.8, "dy": 0.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Bone shrine — narrative beat, something happened here
+    {
+        "name": "bone_shrine",
+        "footprint": 5.0,
+        "members": [
+            {"kind": "bone_pile", "dx": 0.0, "dy": 0.0, "scale_mult": 1.2, "hard": True},
+            {"kind": "rubble", "dx": -2.0, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 2.2, "dy": -0.8, "scale_mult": None, "hard": False},
+            {"kind": "dead_log", "dx": 0.0, "dy": -2.5, "scale_mult": None, "hard": True},
+            {"kind": "firefly", "dx": 0.3, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "firefly", "dx": -0.5, "dy": 0.8, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 1.0, "dy": 1.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Fungus hollow — bioluminescent cluster, vertical + ground emissives
+    {
+        "name": "fungus_hollow",
+        "footprint": 6.0,
+        "members": [
+            {"kind": "giant_fungus", "dx": 0.0, "dy": 0.0, "scale_mult": 1.1, "hard": True},
+            {"kind": "giant_fungus", "dx": -2.5, "dy": 1.5, "scale_mult": 0.55, "hard": True},
+            {"kind": "giant_fungus", "dx": 2.0, "dy": 2.0, "scale_mult": 0.5, "hard": True},
+            {"kind": "moss_patch", "dx": -1.5, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 1.0, "dy": -2.0, "scale_mult": None, "hard": False},
+            {"kind": "ceiling_moss", "dx": 0.0, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "firefly", "dx": -1.0, "dy": 2.5, "scale_mult": None, "hard": False},
+            {"kind": "firefly", "dx": 1.5, "dy": 1.0, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Boulder gate — two rocks framing a walkable gap, invitation to pass through
+    {
+        "name": "boulder_gate",
+        "footprint": 7.0,
+        "members": [
+            {"kind": "boulder", "dx": -3.5, "dy": 0.0, "scale_mult": 1.0, "hard": True},
+            {"kind": "boulder", "dx": 3.5, "dy": 0.0, "scale_mult": 0.85, "hard": True},
+            {"kind": "rubble", "dx": -1.0, "dy": -1.5, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 0.8, "dy": -1.2, "scale_mult": None, "hard": False},
+            {"kind": "crystal_cluster", "dx": 0.0, "dy": 3.0, "scale_mult": 0.7, "hard": True},
+            {"kind": "cave_gravel", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -0.5, "dy": 0.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Pillar alcove — column with flanking spires, reads as a nook
+    {
+        "name": "pillar_alcove",
+        "footprint": 5.5,
+        "members": [
+            {"kind": "column", "dx": 0.0, "dy": -1.0, "scale_mult": None, "hard": True},
+            {"kind": "stalagmite", "dx": -2.5, "dy": 1.0, "scale_mult": 0.9, "hard": True},
+            {"kind": "stalagmite", "dx": 2.5, "dy": 0.8, "scale_mult": 0.8, "hard": True},
+            {"kind": "moss_patch", "dx": 0.0, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -1.2, "dy": -0.5, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": 1.0, "dy": 1.8, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Spore cluster — tight radial group of small fungi, low ground feature
+    {
+        "name": "spore_cluster",
+        "footprint": 4.0,
+        "members": [
+            {"kind": "giant_fungus", "dx": 0.0, "dy": 0.0, "scale_mult": 0.6, "hard": True},
+            {"kind": "giant_fungus", "dx": -1.5, "dy": 1.2, "scale_mult": 0.4, "hard": False},
+            {"kind": "giant_fungus", "dx": 1.8, "dy": 0.5, "scale_mult": 0.35, "hard": False},
+            {"kind": "giant_fungus", "dx": 0.5, "dy": -1.8, "scale_mult": 0.45, "hard": False},
+            {"kind": "moss_patch", "dx": -0.5, "dy": -0.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 1.0, "dy": 1.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Rubble field — collapsed area, wide low scatter, tells a story
+    {
+        "name": "rubble_field",
+        "footprint": 6.0,
+        "members": [
+            {"kind": "rubble", "dx": 0.0, "dy": 0.0, "scale_mult": 1.3, "hard": False},
+            {"kind": "rubble", "dx": -2.5, "dy": 1.0, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 2.0, "dy": -1.5, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": -1.0, "dy": -2.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 1.5, "dy": 1.8, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -2.0, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "bone_pile", "dx": 0.5, "dy": 2.0, "scale_mult": None, "hard": False},
+            {"kind": "twig_scatter", "dx": -1.5, "dy": 2.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Filament grove — tall emissive stalks in a loose line, wayfinding pull
+    {
+        "name": "filament_grove",
+        "footprint": 5.0,
+        "members": [
+            {"kind": "filament", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
+            {"kind": "filament", "dx": -2.0, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "filament", "dx": 2.0, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 0.5, "dy": 2.0, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -1.0, "dy": -1.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Stalagmite fence — row of spires creating a natural barrier/corridor wall
+    {
+        "name": "stalagmite_fence",
+        "footprint": 6.0,
+        "members": [
+            {"kind": "stalagmite", "dx": -3.0, "dy": 0.0, "scale_mult": 1.1, "hard": True},
+            {"kind": "stalagmite", "dx": -1.0, "dy": 0.3, "scale_mult": 0.85, "hard": True},
+            {"kind": "stalagmite", "dx": 1.0, "dy": -0.2, "scale_mult": 1.0, "hard": True},
+            {"kind": "stalagmite", "dx": 3.0, "dy": 0.1, "scale_mult": 0.9, "hard": True},
+            {"kind": "rubble", "dx": 0.0, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -2.0, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 2.0, "dy": -1.2, "scale_mult": None, "hard": False},
+        ],
+    },
+]
+
+OUTDOOR_STAMPS = [
+    # Fern clearing — open circle, green mound, dappled light feeling
+    {
+        "name": "fern_clearing",
+        "footprint": 6.0,
+        "members": [
+            {"kind": "boulder", "dx": 0.0, "dy": 0.0, "scale_mult": 0.9, "hard": True},
+            {"kind": "moss_patch", "dx": -2.0, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 2.2, "dy": 1.0, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 0.0, "dy": -2.5, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": -1.5, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": 1.8, "dy": -0.8, "scale_mult": None, "hard": False},
+            {"kind": "firefly", "dx": 0.5, "dy": 2.0, "scale_mult": None, "hard": False},
+            {"kind": "firefly", "dx": -0.8, "dy": 0.3, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Fallen tree — horizontal log with ecosystem growing on it
+    {
+        "name": "fallen_tree",
+        "footprint": 5.0,
+        "members": [
+            {"kind": "dead_log", "dx": 0.0, "dy": 0.0, "scale_mult": 1.2, "hard": True},
+            {"kind": "moss_patch", "dx": 0.5, "dy": 0.3, "scale_mult": 0.8, "hard": False},
+            {"kind": "leaf_pile", "dx": -2.0, "dy": 1.0, "scale_mult": None, "hard": False},
+            {"kind": "leaf_pile", "dx": 1.8, "dy": -1.2, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": -1.0, "dy": -1.5, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": 2.0, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "twig_scatter", "dx": -1.5, "dy": 0.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Rocky outcrop — exposed geology, stumps and stones
+    {
+        "name": "rocky_outcrop",
+        "footprint": 7.0,
+        "members": [
+            {"kind": "boulder", "dx": -2.0, "dy": 0.0, "scale_mult": 1.0, "hard": True},
+            {"kind": "boulder", "dx": 2.5, "dy": 1.0, "scale_mult": 0.7, "hard": True},
+            {"kind": "stalagmite", "dx": 0.0, "dy": -2.5, "scale_mult": None, "hard": True},
+            {"kind": "rubble", "dx": -0.5, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 1.0, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 0.0, "dy": 0.5, "scale_mult": None, "hard": False},
+        ],
+    },
+]
+
+
+# -- Stamp affinity (tile variant → preferred stamp names) ---------------------
+#
+# When a tile variant has affinity, stamps matching preferred names are 3x
+# more likely to be selected via weighted RosterPool pick. Stamps not in the
+# affinity list still appear — just less often. "standard" has no affinity
+# (all stamps equal).
+
+# -- Anchor stamps (programmatic compositions around structural anchors) -------
+#
+# Instead of authored fixed-member stamps, each structural anchor type declares
+# SLOTS that fill from pools. The anchor itself is the spine — placed first by
+# the normal honeycomb roll — then slots radiate around it.
+#
+# Variety = pool_picks × count_range × angle × rotation × scale_range.
+# 3 base templates × combinatorial slot fills = hundreds of unique compositions.
+#
+# Slot fields:
+#   role     — semantic label (flank, ground, accent) for readability
+#   count    — [min, max] members to place in this slot
+#   pool     — list of kind names to pick from (uniform random)
+#   dist     — [min, max] distance from anchor center (meters)
+#   scale    — [min, max] scale_mult or null (no override)
+#   hard     — whether placed members need collision reservation
+
+CAVERN_ANCHOR_STAMPS = {
+    "mega_column": {
+        "frequency": 0.60,  # 60% of mega_columns get a stamp
+        "slots": [
+            {"role": "flank", "count": [1, 2],
+             "pool": ["stalagmite", "boulder"],
+             "dist": [3.0, 5.0], "scale": [0.7, 1.0], "hard": True},
+            {"role": "ground", "count": [2, 4],
+             "pool": ["moss_patch", "rubble", "cave_gravel", "grass_tuft"],
+             "dist": [1.5, 3.5], "scale": None, "hard": False},
+            {"role": "accent", "count": [0, 1],
+             "pool": ["crystal_cluster", "filament"],
+             "dist": [2.5, 4.0], "scale": [0.6, 0.8], "hard": True},
+        ],
+    },
+    "column": {
+        "frequency": 0.50,
+        "slots": [
+            {"role": "flank", "count": [0, 2],
+             "pool": ["stalagmite"],
+             "dist": [2.0, 3.5], "scale": [0.7, 0.9], "hard": True},
+            {"role": "ground", "count": [1, 3],
+             "pool": ["moss_patch", "rubble", "cave_gravel"],
+             "dist": [1.0, 2.5], "scale": None, "hard": False},
+            {"role": "accent", "count": [0, 1],
+             "pool": ["moss_patch", "giant_fungus"],
+             "dist": [2.0, 3.0], "scale": [0.5, 0.7], "hard": False},
+        ],
+    },
+    "boulder": {
+        "frequency": 0.45,
+        "slots": [
+            {"role": "flank", "count": [0, 1],
+             "pool": ["stalagmite", "rubble"],
+             "dist": [2.0, 3.5], "scale": [0.7, 1.0], "hard": True},
+            {"role": "ground", "count": [2, 4],
+             "pool": ["cave_gravel", "rubble", "twig_scatter", "grass_tuft"],
+             "dist": [1.0, 3.0], "scale": None, "hard": False},
+            {"role": "accent", "count": [0, 1],
+             "pool": ["moss_patch"],
+             "dist": [1.5, 2.5], "scale": None, "hard": False},
+        ],
+    },
+    "stalagmite": {
+        "frequency": 0.35,
+        "slots": [
+            {"role": "ground", "count": [1, 2],
+             "pool": ["cave_gravel", "rubble"],
+             "dist": [0.8, 2.0], "scale": None, "hard": False},
+            {"role": "accent", "count": [0, 1],
+             "pool": ["moss_patch", "grass_tuft"],
+             "dist": [1.0, 2.0], "scale": None, "hard": False},
+        ],
+    },
+    "crystal_cluster": {
+        "frequency": 0.55,
+        "slots": [
+            {"role": "flank", "count": [0, 2],
+             "pool": ["stalagmite"],
+             "dist": [2.0, 3.5], "scale": [0.6, 0.8], "hard": True},
+            {"role": "ground", "count": [1, 3],
+             "pool": ["cave_gravel", "rubble", "moss_patch"],
+             "dist": [1.0, 2.5], "scale": None, "hard": False},
+        ],
+    },
+    "giant_fungus": {
+        "frequency": 0.50,
+        "slots": [
+            {"role": "ground", "count": [2, 3],
+             "pool": ["moss_patch", "grass_tuft", "cave_gravel"],
+             "dist": [1.0, 2.5], "scale": None, "hard": False},
+            {"role": "accent", "count": [0, 1],
+             "pool": ["filament", "firefly"],
+             "dist": [1.5, 3.0], "scale": None, "hard": False},
+        ],
+    },
+}
+
+OUTDOOR_ANCHOR_STAMPS = {
+    "mega_column": {
+        "frequency": 0.55,
+        "slots": [
+            {"role": "ground", "count": [2, 4],
+             "pool": ["moss_patch", "grass_tuft", "leaf_pile"],
+             "dist": [2.0, 4.0], "scale": None, "hard": False},
+            {"role": "accent", "count": [0, 1],
+             "pool": ["dead_log", "boulder"],
+             "dist": [3.0, 5.0], "scale": [0.6, 0.8], "hard": True},
+        ],
+    },
+    "column": {
+        "frequency": 0.45,
+        "slots": [
+            {"role": "ground", "count": [1, 3],
+             "pool": ["grass_tuft", "moss_patch", "leaf_pile"],
+             "dist": [1.5, 3.0], "scale": None, "hard": False},
+        ],
+    },
+    "boulder": {
+        "frequency": 0.50,
+        "slots": [
+            {"role": "ground", "count": [2, 3],
+             "pool": ["moss_patch", "grass_tuft", "rubble"],
+             "dist": [1.5, 3.0], "scale": None, "hard": False},
+            {"role": "accent", "count": [0, 1],
+             "pool": ["firefly"],
+             "dist": [1.0, 2.0], "scale": None, "hard": False},
+        ],
+    },
+}
+
+
+CAVERN_STAMP_AFFINITY = {
+    "crystal_grove":  ["crystal_grotto", "pillar_alcove", "filament_grove"],
+    "fungus_forest":  ["fungus_hollow", "spore_cluster"],
+    "bone_field":     ["bone_shrine", "rubble_field"],
+    "wet_zone":       ["fungus_hollow", "crystal_grotto", "spore_cluster"],
+}
+
+OUTDOOR_STAMP_AFFINITY = {
+    "clearing":       ["fern_clearing"],
+    "dense_canopy":   ["fallen_tree"],
+    "fern_hollow":    ["fern_clearing", "rocky_outcrop"],
+    "rocky_outcrop":  ["rocky_outcrop"],
+    "stream_bed":     ["fern_clearing"],
+}
 
 
 # -- Spectrum profiles (hue drift configs) -------------------------------------
@@ -831,6 +1175,7 @@ BIOME_REGISTRY = {
         "light_states": CAVERN_LIGHT_STATES,
         "density": BIOME_CAVERN_DEFAULT,
         "planes": BIOME_PLANES["cavern"],
+        "stamps": CAVERN_STAMPS,
     },
     "outdoor": {
         "palette": OUTDOOR_PALETTE,
@@ -842,5 +1187,6 @@ BIOME_REGISTRY = {
         "light_states": OUTDOOR_LIGHT_STATES,
         "density": BIOME_OUTDOOR_FOREST,
         "planes": BIOME_PLANES["outdoor"],
+        "stamps": OUTDOOR_STAMPS,
     },
 }

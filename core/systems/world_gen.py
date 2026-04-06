@@ -18,6 +18,9 @@ from core.systems.biome_data import (
     CAVERN_FLOURISH_POOLS, OUTDOOR_FLOURISH_POOLS,
     FLOURISH_COUNT_RANGE, FLOURISH_RADIUS_RANGE,
     CAVERN_ROOM_BEACONS, OUTDOOR_ROOM_BEACONS,
+    CAVERN_STAMPS, OUTDOOR_STAMPS,
+    CAVERN_STAMP_AFFINITY, OUTDOOR_STAMP_AFFINITY,
+    CAVERN_ANCHOR_STAMPS, OUTDOOR_ANCHOR_STAMPS,
 )
 from core.systems.frame_composer import FrameComposer, FRAMING_CONFIG
 from core.systems.roster_pool import RosterPool
@@ -83,6 +86,47 @@ def _emit_reward_cluster(center_x, center_y, spawns, rng, count=6):
         fy = center_y + math.sin(math.radians(angle)) * radius
         spawns.append(("firefly", (fx, fy),
                        rng.uniform(0, 360), rng.randint(0, 99999), None))
+
+
+def _emit_ceiling_cluster(anchor_x, anchor_y, spawns, rng):
+    """Spawn ceiling_moss colony above a ground anchor using spore-spread model.
+
+    Fungal spore dispersal: dense colony at the source (directly above the
+    column), density and scale fall off with distance. The host surface
+    (column touching ceiling) is the inoculation point. Spores drift
+    outward, settle on the nearest high surface, grow largest near the host.
+
+    Ring 0: primary mass directly above anchor (scale 1.0)
+    Ring 1: 2-3 mid blobs at 1.5-3m (scale 0.55-0.75) — active growth front
+    Ring 2: 1-2 small outliers at 3-5m (scale 0.3-0.5) — spore settlement edge
+    """
+    # Ring 0 — primary colony at inoculation point (tagged as colony center
+    # so the brain can prefer it for beacon allocation)
+    spawns.append(("ceiling_moss", (anchor_x, anchor_y),
+                   rng.uniform(0, 360), rng.randint(0, 99999),
+                   {"colony_center": True}))
+
+    # Ring 1 — active growth front, clustered near host
+    for _ in range(rng.randint(2, 3)):
+        angle = rng.uniform(0, 360)
+        dist = rng.uniform(1.5, 3.0)
+        fx = anchor_x + math.cos(math.radians(angle)) * dist
+        fy = anchor_y + math.sin(math.radians(angle)) * dist
+        scale = round(rng.uniform(0.55, 0.75), 3)
+        spawns.append(("ceiling_moss", (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999),
+                       {"scale_mult": scale}))
+
+    # Ring 2 — spore settlement fringe, smaller and sparser
+    for _ in range(rng.randint(1, 2)):
+        angle = rng.uniform(0, 360)
+        dist = rng.uniform(3.0, 5.0)
+        fx = anchor_x + math.cos(math.radians(angle)) * dist
+        fy = anchor_y + math.sin(math.radians(angle)) * dist
+        scale = round(rng.uniform(0.3, 0.5), 3)
+        spawns.append(("ceiling_moss", (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999),
+                       {"scale_mult": scale}))
 
 
 def _emit_fungus_satellites(center_x, center_y, spawns, solid_positions, rng):
@@ -247,6 +291,108 @@ def _emit_flourishes(anchor_kind, anchor_x, anchor_y, spawns, solid_positions,
                        rng.uniform(0, 360), rng.randint(0, 99999), None))
 
 
+def _emit_anchor_stamp(anchor_kind, anchor_x, anchor_y, anchor_stamps,
+                       spawns, solid_positions, rng):
+    """Fill slots around a structural anchor from config-driven pools.
+
+    The anchor is already placed. This adds composed members radiating
+    from it — flanking geometry, ground cover, emissive accents.
+    Variety = pool_picks × count_range × angle × scale_range.
+    """
+    cfg = anchor_stamps.get(anchor_kind)
+    if not cfg:
+        return 0
+    if rng.random() > cfg["frequency"]:
+        return 0
+
+    placed = 0
+    for slot in cfg["slots"]:
+        count = rng.randint(slot["count"][0], slot["count"][1])
+        for _ in range(count):
+            kind = rng.choice(slot["pool"])
+            angle = rng.uniform(0, 360)
+            dist = rng.uniform(slot["dist"][0], slot["dist"][1])
+            fx = anchor_x + math.cos(math.radians(angle)) * dist
+            fy = anchor_y + math.sin(math.radians(angle)) * dist
+
+            clearance = HARD_OBJECTS.get(kind, 0) if slot.get("hard") else 0
+            if clearance > 0:
+                too_close = False
+                for sx, sy, sc in solid_positions:
+                    ddx, ddy = fx - sx, fy - sy
+                    if ddx * ddx + ddy * ddy < (clearance + sc) ** 2:
+                        too_close = True
+                        break
+                if too_close:
+                    continue
+                solid_positions.append((fx, fy, clearance))
+
+            meta = None
+            if slot.get("scale"):
+                s = round(rng.uniform(slot["scale"][0], slot["scale"][1]), 3)
+                meta = {"stamp_scale_mult": s}
+            spawns.append((kind, (fx, fy),
+                           rng.uniform(0, 360), rng.randint(0, 99999), meta))
+            placed += 1
+    return placed
+
+
+def _emit_stamp(stamp, center_x, center_y, spawns, solid_positions, rng):
+    """Place all members of a stamp composition at a honeycomb node.
+
+    Each member is offset from center. Hard members get collision reservations.
+    Returns the number of members successfully placed (0 if the footprint
+    collides with existing solids).
+    """
+    # Pre-check: is the footprint clear of existing hard objects?
+    footprint = stamp["footprint"]
+    for sx, sy, sc in solid_positions:
+        dx, dy = center_x - sx, center_y - sy
+        if dx * dx + dy * dy < (footprint + sc) ** 2:
+            return 0  # footprint overlaps — skip this stamp entirely
+
+    # Random rotation so stamps don't all face the same way
+    rot_deg = rng.uniform(0, 360)
+    rot_rad = math.radians(rot_deg)
+    cos_r, sin_r = math.cos(rot_rad), math.sin(rot_rad)
+
+    placed = 0
+    for member in stamp["members"]:
+        # Rotate offset
+        mdx = member["dx"] * cos_r - member["dy"] * sin_r
+        mdy = member["dx"] * sin_r + member["dy"] * cos_r
+        mx = center_x + mdx
+        my = center_y + mdy
+
+        kind = member["kind"]
+        clearance = HARD_OBJECTS.get(kind, 0) if member.get("hard") else 0
+
+        # Collision check for hard members against existing solids
+        if clearance > 0:
+            too_close = False
+            for sx, sy, sc in solid_positions:
+                ddx, ddy = mx - sx, my - sy
+                if ddx * ddx + ddy * ddy < (clearance + sc) ** 2:
+                    too_close = True
+                    break
+            if too_close:
+                continue
+            solid_positions.append((mx, my, clearance))
+
+        meta = None
+        if member.get("scale_mult") is not None:
+            meta = {"stamp_scale_mult": member["scale_mult"]}
+        spawns.append((kind, (mx, my),
+                       rng.uniform(0, 360), rng.randint(0, 99999), meta))
+        placed += 1
+
+    # Reserve the footprint center so other stamps / formations respect it
+    if placed > 0:
+        solid_positions.append((center_x, center_y, footprint))
+
+    return placed
+
+
 def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                   is_spawn_tile=False):
     """Generate a tile layout with honeycomb path network.
@@ -273,6 +419,10 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     variant_names = list(variants.keys())
     variant_weights = [variants[v]["weight"] for v in variant_names]
     variant_name = rng.choices(variant_names, weights=variant_weights, k=1)[0]
+    # Spawn tile should never be sparse — player's first frame must be populated.
+    # Re-roll once if sparse lands on spawn.
+    if is_spawn_tile and variant_name == "sparse":
+        variant_name = "standard"
     variant = variants[variant_name]
     density_mult = variant.get("density_mult", 1.0)
     density_boost = variant.get("boost", {})
@@ -302,10 +452,31 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
         for anchor_kind, pool in flourish_source.items()
     }
 
+    # Anchor stamp configs — programmatic compositions around structural anchors
+    anchor_stamp_cfg = OUTDOOR_ANCHOR_STAMPS if biome_name == "outdoor" else CAVERN_ANCHOR_STAMPS
+
     # Beacon roster — feature cluster pools for formation column beacons.
     # LRU-cycled so adjacent formations get different beacon types.
     beacon_source = OUTDOOR_ROOM_BEACONS if biome_name == "outdoor" else CAVERN_ROOM_BEACONS
     beacon_roster = RosterPool(beacon_source, seed=seed + 54321)
+
+    # Stamp roster — authored compositions replacing single-anchor nodes.
+    # ~25% of non-formation nodes get a stamp instead of a random anchor roll.
+    stamp_source = OUTDOOR_STAMPS if biome_name == "outdoor" else CAVERN_STAMPS
+    stamp_roster = RosterPool(stamp_source, seed=seed + 11111) if stamp_source else None
+
+    # Stamp spatial awareness — track placed stamp centers + names.
+    # Minimum separation: 2x node_spacing (~32-40m) between any two stamps.
+    # Same-name dedup radius: 3x node_spacing (~48-60m) so you don't see
+    # two crystal_grottos within walking distance.
+    stamp_centers = []  # list of (x, y, name)
+    STAMP_MIN_DIST = node_spacing * 2.0
+    STAMP_DEDUP_DIST = node_spacing * 3.0
+
+    # Stamp affinity — tile variant biases which stamps appear.
+    # Preferred stamps get 3x weight. Non-preferred still appear.
+    stamp_affinity_src = OUTDOOR_STAMP_AFFINITY if biome_name == "outdoor" else CAVERN_STAMP_AFFINITY
+    stamp_affinity = stamp_affinity_src.get(variant_name, {})
 
     node_index = 0
 
@@ -319,6 +490,38 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
             nodes.append((jx, jy))
 
             node_index += 1
+
+            # Stamp roll — ~25% of nodes get an authored composition
+            # instead of a single random anchor. Spatial awareness:
+            # - minimum distance between any two stamps (avoid clustering)
+            # - same-name dedup within larger radius (avoid repetition)
+            if stamp_roster and rng.random() < 0.25:
+                # Affinity-weighted selection: preferred stamps get 3x weight
+                if stamp_affinity:
+                    weights = [3.0 if s["name"] in stamp_affinity else 1.0
+                               for s in stamp_source]
+                    stamp = rng.choices(stamp_source, weights=weights, k=1)[0]
+                else:
+                    stamp = stamp_roster.next()
+                # Spatial check — skip if too close to existing stamp
+                too_close = False
+                for sx, sy, sname in stamp_centers:
+                    dx, dy = jx - sx, jy - sy
+                    dist_sq = dx * dx + dy * dy
+                    if dist_sq < STAMP_MIN_DIST * STAMP_MIN_DIST:
+                        too_close = True
+                        break
+                    if sname == stamp["name"] and dist_sq < STAMP_DEDUP_DIST * STAMP_DEDUP_DIST:
+                        too_close = True
+                        break
+                if not too_close:
+                    stamp_placed = _emit_stamp(stamp, jx, jy, spawns,
+                                               solid_positions, rng)
+                    if stamp_placed > 0:
+                        stamp_centers.append((jx, jy, stamp["name"]))
+                        nx += node_spacing
+                        continue  # stamp placed — skip single-anchor roll
+
             roll = rng.random()
             if roll < 0.15:
                 anchor = "mega_column"
@@ -386,6 +589,10 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                     beacon_x = jx + math.cos(col_oa + math.pi) * 3.0
                     beacon_y = jy + math.sin(col_oa + math.pi) * 3.0
                     _emit_cluster(beacon, beacon_x, beacon_y, spawns, solid_positions, rng)
+                    # Ceiling mold colony — formation columns are primary spore hosts
+                    # (tallest vertical surface touching ceiling = best inoculation)
+                    if not parent_is_stalactite:
+                        _emit_ceiling_cluster(col_x, col_y, spawns, rng)
                     mega_column_count += 1
                     nx += node_spacing
                     continue  # skip the default anchor spawn — formation replaced it
@@ -420,6 +627,15 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
             # Fungus cluster: main stalk + 3-5 satellites (matches user's sketch)
             if anchor == "giant_fungus":
                 _emit_fungus_satellites(jx, jy, spawns, solid_positions, rng)
+            # Ceiling mold — bulging clusters ABOVE columns and stalagmites.
+            # Mirrors ground architecture on the ceiling. ~60% chance so it's
+            # not uniform but trends near vertical geometry.
+            if anchor in ("mega_column", "column", "stalagmite") and rng.random() < 0.60:
+                _emit_ceiling_cluster(jx, jy, spawns, rng)
+            # Anchor stamp — programmatic composition around the structural spine.
+            # Config-driven slots fill from pools. The anchor IS the stamp center.
+            _emit_anchor_stamp(anchor, jx, jy, anchor_stamp_cfg,
+                               spawns, solid_positions, rng)
             nx += node_spacing
         ny += node_spacing * 0.87
         row += 1

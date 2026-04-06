@@ -23,7 +23,7 @@ static func make_particle_mote_material(color: Color) -> StandardMaterial3D:
 	m.albedo_color = Color(color.r, color.g, color.b, 0.5)
 	m.emission_enabled = true
 	m.emission = color
-	m.emission_energy_multiplier = 8.0
+	m.emission_energy_multiplier = 16.0  # boosted — drift motes must read through fog
 	# BILLBOARD_PARTICLES respects per-particle transforms. BILLBOARD_ENABLED
 	# would collapse every particle to the emitter origin — see commit 38c4657
 	# and test_mote_materials.gd for the regression guard.

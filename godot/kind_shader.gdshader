@@ -229,16 +229,20 @@ void fragment() {
 		}
 	}
 
-	ALBEDO = col;
+	// Emissive objects: dim the albedo so the EMISSION does the visual work.
+	// High inner_glow → dark surface + bright emission = "light from within."
+	// Low inner_glow → normal albedo, no emission = opaque geological surface.
+	float albedo_dim = 1.0 - inner_glow * 0.7;  // at inner_glow=1.0, albedo is 30%
+	ALBEDO = col * albedo_dim;
 	// Wet base reduces roughness — glossy damp surface catches light at ground contact
-	ROUGHNESS = roughness_base - wet_factor * 0.35;
+	ROUGHNESS = roughness_base - wet_factor * 0.35 - inner_glow * 0.3;
 	METALLIC = light_response * 0.05;
 
 	// Emissive glow (crystals, moss, fungus)
 	float emit_base = 0.0;
 	if (inner_glow > 0.01) {
 		float pulse = 1.0 + sin(TIME * pulse_rate * 6.28) * 0.15;
-		emit_base = inner_glow * pulse * 2.0;
+		emit_base = inner_glow * pulse * 3.0;  // was 2.0 — brighter emission to compensate dimmed albedo
 	}
 
 	// Rim light — fresnel edge glow for silhouette separation.

@@ -45,10 +45,10 @@ KIND_PROPS = {
     "buttress":        {"scale": [2.5, 2.5, 6.0],  "color": [0.26, 0.21, 0.16], "emissive": 0.0},
     "boulder":         {"scale": [4.0, 3.5, 2.5],  "color": [0.25, 0.42, 0.16], "emissive": 0.0},
     "stalagmite":      {"scale": [0.8, 0.8, 3.0],  "color": [0.28, 0.24, 0.18], "emissive": 0.0},
-    "crystal_cluster": {"scale": [1.5, 1.2, 2.0],  "color": [0.35, 0.29, 0.19], "emissive": 1.0},
-    "giant_fungus":    {"scale": [2.0, 2.0, 3.5],  "color": [0.20, 0.36, 0.15], "emissive": 0.8},
+    "crystal_cluster": {"scale": [1.5, 1.2, 2.0],  "color": [0.50, 0.55, 0.80], "emissive": 1.0},
+    "giant_fungus":    {"scale": [2.0, 2.0, 3.5],  "color": [0.30, 0.50, 0.25], "emissive": 0.8},
     "dead_log":        {"scale": [3.0, 0.8, 0.6],  "color": [0.19, 0.27, 0.12], "emissive": 0.0},
-    "moss_patch":      {"scale": [1.5, 1.5, 0.15], "color": [0.14, 0.33, 0.09], "emissive": 0.9},
+    "moss_patch":      {"scale": [1.5, 1.5, 0.15], "color": [0.22, 0.45, 0.15], "emissive": 0.9},
     "bone_pile":       {"scale": [0.6, 0.6, 0.3],  "color": [0.14, 0.13, 0.11], "emissive": 0.0},
     "grass_tuft":      {"scale": [0.3, 0.3, 0.25], "color": [0.18, 0.33, 0.11], "emissive": 0.0},
     "rubble":          {"scale": [0.8, 0.8, 0.4],  "color": [0.28, 0.24, 0.19], "emissive": 0.0},
@@ -60,9 +60,9 @@ KIND_PROPS = {
     "beetle":          {"scale": [0.04, 0.03, 0.02],"color": [0.10, 0.08, 0.06], "emissive": 0.0},
     "rat":             {"scale": [0.12, 0.06, 0.06],"color": [0.14, 0.11, 0.08], "emissive": 0.0},
     "spider":          {"scale": [0.05, 0.05, 0.03],"color": [0.08, 0.07, 0.06], "emissive": 0.0},
-    "ceiling_moss":    {"scale": [1.0, 1.0, 0.8],  "color": [0.12, 0.18, 0.08], "emissive": 0.9},
-    "hanging_vine":    {"scale": [0.3, 0.3, 2.5],  "color": [0.10, 0.16, 0.07], "emissive": 0.0},
-    "filament":        {"scale": [0.08, 0.08, 5.0], "color": [0.30, 0.40, 0.55], "emissive": 1.0},
+    "ceiling_moss":    {"scale": [3.0, 3.0, 2.5],  "color": [0.35, 0.45, 0.18], "emissive": 0.9},
+    "hanging_vine":    {"scale": [0.8, 0.8, 4.0],  "color": [0.10, 0.16, 0.07], "emissive": 0.0},
+    "filament":        {"scale": [0.25, 0.25, 3.5], "color": [0.30, 0.40, 0.55], "emissive": 1.0},
     "horizon_form":    {"scale": [6.0, 4.0, 10.0], "color": [0.08, 0.10, 0.05], "emissive": 0.0},
     "horizon_mid":     {"scale": [4.0, 3.0, 7.0],  "color": [0.10, 0.12, 0.06], "emissive": 0.0},
     "horizon_near":    {"scale": [3.0, 2.0, 5.0],  "color": [0.12, 0.14, 0.08], "emissive": 0.0},
@@ -122,6 +122,14 @@ class BrainWorld:
         # one MeshInstance3D per entry. Adding a plane is a pure config edit.
         self.planes = BIOME_REGISTRY.get(biome_name, {}).get("planes", [])
 
+        # Ceiling height — resolved from biome planes config.
+        # Ceiling_moss and hanging_vine attach relative to this.
+        self.ceiling_y = 15.0  # fallback
+        for plane in self.planes:
+            if plane.get("kind") == "ceiling":
+                self.ceiling_y = plane.get("offset", 15.0)
+                break
+
         # Light states
         self.light_states = OUTDOOR_LIGHT_STATES if biome_name == "outdoor" else CAVERN_LIGHT_STATES
         self.light_state_names = list(self.light_states.keys())
@@ -172,9 +180,12 @@ class BrainWorld:
             if kind == "leaf":
                 z = 3.0
             elif kind == "ceiling_moss":
-                z = rng.uniform(5.0, 8.0)
+                # Attach to ceiling plane — hang just below the surface.
+                # Small offset variance so they don't form a flat grid.
+                z = self.ceiling_y - rng.uniform(0.5, 2.0)
             elif kind == "hanging_vine":
-                z = rng.uniform(4.0, 7.0)
+                # Vines dangle from ceiling, tips reach lower than moss
+                z = self.ceiling_y - rng.uniform(3.0, 8.0)
             elif kind == "filament":
                 z = rng.uniform(1.0, 4.0)
             elif kind == "firefly":
@@ -210,6 +221,10 @@ class BrainWorld:
                 "decay_stage": KIND_DECAY.get(kind, 0.0),
             }
 
+            # Ceiling-attached kinds — tag so Godot skips contact shadows
+            if kind in ("ceiling_moss", "hanging_vine"):
+                ent["attachment_plane"] = "ceiling"
+
             # Stalactite inversion — brain owns this decision so buttresses
             # and other formation logic can respect it. Same hash Godot used
             # to use, now authoritative from the brain side.
@@ -219,6 +234,16 @@ class BrainWorld:
                     ent["attachment_plane"] = "ceiling"
                 else:
                     ent["attachment_plane"] = "floor"
+
+            # Emissive inversion — stagger light sources between floor and
+            # ceiling planes. Same competing strategy as column/stalactite.
+            # ~30% of crystal_cluster and giant_fungus flip to ceiling.
+            # Creates the bloom-from-above that competes with floor pools.
+            if kind in ("crystal_cluster", "giant_fungus"):
+                emissive_hash = abs(math.sin(x * 3.91 + y * 7.23))
+                if emissive_hash < 0.30:
+                    ent["attachment_plane"] = "ceiling"
+                    ent["z"] = round(self.ceiling_y - rng.uniform(0.5, 2.0), 2)
 
             # Buttress metadata — lean angle, stretch axes (for renderer tilt)
             if meta and kind == "buttress":
@@ -244,6 +269,17 @@ class BrainWorld:
             # Satellite scale multiplier (fungus satellites, etc.)
             if meta and "scale_mult" in meta and kind != "mega_column":
                 mult = meta["scale_mult"]
+                ent["sx"] = round(ent["sx"] * mult, 3)
+                ent["sy"] = round(ent["sy"] * mult, 3)
+                ent["sz"] = round(ent["sz"] * mult, 3)
+
+            # Colony center tag — ceiling_moss primary blobs get beacon preference
+            if meta and meta.get("colony_center"):
+                ent["colony_center"] = True
+
+            # Stamp composition scale multiplier
+            if meta and "stamp_scale_mult" in meta:
+                mult = meta["stamp_scale_mult"]
                 ent["sx"] = round(ent["sx"] * mult, 3)
                 ent["sy"] = round(ent["sy"] * mult, 3)
                 ent["sz"] = round(ent["sz"] * mult, 3)
@@ -380,13 +416,82 @@ class BrainWorld:
             score = dist * (1.0 - dot_fwd * 0.3)
             emissive_scored.append((score, dist, ent))
         emissive_scored.sort(key=lambda x: x[0])
+
+        # Cluster emissives before assigning beacons — nearby emissives share
+        # one beacon slot instead of each burning a slot individually. One
+        # OmniLight at the cluster center covers 3-4 glowing objects.
+        CLUSTER_RADIUS = 8.0  # meters — emissives within this share a beacon
+        clusters = []  # list of {"center": (x,y,z), "members": [ent...], "score": float, "is_ceiling": bool}
+        clustered = set()
         for idx, (score, dist, ent) in enumerate(emissive_scored):
-            if idx < 4:
-                ent["render_tier"] = 0   # beacon — full lights + decal + motes
-            elif dist < 25.0:
-                ent["render_tier"] = 1   # mid — decal only
+            if idx in clustered:
+                continue
+            cx, cy, cz = ent["x"], ent["y"], ent.get("z", 0.0)
+            is_ceil = ent.get("attachment_plane", "") == "ceiling"
+            members = [ent]
+            clustered.add(idx)
+            # Pull in nearby same-plane emissives
+            for j, (s2, d2, e2) in enumerate(emissive_scored):
+                if j in clustered:
+                    continue
+                if (e2.get("attachment_plane", "") == "ceiling") != is_ceil:
+                    continue  # don't mix floor and ceiling
+                ddx, ddy = e2["x"] - cx, e2["y"] - cy
+                if ddx * ddx + ddy * ddy < CLUSTER_RADIUS * CLUSTER_RADIUS:
+                    members.append(e2)
+                    clustered.add(j)
+            # Cluster center = average position of members
+            avg_x = sum(e["x"] for e in members) / len(members)
+            avg_y = sum(e["y"] for e in members) / len(members)
+            avg_z = sum(e.get("z", 0.0) for e in members) / len(members)
+            clusters.append({
+                "center": (avg_x, avg_y, avg_z),
+                "members": members,
+                "score": score,  # use best member's score
+                "is_ceiling": is_ceil,
+                "size": len(members),
+            })
+
+        # Sort clusters: prefer larger clusters (more bang per beacon slot)
+        # and closer ones. Score = original_score / sqrt(member_count).
+        for c in clusters:
+            c["beacon_score"] = c["score"] / (c["size"] ** 0.5)
+        clusters.sort(key=lambda c: c["beacon_score"])
+
+        # Guarantee ceiling representation: at least 2 ceiling, at least 2 floor
+        ceil_clusters = [c for c in clusters if c["is_ceiling"]]
+        floor_clusters = [c for c in clusters if not c["is_ceiling"]]
+
+        beacon_clusters = []
+        for c in ceil_clusters[:2]:
+            beacon_clusters.append(c)
+        for c in floor_clusters:
+            if len(beacon_clusters) >= 6:
+                break
+            beacon_clusters.append(c)
+        # Fill remaining with best overall
+        for c in clusters:
+            if len(beacon_clusters) >= 6:
+                break
+            if c not in beacon_clusters:
+                beacon_clusters.append(c)
+
+        # Assign tiers: beacon cluster members get tier 0, rest get 1 or 2
+        beacon_member_ids = set()
+        for c in beacon_clusters:
+            for e in c["members"]:
+                e["render_tier"] = 0
+                # Store cluster center so Godot can use it for light placement
+                e["cluster_center"] = list(c["center"])
+                beacon_member_ids.add(id(e))
+
+        for score, dist, ent in emissive_scored:
+            if id(ent) in beacon_member_ids:
+                continue
+            if dist < 25.0:
+                ent["render_tier"] = 1
             else:
-                ent["render_tier"] = 2   # far — entity emission only
+                ent["render_tier"] = 2
 
         # Bake light influence: tint non-emissive entities from nearby emissives
         for i in range(len(visible)):
