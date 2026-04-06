@@ -240,6 +240,16 @@ func _create_kind_material(kind: String) -> Material:
 		mat.set_shader_parameter("band_color_b",
 			Color(pb[0] * cool[0], pb[1] * cool[1], pb[2] * cool[2]))
 
+	# Vertex displacement — breaks smooth silhouettes into craggy rock forms.
+	mat.set_shader_parameter("vertex_displacement", params.get("vertex_displacement", 0.0))
+	# Column taper — wider base, narrower top. Natural geological spire.
+	mat.set_shader_parameter("taper_strength", params.get("taper_strength", 0.0))
+	# Axial twist — subtle rotation with height. Organic geological character.
+	mat.set_shader_parameter("twist_amount", params.get("twist_amount", 0.0))
+
+	# Rim light — fresnel edge glow for dark-on-dark silhouette separation.
+	mat.set_shader_parameter("rim_strength", params.get("rim_strength", 0.0))
+
 	# Phase 2 — layer fade target color (atmospheric perspective mix target)
 	var fog_data: Dictionary = manifest.get("fog", {})
 	var fog_c: Array = fog_data.get("color", [0.2, 0.14, 0.1])
@@ -320,7 +330,7 @@ func _setup_environment() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	godot_env.ambient_light_energy = 1.0  # raised from 0.60 — cavern must be navigable, not oppressively dark
+	godot_env.ambient_light_energy = 0.45  # low floor — silhouettes readable, detail lives in light pools only
 	godot_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 
 	godot_env.tonemap_mode = 2
@@ -330,11 +340,11 @@ func _setup_environment() -> void:
 	# Bloom — crystals and moss GLOW and bleed into surroundings
 	godot_env.glow_enabled = true
 	godot_env.glow_enabled = true
-	godot_env.glow_intensity = 4.0   # proven — bloom INTO fog creates atmospheric fill
-	godot_env.glow_bloom = 0.6       # proven — additive overlap is the visual language
+	godot_env.glow_intensity = 2.0   # restrained — bloom accents, doesn't flood
+	godot_env.glow_bloom = 0.4       # tighter additive overlap
 	godot_env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	godot_env.glow_hdr_threshold = 0.12  # proven — aggressive, distant lights contribute smoothly
-	godot_env.glow_hdr_scale = 8.0   # proven — bright lights blow out dramatically into fog
+	godot_env.glow_hdr_threshold = 0.25  # raised — only genuinely bright things bloom
+	godot_env.glow_hdr_scale = 4.0   # halved — bright lights glow, don't obliterate
 
 	# Adjustments — desaturate world, color lives only in light sources
 	godot_env.adjustment_enabled = true
@@ -661,10 +671,67 @@ func _spawn_entities() -> void:
 
 		var coll_r: float = ent.get("collision_radius", 0.0)
 		if coll_r > 0.0:
-			collision_objects.append({"x": ent.get("x", 0.0), "z": ent.get("y", 0.0), "r": coll_r})
+			# Skip collision for stalactite variants — they hang above head height.
+			# Same hash check as _create_multimesh_for_kind stalactite branching.
+			var skip_coll := false
+			if kind == "mega_column" or kind == "column":
+				var vhash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
+				if vhash < 0.40:
+					skip_coll = true
+			if not skip_coll:
+				collision_objects.append({"x": ent.get("x", 0.0), "z": ent.get("y", 0.0), "r": coll_r})
 
 	for kind: String in by_kind:
 		_create_multimesh_for_kind(kind, by_kind[kind])
+	_spawn_contact_shadows(by_kind)
+
+
+# Kinds that get dark contact shadow Decals at their base.
+# Radius multiplier scales with the kind's visual footprint.
+const CONTACT_SHADOW_KINDS := {
+	"mega_column": 5.0, "column": 3.5, "boulder": 2.5, "stalagmite": 1.5,
+	"giant_fungus": 2.0, "crystal_cluster": 1.8, "dead_log": 1.5,
+	"buttress": 2.5,
+}
+
+var contact_shadow_decals: Array[Decal] = []
+
+func _spawn_contact_shadows(by_kind: Dictionary) -> void:
+	# Remove old
+	for d: Decal in contact_shadow_decals:
+		if is_instance_valid(d):
+			d.queue_free()
+	contact_shadow_decals.clear()
+
+	# Dark radial Decal at entity base — visually merges object with ground.
+	# Uses a dark tint (near-black) so it reads as ambient occlusion / contact shadow.
+	var shadow_tint := Color(0.02, 0.02, 0.03)
+	var shadow_tex: GradientTexture2D = _get_decal_texture(shadow_tint)
+
+	for kind: String in CONTACT_SHADOW_KINDS:
+		if not by_kind.has(kind):
+			continue
+		var base_radius: float = CONTACT_SHADOW_KINDS[kind]
+		for ent: Dictionary in by_kind[kind]:
+			# Skip stalactite variants — they don't touch the ground
+			if kind == "mega_column" or kind == "column":
+				var vhash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
+				if vhash < 0.40:
+					continue
+			var sv: float = ent.get("sv", 1.0)
+			var radius: float = base_radius * sv
+			var decal := Decal.new()
+			decal.size = Vector3(radius * 2.0, 3.0, radius * 2.0)
+			decal.texture_albedo = shadow_tex
+			decal.albedo_mix = 0.45   # strong darkening where object meets ground
+			decal.emission_energy = 0.0
+			decal.modulate = Color(1.0, 1.0, 1.0, 0.6)
+			decal.upper_fade = 0.1
+			decal.lower_fade = 0.9
+			decal.normal_fade = 0.5
+			decal.position = Vector3(ent.get("x", 0.0), 0.1, ent.get("y", 0.0))
+			add_child(decal)
+			contact_shadow_decals.append(decal)
 
 
 func _create_multimesh_for_kind(kind: String, ents: Array) -> void:
@@ -746,11 +813,11 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 					var base_y: float = max(active_ceiling_y, tip_min_y + mesh_height_world)
 					inversion_y_offset = base_y
 				else:
-					# Standard column — geological spire, taller than wide.
-					# Width restrained so they read as eroded rock, not tree trunks.
-					var sx_col: float = base_s * (0.55 + p_hash * 0.30)  # 0.55-0.85
-					var sz_col: float = base_s * (0.55 + p_hash2 * 0.30)
-					var sy_col: float = base_s * (1.10 + p_hash * 0.50)  # 1.10-1.60 (height dominant)
+					# Standard column — eroded geological spire, asymmetric.
+					# X/Z decoupled so columns read as weathered, not manufactured.
+					var sx_col: float = base_s * (0.40 + p_hash * 0.45)   # 0.40-0.85 (wider range)
+					var sz_col: float = base_s * (0.40 + p_hash2 * 0.50)  # 0.40-0.90 (asymmetric)
+					var sy_col: float = base_s * (1.00 + p_hash * 0.70)   # 1.00-1.70 (height varies more)
 					effective_y_height = sy_col
 					xform = xform.scaled(Vector3(sx_col, sy_col, sz_col))
 			elif kind == "buttress":
@@ -1082,7 +1149,13 @@ func _rebuild_entities() -> void:
 		new_by_kind[kind].append(ent)
 		var coll_r: float = ent.get("collision_radius", 0.0)
 		if coll_r > 0.0:
-			collision_objects.append({"x": ent.get("x", 0.0), "z": ent.get("y", 0.0), "r": coll_r})
+			var skip_coll := false
+			if kind == "mega_column" or kind == "column":
+				var vhash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
+				if vhash < 0.40:
+					skip_coll = true
+			if not skip_coll:
+				collision_objects.append({"x": ent.get("x", 0.0), "z": ent.get("y", 0.0), "r": coll_r})
 
 	# Remove kinds no longer present
 	var old_kinds := kind_nodes.keys()
@@ -1106,6 +1179,9 @@ func _rebuild_entities() -> void:
 				kind_nodes[kind].queue_free()
 			_create_multimesh_for_kind(kind, ents)
 
+	# Contact shadow Decals — grounding for all rebuilt entities
+	_spawn_contact_shadows(new_by_kind)
+
 	# Update mote particles
 	_update_motes()
 
@@ -1122,8 +1198,8 @@ func _update_atmosphere() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	# Navigability floor — player must always read silhouettes + pathways
-	godot_env.ambient_light_energy = 1.0
+	# Navigability floor — silhouettes readable, light pools carry the detail
+	godot_env.ambient_light_energy = 0.45
 
 	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
 	godot_env.background_color = Color(bg[0], bg[1], bg[2])
@@ -1131,50 +1207,15 @@ func _update_atmosphere() -> void:
 	# Chronometer modulation — subtle, never fight the cavern's ambient floor
 	var chrono: Dictionary = manifest.get("chronometer", {})
 	var night_w: float = chrono.get("night_weight", 0.0)
-	# Night: barely perceptible dim — 5% max, cavern ambient is already low
-	godot_env.ambient_light_energy = 1.0 - night_w * 0.05
+	# Night: barely perceptible dim from the ambient floor
+	godot_env.ambient_light_energy = 0.45 - night_w * 0.03
 
-	# Tension envelope — make the cavern BREATHE
-	var env: Dictionary = manifest.get("tension_envelope", {})
-	var lerp_t: float = env.get("lerp_t", 1.0)
-	var tstate: String = manifest.get("tension_state", "open")
-	# Tension intensity: 0.0=open, ~1.0=dump (maps state progression to 0-1)
-	# "open" maps to 0.0 — NO visual effect at baseline
-	var tension_map := {"open": 0.0, "building": 0.2, "tension": 0.5,
-		"tunnel": 0.75, "dump": 1.0, "rebirth": 0.15}
-	var t_intensity: float = tension_map.get(tstate, 0.0)
-	# Only apply lerp_t modulation when transitioning, otherwise full intensity
-	if env.get("transitioning", false):
-		t_intensity *= lerp_t
-	# Dissociation pressure adds to visual intensity directly
-	var pressure: float = env.get("pressure", 0.0)
-	t_intensity = clampf(t_intensity + pressure * 0.5, 0.0, 1.0)
-	# Bloom spikes with tension — crystals and emissives FLARE
-	godot_env.glow_intensity = 4.0 + t_intensity * 8.0
-	godot_env.glow_hdr_threshold = 0.12 - t_intensity * 0.08
-	godot_env.glow_bloom = 0.6 + t_intensity * 0.3
-	# Volumetric fog thickens — the cave closes in
-	godot_env.volumetric_fog_density = 0.04 + t_intensity * 0.06
-	# Saturation drains as tension rises — color lives only in emissives
-	godot_env.adjustment_saturation = 0.62 - t_intensity * 0.30
-	# Contrast sharpens — silhouettes become harder
-	godot_env.adjustment_contrast = 1.1 + t_intensity * 0.3
-
-	# Vertigo — FOV narrows as dissociation deepens, slow involuntary drift
-	var dissoc: bool = env.get("dissociating", false)
-	var dwell: float = env.get("dwell_time", 0.0)
-	if dissoc:
-		var vertigo_t: float = clampf((dwell - 7.0) / 20.0, 0.0, 1.0)
-		# FOV narrows from 52 → 38 (tunnel vision)
-		camera.fov = lerpf(52.0, 38.0, vertigo_t)
-		# Subtle involuntary camera sway — sine on two axes, slow
-		var sway_x: float = sin(dwell * 0.4) * vertigo_t * 0.3
-		var sway_y: float = sin(dwell * 0.27) * vertigo_t * 0.2
-		camera.rotation_degrees.x += sway_x
-		camera.rotation_degrees.z = sway_y  # roll = disorientation
-	else:
-		camera.fov = lerpf(camera.fov, 52.0, 0.05)  # ease back to normal
-		camera.rotation_degrees.z = lerpf(camera.rotation_degrees.z, 0.0, 0.1)
+	# Tension visual effects — PARKED. System proven as PoC, but modulating
+	# bloom/fog/saturation/FOV fights the baseline rendering we're stabilizing.
+	# Re-enable when game engine state changes are wired in. Until then, fixed baseline.
+	# (Tension state still tracked in manifest for telemetry/tags — just no visual effect.)
+	camera.fov = lerpf(camera.fov, 52.0, 0.05)
+	camera.rotation_degrees.z = lerpf(camera.rotation_degrees.z, 0.0, 0.1)
 
 	# Update camera far clip
 	camera.far = fog_far * 1.5
@@ -1895,7 +1936,7 @@ func _input(event: InputEvent) -> void:
 	# Key bindings — use physical_keycode for layout-independent matching
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
-			KEY_T, KEY_0:  # telemetry tag (screenshot + position)
+			KEY_T, KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_BACKSLASH:  # telemetry tag
 				_save_tag()
 			KEY_L:  # cycle light state
 				if connected:

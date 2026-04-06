@@ -31,8 +31,13 @@ vec3 sample_normal(vec2 uv) {
 }
 
 void fragment() {
-	vec2 ps = SCREEN_PIXEL_SIZE * outline_thickness;
 	vec2 uv = SCREEN_UV;
+	// Depth-scaled thickness — thin crisp lines near, thick bold silhouettes far.
+	// Near objects = detail. Far objects = graphic marks against void.
+	float center_d = sample_depth(uv);
+	// Depth buffer is nonlinear: 0=far, 1=near. Invert and remap.
+	float depth_factor = 1.0 + (1.0 - center_d) * 1.5;  // 1.0 near → 2.5 far
+	vec2 ps = SCREEN_PIXEL_SIZE * outline_thickness * depth_factor;
 
 	// 3x3 samples: luminance, depth, normal
 	vec2 offsets[8] = {
@@ -99,5 +104,9 @@ void fragment() {
 		edge *= mix(0.6, 1.0, fract(sin(dot(floor(uv / SCREEN_PIXEL_SIZE * 0.5), vec2(12.9898, 78.233))) * 43758.5));
 	}
 
-	COLOR = vec4(mix(screen, line_color, edge * line_opacity), 1.0);
+	// Adaptive line color — light lines on dark surfaces, dark lines on bright.
+	// In a dark cave, outlines glow faintly. On lit surfaces, they darken.
+	float local_lum = lum(screen);
+	vec3 adaptive_color = mix(line_color, line_color * 0.15, smoothstep(0.15, 0.5, local_lum));
+	COLOR = vec4(mix(screen, adaptive_color, edge * line_opacity), 1.0);
 }

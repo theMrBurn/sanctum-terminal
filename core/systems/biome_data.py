@@ -662,11 +662,11 @@ OUTDOOR_LIGHT_STATES = {
 
 CAVERN_LIGHT_STATES = {
     "cave": {
-        "ambient": (0.58, 0.54, 0.48),
-        "fog_color": (0.06, 0.055, 0.06),
+        "ambient": (0.55, 0.52, 0.48),
+        "fog_color": (0.06, 0.06, 0.10),       # cool blue-grey fog — depth reads as cold
         "fog_near": 12.0,
         "fog_far": 48.0,
-        "bg_color": (0.06, 0.06, 0.07),
+        "bg_color": (0.04, 0.04, 0.07),         # deep cool void behind everything
         "far_clip": 52.0,
         "sun_color": (0.0, 0.0, 0.0),
         "sun_scale": 0.0,
@@ -712,7 +712,8 @@ CAVERN_LIGHT_STATES = {
 
 BIOME_PLANES = {
     "cavern": [
-        # Layer 1: Near-floor — immediate ground, full detail
+        # Layer 1: Near-floor — warm hearth, the canvas everything reads against.
+        # Clean surface — light pools are the detail, not the texture.
         {
             "tag": "ground_near",
             "kind": "ground",
@@ -722,16 +723,17 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_rough",
-                "color_base": [0.18, 0.15, 0.12],
-                "grain_scale": 0.06,
-                "grain_strength": 0.55,
-                "normal_strength": 0.7,
+                "color_base": [0.18, 0.14, 0.10],  # warm — amber hearth underfoot
+                "grain_scale": 0.04,
+                "grain_strength": 0.25,
+                "normal_strength": 0.4,
                 "roughness": 0.35,  # wet cave floor — catches emissive reflections
             },
             "size": 2000.0,
             "follow_camera": True,
         },
-        # Layer 2: Near-ceiling — inverted floor, stalactites anchor here
+        # Layer 2: Near-ceiling — cool overhead, altitude and openness memory.
+        # Blue-shifted from neutral: reads as sky-absence, cold stone above.
         {
             "tag": "ceiling_near",
             "kind": "ceiling",
@@ -741,7 +743,7 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.10, 0.09, 0.08],
+                "color_base": [0.07, 0.07, 0.11],  # cool shift — blue stone overhead
                 "grain_scale": 0.06,
                 "grain_strength": 0.50,
                 "normal_strength": 0.6,
@@ -755,6 +757,8 @@ BIOME_PLANES = {
         # Near-black albedo — walls read by OCCLUDING bloom haze, not by
         # being directly lit. Same principle as the ceiling plane.
         # Offset 25m matches node_spacing so walls appear at column cluster edges.
+        # Walls: cold void. Barely visible — they read by OCCLUDING bloom,
+        # not by being lit. Deep blue-black = receding, the boundary dissolves.
         {
             "tag": "wall_left",
             "kind": "wall",
@@ -764,7 +768,7 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.05, 0.045, 0.04],
+                "color_base": [0.03, 0.03, 0.055],  # cold void blue
                 "grain_scale": 0.08,
                 "grain_strength": 0.25,
                 "normal_strength": 0.8,
@@ -781,7 +785,7 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.05, 0.045, 0.04],
+                "color_base": [0.03, 0.03, 0.055],  # cold void blue
                 "grain_scale": 0.08,
                 "grain_strength": 0.25,
                 "normal_strength": 0.8,
