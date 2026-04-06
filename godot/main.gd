@@ -249,6 +249,8 @@ func _create_kind_material(kind: String) -> Material:
 
 	# Rim light — fresnel edge glow for dark-on-dark silhouette separation.
 	mat.set_shader_parameter("rim_strength", params.get("rim_strength", 0.0))
+	# Wet base — height-based darkening + roughness at ground contact.
+	mat.set_shader_parameter("wet_base_strength", params.get("wet_base_strength", 0.0))
 
 	# Phase 2 — layer fade target color (atmospheric perspective mix target)
 	var fog_data: Dictionary = manifest.get("fog", {})
@@ -361,16 +363,14 @@ func _setup_environment() -> void:
 	godot_env.volumetric_fog_length = 35.0
 	godot_env.volumetric_fog_gi_inject = 1.0  # pick up OmniLight color in fog
 
-	# SSAO — contact shadows where objects meet ground
+	# SSAO — contact shadows. Reduced — Decal contact shadows carry the grounding now.
 	godot_env.ssao_enabled = true
-	godot_env.ssao_radius = 3.0
-	godot_env.ssao_intensity = 2.0
+	godot_env.ssao_radius = 2.0
+	godot_env.ssao_intensity = 1.2
 
-	# SSIL — indirect light bounce from emissives onto nearby surfaces
-	godot_env.ssil_enabled = true
-	godot_env.ssil_radius = 8.0   # wider bounce reach — fills dark mid-ground
-	godot_env.ssil_intensity = 1.5  # stronger indirect to complement Decal pools
-	godot_env.ssil_normal_rejection = 0.5  # allow bounce around corners
+	# SSIL — disabled. Decal pools + rim light handle indirect fill cheaper.
+	# Re-enable when perf budget allows; the visual was subtle vs the cost.
+	godot_env.ssil_enabled = false
 
 	env_node = WorldEnvironment.new()
 	env_node.environment = godot_env
@@ -1843,7 +1843,7 @@ func _update_motes() -> void:
 		spot.spot_range = 20.0
 		spot.spot_angle = 15.0 + shaft_seed * 10.0  # narrow cone
 		spot.spot_attenuation = 0.8
-		spot.shadow_enabled = true  # shadows from shaft = silhouettes
+		spot.shadow_enabled = false  # perf: 6 shadow-casting spotlights was expensive
 		add_child(spot)
 		emissive_lights.append(spot)
 		shaft_count += 1

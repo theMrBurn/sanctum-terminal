@@ -52,6 +52,11 @@ uniform float twist_amount : hint_range(0.0, 1.0) = 0.0;
 // 0 = disabled, 0.1-0.2 = subtle separation
 uniform float rim_strength : hint_range(0.0, 0.5) = 0.0;
 
+// Wet base — height-based darkening + roughness reduction at ground contact.
+// Objects look damp/seated where they meet the floor. The "Direct" composite.
+// 0 = disabled, 0.3-0.5 = visible wet zone at bottom 30% of object
+uniform float wet_base_strength : hint_range(0.0, 1.0) = 0.0;
+
 // Phase 2 — Merkabah plane-attachment layer fade.
 // fog_layer_color is the color entities fade toward as they migrate from
 // near → mid → far → void layers. Usually matches scene fog color.
@@ -156,6 +161,18 @@ void fragment() {
 		col = banded;
 	}
 
+	// 3.7 Wet base — bottom of object darkens and gets glossy.
+	// Uses object-space Y (via world_pos relative to instance base).
+	// The darkening + roughness shift makes objects look damp where they
+	// meet the ground — the "Direct" composite from the boulder sketch.
+	float wet_factor = 0.0;
+	if (wet_base_strength > 0.001) {
+		// world_pos.y relative to ground (0) — bottom 2m of object gets wet
+		float wet_height = clamp(1.0 - world_pos.y / 2.0, 0.0, 1.0);
+		wet_factor = wet_height * wet_base_strength;
+		col *= 1.0 - wet_factor * 0.4;  // darken by up to 40% at base
+	}
+
 	// 4. World grain — subtle multiply for surface texture
 	float grain = triplanar(grain_tex, world_pos, world_norm, grain_scale).r;
 	col *= mix(1.0, grain * 1.5 + 0.25, grain_strength);
@@ -196,7 +213,8 @@ void fragment() {
 	col *= visibility;
 
 	ALBEDO = col;
-	ROUGHNESS = roughness_base;
+	// Wet base reduces roughness — glossy damp surface catches light at ground contact
+	ROUGHNESS = roughness_base - wet_factor * 0.35;
 	METALLIC = light_response * 0.05;
 
 	// Emissive glow (crystals, moss, fungus)
