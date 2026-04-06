@@ -358,6 +358,36 @@ class BrainWorld:
         classify_all_entities(visible, observer_x=cam_x, observer_y=cam_y,
                               nodes=CAVERN_EXCHANGE_NODES)
 
+        # Beacon hierarchy — tag emissive entities with render_tier based on
+        # distance to camera and angle to forward vector. Godot uses this to
+        # allocate expensive rendering (lights, decals, motes) only to beacons.
+        # tier 0 = beacon (full treatment), 1 = mid (decal only), 2 = far (glow only)
+        heading_rad = math.radians(heading)
+        fwd_x = math.sin(heading_rad)
+        fwd_y = -math.cos(heading_rad)
+        emissive_scored = []
+        for ent in visible:
+            if ent.get("emissive", 0) <= 0:
+                continue
+            dx = ent["x"] - cam_x
+            dy = ent["y"] - cam_y
+            dist = (dx*dx + dy*dy) ** 0.5
+            if dist < 0.1:
+                dist = 0.1
+            # Dot product with forward vector — prefer emissives in view
+            dot_fwd = (dx * fwd_x + dy * fwd_y) / dist
+            # Score: closer + more forward = lower score = higher priority
+            score = dist * (1.0 - dot_fwd * 0.3)
+            emissive_scored.append((score, dist, ent))
+        emissive_scored.sort(key=lambda x: x[0])
+        for idx, (score, dist, ent) in enumerate(emissive_scored):
+            if idx < 4:
+                ent["render_tier"] = 0   # beacon — full lights + decal + motes
+            elif dist < 25.0:
+                ent["render_tier"] = 1   # mid — decal only
+            else:
+                ent["render_tier"] = 2   # far — entity emission only
+
         # Bake light influence: tint non-emissive entities from nearby emissives
         for i in range(len(visible)):
             ent = visible[i]

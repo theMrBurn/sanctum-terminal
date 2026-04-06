@@ -1665,36 +1665,40 @@ func _update_motes() -> void:
 			p.queue_free()
 	mote_particles.clear()
 
-	# Cap lights to avoid GPU overload — nearest emissives only
+	# Beacon hierarchy — brain tags emissives with render_tier:
+	#   0 = beacon (full: 2 OmniLights + Decal + motes + shaft)
+	#   1 = mid (Decal only, entity emission)
+	#   2 = far (entity emission only, no external nodes)
+	# Fallback: if no render_tier, use old distance sort for static manifests.
 	var emissive_ents: Array[Dictionary] = []
 	for ent: Dictionary in manifest.get("entities", []):
 		if LIGHT_KINDS.has(ent.get("kind", "")):
 			emissive_ents.append(ent)
 
-	# Sort by distance to camera, take nearest 24
-	var cam_x: float = camera.position.x
-	var cam_z: float = camera.position.z
-	emissive_ents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var da: float = (a["x"] - cam_x) ** 2 + (a["y"] - cam_z) ** 2
-		var db: float = (b["x"] - cam_x) ** 2 + (b["y"] - cam_z) ** 2
-		return da < db)
-	var max_lights: int = mini(emissive_ents.size(), 24)
+	# If brain provides render_tier, use it. Otherwise fallback to distance sort.
+	var has_tiers: bool = emissive_ents.size() > 0 and emissive_ents[0].has("render_tier")
+	if not has_tiers:
+		var cam_x: float = camera.position.x
+		var cam_z: float = camera.position.z
+		emissive_ents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			var da: float = (a["x"] - cam_x) ** 2 + (a["y"] - cam_z) ** 2
+			var db: float = (b["x"] - cam_x) ** 2 + (b["y"] - cam_z) ** 2
+			return da < db)
 
-	for i in range(max_lights):
+	for i in range(emissive_ents.size()):
 		var ent: Dictionary = emissive_ents[i]
+		var tier: int = ent.get("render_tier", 0 if i < 4 else (1 if i < 16 else 2))
+		if tier >= 2:
+			continue  # far tier — entity emission only, skip all external nodes
 		var kind: String = ent.get("kind", "")
 		var cfg: Dictionary = LIGHT_KINDS[kind]
 
-		var base_y: float = ent.get("z", 0.0)
-		# Primary light at mid-height — light falls DOWN onto objects,
-		# creating lit tops/dark bottoms. Objects between player and light
-		# become backlit silhouettes (Styx/Hackdirt reference technique).
-		var pos := Vector3(ent.get("x", 0.0), base_y + 7.0, ent.get("y", 0.0))
+		var is_beacon: bool = (tier == 0)  # tier 0 = full treatment, tier 1 = decal only
 
-		# OmniLight — color from LIGHT_LAYERS hue array per instance
-		var light := OmniLight3D.new()
+		var base_y: float = ent.get("z", 0.0)
+		var pos := Vector3(ent.get("x", 0.0), base_y + 7.0, ent.get("y", 0.0))
+		# Color computation — both beacon and mid tiers need this for Decals
 		var hue_idx: int = ent.get("light_hue", 0)
-		# Hue palettes per kind (from biome_data LIGHT_LAYERS)
 		var hue_palettes: Dictionary = {
 			"crystal_cluster": [Color(0.15, 0.18, 0.35), Color(0.18, 0.08, 0.30)],
 			"giant_fungus": [Color(0.12, 0.28, 0.08), Color(0.22, 0.06, 0.30)],
@@ -1706,35 +1710,36 @@ func _update_motes() -> void:
 		}
 		var palette: Array = hue_palettes.get(kind, [cfg["color"]])
 		var light_color: Color = palette[hue_idx % palette.size()]
-		# Apply spectrum drift from brain (SpectrumEngine hue shift)
 		var spec: Array = ent.get("spectrum_state", [])
 		if spec.size() == 3:
 			light_color = Color(
 				clampf(light_color.r + spec[0], 0.0, 1.0),
 				clampf(light_color.g + spec[1], 0.0, 1.0),
 				clampf(light_color.b + spec[2], 0.0, 1.0))
-		light.light_color = light_color
 		var hue_seed: float = abs(sin(ent.get("x", 0.0) * 12.9898 + ent.get("y", 0.0) * 78.233))
 		var e_var: float = 0.7 + hue_seed * 0.6
-		light.light_energy = cfg["energy"] * e_var
-		light.omni_range = cfg["range"]
-		light.omni_attenuation = cfg["attenuation"]
-		light.shadow_enabled = false
-		light.position = pos
-		add_child(light)
-		emissive_lights.append(light)
 
-		# Ground fill light — low, dim, keeps Decal pools readable while
-		# the main light at y=7 does atmospheric/backlight work above
-		var fill := OmniLight3D.new()
-		fill.light_color = light_color
-		fill.light_energy = cfg["energy"] * e_var * 0.20  # 20% of main
-		fill.omni_range = cfg["range"] * 0.6  # tighter pool
-		fill.omni_attenuation = cfg["attenuation"] * 1.2
-		fill.shadow_enabled = false
-		fill.position = Vector3(pos.x, base_y + 0.5, pos.z)
-		add_child(fill)
-		emissive_lights.append(fill)
+		# OmniLights — BEACON ONLY (tier 0). Mid-tier gets Decals below.
+		if is_beacon:
+			var light := OmniLight3D.new()
+			light.light_color = light_color
+			light.light_energy = cfg["energy"] * e_var
+			light.omni_range = cfg["range"]
+			light.omni_attenuation = cfg["attenuation"]
+			light.shadow_enabled = false
+			light.position = pos
+			add_child(light)
+			emissive_lights.append(light)
+
+			var fill := OmniLight3D.new()
+			fill.light_color = light_color
+			fill.light_energy = cfg["energy"] * e_var * 0.20
+			fill.omni_range = cfg["range"] * 0.6
+			fill.omni_attenuation = cfg["attenuation"] * 1.2
+			fill.shadow_enabled = false
+			fill.position = Vector3(pos.x, base_y + 0.5, pos.z)
+			add_child(fill)
+			emissive_lights.append(fill)
 
 		# Ground Decal — projects colored pool onto floor (NWN2 approach)
 		var kind_entry: Dictionary = kind_config.get("kinds", {}).get(kind, {})
@@ -1789,9 +1794,11 @@ func _update_motes() -> void:
 				add_child(caustic_decal)
 				emissive_decals.append(caustic_decal)
 
-		# Meta-pixel mote structure — sub-mote atoms composed into a larger
-		# visible shape per the kind's arrangement template. The prime-mote
-		# (heptagonal atom) is the unit cell; the arrangement is the cluster.
+		# Meta-pixel mote structure — BEACON ONLY. Mote atoms + particles are
+		# the most expensive per-emissive nodes. Mid-tier entities rely on
+		# their Decal pool + entity emission to suggest the light source.
+		if not is_beacon:
+			continue  # tier 1 stops here — Decal(s) placed above, no motes/particles
 		# See design_heptagonal_mote.md + design_meta_pixel_mote.md + the
 		# arrangement library in mote_arrangements.gd + its regression test.
 		# Runs alongside the ambient particle emitter below — this layer is
