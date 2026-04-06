@@ -62,6 +62,11 @@ uniform float wet_base_strength : hint_range(0.0, 1.0) = 0.0;
 // near → mid → far → void layers. Usually matches scene fog color.
 uniform vec3 fog_layer_color : source_color = vec3(0.08, 0.08, 0.13);
 
+// Dithered dissolution — fragments discard at depth boundaries.
+// The darkness eats the geometry. Blue-noise-style pattern from hash3d.
+// 0 = disabled (emissive kinds stay solid), 1.0 = full dissolution at fog distance
+uniform float dissolve_strength : hint_range(0.0, 1.0) = 0.0;
+
 // 3D noise for vertex displacement — hash-based, no texture needed
 float hash3d(vec3 p) {
 	p = fract(p * vec3(443.897, 441.423, 437.195));
@@ -211,6 +216,18 @@ void fragment() {
 	// Visibility falls off with depth but never to zero (asymptotic)
 	float visibility = near_w + mid_w * 0.85 + far_w * 0.55 + void_w * 0.15;
 	col *= visibility;
+
+	// Dithered dissolution — fragments discard based on depth layer + noise.
+	// Near objects: fully solid. Mid: occasional holes. Far: mostly dissolved.
+	// The pattern uses world position so it's stable (doesn't shimmer on camera move).
+	if (dissolve_strength > 0.001) {
+		float dissolve_t = mid_w * 0.15 + far_w * 0.55 + void_w * 0.90;
+		dissolve_t *= dissolve_strength;
+		float dither = hash3d(world_pos * 3.0);  // stable world-space noise
+		if (dither < dissolve_t) {
+			discard;
+		}
+	}
 
 	ALBEDO = col;
 	// Wet base reduces roughness — glossy damp surface catches light at ground contact

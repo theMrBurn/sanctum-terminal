@@ -251,6 +251,8 @@ func _create_kind_material(kind: String) -> Material:
 	mat.set_shader_parameter("rim_strength", params.get("rim_strength", 0.0))
 	# Wet base — height-based darkening + roughness at ground contact.
 	mat.set_shader_parameter("wet_base_strength", params.get("wet_base_strength", 0.0))
+	# Dithered dissolution — fragments discard at depth. The void eats geometry.
+	mat.set_shader_parameter("dissolve_strength", params.get("dissolve_strength", 0.0))
 
 	# Phase 2 — layer fade target color (atmospheric perspective mix target)
 	var fog_data: Dictionary = manifest.get("fog", {})
