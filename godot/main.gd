@@ -1126,9 +1126,16 @@ func _process_responses() -> void:
 		if data.get("unchanged", false):
 			continue
 
-		# Full manifest update — rebuild scene
+		# Full manifest update — only rebuild geometry when scene content changes.
+		# Atmosphere + HUD always update (cheap). Entity/mote rebuild is expensive
+		# and gated by dirty detection: entity count or tension state change.
+		var old_ent_count: int = manifest.get("entities", []).size()
+		var old_tension: String = manifest.get("tension_state", "open")
 		manifest = data
-		_rebuild_entities()
+		var new_ent_count: int = data.get("entities", []).size()
+		var new_tension: String = data.get("tension_state", "open")
+		if new_ent_count != old_ent_count or new_tension != old_tension:
+			_rebuild_entities()
 		_update_atmosphere()
 		_update_hud()
 
