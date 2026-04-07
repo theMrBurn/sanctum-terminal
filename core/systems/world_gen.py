@@ -480,6 +480,21 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
 
     node_index = 0
 
+    # Radial density gradient — composition complexity scales with distance
+    # from tile center (spawn point). Center = clearing, edges = dense.
+    # On non-spawn tiles this is uniform (1.0 everywhere).
+    tile_cx = tile * 0.5
+    tile_cy = tile * 0.5
+    tile_max_dist = tile * 0.5  # corner distance for normalization
+
+    def _radial_factor(x, y):
+        """0.0 at center → 1.0 at tile edge. Non-spawn tiles return 1.0."""
+        if not is_spawn_tile:
+            return 1.0
+        dx, dy = x - tile_cx, y - tile_cy
+        d = (dx * dx + dy * dy) ** 0.5
+        return min(d / (tile_max_dist * 0.7), 1.0)  # reaches 1.0 at 70% of edge
+
     ny = node_spacing * 0.5
     row = 0
     while ny < tile:
@@ -491,11 +506,13 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
 
             node_index += 1
 
-            # Stamp roll — ~25% of nodes get an authored composition
-            # instead of a single random anchor. Spatial awareness:
-            # - minimum distance between any two stamps (avoid clustering)
-            # - same-name dedup within larger radius (avoid repetition)
-            if stamp_roster and rng.random() < 0.25:
+            # Radial density — scales composition complexity from center outward
+            rf = _radial_factor(jx, jy)
+
+            # Stamp roll — frequency scales with radial factor.
+            # Center of spawn: 5% chance. Edges: 25%. Non-spawn tiles: 25%.
+            stamp_chance = 0.05 + rf * 0.20
+            if stamp_roster and rng.random() < stamp_chance:
                 # Affinity-weighted selection: preferred stamps get 3x weight
                 if stamp_affinity:
                     weights = [3.0 if s["name"] in stamp_affinity else 1.0
@@ -523,10 +540,14 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                         continue  # stamp placed — skip single-anchor roll
 
             roll = rng.random()
-            if roll < 0.15:
+            # Radial bias: near spawn center, suppress mega_columns (→ simpler scene).
+            # mega_column threshold: 15% at full distance, 3% near center.
+            mega_threshold = 0.03 + rf * 0.12
+            if roll < mega_threshold:
                 anchor = "mega_column"
-                # Every 3rd mega_column becomes a formation — not a plain column
-                if mega_column_count % 3 == 0:
+                # Formation probability also scales with distance — no formations near spawn center
+                formation_chance = 3 if rf > 0.4 else 999  # every 3rd at distance, never near center
+                if mega_column_count % formation_chance == 0:
                     formation = formation_roster.next()
                     col_cfg = formation["column"]
                     # Column may be offset from the node center (e.g. cliff_back)
@@ -626,15 +647,14 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
             # Fungus cluster: main stalk + 3-5 satellites (matches user's sketch)
             if anchor == "giant_fungus":
                 _emit_fungus_satellites(jx, jy, spawns, solid_positions, rng)
-            # Ceiling mold — bulging clusters ABOVE columns and stalagmites.
-            # Mirrors ground architecture on the ceiling. ~60% chance so it's
-            # not uniform but trends near vertical geometry.
-            if biome_name == "cavern" and anchor in ("mega_column", "column", "stalagmite") and rng.random() < 0.60:
+            # Ceiling mold — scales with radial factor (no mold near spawn center)
+            ceiling_chance = 0.60 * rf
+            if biome_name == "cavern" and anchor in ("mega_column", "column", "stalagmite") and rng.random() < ceiling_chance:
                 _emit_ceiling_cluster(jx, jy, spawns, rng)
-            # Anchor stamp — programmatic composition around the structural spine.
-            # Config-driven slots fill from pools. The anchor IS the stamp center.
-            _emit_anchor_stamp(anchor, jx, jy, anchor_stamp_cfg,
-                               spawns, solid_positions, rng)
+            # Anchor stamp — frequency also scales with distance from center
+            if rf > 0.2:  # no anchor stamps in the innermost 20% of spawn tile
+                _emit_anchor_stamp(anchor, jx, jy, anchor_stamp_cfg,
+                                   spawns, solid_positions, rng)
             nx += node_spacing
         ny += node_spacing * 0.87
         row += 1
