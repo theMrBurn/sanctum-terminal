@@ -50,7 +50,7 @@ KIND_PROPS = {
     "buttress":        {"scale": [2.5, 2.5, 6.0],  "color": [0.26, 0.21, 0.16], "emissive": 0.0},
     "boulder":         {"scale": [4.0, 3.5, 2.5],  "color": [0.25, 0.42, 0.16], "emissive": 0.0},
     "stalagmite":      {"scale": [0.8, 0.8, 3.0],  "color": [0.28, 0.24, 0.18], "emissive": 0.0},
-    "crystal_cluster": {"scale": [1.5, 1.2, 2.0],  "color": [0.50, 0.55, 0.80], "emissive": 1.0},
+    "crystal_cluster": {"scale": [2.8, 2.2, 3.5],  "color": [0.50, 0.55, 0.80], "emissive": 1.0},
     "giant_fungus":    {"scale": [2.0, 2.0, 3.5],  "color": [0.30, 0.50, 0.25], "emissive": 0.8},
     "dead_log":        {"scale": [3.0, 0.8, 0.6],  "color": [0.19, 0.27, 0.12], "emissive": 0.0},
     "moss_patch":      {"scale": [1.5, 1.5, 0.15], "color": [0.22, 0.45, 0.15], "emissive": 0.9},
@@ -213,7 +213,7 @@ class BrainWorld:
 
             # Per-seed variation
             srng = random.Random(kseed)
-            sv = srng.uniform(0.75, 1.25)
+            sv = srng.uniform(0.75, 1.25) * 1.30  # global scale boost — exaggerated but believable
             sx, sy_s, sz = props["scale"]
             r, g, b = props["color"]
 

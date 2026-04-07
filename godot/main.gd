@@ -417,9 +417,9 @@ func _setup_camera() -> void:
 	var head_light := OmniLight3D.new()
 	head_light.name = "HeadLight"
 	head_light.light_color = Color(1.0, 0.92, 0.80)  # warm-neutral, not pure white
-	head_light.light_energy = 0.8
-	head_light.omni_range = 10.0
-	head_light.omni_attenuation = 1.4  # faster falloff — reveals nearby, doesn't flood
+	head_light.light_energy = 1.2
+	head_light.omni_range = 20.0
+	head_light.omni_attenuation = 1.8  # steep falloff — bright nearby, fades to touch at 18m
 	head_light.shadow_enabled = false
 	head_light.position = Vector3.ZERO  # at camera origin, moves with it
 	camera.add_child(head_light)
@@ -994,11 +994,9 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 		var g: float = ent.get("g", 0.5)
 		var b: float = ent.get("b", 0.5)
 		if emissive > 0.0:
-			# Emissive objects: bright enough that inner_glow * color pushes
-			# past the bloom HDR threshold (0.25). The OBJECT is the light
-			# source — it needs to visibly glow, not just cast a floor Decal.
-			var boost: float = 1.0 + emissive * 2.2  # cranked — object must visibly glow like Panda3D reference
-			mm.set_instance_color(i, Color(r * boost, g * boost, b * boost))
+			# Emissive kinds get their natural color — light pipes illuminate them.
+			# No self-boost. The object is a SURFACE, the pipe is the LIGHT.
+			mm.set_instance_color(i, Color(r, g, b))
 		else:
 			var avg: float = (r + g + b) / 3.0
 			if avg > 0.01:
@@ -1328,9 +1326,11 @@ func _rebuild_silhouettes(sil_ents: Array) -> void:
 			var brightness: float = 0.12 if render_mode == "silhouette" else 0.06
 			mm.set_instance_color(i, Color(brightness, brightness * 0.9, brightness * 0.85))
 
-		# Flat unshaded material — cheapest possible rendering
+		# Flat unshaded material — cheapest possible rendering.
+		# vertex_color_use_as_albedo makes instance COLOR the actual surface brightness.
 		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.04, 0.04, 0.06)
+		mat.albedo_color = Color(1.0, 1.0, 1.0)
+		mat.vertex_color_use_as_albedo = true
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.cull_mode = BaseMaterial3D.CULL_BACK
 		mat.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1356,8 +1356,8 @@ func _update_atmosphere() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	# Navigability floor — silhouettes readable, light pools carry the detail
-	godot_env.ambient_light_energy = 0.30
+	# Darkness IS the default — light pipes and headlamp are the events
+	godot_env.ambient_light_energy = 0.12
 
 	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
 	godot_env.background_color = Color(bg[0], bg[1], bg[2])
@@ -1366,7 +1366,7 @@ func _update_atmosphere() -> void:
 	var chrono: Dictionary = manifest.get("chronometer", {})
 	var night_w: float = chrono.get("night_weight", 0.0)
 	# Night: barely perceptible dim from the ambient floor
-	godot_env.ambient_light_energy = 0.30 - night_w * 0.02
+	godot_env.ambient_light_energy = 0.12 - night_w * 0.01
 
 	# Tension visual effects — PARKED. System proven as PoC, but modulating
 	# bloom/fog/saturation/FOV fights the baseline rendering we're stabilizing.
@@ -1717,13 +1717,13 @@ const BIOME_LIGHT_PIPES := {
 	"cavern": [
 		{"name": "warm", "color": Color(0.50, 0.35, 0.12),
 		 "kinds": ["giant_fungus", "ceiling_moss", "firefly"],
-		 "energy": 22.0, "range": 28.0, "attenuation": 0.4},
+		 "energy": 6.0, "range": 30.0, "attenuation": 0.7},
 		{"name": "cool", "color": Color(0.30, 0.35, 0.60),
 		 "kinds": ["crystal_cluster", "filament", "exit_lure"],
-		 "energy": 26.0, "range": 28.0, "attenuation": 0.4},
+		 "energy": 7.0, "range": 30.0, "attenuation": 0.7},
 		{"name": "organic", "color": Color(0.15, 0.35, 0.10),
 		 "kinds": ["moss_patch"],
-		 "energy": 18.0, "range": 24.0, "attenuation": 0.4},
+		 "energy": 5.0, "range": 25.0, "attenuation": 0.7},
 	],
 	"outdoor": [
 		{"name": "warm", "color": Color(0.55, 0.45, 0.18),
@@ -1926,34 +1926,43 @@ func _update_motes() -> void:
 	# Find the best target position for each pipe: nearest matching emissive
 	# cluster center. Pipes smoothly lerp to targets. Always 3 lights total.
 	for pipe: Dictionary in light_pipes:
-		var best_dist: float = 9999.0
-		var best_pos := Vector3.ZERO
-		var found: bool = false
 		var pipe_kinds: Array = pipe["cfg"]["kinds"]
-		for ent: Dictionary in emissive_ents:
-			if not pipe_kinds.has(ent.get("kind", "")):
-				continue
-			var ex: float = ent.get("x", 0.0)
-			var ey: float = ent.get("y", 0.0)
-			var ez: float = ent.get("z", 0.0)
-			var is_ceil: bool = ent.get("attachment_plane", "") == "ceiling"
-			var ly: float = ez - 3.0 if is_ceil else ez + 5.0
-			var candidate := Vector3(ex, ly, ey)
-			var dx: float = candidate.x - camera.position.x
-			var dz: float = candidate.z - camera.position.z
-			var d: float = dx * dx + dz * dz
-			if d < best_dist:
-				best_dist = d
-				best_pos = candidate
-				found = true
-		if found:
-			pipe["target_pos"] = best_pos
-			pipe["active"] = true
-		# Smooth lerp toward target — pipe drifts, never jumps
+		# Lock rule: stay committed until you've walked far enough away.
+		# Distance only — no view check. Backtracking keeps the same light.
+		var current_valid: bool = false
+		if pipe["active"]:
+			current_valid = pipe["target_pos"].distance_squared_to(camera.position) < 40.0 * 40.0
+		if not current_valid:
+			# Find nearest matching emissive
+			var best_dist: float = 9999.0
+			var best_pos := Vector3.ZERO
+			var found: bool = false
+			for ent: Dictionary in emissive_ents:
+				if not pipe_kinds.has(ent.get("kind", "")):
+					continue
+				var ex: float = ent.get("x", 0.0)
+				var ey: float = ent.get("y", 0.0)
+				var ez: float = ent.get("z", 0.0)
+				var is_ceil: bool = ent.get("attachment_plane", "") == "ceiling"
+				var ly: float = ez - 3.0 if is_ceil else ez + 5.0
+				var candidate := Vector3(ex, ly, ey)
+				var d: float = candidate.distance_squared_to(camera.position)
+				if d < best_dist:
+					best_dist = d
+					best_pos = candidate
+					found = true
+			if found:
+				var was_active: bool = pipe["active"]
+				pipe["target_pos"] = best_pos
+				pipe["active"] = true
+				if not was_active:
+					pipe["node"].position = best_pos
+					pipe["fill_node"].position = best_pos + Vector3(0, -4.0, 0)
+		# Slow lerp — pipe drifts like a living thing, never jumps
 		var node: OmniLight3D = pipe["node"]
 		var fill: OmniLight3D = pipe["fill_node"]
-		node.position = node.position.lerp(pipe["target_pos"], 0.06)
-		fill.position = fill.position.lerp(pipe["target_pos"] + Vector3(0, -4.0, 0), 0.06)
+		node.position = node.position.lerp(pipe["target_pos"], 0.03)
+		fill.position = fill.position.lerp(pipe["target_pos"] + Vector3(0, -4.0, 0), 0.03)
 		# Dim if no matching emissive found (pipe has nothing to light)
 		var target_e: float = pipe["cfg"]["energy"] if pipe["active"] else 0.0
 		node.light_energy = lerpf(node.light_energy, target_e, 0.04)

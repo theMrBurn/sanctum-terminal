@@ -249,7 +249,10 @@ void fragment() {
 	float emit_base = 0.0;
 	if (inner_glow > 0.01) {
 		float pulse = 1.0 + sin(TIME * pulse_rate * 6.28) * 0.15;
-		emit_base = inner_glow * pulse * 3.0;
+		// Distance-scaled emission: near glows bright, far fades into fog.
+		// visibility already encodes layer membership (1.0 near → 0.15 void).
+		float emit_vis = max(visibility, 0.25);  // never fully dark — distant lamp in fog
+		emit_base = inner_glow * pulse * 1.5 * emit_vis;
 	}
 
 	// Rim light — fresnel edge glow for silhouette separation.

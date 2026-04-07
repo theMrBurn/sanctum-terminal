@@ -841,7 +841,7 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     # of tile center so the player spawns in a proper walkable bubble, not
     # right against the first ring of anchors. Soft kinds (rubble, gravel,
     # fireflies, moss) remain — they don't block navigation.
-    SPAWN_CLEARANCE_RADIUS = 18.0
+    SPAWN_CLEARANCE_RADIUS = 10.0
     cx_spawn = tile * 0.5
     cy_spawn = tile * 0.5
     # Filter hard anchors AND visually-enclosing landmarks (filaments, fungi, crystals)

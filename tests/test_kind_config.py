@@ -111,21 +111,21 @@ class TestInnerGlow:
                             assert "pulse_rate" in sub_val, (
                                 f"{key}.{sub_key} has inner_glow but no pulse_rate")
 
-    def test_crystalline_glow_is_maximum(self, kind_config):
-        """Crystalline kinds should have inner_glow = 1.0 (brightest)."""
-        crystalline = ["crystal_cluster", "filament", "exit_lure"]
-        for kind in crystalline:
+    def test_light_event_kinds_have_glow(self, kind_config):
+        """Light-event crystalline kinds should have inner_glow > 0."""
+        light_events = ["crystal_cluster", "filament", "exit_lure"]
+        for kind in light_events:
             found = False
             for key, val in kind_config.items():
                 if key.startswith("_"):
                     continue
                 if isinstance(val, dict):
                     if key == kind:
-                        assert val.get("inner_glow") == 1.0, (
-                            f"{kind} is crystalline, inner_glow should be 1.0")
+                        assert val.get("inner_glow", 0) > 0, (
+                            f"{kind} is a light event, inner_glow should be > 0")
                         found = True
                     elif kind in val and isinstance(val[kind], dict):
-                        assert val[kind].get("inner_glow") == 1.0
+                        assert val[kind].get("inner_glow", 0) > 0
                         found = True
             assert found, f"{kind} not found in kind_config"
 

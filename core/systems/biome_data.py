@@ -1237,8 +1237,8 @@ RENDER_SHELLS = [
     {"radius": 21, "mode": "geometry",   "kind_classes": ["structural", "emissive", "scatter", "ground_cover", "atmosphere"]},
     {"radius": 28, "mode": "geometry",   "kind_classes": ["structural", "emissive", "ground_cover", "atmosphere"]},
     {"radius": 35, "mode": "geometry",   "kind_classes": ["structural", "emissive", "atmosphere"]},
-    {"radius": 42, "mode": "silhouette", "kind_classes": ["structural", "emissive"]},
-    {"radius": 49, "mode": "hint",       "kind_classes": ["structural"]},
+    {"radius": 42, "mode": "geometry",   "kind_classes": ["structural", "emissive"]},
+    {"radius": 49, "mode": "geometry",   "kind_classes": ["structural"]},
 ]
 
 # Every entity kind maps to a render class. The class determines which shells
