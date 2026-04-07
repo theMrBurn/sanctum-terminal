@@ -1006,11 +1006,11 @@ OUTDOOR_LIGHT_STATES = {
 
 CAVERN_LIGHT_STATES = {
     "cave": {
-        "ambient": (0.35, 0.32, 0.28),
-        "fog_color": (0.12, 0.10, 0.14),       # lighter than bg — silhouettes read against it
-        "fog_near": 12.0,
-        "fog_far": 48.0,
-        "bg_color": (0.04, 0.04, 0.07),         # deep cool void behind everything
+        "ambient": (0.10, 0.08, 0.06),          # near-black — darkness defines, light reveals
+        "fog_color": (0.06, 0.05, 0.08),         # dark fog — silhouettes merge into mass
+        "fog_near": 8.0,                          # fog starts closer — tight visibility cone
+        "fog_far": 35.0,                          # shorter draw — darkness eats distance
+        "bg_color": (0.02, 0.02, 0.04),           # deep void
         "far_clip": 52.0,
         "sun_color": (0.0, 0.0, 0.0),
         "sun_scale": 0.0,
@@ -1067,11 +1067,11 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_rough",
-                "color_base": [0.18, 0.14, 0.10],  # warm — amber hearth underfoot
+                "color_base": [0.35, 0.35, 0.35],  # CLEAN ROOM — neutral grey
                 "grain_scale": 0.04,
-                "grain_strength": 0.25,
-                "normal_strength": 0.4,
-                "roughness": 0.35,  # wet cave floor — catches emissive reflections
+                "grain_strength": 0.0,
+                "normal_strength": 0.0,
+                "roughness": 0.85,  # CLEAN ROOM — matte, no reflections
             },
             "size": 2000.0,
             "follow_camera": True,
@@ -1087,11 +1087,11 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.07, 0.07, 0.11],  # cool shift — blue stone overhead
+                "color_base": [0.25, 0.25, 0.25],  # CLEAN ROOM — neutral grey
                 "grain_scale": 0.06,
-                "grain_strength": 0.50,
-                "normal_strength": 0.6,
-                "roughness": 0.85,  # dry ceiling — matte
+                "grain_strength": 0.0,
+                "normal_strength": 0.0,
+                "roughness": 0.85,
             },
             "size": 2000.0,
             "follow_camera": True,
@@ -1112,10 +1112,10 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.04, 0.04, 0.06],  # cold void blue
+                "color_base": [0.25, 0.25, 0.25],  # CLEAN ROOM
                 "grain_scale": 0.12,
-                "grain_strength": 0.40,
-                "normal_strength": 1.2,
+                "grain_strength": 0.0,
+                "normal_strength": 0.0,
             },
             "size": 2000.0,
             "follow_camera": True,
@@ -1129,10 +1129,10 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.04, 0.04, 0.06],  # cold void blue
+                "color_base": [0.25, 0.25, 0.25],  # CLEAN ROOM
                 "grain_scale": 0.12,
-                "grain_strength": 0.40,
-                "normal_strength": 1.2,
+                "grain_strength": 0.0,
+                "normal_strength": 0.0,
             },
             "size": 2000.0,
             "follow_camera": True,

@@ -1,7 +1,6 @@
 shader_type spatial;
-
-// Ground shader — uses the SAME world_grain texture as all objects.
-// One visual DNA. Ground is just another surface in the cave.
+render_mode unshaded;
+// CLEAN ROOM: unshaded ground — no PBR, flat color output.
 
 uniform vec3 color_base : source_color = vec3(0.06, 0.05, 0.04);
 uniform vec3 fog_color : source_color = vec3(0.1, 0.1, 0.1);

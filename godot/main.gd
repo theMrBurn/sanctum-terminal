@@ -325,64 +325,27 @@ func _setup_environment() -> void:
 	var fc: Array = fog.get("color", [0.1, 0.1, 0.1])
 	var fog_far: float = fog.get("far", 55.0)
 
-	# Distant fog band — only paints 20m+ where layer system ends and void begins.
-	# Near-field depth owned by shader layer fade (System 3).
-	godot_env.fog_enabled = true
-	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
-	godot_env.fog_density = 0.8 / max(fog_far, 1.0)  # gentle — just enough to grade the far field
+	# Clean room: fog OFF — see everything at all distances
+	godot_env.fog_enabled = false
 
-	# Cavern sky gradient — replaces flat bg_color.
-	# Dark ceiling, dark floor, faint luminous band at eye-level horizon.
-	# This is the backdrop plane that multiplane parallax objects sit against.
-	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
-	var sky_shader: Shader = load("res://cavern_sky.gdshader")
-	if sky_shader:
-		var sky_mat := ShaderMaterial.new()
-		sky_mat.shader = sky_shader
-		sky_mat.set_shader_parameter("horizon_color", Color(bg[0] * 2.0, bg[1] * 1.8, bg[2] * 2.2))
-		sky_mat.set_shader_parameter("void_color", Color(bg[0], bg[1], bg[2]))
-		sky_mat.set_shader_parameter("band_width", 0.25)
-		sky_mat.set_shader_parameter("band_sharpness", 3.0)
-		var sky := Sky.new()
-		sky.sky_material = sky_mat
-		godot_env.sky = sky
-		godot_env.background_mode = Environment.BG_SKY
-	else:
-		godot_env.background_mode = Environment.BG_COLOR
-		godot_env.background_color = Color(bg[0], bg[1], bg[2])
+	# Clean room: neutral grey background — no sky, no drama
+	godot_env.background_mode = Environment.BG_COLOR
+	godot_env.background_color = Color(0.25, 0.25, 0.25)
 
-	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
-	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	godot_env.ambient_light_energy = 0.40  # base visibility — every object shows texture, lights add character
+	# Clean room: neutral grey ambient, no color bias
+	godot_env.ambient_light_color = Color(1.0, 1.0, 1.0)
+	godot_env.ambient_light_energy = 1.0  # full flat ambient — no shadows, no drama
 	godot_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 
 	godot_env.tonemap_mode = 2
 	godot_env.tonemap_white = 5.0
 
-	# -- Post-process: Cavern register --
-	# Bloom — crystals and moss GLOW and bleed into surroundings
-	godot_env.glow_enabled = true
-	godot_env.glow_enabled = true
-	godot_env.glow_intensity = 2.0   # restrained — bloom accents, doesn't flood
-	godot_env.glow_bloom = 0.4       # tighter additive overlap
-	godot_env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	godot_env.glow_hdr_threshold = 0.25  # raised — only genuinely bright things bloom
-	godot_env.glow_hdr_scale = 4.0   # halved — bright lights glow, don't obliterate
-
-	# Adjustments — desaturate world, color lives only in light sources
-	godot_env.adjustment_enabled = true
-	godot_env.adjustment_brightness = 1.1
-	godot_env.adjustment_contrast = 1.1
-	godot_env.adjustment_saturation = 0.80  # let emissive color punch through
-
-	# Volumetric fog — ground haze, light shafts from emissives
-	godot_env.volumetric_fog_enabled = true
-	godot_env.volumetric_fog_density = 0.04  # thicker for cave
-	godot_env.volumetric_fog_albedo = Color(fc[0] * 0.5, fc[1] * 0.5, fc[2] * 0.5)
-	godot_env.volumetric_fog_emission = Color(0.03, 0.02, 0.02)
-	godot_env.volumetric_fog_emission_energy = 0.3
-	godot_env.volumetric_fog_length = 35.0
-	godot_env.volumetric_fog_gi_inject = 1.0  # pick up OmniLight color in fog
+	# -- CLEAN ROOM MODE --
+	# Everything off. Neutral ambient only. See shapes honestly.
+	# Re-enable systems one at a time to build lighting intentionally.
+	godot_env.glow_enabled = false
+	godot_env.adjustment_enabled = false
+	godot_env.volumetric_fog_enabled = false
 
 	# SSAO — killed. Contact shadow Decals handle ground darkening per-kind.
 	# SSAO was doubling up, making object bases darker than intended.
@@ -396,30 +359,8 @@ func _setup_environment() -> void:
 	env_node.environment = godot_env
 	add_child(env_node)
 
-	# Sun
-	var sun_data: Dictionary = manifest.get("sun", {})
-	var sun_scale: float = sun_data.get("scale", 0.0)
-	if sun_scale > 0.0:
-		var sun := DirectionalLight3D.new()
-		sun.name = "Sun"
-		var sc: Array = sun_data.get("color", [1, 0.9, 0.65])
-		sun.light_color = Color(sc[0], sc[1], sc[2])
-		sun.light_energy = sun_scale * 0.25
-		sun.rotation_degrees = Vector3(-45, -30, 0)
-		sun.shadow_enabled = true
-		add_child(sun)
-
-	# Moon
-	var moon_data: Dictionary = manifest.get("moon", {})
-	var moon_scale: float = moon_data.get("scale", 0.0)
-	if moon_scale > 0.0:
-		var moon := DirectionalLight3D.new()
-		moon.name = "Moon"
-		var mc: Array = moon_data.get("color", [0.6, 0.65, 0.8])
-		moon.light_color = Color(mc[0], mc[1], mc[2])
-		moon.light_energy = moon_scale * 0.15
-		moon.rotation_degrees = Vector3(-60, 45, 0)
-		add_child(moon)
+	# Clean room: sun/moon OFF — ambient only
+	pass
 
 
 func _setup_camera() -> void:
@@ -433,10 +374,10 @@ func _setup_camera() -> void:
 	# player's body, like bioluminescent armor plating. Soft dome of presence.
 	var armor_glow := OmniLight3D.new()
 	armor_glow.name = "ArmorGlow"
-	armor_glow.light_color = Color(0.95, 0.80, 0.55)  # warm amber, like firelight
-	armor_glow.light_energy = 1.8
-	armor_glow.omni_range = 12.0
-	armor_glow.omni_attenuation = 1.2  # gentle falloff — dome, not spotlight
+	armor_glow.light_color = Color(1.0, 1.0, 1.0)  # clean room — neutral white
+	armor_glow.light_energy = 0.0  # OFF — ambient only, no point lights
+	armor_glow.omni_range = 1.0
+	armor_glow.omni_attenuation = 1.0
 	armor_glow.shadow_enabled = false
 	armor_glow.position = Vector3(0.0, -1.2, 0.0)  # waist height below camera
 	camera.add_child(armor_glow)
@@ -528,9 +469,8 @@ func _aim_spawn_heading() -> void:
 			"target_pos": camera.position, "active": false,
 		})
 
-	# Initialize projection banner — 7 concentric cylinders.
-	# Each is a semi-transparent ring that fakes atmospheric depth.
-	var banner_layers: Array = manifest.get("banner_layers", [])
+	# CLEAN ROOM: banner cylinders OFF
+	var banner_layers: Array = []  # manifest.get("banner_layers", [])
 	for bl: Dictionary in banner_layers:
 		var cyl_mesh := CylinderMesh.new()
 		cyl_mesh.top_radius = bl.get("distance", 20.0)
@@ -598,8 +538,8 @@ func _legacy_cavern_planes() -> Array:
 			"normal": [0.0, 0.0, 1.0], "offset": 0.0, "layer": "near",
 			"size": 2000.0, "follow_camera": true,
 			"material": {
-				"color_base": [0.035, 0.028, 0.02], "grain_scale": 0.22,
-				"grain_strength": 0.85, "normal_strength": 1.5,
+				"color_base": [0.35, 0.35, 0.35], "grain_scale": 0.22,
+				"grain_strength": 0.0, "normal_strength": 0.0,
 			},
 		},
 		{
@@ -748,6 +688,8 @@ const CONTACT_SHADOW_KINDS := {
 var contact_shadow_decals: Array[Decal] = []
 
 func _spawn_contact_shadows(by_kind: Dictionary) -> void:
+	# CLEAN ROOM: no contact shadows
+	return
 	# Remove old
 	for d: Decal in contact_shadow_decals:
 		if is_instance_valid(d):
@@ -1685,13 +1627,13 @@ const BIOME_LIGHT_PIPES := {
 	"cavern": [
 		{"name": "warm", "color": Color(0.50, 0.35, 0.12),
 		 "kinds": ["giant_fungus", "ceiling_moss", "firefly"],
-		 "energy": 6.0, "range": 30.0, "attenuation": 0.7},
+		 "energy": 0.0, "range": 30.0, "attenuation": 0.7},
 		{"name": "cool", "color": Color(0.30, 0.35, 0.60),
 		 "kinds": ["crystal_cluster", "filament", "exit_lure"],
-		 "energy": 7.0, "range": 30.0, "attenuation": 0.7},
+		 "energy": 0.0, "range": 30.0, "attenuation": 0.7},
 		{"name": "organic", "color": Color(0.15, 0.35, 0.10),
 		 "kinds": ["moss_patch"],
-		 "energy": 5.0, "range": 25.0, "attenuation": 0.7},
+		 "energy": 0.0, "range": 25.0, "attenuation": 0.7},
 	],
 	"outdoor": [
 		{"name": "warm", "color": Color(0.55, 0.45, 0.18),
@@ -1858,6 +1800,9 @@ func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
 
 
 func _update_motes() -> void:
+	# CLEAN ROOM: skip all mote/light/decal/particle spawning.
+	# Re-enable when building lighting channels intentionally.
+	return
 	# Decals and particles rebuild each update (cheap, position-dependent).
 	# OmniLights are PERSISTENT — see persistent_lights dict. They stay alive
 	# and get energy updates, never destroyed until env exit.
