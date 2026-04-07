@@ -1871,11 +1871,8 @@ func _update_motes() -> void:
 				add_child(caustic_decal)
 				emissive_decals.append(caustic_decal)
 
-		# Meta-pixel mote structure — BEACON ONLY. Mote atoms + particles are
-		# the most expensive per-emissive nodes. Mid-tier entities rely on
-		# their Decal pool + entity emission to suggest the light source.
-		if not is_beacon:
-			continue  # tier 1 stops here — Decal(s) placed above, no motes/particles
+		# Meta-pixel mote structure — all emissives get motes now.
+		# Pipes handle ambient lighting; motes are the local visual detail.
 		# See design_heptagonal_mote.md + design_meta_pixel_mote.md + the
 		# arrangement library in mote_arrangements.gd + its regression test.
 		# Runs alongside the ambient particle emitter below — this layer is
