@@ -483,6 +483,32 @@ func _aim_spawn_heading() -> void:
 	camera.fov = 62.0  # wider peripheral — catches ceiling features + passive pull cues
 	add_child(camera)
 
+	# Initialize light pipes — 3 fixed OmniLights, created once, live forever.
+	# Each pipe covers a color family. Positions lerp to nearest matching emissive.
+	for pipe_cfg: Dictionary in CAVERN_LIGHT_PIPES:
+		var primary := OmniLight3D.new()
+		primary.light_color = pipe_cfg["color"]
+		primary.light_energy = pipe_cfg["energy"]
+		primary.omni_range = pipe_cfg["range"]
+		primary.omni_attenuation = pipe_cfg["attenuation"]
+		primary.shadow_enabled = false
+		primary.position = camera.position  # start at player, drift to nearest match
+		add_child(primary)
+
+		var fill := OmniLight3D.new()
+		fill.light_color = pipe_cfg["color"]
+		fill.light_energy = pipe_cfg["energy"] * 0.15
+		fill.omni_range = pipe_cfg["range"] * 0.5
+		fill.omni_attenuation = pipe_cfg["attenuation"] * 1.3
+		fill.shadow_enabled = false
+		fill.position = camera.position
+		add_child(fill)
+
+		light_pipes.append({
+			"node": primary, "fill_node": fill, "cfg": pipe_cfg,
+			"target_pos": camera.position, "active": false,
+		})
+
 
 var outline_material: ShaderMaterial
 var outline_mode: int = 2  # 0=Moebius, 1=Manga, 2=Sable
@@ -1409,7 +1435,7 @@ func _save_tag() -> void:
 		"emissive_with_spectrum": emissive_with_spectrum,
 		"tiles": manifest.get("stats", {}).get("tiles", 0),
 		"outline_mode": OUTLINE_MODE_NAMES[outline_mode],
-		"emissive_lights": persistent_lights.size(),
+		"emissive_lights": light_pipes.size(),  # fixed pipe count
 		"fog": manifest.get("fog", {}),
 		"ambient": manifest.get("ambient", []),
 		"connected": connected,
@@ -1437,9 +1463,9 @@ const CAUSTIC_COLORS := [
 const LIGHT_KINDS := {
 	"crystal_cluster": {
 		"color": Color(0.35, 0.40, 0.70),
-		"energy": 16.0,
-		"range": 18.0,
-		"attenuation": 1.0,
+		"energy": 18.0,
+		"range": 28.0,   # wider — visible as distant glow through fog
+		"attenuation": 0.5,  # softer falloff — gradual arrival, no hard edge
 		"prismatic": true,
 		"caustic_intensity": 0.4,
 		"caustic_radius": 3.5,
@@ -1453,9 +1479,9 @@ const LIGHT_KINDS := {
 	},
 	"giant_fungus": {
 		"color": Color(0.18, 0.30, 0.10),
-		"energy": 8.0,
-		"range": 10.0,
-		"attenuation": 1.4,
+		"energy": 10.0,
+		"range": 20.0,
+		"attenuation": 0.6,
 		"mote_color": Color(0.25, 0.08, 0.35),
 		"mote_count": 32,
 		"mote_radius": 5.0,
@@ -1465,9 +1491,9 @@ const LIGHT_KINDS := {
 	},
 	"moss_patch": {
 		"color": Color(0.10, 0.40, 0.08),
-		"energy": 6.0,
-		"range": 8.0,
-		"attenuation": 1.3,
+		"energy": 8.0,
+		"range": 16.0,
+		"attenuation": 0.6,
 		"mote_color": Color(0.1, 0.5, 0.08),
 		"mote_count": 16,
 		"mote_radius": 2.5,
@@ -1477,9 +1503,9 @@ const LIGHT_KINDS := {
 	},
 	"firefly": {
 		"color": Color(0.95, 0.75, 0.30),
-		"energy": 5.5,
-		"range": 9.0,
-		"attenuation": 0.9,
+		"energy": 6.0,
+		"range": 14.0,
+		"attenuation": 0.5,
 		"mote_color": Color(0.95, 0.8, 0.3),
 		"mote_count": 4,
 		"mote_radius": 1.5,
@@ -1489,9 +1515,9 @@ const LIGHT_KINDS := {
 	},
 	"filament": {
 		"color": Color(0.30, 0.40, 0.55),
-		"energy": 12.0,
-		"range": 18.0,
-		"attenuation": 0.8,
+		"energy": 14.0,
+		"range": 26.0,
+		"attenuation": 0.5,
 		"mote_color": Color(0.35, 0.45, 0.6),
 		"mote_count": 20,
 		"mote_radius": 2.5,
@@ -1501,9 +1527,9 @@ const LIGHT_KINDS := {
 	},
 	"ceiling_moss": {
 		"color": Color(0.6, 0.40, 0.12),
-		"energy": 14.0,
-		"range": 18.0,
-		"attenuation": 1.0,
+		"energy": 16.0,
+		"range": 26.0,
+		"attenuation": 0.5,
 		"mote_color": Color(0.8, 0.55, 0.15),
 		"mote_count": 32,
 		"mote_radius": 5.0,
@@ -1518,10 +1544,26 @@ var emissive_decals: Array[Decal] = []
 var decal_texture_cache: Dictionary = {}  # color_key → GradientTexture2D
 var mote_particles: Array[Node3D] = []  # mixed: GPUParticles3D (flow) + MeshInstance3D (structural atoms)
 
-# Persistent light registry — lights are created once, energy updated per frame.
-# Only destroyed on environment exit. Keyed by cluster position string.
-# Value: {"primary": OmniLight3D, "fill": OmniLight3D, "energy": float}
-var persistent_lights: Dictionary = {}
+# Light pipe architecture — fixed number of OmniLights, always present.
+# Each pipe covers a color family (warm/cool/organic). Pipes smoothly
+# lerp to the best matching emissive cluster in the FOV. No creation,
+# no destruction, no pop. 3 biome pipes + 1 reserved for player torch.
+#
+# Pipe config per biome: {name, color, kinds[], energy, range, attenuation}
+# Initialized once at spawn, redistributed each manifest update.
+const CAVERN_LIGHT_PIPES := [
+	{"name": "warm", "color": Color(0.50, 0.35, 0.12),
+	 "kinds": ["giant_fungus", "ceiling_moss", "firefly"],
+	 "energy": 14.0, "range": 24.0, "attenuation": 0.5},
+	{"name": "cool", "color": Color(0.30, 0.35, 0.60),
+	 "kinds": ["crystal_cluster", "filament", "exit_lure"],
+	 "energy": 16.0, "range": 24.0, "attenuation": 0.5},
+	{"name": "organic", "color": Color(0.15, 0.35, 0.10),
+	 "kinds": ["moss_patch"],
+	 "energy": 10.0, "range": 20.0, "attenuation": 0.5},
+]
+
+var light_pipes: Array[Dictionary] = []  # runtime pipe state: {node, fill_node, target_pos, cfg}
 
 # Mote dirty flag — only rebuild lights/decals/particles when the scene
 # actually changes, not every manifest tick. Motes are ambient decoration;
@@ -1701,34 +1743,54 @@ func _update_motes() -> void:
 			var db: float = (b["x"] - cam_x) ** 2 + (b["y"] - cam_z) ** 2
 			return da < db)
 
-	# Track which cluster centers have already had lights placed — dedup
-	var placed_cluster_keys: Dictionary = {}  # "x_y_z" → true
+	# -- Light pipe redistribution --
+	# Find the best target position for each pipe: nearest matching emissive
+	# cluster center. Pipes smoothly lerp to targets. Always 3 lights total.
+	for pipe: Dictionary in light_pipes:
+		var best_dist: float = 9999.0
+		var best_pos := Vector3.ZERO
+		var found: bool = false
+		var pipe_kinds: Array = pipe["cfg"]["kinds"]
+		for ent: Dictionary in emissive_ents:
+			if not pipe_kinds.has(ent.get("kind", "")):
+				continue
+			var ex: float = ent.get("x", 0.0)
+			var ey: float = ent.get("y", 0.0)
+			var ez: float = ent.get("z", 0.0)
+			var is_ceil: bool = ent.get("attachment_plane", "") == "ceiling"
+			var ly: float = ez - 3.0 if is_ceil else ez + 5.0
+			var candidate := Vector3(ex, ly, ey)
+			var dx: float = candidate.x - camera.position.x
+			var dz: float = candidate.z - camera.position.z
+			var d: float = dx * dx + dz * dz
+			if d < best_dist:
+				best_dist = d
+				best_pos = candidate
+				found = true
+		if found:
+			pipe["target_pos"] = best_pos
+			pipe["active"] = true
+		# Smooth lerp toward target — pipe drifts, never jumps
+		var node: OmniLight3D = pipe["node"]
+		var fill: OmniLight3D = pipe["fill_node"]
+		node.position = node.position.lerp(pipe["target_pos"], 0.06)
+		fill.position = fill.position.lerp(pipe["target_pos"] + Vector3(0, -4.0, 0), 0.06)
+		# Dim if no matching emissive found (pipe has nothing to light)
+		var target_e: float = pipe["cfg"]["energy"] if pipe["active"] else 0.0
+		node.light_energy = lerpf(node.light_energy, target_e, 0.04)
+		fill.light_energy = lerpf(fill.light_energy, target_e * 0.15, 0.04)
 
 	for i in range(emissive_ents.size()):
 		var ent: Dictionary = emissive_ents[i]
-		var tier: int = ent.get("render_tier", 0 if i < 4 else (1 if i < 16 else 2))
-		if tier >= 2:
-			continue  # far tier — entity emission only, skip all external nodes
 		var kind: String = ent.get("kind", "")
+		if not LIGHT_KINDS.has(kind):
+			continue
 		var cfg: Dictionary = LIGHT_KINDS[kind]
-
-		var is_beacon: bool = (tier == 0)  # tier 0 = full treatment, tier 1 = decal only
-
 		var base_y: float = ent.get("z", 0.0)
 		var is_ceiling: bool = ent.get("attachment_plane", "") == "ceiling"
-		# Use cluster center if available — one light covers the whole group
-		var cl_center: Array = ent.get("cluster_center", [])
-		var light_x: float = cl_center[0] if cl_center.size() >= 3 else ent.get("x", 0.0)
-		var light_z: float = cl_center[1] if cl_center.size() >= 3 else ent.get("y", 0.0)
-		var light_base_y: float = cl_center[2] if cl_center.size() >= 3 else base_y
-		# Ceiling emissives cast light DOWN — OmniLight below the source.
-		# Ground emissives cast light UP — OmniLight above the source.
-		var light_y: float = light_base_y - 3.0 if is_ceiling else light_base_y + 7.0
-		var pos := Vector3(light_x, light_y, light_z)
-		# Color computation — both beacon and mid tiers need this for Decals
+		var light_y: float = base_y - 3.0 if is_ceiling else base_y + 7.0
+		var pos := Vector3(ent.get("x", 0.0), light_y, ent.get("y", 0.0))
 		var hue_idx: int = ent.get("light_hue", 0)
-		# Light palettes — natural bioluminescent tones only.
-		# Warm ambers, muted teals, desaturated blue-greens. No saturated RGB.
 		var hue_palettes: Dictionary = {
 			"crystal_cluster": [Color(0.18, 0.20, 0.30), Color(0.22, 0.18, 0.28)],
 			"giant_fungus": [Color(0.15, 0.25, 0.10), Color(0.20, 0.15, 0.22)],
@@ -1748,43 +1810,6 @@ func _update_motes() -> void:
 				clampf(light_color.b + spec[2], 0.0, 1.0))
 		var hue_seed: float = abs(sin(ent.get("x", 0.0) * 12.9898 + ent.get("y", 0.0) * 78.233))
 		var e_var: float = 0.7 + hue_seed * 0.6
-
-		# OmniLights — ALL emissive clusters, not tier-gated. Energy scales with
-		# distance so far lights are naturally dim. No beacon shuffling = no pop.
-		# The light was always there. Persistent until out of range.
-		if true:  # was: if is_beacon — now all emissives get lights
-			var cluster_key: String = "%.1f_%.1f_%.1f" % [pos.x, pos.y, pos.z]
-			if not placed_cluster_keys.has(cluster_key):
-				placed_cluster_keys[cluster_key] = true
-				# Static energy — the light is ALWAYS ON at full power.
-				# Fog + OmniLight attenuation + range handle all visibility.
-				# No energy management, no lerping, no nightclub.
-				var full_energy: float = cfg["energy"] * e_var
-
-				if not persistent_lights.has(cluster_key):
-					var light := OmniLight3D.new()
-					light.light_color = light_color
-					light.light_energy = full_energy
-					light.omni_range = cfg["range"]
-					light.omni_attenuation = cfg["attenuation"]
-					light.shadow_enabled = false
-					light.position = pos
-					add_child(light)
-
-					var fill := OmniLight3D.new()
-					fill.light_color = light_color
-					fill.light_energy = full_energy * 0.20
-					fill.omni_range = cfg["range"] * 0.6
-					fill.omni_attenuation = cfg["attenuation"] * 1.2
-					fill.shadow_enabled = false
-					var fill_y: float = light_base_y - 7.0 if is_ceiling else light_base_y + 0.5
-					fill.position = Vector3(pos.x, fill_y, pos.z)
-					add_child(fill)
-
-					persistent_lights[cluster_key] = {
-						"primary": light, "fill": fill,
-					}
-				# Existing lights: no update needed — they're static.
 
 		# Ground Decal — projects colored pool onto floor (NWN2 approach)
 		var kind_entry: Dictionary = kind_config.get("kinds", {}).get(kind, {})
@@ -1901,21 +1926,7 @@ func _update_motes() -> void:
 		add_child(particles)
 		mote_particles.append(particles)
 
-	# Cull persistent lights no longer in the manifest — entity left the
-	# wake set entirely (tile unloaded). Destroy to free GPU.
-	var keys_to_remove: Array[String] = []
-	for key: String in persistent_lights:
-		if placed_cluster_keys.has(key):
-			continue  # still in manifest — keep
-		# Not in manifest anymore — destroy
-		var entry: Dictionary = persistent_lights[key]
-		if is_instance_valid(entry["primary"]):
-			entry["primary"].queue_free()
-		if is_instance_valid(entry["fill"]):
-			entry["fill"].queue_free()
-		keys_to_remove.append(key)
-	for key: String in keys_to_remove:
-		persistent_lights.erase(key)
+	# Light pipes handle all OmniLight redistribution above — no cleanup needed.
 
 	# -- Ceiling light shafts (breaks in rock above, faint directional pools) --
 	# Spawn a few SpotLights pointing down at random positions near emissives
