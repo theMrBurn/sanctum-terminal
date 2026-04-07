@@ -1780,6 +1780,17 @@ func _update_motes() -> void:
 		node.light_energy = lerpf(node.light_energy, target_e, 0.04)
 		fill.light_energy = lerpf(fill.light_energy, target_e * 0.15, 0.04)
 
+	# Sort emissives by distance — nearest get full treatment (motes + decals),
+	# far ones get decals only. Budget: 12 mote slots max.
+	var cam_pos_x: float = camera.position.x
+	var cam_pos_z: float = camera.position.z
+	emissive_ents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var da: float = (a.get("x", 0.0) - cam_pos_x) ** 2 + (a.get("y", 0.0) - cam_pos_z) ** 2
+		var db: float = (b.get("x", 0.0) - cam_pos_x) ** 2 + (b.get("y", 0.0) - cam_pos_z) ** 2
+		return da < db)
+	var mote_budget: int = 12
+	var motes_placed: int = 0
+
 	for i in range(emissive_ents.size()):
 		var ent: Dictionary = emissive_ents[i]
 		var kind: String = ent.get("kind", "")
@@ -1811,7 +1822,11 @@ func _update_motes() -> void:
 		var hue_seed: float = abs(sin(ent.get("x", 0.0) * 12.9898 + ent.get("y", 0.0) * 78.233))
 		var e_var: float = 0.7 + hue_seed * 0.6
 
-		# Ground Decal — projects colored pool onto floor (NWN2 approach)
+		# Ground Decal — only within 25m (beyond that, fog eats visibility anyway)
+		var dx_decal: float = pos.x - cam_pos_x
+		var dz_decal: float = pos.z - cam_pos_z
+		if dx_decal * dx_decal + dz_decal * dz_decal > 625.0:  # 25m²
+			continue
 		var kind_entry: Dictionary = kind_config.get("kinds", {}).get(kind, {})
 		var decal_cfg: Dictionary = kind_entry.get("decal", {})
 		if decal_cfg.size() > 0:
@@ -1871,8 +1886,11 @@ func _update_motes() -> void:
 				add_child(caustic_decal)
 				emissive_decals.append(caustic_decal)
 
-		# Meta-pixel mote structure — all emissives get motes now.
-		# Pipes handle ambient lighting; motes are the local visual detail.
+		# Mote budget — nearest 12 emissives get full mote treatment.
+		# Rest get decals only. Prevents particle system explosion.
+		if motes_placed >= mote_budget:
+			continue
+		motes_placed += 1
 		# See design_heptagonal_mote.md + design_meta_pixel_mote.md + the
 		# arrangement library in mote_arrangements.gd + its regression test.
 		# Runs alongside the ambient particle emitter below — this layer is
@@ -1955,13 +1973,17 @@ func _update_motes() -> void:
 		emissive_lights.append(spot)
 		shaft_count += 1
 
-	# -- Crystal SpotLights — dramatic projected beams onto surfaces --
+	# -- Crystal SpotLights — max 3, nearest crystals only --
+	var beam_count: int = 0
 	for ent_c: Dictionary in emissive_ents:
+		if beam_count >= 3:
+			break
 		if ent_c.get("kind", "") != "crystal_cluster":
 			continue
 		var cseed: float = abs(sin(ent_c.get("x", 0.0) * 5.17 + ent_c.get("y", 0.0) * 9.73))
-		if cseed > 0.5:  # 50% of crystals get a projected beam
+		if cseed > 0.5:
 			continue
+		beam_count += 1
 		var beam := SpotLight3D.new()
 		beam.position = Vector3(ent_c.get("x", 0.0), 1.5, ent_c.get("y", 0.0))
 		# Beam projects outward at a low angle — hits the floor/wall dramatically
@@ -1978,10 +2000,14 @@ func _update_motes() -> void:
 		add_child(beam)
 		emissive_lights.append(beam)
 
-	# -- Ceiling drip particles (amber drops falling from ceiling_moss) --
+	# -- Ceiling drip particles — max 6 nearest ceiling_moss --
+	var drip_count: int = 0
 	for ent: Dictionary in manifest.get("entities", []):
+		if drip_count >= 6:
+			break
 		if ent.get("kind", "") != "ceiling_moss":
 			continue
+		drip_count += 1
 		var drip := GPUParticles3D.new()
 		drip.amount = 3
 		drip.lifetime = 3.0
