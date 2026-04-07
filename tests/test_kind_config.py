@@ -48,110 +48,76 @@ class TestKindConfigSchema:
                 assert isinstance(cfg["class"], str)
 
 
-# -- Self-emit / inner_glow ---------------------------------------------------
+# -- 3-color palette system ----------------------------------------------------
 
-EMISSIVE_KINDS = [
+LIGHT_REACTIVE_KINDS = [
     "crystal_cluster", "filament", "exit_lure",
     "giant_fungus", "moss_patch", "ceiling_moss", "firefly",
 ]
 
 
-class TestInnerGlow:
-    """Self-emit system: inner_glow dims albedo, boosts emission."""
+class TestPalette:
+    """3-color flat palette: color_base/shadow/accent per kind."""
 
-    def test_emissive_kinds_have_inner_glow(self, kind_config):
-        """All emissive kinds must declare inner_glow."""
-        for kind in EMISSIVE_KINDS:
-            found = False
-            # Search in top-level and nested class groups
-            for key, val in kind_config.items():
-                if key.startswith("_"):
-                    continue
-                if isinstance(val, dict):
-                    if key == kind and "inner_glow" in val:
-                        found = True
-                        break
-                    # Check nested dicts (class groups)
-                    if kind in val and isinstance(val[kind], dict):
-                        if "inner_glow" in val[kind]:
-                            found = True
-                            break
-            assert found, f"{kind} must have inner_glow"
+    def _resolve_kind(self, kind_config, kind):
+        """Resolve a kind's effective config (class defaults + overrides)."""
+        kinds = kind_config.get("kinds", {})
+        defaults = kind_config.get("_class_defaults", {})
+        entry = kinds.get(kind, {})
+        cls = entry.get("class", "geological")
+        base = defaults.get(cls, {}).copy()
+        base.update(entry)
+        return base
 
-    def test_inner_glow_range(self, kind_config):
-        """inner_glow must be in [0.0, 1.0]."""
-        for key, val in kind_config.items():
-            if key.startswith("_"):
-                continue
-            if isinstance(val, dict):
-                ig = val.get("inner_glow")
-                if ig is not None:
-                    assert 0.0 <= ig <= 1.0, (
-                        f"{key} inner_glow={ig} out of range")
-                # Check nested
-                for sub_key, sub_val in val.items():
-                    if isinstance(sub_val, dict):
-                        ig = sub_val.get("inner_glow")
-                        if ig is not None:
-                            assert 0.0 <= ig <= 1.0, (
-                                f"{key}.{sub_key} inner_glow={ig} out of range")
+    def test_all_kinds_have_3_colors(self, kind_config):
+        """Every kind must resolve to color_base, color_shadow, color_accent."""
+        for kind in kind_config.get("kinds", {}):
+            params = self._resolve_kind(kind_config, kind)
+            for field in ("color_base", "color_shadow", "color_accent"):
+                assert field in params, f"{kind} missing {field}"
+                assert len(params[field]) == 3, f"{kind}.{field} must be [r,g,b]"
 
-    def test_pulse_rate_accompanies_inner_glow(self, kind_config):
-        """Kinds with inner_glow should also have pulse_rate."""
-        for key, val in kind_config.items():
-            if key.startswith("_"):
-                continue
-            if isinstance(val, dict):
-                if val.get("inner_glow", 0) > 0:
-                    assert "pulse_rate" in val, (
-                        f"{key} has inner_glow but no pulse_rate")
-                for sub_key, sub_val in val.items():
-                    if isinstance(sub_val, dict):
-                        if sub_val.get("inner_glow", 0) > 0:
-                            assert "pulse_rate" in sub_val, (
-                                f"{key}.{sub_key} has inner_glow but no pulse_rate")
+    def test_no_absolute_black(self, kind_config):
+        """No color channel below 0.13 — darkest grey is black."""
+        for kind in kind_config.get("kinds", {}):
+            params = self._resolve_kind(kind_config, kind)
+            for field in ("color_base", "color_shadow", "color_accent"):
+                for i, v in enumerate(params[field]):
+                    assert v >= 0.13, (
+                        f"{kind}.{field}[{i}]={v} is below 0.13 floor")
 
-    def test_light_event_kinds_have_glow(self, kind_config):
-        """Light-event crystalline kinds should have inner_glow > 0."""
-        light_events = ["crystal_cluster", "filament", "exit_lure"]
-        for kind in light_events:
-            found = False
-            for key, val in kind_config.items():
-                if key.startswith("_"):
-                    continue
-                if isinstance(val, dict):
-                    if key == kind:
-                        assert val.get("inner_glow", 0) > 0, (
-                            f"{kind} is a light event, inner_glow should be > 0")
-                        found = True
-                    elif kind in val and isinstance(val[kind], dict):
-                        assert val[kind].get("inner_glow", 0) > 0
-                        found = True
-            assert found, f"{kind} not found in kind_config"
+    def test_shadow_darker_than_base(self, kind_config):
+        """Shadow color should be darker than or equal to base."""
+        for kind in kind_config.get("kinds", {}):
+            params = self._resolve_kind(kind_config, kind)
+            cb = params["color_base"]
+            cs = params["color_shadow"]
+            assert sum(cs) <= sum(cb) + 0.01, (
+                f"{kind} shadow {cs} is brighter than base {cb}")
 
+    def test_accent_lighter_than_base(self, kind_config):
+        """Accent color should be lighter than or equal to base."""
+        for kind in kind_config.get("kinds", {}):
+            params = self._resolve_kind(kind_config, kind)
+            cb = params["color_base"]
+            ca = params["color_accent"]
+            assert sum(ca) >= sum(cb) - 0.01, (
+                f"{kind} accent {ca} is darker than base {cb}")
 
-# -- Decal config for emissives ------------------------------------------------
+    def test_color_spread_within_2_steps(self, kind_config):
+        """Max difference between shadow and accent per channel <= 0.15 (~2 steps)."""
+        for kind in kind_config.get("kinds", {}):
+            params = self._resolve_kind(kind_config, kind)
+            cs = params["color_shadow"]
+            ca = params["color_accent"]
+            for i in range(3):
+                diff = abs(ca[i] - cs[i])
+                assert diff <= 0.15, (
+                    f"{kind} channel {i}: accent-shadow spread {diff:.3f} > 0.15")
 
-class TestEmissiveDecals:
-    """Emissive kinds should have ground decal configuration."""
-
-    def test_emissive_kinds_have_decal(self, kind_config):
-        for kind in EMISSIVE_KINDS:
-            for key, val in kind_config.items():
-                if key.startswith("_"):
-                    continue
-                if isinstance(val, dict):
-                    target = None
-                    if key == kind:
-                        target = val
-                    elif kind in val and isinstance(val[kind], dict):
-                        target = val[kind]
-                    if target is not None:
-                        assert "decal" in target, (
-                            f"{kind} is emissive but has no decal config")
-                        d = target["decal"]
-                        assert "emission_radius" in d
-                        assert "emission_energy" in d
-                        assert d["emission_radius"] > 0
-                        assert d["emission_energy"] > 0
-                        break
+    def test_light_reactive_kinds(self, kind_config):
+        """Known light-reactive kinds must have light_reactive=true."""
+        for kind in LIGHT_REACTIVE_KINDS:
+            params = self._resolve_kind(kind_config, kind)
+            assert params.get("light_reactive", False), (
+                f"{kind} should be light_reactive")

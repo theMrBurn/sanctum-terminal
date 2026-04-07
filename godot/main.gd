@@ -163,101 +163,33 @@ func _resolve_surface_by_name(surface_name: String) -> Dictionary:
 
 
 func _create_kind_material(kind: String) -> Material:
-	"""Create a ShaderMaterial configured from kind_config for this kind."""
+	"""Create a ShaderMaterial configured from kind_config for this kind.
+	3-color flat shader: color_base/shadow/accent + light_reactive flag.
+	"""
 	var params: Dictionary = _get_kind_params(kind)
 	var shader: Shader = load("res://kind_shader.gdshader")
 	if not shader:
 		var fallback := StandardMaterial3D.new()
-		fallback.vertex_color_use_as_albedo = true
-		fallback.roughness = 0.85
 		fallback.cull_mode = BaseMaterial3D.CULL_DISABLED
 		return fallback
 
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 
-	# Palette — everything starts from cave stone, tinted per kind
-	var pb: Array = params.get("palette_base", [0.12, 0.11, 0.10])
-	mat.set_shader_parameter("palette_base", Color(pb[0], pb[1], pb[2]))
-	var kt: Array = params.get("kind_tint", [1.0, 1.0, 1.0])
-	mat.set_shader_parameter("kind_tint", Color(kt[0], kt[1], kt[2]))
-	mat.set_shader_parameter("vertex_color_blend", params.get("vertex_color_blend", 0.15))
+	# 3-color palette
+	var cb: Array = params.get("color_base", [0.30, 0.27, 0.23])
+	var cs: Array = params.get("color_shadow", [0.26, 0.23, 0.19])
+	var ca: Array = params.get("color_accent", [0.34, 0.30, 0.25])
+	mat.set_shader_parameter("color_base", Color(cb[0], cb[1], cb[2]))
+	mat.set_shader_parameter("color_shadow", Color(cs[0], cs[1], cs[2]))
+	mat.set_shader_parameter("color_accent", Color(ca[0], ca[1], ca[2]))
 
-	# Roughness + light response
-	var rough: Dictionary = params.get("roughness", {})
-	mat.set_shader_parameter("roughness_base", rough.get("base", 0.85))
-	mat.set_shader_parameter("light_response", params.get("light_response", 0.35))
+	# Light reactivity
+	mat.set_shader_parameter("light_reactive", 1.0 if params.get("light_reactive", false) else 0.0)
 
-	# Surface library lookup — per-kind surface identity.
-	# Resolution order: kinds[kind].surface → class_defaults[class].surface →
-	# global surface_library "default". The library entry provides texture
-	# paths + default tuning; per-kind can override scale/strength on top.
-	var kind_class: String = kind_config.get("kinds", {}).get(kind, {}).get("class", "geological")
-	var is_crystalline: bool = (kind_class == "crystalline")
-	var surface_entry: Dictionary = _resolve_surface(kind)
-
-	var grain_albedo: Texture2D = load(surface_entry.get("albedo", "res://world_grain.png"))
-	if grain_albedo:
-		mat.set_shader_parameter("grain_tex", grain_albedo)
-	var nmap: Texture2D = load(surface_entry.get("normal", "res://world_grain_normal.png"))
-	if nmap:
-		mat.set_shader_parameter("normal_tex", nmap)
-
-	# Global world_grain entry still acts as the scale baseline; surface lib
-	# and per-kind params override it in that order.
-	var gcfg: Dictionary = kind_config.get("_global", {}).get("world_grain", {})
-	var grain_scale: float = params.get("grain_scale",
-		surface_entry.get("grain_scale", gcfg.get("grain_scale", 0.35)))
-	mat.set_shader_parameter("grain_scale", grain_scale)
-
-	var base_grain_strength: float = params.get("grain_strength",
-		surface_entry.get("grain_strength", gcfg.get("grain_strength", 0.10)))
-	# Crystalline: zero grain → smooth optical surface, no scale pattern
-	var eff_grain_strength: float = 0.0 if is_crystalline else base_grain_strength
-	mat.set_shader_parameter("grain_strength", eff_grain_strength)
-
-	var base_normal_strength: float = params.get("normal_strength",
-		surface_entry.get("normal_strength", gcfg.get("normal_strength", 0.5)))
-	var eff_normal_strength: float = 0.0 if is_crystalline else base_normal_strength
-	mat.set_shader_parameter("normal_strength", eff_normal_strength)
-
-	# Emissive
-	mat.set_shader_parameter("inner_glow", params.get("inner_glow", 0.0))
-	mat.set_shader_parameter("pulse_rate", params.get("pulse_rate", 0.0))
-
-	# Shading mode — flat gives visible facets (geological rock look)
-	var shading: String = params.get("shading", "smooth")
-	mat.set_shader_parameter("flat_shading", 1.0 if shading == "flat" else 0.0)
-
-	# Horizontal strata — Sable-style color banding. Config-driven per class.
-	var strata: Dictionary = params.get("strata", {})
-	if strata.size() > 0:
-		mat.set_shader_parameter("band_scale", strata.get("scale", 0.0))
-		var warm: Array = strata.get("warm", [1.0, 1.0, 1.0])
-		var cool: Array = strata.get("cool", [1.0, 1.0, 1.0])
-		mat.set_shader_parameter("band_color_a",
-			Color(pb[0] * warm[0], pb[1] * warm[1], pb[2] * warm[2]))
-		mat.set_shader_parameter("band_color_b",
-			Color(pb[0] * cool[0], pb[1] * cool[1], pb[2] * cool[2]))
-
-	# Vertex displacement — breaks smooth silhouettes into craggy rock forms.
-	mat.set_shader_parameter("vertex_displacement", params.get("vertex_displacement", 0.0))
-	# Column taper — wider base, narrower top. Natural geological spire.
+	# Vertex shape — only what earns its pixels
 	mat.set_shader_parameter("taper_strength", params.get("taper_strength", 0.0))
-	# Axial twist — subtle rotation with height. Organic geological character.
 	mat.set_shader_parameter("twist_amount", params.get("twist_amount", 0.0))
-
-	# Rim light — fresnel edge glow for dark-on-dark silhouette separation.
-	mat.set_shader_parameter("rim_strength", params.get("rim_strength", 0.0))
-	# Wet base — height-based darkening + roughness at ground contact.
-	mat.set_shader_parameter("wet_base_strength", params.get("wet_base_strength", 0.0))
-	# Dithered dissolution — fragments discard at depth. The void eats geometry.
-	mat.set_shader_parameter("dissolve_strength", params.get("dissolve_strength", 0.0))
-
-	# Phase 2 — layer fade target color (atmospheric perspective mix target)
-	var fog_data: Dictionary = manifest.get("fog", {})
-	var fog_c: Array = fog_data.get("color", [0.2, 0.14, 0.1])
-	mat.set_shader_parameter("fog_layer_color", Color(fog_c[0], fog_c[1], fog_c[2]))
 
 	return mat
 
