@@ -47,8 +47,10 @@ void fragment() {
 	float cam_dist = length(VERTEX.xz);
 	float amplitude = 1.0 / (1.0 + cam_dist * cam_dist * 0.0008);
 
-	// Ground color: dark base, strong grain variation with distance falloff
-	float grain_effect = mix(0.9, 1.4, grain);
+	// Ground pattern: mostly dark negative space, bright pixels cluster into
+	// piles/stacks. Power curve pushes most grain values dark, peaks stay bright.
+	float grain_shaped = pow(grain, 2.5);  // concentrate brightness into peaks
+	float grain_effect = mix(0.4, 1.8, grain_shaped);  // wide range: 0.4× dark to 1.8× bright
 	vec3 col = color_base * mix(1.0, grain_effect, grain_strength * amplitude);
 
 	// Fade to fog at far edges (still asymptotic, never fully replaces)

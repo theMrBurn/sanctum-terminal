@@ -922,6 +922,13 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			var rot_hash: float = sin(ent.get("x", 0.0) * 4.73 + ent.get("y", 0.0) * 9.11)
 			final_heading = rot_hash * PI
 		xform = xform.rotated(Vector3.UP, final_heading)
+		# Filament/vine tilt — lean at random angles so they read as organic
+		# stalks, not parallel ladder rungs. Hash-driven per position.
+		if kind == "filament" or kind == "hanging_vine":
+			var tilt_hash: float = sin(ent.get("x", 0.0) * 6.17 + ent.get("y", 0.0) * 11.3)
+			var tilt_angle: float = tilt_hash * 0.5  # up to ~28° lean
+			var tilt_axis := Vector3(cos(heading), 0.0, sin(heading)).normalized()
+			xform = xform.rotated(tilt_axis, tilt_angle)
 		# Ceiling-attached emissives — flip upside-down so they hang from above.
 		# Same inversion as stalactites but for crystal_cluster, giant_fungus, etc.
 		# Columns/mega_columns handle their own inversion above.
