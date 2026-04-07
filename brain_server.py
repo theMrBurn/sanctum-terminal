@@ -539,6 +539,7 @@ class BrainWorld:
             },
             "entities": visible,
             "planes": self.planes,
+            "banner_layers": BIOME_REGISTRY.get(self.biome_name, {}).get("banner_layers", []),
             "biome": self.biome_name,
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),

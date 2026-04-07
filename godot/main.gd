@@ -509,6 +509,34 @@ func _aim_spawn_heading() -> void:
 			"target_pos": camera.position, "active": false,
 		})
 
+	# Initialize projection banner — 7 concentric cylinders.
+	# Each is a semi-transparent ring that fakes atmospheric depth.
+	var banner_layers: Array = manifest.get("banner_layers", [])
+	for bl: Dictionary in banner_layers:
+		var cyl_mesh := CylinderMesh.new()
+		cyl_mesh.top_radius = bl.get("distance", 20.0)
+		cyl_mesh.bottom_radius = bl.get("distance", 20.0)
+		cyl_mesh.height = bl.get("height", 15.0)
+		cyl_mesh.radial_segments = 14  # 2×7
+		cyl_mesh.rings = 1
+
+		var mat := StandardMaterial3D.new()
+		var tint: Array = bl.get("tint", [0.05, 0.05, 0.08])
+		mat.albedo_color = Color(tint[0], tint[1], tint[2], bl.get("opacity", 0.1))
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.cull_mode = BaseMaterial3D.CULL_FRONT  # render inside face only
+		mat.no_depth_test = true
+		cyl_mesh.material = mat
+
+		var mi := MeshInstance3D.new()
+		mi.mesh = cyl_mesh
+		mi.name = "Banner_%s" % bl.get("role", "layer")
+		mi.position = Vector3(camera.position.x, bl.get("height", 15.0) * 0.3, camera.position.z)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		banner_cylinders.append(mi)
+
 
 var outline_material: ShaderMaterial
 var outline_mode: int = 2  # 0=Moebius, 1=Manga, 2=Sable
@@ -1565,6 +1593,10 @@ const CAVERN_LIGHT_PIPES := [
 
 var light_pipes: Array[Dictionary] = []  # runtime pipe state: {node, fill_node, target_pos, cfg}
 
+# Projection banner — 7 concentric cylinders faking mid-distance atmosphere.
+# Created once at spawn, follow camera. Config from biome banner_layers.
+var banner_cylinders: Array[MeshInstance3D] = []
+
 # Mote dirty flag — only rebuild lights/decals/particles when the scene
 # actually changes, not every manifest tick. Motes are ambient decoration;
 # they loop in place. Rebuild triggers: new tile, tension state change,
@@ -2141,3 +2173,8 @@ func _physics_process(delta: float) -> void:
 				# Floor/ceiling — track X/Z, keep Y
 				node.position.x = new_pos.x
 				node.position.z = new_pos.z
+
+	# Banner cylinders follow camera X/Z, keep their Y offset
+	for bc: MeshInstance3D in banner_cylinders:
+		bc.position.x = new_pos.x
+		bc.position.z = new_pos.z

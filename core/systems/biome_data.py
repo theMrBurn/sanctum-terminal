@@ -1164,6 +1164,55 @@ BIOME_PLANES = {
 
 # -- Biome registry (unified lookup) ------------------------------------------
 
+# -- Projection banner (7-layer cylindrical billboard) -------------------------
+#
+# 7 concentric rings at increasing distances, each projecting a layer of
+# atmospheric detail. Replaces 3D geometry beyond ~15m with textured surfaces.
+# Factor of 7: 7 layers = 7 depth zones = 7 color channels.
+#
+# Each layer: distance, height, opacity, color tint, and what it represents.
+# The brain populates layer colors from nearby emissive clusters.
+# Godot renders each as a camera-following CylinderMesh with a ShaderMaterial.
+
+# Distances: 7m increments (7, 14, 21, 28, 35, 42, 49)
+# Heights: 7m × layer_index (7, 14, 21, 28, 35, 42, 49) — capped to dome
+# Opacity: 0.07 × layer_index (0.07, 0.14, 0.21...) — deeper = more opaque
+
+CAVERN_BANNER_LAYERS = [
+    {"distance":  7.0, "height":  7.0, "opacity": 0.03, "role": "near_haze",
+     "tint": [0.08, 0.07, 0.10]},
+    {"distance": 14.0, "height": 14.0, "opacity": 0.05, "role": "mid_glow",
+     "tint": [0.10, 0.09, 0.12]},
+    {"distance": 21.0, "height": 17.0, "opacity": 0.07, "role": "mid_emissive",
+     "tint": [0.06, 0.08, 0.10]},
+    {"distance": 28.0, "height": 19.0, "opacity": 0.10, "role": "far_glow",
+     "tint": [0.05, 0.06, 0.09]},
+    {"distance": 35.0, "height": 21.0, "opacity": 0.14, "role": "far_haze",
+     "tint": [0.04, 0.05, 0.08]},
+    {"distance": 42.0, "height": 21.0, "opacity": 0.18, "role": "fog_edge",
+     "tint": [0.04, 0.04, 0.07]},
+    {"distance": 49.0, "height": 21.0, "opacity": 0.21, "role": "void",
+     "tint": [0.03, 0.03, 0.06]},
+]
+
+OUTDOOR_BANNER_LAYERS = [
+    {"distance":  7.0, "height": 14.0, "opacity": 0.02, "role": "canopy_near",
+     "tint": [0.10, 0.12, 0.06]},
+    {"distance": 14.0, "height": 21.0, "opacity": 0.04, "role": "canopy_mid",
+     "tint": [0.08, 0.10, 0.05]},
+    {"distance": 21.0, "height": 28.0, "opacity": 0.07, "role": "tree_line",
+     "tint": [0.06, 0.08, 0.04]},
+    {"distance": 28.0, "height": 35.0, "opacity": 0.10, "role": "mid_haze",
+     "tint": [0.08, 0.09, 0.07]},
+    {"distance": 35.0, "height": 42.0, "opacity": 0.14, "role": "far_haze",
+     "tint": [0.10, 0.11, 0.09]},
+    {"distance": 42.0, "height": 49.0, "opacity": 0.18, "role": "horizon",
+     "tint": [0.12, 0.14, 0.10]},
+    {"distance": 49.0, "height": 49.0, "opacity": 0.21, "role": "sky_wash",
+     "tint": [0.15, 0.18, 0.22]},
+]
+
+
 BIOME_REGISTRY = {
     "cavern": {
         "palette": CAVERN_PALETTE,
@@ -1176,6 +1225,7 @@ BIOME_REGISTRY = {
         "density": BIOME_CAVERN_DEFAULT,
         "planes": BIOME_PLANES["cavern"],
         "stamps": CAVERN_STAMPS,
+        "banner_layers": CAVERN_BANNER_LAYERS,
     },
     "outdoor": {
         "palette": OUTDOOR_PALETTE,
@@ -1188,5 +1238,6 @@ BIOME_REGISTRY = {
         "density": BIOME_OUTDOOR_FOREST,
         "planes": BIOME_PLANES["outdoor"],
         "stamps": OUTDOOR_STAMPS,
+        "banner_layers": OUTDOOR_BANNER_LAYERS,
     },
 }
