@@ -589,9 +589,8 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                     beacon_x = jx + math.cos(col_oa + math.pi) * 3.0
                     beacon_y = jy + math.sin(col_oa + math.pi) * 3.0
                     _emit_cluster(beacon, beacon_x, beacon_y, spawns, solid_positions, rng)
-                    # Ceiling mold colony — formation columns are primary spore hosts
-                    # (tallest vertical surface touching ceiling = best inoculation)
-                    if not parent_is_stalactite:
+                    # Ceiling mold colony — cavern only (outdoor has no ceiling)
+                    if not parent_is_stalactite and biome_name == "cavern":
                         _emit_ceiling_cluster(col_x, col_y, spawns, rng)
                     mega_column_count += 1
                     nx += node_spacing
@@ -630,7 +629,7 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
             # Ceiling mold — bulging clusters ABOVE columns and stalagmites.
             # Mirrors ground architecture on the ceiling. ~60% chance so it's
             # not uniform but trends near vertical geometry.
-            if anchor in ("mega_column", "column", "stalagmite") and rng.random() < 0.60:
+            if biome_name == "cavern" and anchor in ("mega_column", "column", "stalagmite") and rng.random() < 0.60:
                 _emit_ceiling_cluster(jx, jy, spawns, rng)
             # Anchor stamp — programmatic composition around the structural spine.
             # Config-driven slots fill from pools. The anchor IS the stamp center.

@@ -485,7 +485,9 @@ func _aim_spawn_heading() -> void:
 
 	# Initialize light pipes — 3 fixed OmniLights, created once, live forever.
 	# Each pipe covers a color family. Positions lerp to nearest matching emissive.
-	for pipe_cfg: Dictionary in CAVERN_LIGHT_PIPES:
+	var biome_name: String = manifest.get("biome", "cavern")
+	var pipe_cfgs: Array = BIOME_LIGHT_PIPES.get(biome_name, BIOME_LIGHT_PIPES["cavern"])
+	for pipe_cfg: Dictionary in pipe_cfgs:
 		var primary := OmniLight3D.new()
 		primary.light_color = pipe_cfg["color"]
 		primary.light_energy = pipe_cfg["energy"]
@@ -1579,17 +1581,30 @@ var mote_particles: Array[Node3D] = []  # mixed: GPUParticles3D (flow) + MeshIns
 #
 # Pipe config per biome: {name, color, kinds[], energy, range, attenuation}
 # Initialized once at spawn, redistributed each manifest update.
-const CAVERN_LIGHT_PIPES := [
-	{"name": "warm", "color": Color(0.50, 0.35, 0.12),
-	 "kinds": ["giant_fungus", "ceiling_moss", "firefly"],
-	 "energy": 14.0, "range": 24.0, "attenuation": 0.5},
-	{"name": "cool", "color": Color(0.30, 0.35, 0.60),
-	 "kinds": ["crystal_cluster", "filament", "exit_lure"],
-	 "energy": 16.0, "range": 24.0, "attenuation": 0.5},
-	{"name": "organic", "color": Color(0.15, 0.35, 0.10),
-	 "kinds": ["moss_patch"],
-	 "energy": 10.0, "range": 20.0, "attenuation": 0.5},
-]
+const BIOME_LIGHT_PIPES := {
+	"cavern": [
+		{"name": "warm", "color": Color(0.50, 0.35, 0.12),
+		 "kinds": ["giant_fungus", "ceiling_moss", "firefly"],
+		 "energy": 14.0, "range": 24.0, "attenuation": 0.5},
+		{"name": "cool", "color": Color(0.30, 0.35, 0.60),
+		 "kinds": ["crystal_cluster", "filament", "exit_lure"],
+		 "energy": 16.0, "range": 24.0, "attenuation": 0.5},
+		{"name": "organic", "color": Color(0.15, 0.35, 0.10),
+		 "kinds": ["moss_patch"],
+		 "energy": 10.0, "range": 20.0, "attenuation": 0.5},
+	],
+	"outdoor": [
+		{"name": "warm", "color": Color(0.55, 0.45, 0.18),
+		 "kinds": ["firefly", "giant_fungus"],
+		 "energy": 10.0, "range": 22.0, "attenuation": 0.5},
+		{"name": "cool", "color": Color(0.25, 0.30, 0.45),
+		 "kinds": ["crystal_cluster"],
+		 "energy": 12.0, "range": 22.0, "attenuation": 0.5},
+		{"name": "green", "color": Color(0.12, 0.30, 0.08),
+		 "kinds": ["moss_patch"],
+		 "energy": 8.0, "range": 18.0, "attenuation": 0.5},
+	],
+}
 
 var light_pipes: Array[Dictionary] = []  # runtime pipe state: {node, fill_node, target_pos, cfg}
 
