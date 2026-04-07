@@ -576,7 +576,7 @@ func _spawn_plane(p: Dictionary) -> void:
 	mesh.size = Vector2(size, size)
 	mesh.subdivide_width = 4
 	mesh.subdivide_depth = 4
-	mesh.material = _create_plane_material(p.get("material", {}))
+	mesh.material = _create_plane_material(p.get("material", {}), p.get("kind", ""))
 
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -621,7 +621,7 @@ func _spawn_plane(p: Dictionary) -> void:
 		active_ceiling_y = float(p.get("offset", CEILING_PLANE_Y_DEFAULT))
 
 
-func _create_plane_material(m: Dictionary) -> Material:
+func _create_plane_material(m: Dictionary, plane_kind: String = "") -> Material:
 	# Resolve texture paths through the surface library if the plane material
 	# declares a `surface` field; otherwise fall back to world_grain. Per-plane
 	# grain_scale/strength/normal_strength still override whatever the surface
@@ -653,6 +653,10 @@ func _create_plane_material(m: Dictionary) -> Material:
 			float(m.get("normal_strength", surface_entry.get("normal_strength", 1.3))))
 		mat.set_shader_parameter("roughness_val",
 			float(m.get("roughness", 0.95)))
+		# Wall planes: vertical UV projection + height darkening gradient
+		var is_wall: bool = plane_kind == "wall"
+		mat.set_shader_parameter("vertical_surface", is_wall)
+		mat.set_shader_parameter("height_darken", 0.8 if is_wall else 0.0)
 		return mat
 	var fallback := StandardMaterial3D.new()
 	var cb: Array = m.get("color_base", [0.18, 0.15, 0.12])
@@ -1441,10 +1445,10 @@ const LIGHT_KINDS := {
 		"caustic_radius": 3.5,
 		"facet_spread": 2.5,
 		"mote_color": Color(0.3, 0.35, 0.6),
-		"mote_count": 10,
-		"mote_radius": 3.0,
-		"mote_height": 3.0,
-		"mote_size": 0.85,    # 2.7x base — Tron Bit presence through fog haze
+		"mote_count": 40,
+		"mote_radius": 5.0,
+		"mote_height": 5.0,
+		"mote_size": 1.0,
 		"mote_arrangement": "lattice_7",
 	},
 	"giant_fungus": {
@@ -1453,10 +1457,10 @@ const LIGHT_KINDS := {
 		"range": 10.0,
 		"attenuation": 1.4,
 		"mote_color": Color(0.25, 0.08, 0.35),
-		"mote_count": 8,
-		"mote_radius": 3.0,
-		"mote_height": 4.0,
-		"mote_size": 0.65,    # spore cloud reads at mid-distance
+		"mote_count": 32,
+		"mote_radius": 5.0,
+		"mote_height": 6.0,
+		"mote_size": 0.75,
 		"mote_arrangement": "scatter_7",
 	},
 	"moss_patch": {
@@ -1465,10 +1469,10 @@ const LIGHT_KINDS := {
 		"range": 8.0,
 		"attenuation": 1.3,
 		"mote_color": Color(0.1, 0.5, 0.08),
-		"mote_count": 4,
-		"mote_radius": 1.0,
-		"mote_height": 2.0,
-		"mote_size": 0.35,    # small but visible ground-level glints
+		"mote_count": 16,
+		"mote_radius": 2.5,
+		"mote_height": 3.0,
+		"mote_size": 0.45,
 		"mote_arrangement": "ground_hug_4",
 	},
 	"firefly": {
@@ -1477,34 +1481,34 @@ const LIGHT_KINDS := {
 		"range": 9.0,
 		"attenuation": 0.9,
 		"mote_color": Color(0.95, 0.8, 0.3),
-		"mote_count": 1,
-		"mote_radius": 0.5,
-		"mote_height": 1.5,
-		"mote_size": 0.30,    # warm dot — must read as a point of interest
+		"mote_count": 4,
+		"mote_radius": 1.5,
+		"mote_height": 2.5,
+		"mote_size": 0.40,
 		"mote_arrangement": "solo",
 	},
 	"filament": {
 		"color": Color(0.30, 0.40, 0.55),
-		"energy": 12.0,  # doubled — mid-height beacon, not background noise
+		"energy": 12.0,
 		"range": 18.0,
 		"attenuation": 0.8,
 		"mote_color": Color(0.35, 0.45, 0.6),
-		"mote_count": 5,
-		"mote_radius": 1.0,
-		"mote_height": 2.5,
-		"mote_size": 0.45,    # chain links resolve at distance
+		"mote_count": 20,
+		"mote_radius": 2.5,
+		"mote_height": 4.0,
+		"mote_size": 0.55,
 		"mote_arrangement": "chain_5",
 	},
 	"ceiling_moss": {
 		"color": Color(0.6, 0.40, 0.12),
-		"energy": 14.0,   # boosted — one light covers the whole colony cluster
-		"range": 18.0,    # wider — matches crystal_cluster, covers 5m spore spread
+		"energy": 14.0,
+		"range": 18.0,
 		"attenuation": 1.0,
 		"mote_color": Color(0.8, 0.55, 0.15),
-		"mote_count": 8,
-		"mote_radius": 3.0,
-		"mote_height": 5.0,
-		"mote_size": 0.65,    # drip glyph reads as warm descending trail
+		"mote_count": 32,
+		"mote_radius": 5.0,
+		"mote_height": 8.0,
+		"mote_size": 0.75,
 		"mote_arrangement": "stream_vert_5",
 	},
 }
@@ -1858,7 +1862,7 @@ func _update_motes() -> void:
 		particles.amount = cfg["mote_count"]
 		particles.lifetime = 5.0
 		particles.fixed_fps = 20
-		particles.visibility_aabb = AABB(Vector3(-6, -2, -6), Vector3(12, 12, 12))
+		particles.visibility_aabb = AABB(Vector3(-10, -4, -10), Vector3(20, 16, 20))
 
 		var pmat := ParticleProcessMaterial.new()
 		pmat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE

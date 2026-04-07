@@ -12,8 +12,11 @@ uniform float grain_strength : hint_range(0.0, 1.0) = 0.12;
 uniform float normal_strength : hint_range(0.0, 2.0) = 0.4;
 uniform float roughness_val : hint_range(0.0, 1.0) = 0.95;
 uniform float honeycomb_cell_size = 18.0;  // matches world_gen node spacing
+uniform bool vertical_surface = false;  // walls use XY projection, floors use XZ
+uniform float height_darken : hint_range(0.0, 1.0) = 0.0;  // vertical gradient (0=none, 1=full)
 
 varying vec2 world_uv;
+varying float world_y;  // vertical position for height gradient
 
 // Hash function for per-cell signature
 float cell_hash(vec2 cell) {
@@ -21,7 +24,10 @@ float cell_hash(vec2 cell) {
 }
 
 void vertex() {
-	world_uv = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xz;
+	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// Walls: project on XY (vertical surface). Floors: project on XZ (horizontal).
+	world_uv = vertical_surface ? world_pos.xy : world_pos.xz;
+	world_y = world_pos.y;
 }
 
 void fragment() {
@@ -49,6 +55,13 @@ void fragment() {
 	float edge_dist = cam_dist / 800.0;
 	float fade = smoothstep(0.4, 0.9, edge_dist);
 	col = mix(col, fog_color, fade * 0.85);
+
+	// Height gradient — walls darken toward ceiling, lighter near floor
+	// where light pools reflect. Creates vertical depth variation.
+	if (height_darken > 0.01) {
+		float h_factor = clamp(world_y / 15.0, 0.0, 1.0);  // 0 at floor, 1 at ceiling
+		col *= mix(1.0, 0.3, h_factor * height_darken);
+	}
 
 	ALBEDO = col;
 	ROUGHNESS = roughness_val;

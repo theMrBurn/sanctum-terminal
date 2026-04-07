@@ -1112,10 +1112,10 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.03, 0.03, 0.055],  # cold void blue
-                "grain_scale": 0.08,
-                "grain_strength": 0.25,
-                "normal_strength": 0.8,
+                "color_base": [0.04, 0.04, 0.06],  # cold void blue
+                "grain_scale": 0.12,
+                "grain_strength": 0.40,
+                "normal_strength": 1.2,
             },
             "size": 2000.0,
             "follow_camera": True,
@@ -1129,10 +1129,10 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.03, 0.03, 0.055],  # cold void blue
-                "grain_scale": 0.08,
-                "grain_strength": 0.25,
-                "normal_strength": 0.8,
+                "color_base": [0.04, 0.04, 0.06],  # cold void blue
+                "grain_scale": 0.12,
+                "grain_strength": 0.40,
+                "normal_strength": 1.2,
             },
             "size": 2000.0,
             "follow_camera": True,
