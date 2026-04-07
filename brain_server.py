@@ -374,6 +374,10 @@ class BrainWorld:
         for eid, _ in wake_set:
             ent = self.entities.get(eid)
             if ent:
+                # Below-ground cull — skip entities below floor plane.
+                # Ceiling-attached entities are above ground by definition.
+                if ent.get("z", 0.0) < -0.5 and ent.get("attachment_plane", "") != "ceiling":
+                    continue
                 # Spectrum state for emissive kinds — hue drift via SpectrumEngine
                 spec_profile = SPECTRUM_MAP.get(ent["kind"])
                 if spec_profile and ent.get("emissive", 0) > 0:
