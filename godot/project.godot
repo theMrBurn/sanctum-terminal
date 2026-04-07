@@ -49,5 +49,4 @@ move_right={
 
 [rendering]
 
-anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.12, 0.08, 0.12, 1)

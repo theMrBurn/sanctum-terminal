@@ -48,10 +48,13 @@ generates any topography. Not yet implemented — next session's architecture.
 - ~~Ceiling layer~~ DONE (spore-spread, self-emit, inverted emissives)
 - ~~Below-ground rendering waste~~ DONE (z-filter)
 - ~~Outdoor biome smoke test~~ DONE (ceiling_moss gated, biome pipes)
-- Projection banner visual tuning — NEXT SESSION
-- Macro stamp (7×7 composition grid) — NEXT SESSION
-- Factor-of-7 audit across systems — NEXT SESSION
-- Vector Composite Layer 3 — DEFERRED (3 sessions)
+- ~~Silhouette shell visual quality~~ SOLVED (dissolve replaces LOD — no silhouette mode at all)
+- ~~Light pipe jitter~~ SOLVED (40m lock radius, snap-on-acquire, slow drift)
+- Projection banner visual tuning — DEFERRED
+- Custom column/crystal meshes — NEXT SESSION (primitives are the bottleneck)
+- Anno-style sprite composite layer — NEXT SESSION (membrane nodes)
+- Ground shader: darkness defines, light reveals — NEEDS REWORK (attempted, reverted)
+- Vector Composite Layer 3 — DEFERRED
 - Encyclopedia data seeding — DEFERRED
 - Tension visual effects — PARKED
 
@@ -67,4 +70,6 @@ bfb7921 fix: outdoor biome smoke test
 da38a14 feat: light pipe architecture
 042926e feat: wall plane depth + 4x mote density
 5fbed69 feat: stamps + ceiling + self-emit + persistent lights
+79934a6 feat: render shells, macro stamp grid, visual tuning
+67cad04 fix: lighting pipeline overhaul — dissolve replaces LOD, pipes lock
 ```

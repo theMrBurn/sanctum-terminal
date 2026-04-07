@@ -1007,7 +1007,7 @@ OUTDOOR_LIGHT_STATES = {
 CAVERN_LIGHT_STATES = {
     "cave": {
         "ambient": (0.35, 0.32, 0.28),
-        "fog_color": (0.06, 0.06, 0.10),       # cool blue-grey fog — depth reads as cold
+        "fog_color": (0.12, 0.10, 0.14),       # lighter than bg — silhouettes read against it
         "fog_near": 12.0,
         "fog_far": 48.0,
         "bg_color": (0.04, 0.04, 0.07),         # deep cool void behind everything

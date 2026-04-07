@@ -322,15 +322,34 @@ func _setup_environment() -> void:
 	godot_env = Environment.new()
 
 	var fog: Dictionary = manifest.get("fog", {})
-	godot_env.fog_enabled = true
 	var fc: Array = fog.get("color", [0.1, 0.1, 0.1])
-	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
 	var fog_far: float = fog.get("far", 55.0)
-	godot_env.fog_density = 1.5 / max(fog_far, 1.0)
 
+	# Distant fog band — only paints 20m+ where layer system ends and void begins.
+	# Near-field depth owned by shader layer fade (System 3).
+	godot_env.fog_enabled = true
+	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
+	godot_env.fog_density = 0.8 / max(fog_far, 1.0)  # gentle — just enough to grade the far field
+
+	# Cavern sky gradient — replaces flat bg_color.
+	# Dark ceiling, dark floor, faint luminous band at eye-level horizon.
+	# This is the backdrop plane that multiplane parallax objects sit against.
 	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
-	godot_env.background_mode = Environment.BG_COLOR
-	godot_env.background_color = Color(bg[0], bg[1], bg[2])
+	var sky_shader: Shader = load("res://cavern_sky.gdshader")
+	if sky_shader:
+		var sky_mat := ShaderMaterial.new()
+		sky_mat.shader = sky_shader
+		sky_mat.set_shader_parameter("horizon_color", Color(bg[0] * 2.0, bg[1] * 1.8, bg[2] * 2.2))
+		sky_mat.set_shader_parameter("void_color", Color(bg[0], bg[1], bg[2]))
+		sky_mat.set_shader_parameter("band_width", 0.25)
+		sky_mat.set_shader_parameter("band_sharpness", 3.0)
+		var sky := Sky.new()
+		sky.sky_material = sky_mat
+		godot_env.sky = sky
+		godot_env.background_mode = Environment.BG_SKY
+	else:
+		godot_env.background_mode = Environment.BG_COLOR
+		godot_env.background_color = Color(bg[0], bg[1], bg[2])
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
@@ -365,10 +384,9 @@ func _setup_environment() -> void:
 	godot_env.volumetric_fog_length = 35.0
 	godot_env.volumetric_fog_gi_inject = 1.0  # pick up OmniLight color in fog
 
-	# SSAO — contact shadows. Reduced — Decal contact shadows carry the grounding now.
-	godot_env.ssao_enabled = true
-	godot_env.ssao_radius = 2.0
-	godot_env.ssao_intensity = 1.2
+	# SSAO — killed. Contact shadow Decals handle ground darkening per-kind.
+	# SSAO was doubling up, making object bases darker than intended.
+	godot_env.ssao_enabled = false
 
 	# SSIL — disabled. Decal pools + rim light handle indirect fill cheaper.
 	# Re-enable when perf budget allows; the visual was subtle vs the cost.
@@ -417,8 +435,8 @@ func _setup_camera() -> void:
 	var head_light := OmniLight3D.new()
 	head_light.name = "HeadLight"
 	head_light.light_color = Color(1.0, 0.92, 0.80)  # warm-neutral, not pure white
-	head_light.light_energy = 1.2
-	head_light.omni_range = 20.0
+	head_light.light_energy = 0.5
+	head_light.omni_range = 8.0
 	head_light.omni_attenuation = 1.8  # steep falloff — bright nearby, fades to touch at 18m
 	head_light.shadow_enabled = false
 	head_light.position = Vector3.ZERO  # at camera origin, moves with it
@@ -545,37 +563,10 @@ var outline_mode: int = 2  # 0=Moebius, 1=Manga, 2=Sable
 const OUTLINE_MODE_NAMES := ["Moebius", "Manga", "Sable"]
 
 func _setup_outline() -> void:
-	# Use a CanvasLayer + ColorRect for screen-space post-process
-	var outline_shader: Shader = load("res://outline_post.gdshader")
-	if not outline_shader:
-		print("WARN: outline shader not found")
-		return
-
-	outline_material = ShaderMaterial.new()
-	outline_material.shader = outline_shader
-	var ocfg: Dictionary = kind_config.get("_global", {}).get("outline", {})
-	outline_mode = int(ocfg.get("mode", 2))
-	outline_material.set_shader_parameter("outline_mode", outline_mode)
-	outline_material.set_shader_parameter("outline_thickness", ocfg.get("thickness", 1.5))
-	outline_material.set_shader_parameter("edge_threshold", ocfg.get("edge_threshold", 0.06))
-	var lc: Array = ocfg.get("line_color", [0.0, 0.0, 0.0])
-	outline_material.set_shader_parameter("line_color", Color(lc[0], lc[1], lc[2]))
-	outline_material.set_shader_parameter("line_opacity", ocfg.get("line_opacity", 0.7))
-	outline_material.set_shader_parameter("gap_frequency", ocfg.get("gap_frequency", 14.0))
-	outline_material.set_shader_parameter("gap_width", ocfg.get("gap_width", 0.35))
-	outline_material.set_shader_parameter("depth_weight", ocfg.get("depth_weight", 1.0))
-	outline_material.set_shader_parameter("normal_weight", ocfg.get("normal_weight", 0.8))
-	outline_material.set_shader_parameter("lum_weight", ocfg.get("lum_weight", 0.4))
-
-	var canvas := CanvasLayer.new()
-	canvas.layer = 10  # on top of everything
-	var rect := ColorRect.new()
-	rect.anchors_preset = Control.PRESET_FULL_RECT
-	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rect.material = outline_material
-	canvas.add_child(rect)
-	add_child(canvas)
-	print("Outline shader active: %s" % OUTLINE_MODE_NAMES[outline_mode])
+	# DISABLED — CanvasLayer+ColorRect approach doesn't work on this Metal/Godot 4
+	# setup. hint_screen_texture returns white. Need to solve outlines via a
+	# different method (compositor effect, SubViewport, or per-material outlines).
+	print("Outline shader: DISABLED (screen texture broken on this setup)")
 
 
 func _cycle_outline_mode() -> void:
@@ -608,7 +599,7 @@ func _legacy_cavern_planes() -> Array:
 			"normal": [0.0, 0.0, 1.0], "offset": 0.0, "layer": "near",
 			"size": 2000.0, "follow_camera": true,
 			"material": {
-				"color_base": [0.10, 0.08, 0.06], "grain_scale": 0.22,
+				"color_base": [0.04, 0.035, 0.03], "grain_scale": 0.22,
 				"grain_strength": 0.85, "normal_strength": 1.5,
 			},
 		},
@@ -617,7 +608,7 @@ func _legacy_cavern_planes() -> Array:
 			"normal": [0.0, 0.0, -1.0], "offset": CEILING_PLANE_Y_DEFAULT, "layer": "near",
 			"size": 2000.0, "follow_camera": true,
 			"material": {
-				"color_base": [0.10, 0.09, 0.08], "grain_scale": 0.22,
+				"color_base": [0.04, 0.035, 0.03], "grain_scale": 0.22,
 				"grain_strength": 0.55, "normal_strength": 1.1,
 			},
 		},
@@ -1017,19 +1008,19 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 	add_child(mmi)
 	kind_nodes["Kind_%s_v%d" % [kind, variant]] = mmi
 
-	# Inverted hull outline — second pass, slightly larger, dark, front-face culled
+	# Inverted hull outline — outer silhouette. Slightly larger, dark, front-face culled.
+	# Post-process is broken on Metal, so hull is the sole outer edge system.
 	var hull_kinds: Array = ["crystal_cluster", "stalagmite", "boulder",
-		"mega_column", "column", "giant_fungus"]
+		"mega_column", "column", "giant_fungus", "buttress", "rubble"]
 	if kind in hull_kinds and has_real_mesh:
 		var hull_mm := MultiMesh.new()
 		hull_mm.transform_format = MultiMesh.TRANSFORM_3D
 		hull_mm.mesh = base_mesh
 		hull_mm.instance_count = ents.size()
 
-		var hull_scale: float = 1.04  # 4% larger = outline thickness
+		var hull_scale: float = 1.06  # 6% larger = visible outline thickness
 		for hi in range(ents.size()):
 			var src_xform: Transform3D = mm.get_instance_transform(hi)
-			# Scale up slightly from the object's own center
 			var hull_xform := src_xform.scaled_local(Vector3.ONE * hull_scale)
 			hull_mm.set_instance_transform(hi, hull_xform)
 
@@ -1350,17 +1341,15 @@ func _update_atmosphere() -> void:
 
 	var fog: Dictionary = manifest.get("fog", {})
 	var fc: Array = fog.get("color", [0.1, 0.1, 0.1])
-	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
 	var fog_far: float = fog.get("far", 55.0)
-	godot_env.fog_density = 1.0 / max(fog_far, 1.0)
+	# Distant fog band tracks manifest color
+	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
+	godot_env.fog_density = 0.8 / max(fog_far, 1.0)
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
 	# Darkness IS the default — light pipes and headlamp are the events
 	godot_env.ambient_light_energy = 0.12
-
-	var bg: Array = manifest.get("bg_color", [0.12, 0.08, 0.12])
-	godot_env.background_color = Color(bg[0], bg[1], bg[2])
 
 	# Chronometer modulation — subtle, never fight the cavern's ambient floor
 	var chrono: Dictionary = manifest.get("chronometer", {})

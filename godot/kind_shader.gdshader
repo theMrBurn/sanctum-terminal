@@ -1,7 +1,7 @@
 shader_type spatial;
-// Backface culling enabled by default (no cull_disabled) — prevents
-// the "solid wall from inside the mesh" artifact when camera clips
-// a mesh edge. Interior surfaces no longer render as opaque walls.
+render_mode cull_disabled;
+// Both sides of every face render — fills gaps in non-manifold meshes
+// where faces don't share vertices. Mesh primitives read as solid volumes.
 
 // Simplified kind shader — palette first, one grain, clean.
 // Get cohesion before adding effects.
@@ -194,7 +194,12 @@ void fragment() {
 	// frames while preserving the low-poly rock facet look.
 	if (flat_shading > 0.5) {
 		vec3 face_normal = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
-		NORMAL = normalize(mix(NORMAL, face_normal, 0.7));
+		NORMAL = face_normal;  // 100% face normal — hard facet edges, no softening
+
+		// Facing-ratio facet pop — camera-facing facets brighten, angled facets darken.
+		float facing = max(dot(normalize(face_normal), VIEW), 0.0);
+		float facet_boost = mix(0.5, 1.4, facing);
+		col *= facet_boost;
 	}
 
 	// Phase 2 — Merkabah layer fade. Entities in deeper layers mix toward
@@ -229,6 +234,30 @@ void fragment() {
 		if (dither < dissolve_t) {
 			discard;
 		}
+	}
+
+	// 7. Per-material edge detection — facet edges and silhouette edges.
+	// Uses screen-space derivatives on world position and normal to detect
+	// where adjacent pixels cross a face boundary. Darkens those pixels.
+	// No screen texture needed — runs per-fragment in the spatial shader.
+	{
+		// Position discontinuity — sharp change in world_pos = mesh edge
+		float pos_edge = length(fwidth(world_pos)) * 8.0;
+		// Normal discontinuity — sharp change in face normal = facet boundary
+		float norm_edge = length(fwidth(NORMAL)) * 4.0;
+		// Silhouette edge — faces nearly perpendicular to view
+		float silhouette = 1.0 - abs(dot(VIEW, NORMAL));
+		silhouette = smoothstep(0.7, 0.95, silhouette);
+
+		float edge = max(max(step(0.4, pos_edge), step(0.5, norm_edge)), silhouette);
+
+		// Edge pixels get darkened OR lightened depending on surface brightness.
+		// Dark surface = lighten edges (visible line). Bright surface = darken.
+		float avg_col = (col.r + col.g + col.b) / 3.0;
+		vec3 edge_color = avg_col < 0.1
+			? col + vec3(0.12, 0.11, 0.10)   // light line on dark surface
+			: col * 0.3;                       // dark line on bright surface
+		col = mix(col, edge_color, edge * 0.85);
 	}
 
 	// Emissive objects: dim the albedo so the EMISSION does the visual work.
