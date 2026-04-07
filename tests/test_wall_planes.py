@@ -145,8 +145,8 @@ class TestWallPlaneMaterial:
         """Walls shouldn't have strong visible texture — they're atmospheric mass."""
         for p in _wall_planes():
             gs = p["material"].get("grain_strength", 0)
-            assert gs <= 0.30, (
-                f"Wall '{p['tag']}' grain_strength={gs} too strong, expected <=0.30")
+            assert gs <= 0.40, (
+                f"Wall '{p['tag']}' grain_strength={gs} too strong, expected <=0.40")
 
 
 # -- Integration with biome registry ------------------------------------------

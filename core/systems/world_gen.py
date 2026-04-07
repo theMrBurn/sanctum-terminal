@@ -394,7 +394,7 @@ def _emit_stamp(stamp, center_x, center_y, spawns, solid_positions, rng):
 
 
 def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
-                  is_spawn_tile=False):
+                  is_spawn_tile=False, macro_stamp=None):
     """Generate a tile layout with honeycomb path network.
 
     Scatter node points across the tile — these are walkable clearings.
@@ -487,13 +487,27 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     tile_cy = tile * 0.5
     tile_max_dist = tile * 0.5  # corner distance for normalization
 
+    # Macro stamp grid lookup — if a macro stamp is provided, use its
+    # per-cell density as the composition factor. Otherwise fall back to
+    # the radial distance factor (spawn tiles sparse at center, dense at edge).
+    _ms = macro_stamp
+    _ms_cell_size = tile / 7.0 if macro_stamp else 0
+
     def _radial_factor(x, y):
-        """0.0 at center → 1.0 at tile edge. Non-spawn tiles return 1.0."""
+        """Composition density factor at position (x, y).
+
+        With macro stamp: reads the 7x7 density grid cell.
+        Without: 0.0 at center → 1.0 at tile edge (spawn tiles only).
+        """
+        if _ms:
+            col = max(0, min(6, int(x / _ms_cell_size)))
+            row = max(0, min(6, int(y / _ms_cell_size)))
+            return _ms["density"][row][col]
         if not is_spawn_tile:
             return 1.0
         dx, dy = x - tile_cx, y - tile_cy
         d = (dx * dx + dy * dy) ** 0.5
-        return min(d / (tile_max_dist * 0.7), 1.0)  # reaches 1.0 at 70% of edge
+        return min(d / (tile_max_dist * 0.7), 1.0)
 
     ny = node_spacing * 0.5
     row = 0

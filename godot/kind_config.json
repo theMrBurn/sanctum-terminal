@@ -62,6 +62,23 @@
       "ssao_intensity": 2.0,
       "desaturation": 0.50,
       "contrast": 1.1
+    },
+    "screenshot_overlay": {
+      "enabled": true,
+      "font_size": 16,
+      "position": "top_left",
+      "color": [1.0, 1.0, 1.0, 0.85],
+      "background": true,
+      "separator": " | ",
+      "fields": [
+        "biome",
+        "position",
+        "heading",
+        "entities_visible",
+        "tension_state",
+        "day_phase",
+        "timestamp"
+      ]
     }
   },
   "_class_defaults": {

@@ -1006,7 +1006,7 @@ OUTDOOR_LIGHT_STATES = {
 
 CAVERN_LIGHT_STATES = {
     "cave": {
-        "ambient": (0.55, 0.52, 0.48),
+        "ambient": (0.35, 0.32, 0.28),
         "fog_color": (0.06, 0.06, 0.10),       # cool blue-grey fog — depth reads as cold
         "fog_near": 12.0,
         "fog_far": 48.0,
@@ -1213,6 +1213,182 @@ OUTDOOR_BANNER_LAYERS = [
 ]
 
 
+# -- Render shell system (Design Law #14 extension) ---------------------------
+#
+# Seven concentric cylindrical shells at factor-of-7 radii from the observer.
+# Entities bind to shells by distance + kind class. Only the innermost shell
+# renders full 3D geometry. Outer shells project silhouettes onto the banner
+# cylinders. Outermost shells are pure atmosphere — no entities at all.
+#
+# Biome-agnostic: shells are universal. Banner tint/opacity is biome-specific
+# (CAVERN_BANNER_LAYERS / OUTDOOR_BANNER_LAYERS). This config controls WHAT
+# renders at each distance; the banner config controls HOW it looks.
+#
+# Modes:
+#   geometry   — full MultiMesh, decals, motes, lights
+#   silhouette — flat dark shape projected onto banner cylinder (no 3D geometry)
+#   hint       — faint silhouette, reduced opacity
+#   atmosphere — banner tint only, no entity rendering
+#   void       — pure fog/darkness, nothing renders
+
+RENDER_SHELLS = [
+    {"radius":  7, "mode": "geometry",   "kind_classes": ["structural", "emissive", "scatter", "ground_cover", "atmosphere", "life"]},
+    {"radius": 14, "mode": "geometry",   "kind_classes": ["structural", "emissive", "scatter", "ground_cover", "atmosphere", "life"]},
+    {"radius": 21, "mode": "geometry",   "kind_classes": ["structural", "emissive", "scatter", "ground_cover", "atmosphere"]},
+    {"radius": 28, "mode": "geometry",   "kind_classes": ["structural", "emissive", "ground_cover", "atmosphere"]},
+    {"radius": 35, "mode": "geometry",   "kind_classes": ["structural", "emissive", "atmosphere"]},
+    {"radius": 42, "mode": "silhouette", "kind_classes": ["structural", "emissive"]},
+    {"radius": 49, "mode": "hint",       "kind_classes": ["structural"]},
+]
+
+# Every entity kind maps to a render class. The class determines which shells
+# the kind can appear in. Universal across biomes — the kind IS the class.
+KIND_RENDER_CLASS = {
+    # structural — large silhouettes, visible at distance, define the space
+    "mega_column":     "structural",
+    "column":          "structural",
+    "boulder":         "structural",
+    "stalagmite":      "structural",
+    "buttress":        "structural",
+    # emissive — glow visible at distance, need geometry locally for self-emit
+    "crystal_cluster": "emissive",
+    "giant_fungus":    "emissive",
+    "filament":        "emissive",
+    "firefly":         "emissive",
+    "exit_lure":       "emissive",
+    # ground_cover — readable up close, invisible at distance on dark ground
+    "moss_patch":      "ground_cover",
+    "dead_log":        "ground_cover",
+    "bone_pile":       "ground_cover",
+    "leaf_pile":       "ground_cover",
+    # scatter — tiny objects, local only, no silhouette value
+    "rubble":          "scatter",
+    "cave_gravel":     "scatter",
+    "twig_scatter":    "scatter",
+    "grass_tuft":      "scatter",
+    # atmosphere — ceiling/wall/horizon elements, mid-distance presence
+    "ceiling_moss":    "atmosphere",
+    "hanging_vine":    "atmosphere",
+    "horizon_near":    "atmosphere",
+    "horizon_mid":     "atmosphere",
+    "horizon_form":    "atmosphere",
+    # life — creatures, close range only
+    "beetle":          "life",
+    "rat":             "life",
+    "spider":          "life",
+    "leaf":            "life",
+}
+
+
+# -- Macro stamps (7x7 tile grids) — composition + elevation -----------------
+#
+# Each macro stamp defines a 7x7 grid over a tile (288m / 7 ≈ 41m per cell).
+# elevation: height steps (0=floor, 1=+3m, 2=+6m, -1=-3m pit)
+# density: spawn density multiplier for this cell (0.0-1.0)
+# allowed: kind class shorthand (S=structural, E=emissive, G=ground_cover,
+#          A=atmosphere, L=life, X=scatter, ALL=everything)
+
+MACRO_STAMP_CAVERN_CHAMBER = {
+    "name": "cavern_chamber",
+    "elevation_step": 3.0,
+    # Elevation FLAT for now — density/allowed grids are the active feature.
+    # Tile-aware elevation (matching edges between adjacent tiles) is Phase 2.
+    # The bowl-shaped grid below is pinned for future use.
+    # Boat-in-water effect from this grid = KEEP for coast/water biome.
+    "elevation": [
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+    ],
+    "density": [
+        [0.2, 0.3, 0.4, 0.5, 0.4, 0.3, 0.2],
+        [0.3, 0.5, 0.6, 0.7, 0.6, 0.5, 0.3],
+        [0.4, 0.6, 0.8, 0.9, 0.8, 0.6, 0.4],
+        [0.5, 0.7, 0.9, 0.3, 0.9, 0.7, 0.5],
+        [0.4, 0.6, 0.8, 0.9, 0.8, 0.6, 0.4],
+        [0.3, 0.5, 0.6, 0.7, 0.6, 0.5, 0.3],
+        [0.2, 0.3, 0.4, 0.5, 0.4, 0.3, 0.2],
+    ],
+    "allowed": [
+        ["S",   "S",   "SA",  "SA",  "SA",  "S",   "S"],
+        ["S",   "SE",  "SEG", "SEG", "SEG", "SE",  "S"],
+        ["SA",  "SEG", "ALL", "ALL", "ALL", "SEG", "SA"],
+        ["SA",  "SEG", "ALL", "ALL", "ALL", "SEG", "SA"],
+        ["SA",  "SEG", "ALL", "ALL", "ALL", "SEG", "SA"],
+        ["S",   "SE",  "SEG", "SEG", "SEG", "SE",  "S"],
+        ["S",   "S",   "SA",  "SA",  "SA",  "S",   "S"],
+    ],
+}
+
+MACRO_STAMP_CAVERN_CORRIDOR = {
+    "name": "cavern_corridor",
+    "elevation_step": 3.0,
+    "elevation": [
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+    ],
+    "density": [
+        [0.1, 0.2, 0.2, 0.3, 0.2, 0.2, 0.1],
+        [0.2, 0.4, 0.5, 0.6, 0.5, 0.4, 0.2],
+        [0.3, 0.6, 0.7, 0.8, 0.7, 0.6, 0.3],
+        [0.4, 0.7, 0.8, 0.9, 0.8, 0.7, 0.4],
+        [0.3, 0.6, 0.7, 0.8, 0.7, 0.6, 0.3],
+        [0.2, 0.4, 0.5, 0.6, 0.5, 0.4, 0.2],
+        [0.1, 0.2, 0.2, 0.3, 0.2, 0.2, 0.1],
+    ],
+    "allowed": [
+        ["S",  "S",  "S",   "SA",  "S",   "S",  "S"],
+        ["S",  "SE", "SE",  "SEG", "SE",  "SE", "S"],
+        ["SA", "SEG","ALL", "ALL", "ALL", "SEG","SA"],
+        ["SA", "ALL","ALL", "ALL", "ALL", "ALL","SA"],
+        ["SA", "SEG","ALL", "ALL", "ALL", "SEG","SA"],
+        ["S",  "SE", "SE",  "SEG", "SE",  "SE", "S"],
+        ["S",  "S",  "S",   "SA",  "S",   "S",  "S"],
+    ],
+}
+
+MACRO_STAMP_OUTDOOR_CLEARING = {
+    "name": "outdoor_clearing",
+    "elevation_step": 2.0,
+    "elevation": [
+        [1, 1, 1, 0, 1, 1, 1],
+        [1, 0, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0, 0, 1],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0, 1, 1],
+        [1, 1, 1, 0, 1, 1, 2],
+    ],
+    "density": [
+        [0.4, 0.5, 0.5, 0.6, 0.5, 0.5, 0.4],
+        [0.5, 0.6, 0.7, 0.8, 0.7, 0.6, 0.5],
+        [0.5, 0.7, 0.8, 0.9, 0.8, 0.7, 0.5],
+        [0.6, 0.8, 0.9, 0.4, 0.9, 0.8, 0.6],
+        [0.5, 0.7, 0.8, 0.9, 0.8, 0.7, 0.5],
+        [0.5, 0.6, 0.7, 0.8, 0.7, 0.6, 0.5],
+        [0.4, 0.5, 0.5, 0.6, 0.5, 0.5, 0.4],
+    ],
+    "allowed": [
+        ["SA",  "SA",  "SEG", "SEG", "SEG", "SA",  "SA"],
+        ["SA",  "SEG", "ALL", "ALL", "ALL", "SEG", "SA"],
+        ["SEG", "ALL", "ALL", "ALL", "ALL", "ALL", "SEG"],
+        ["SEG", "ALL", "ALL", "ALL", "ALL", "ALL", "SEG"],
+        ["SEG", "ALL", "ALL", "ALL", "ALL", "ALL", "SEG"],
+        ["SA",  "SEG", "ALL", "ALL", "ALL", "SEG", "SA"],
+        ["SA",  "SA",  "SEG", "SEG", "SEG", "SA",  "SA"],
+    ],
+}
+
+
 BIOME_REGISTRY = {
     "cavern": {
         "palette": CAVERN_PALETTE,
@@ -1226,6 +1402,7 @@ BIOME_REGISTRY = {
         "planes": BIOME_PLANES["cavern"],
         "stamps": CAVERN_STAMPS,
         "banner_layers": CAVERN_BANNER_LAYERS,
+        "macro_stamps": [MACRO_STAMP_CAVERN_CHAMBER, MACRO_STAMP_CAVERN_CORRIDOR],
     },
     "outdoor": {
         "palette": OUTDOOR_PALETTE,
@@ -1239,5 +1416,6 @@ BIOME_REGISTRY = {
         "planes": BIOME_PLANES["outdoor"],
         "stamps": OUTDOOR_STAMPS,
         "banner_layers": OUTDOOR_BANNER_LAYERS,
+        "macro_stamps": [MACRO_STAMP_OUTDOOR_CLEARING],
     },
 }

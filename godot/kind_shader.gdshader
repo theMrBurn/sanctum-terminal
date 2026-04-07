@@ -210,6 +210,8 @@ void fragment() {
 		near_w = 1.0;  // legacy default — no layer data → fully near
 		layer_total = 1.0;
 	}
+	// Snapshot pre-fog color for emission — light sources glow through fog
+	vec3 pre_fog_col = col;
 	// Atmospheric perspective: entities in deeper layers blend toward fog
 	float fog_blend = mid_w * 0.25 + far_w * 0.65 + void_w * 0.95;
 	col = mix(col, fog_layer_color, fog_blend);
@@ -239,10 +241,15 @@ void fragment() {
 	METALLIC = light_response * 0.05;
 
 	// Emissive glow (crystals, moss, fungus)
+	// CRITICAL: emission uses pre_fog_col, NOT the fog-dimmed col.
+	// The object body fades into fog (albedo) but the light it emits does not.
+	// A crystal at distance is a faint shape that still glows brightly —
+	// like a lamp in fog. Without this, mid/far crystals are dark silhouettes
+	// sitting on colored decals, contributing zero visible emission.
 	float emit_base = 0.0;
 	if (inner_glow > 0.01) {
 		float pulse = 1.0 + sin(TIME * pulse_rate * 6.28) * 0.15;
-		emit_base = inner_glow * pulse * 3.0;  // was 2.0 — brighter emission to compensate dimmed albedo
+		emit_base = inner_glow * pulse * 3.0;
 	}
 
 	// Rim light — fresnel edge glow for silhouette separation.
@@ -255,5 +262,5 @@ void fragment() {
 		rim = pow(rim, 3.0) * rim_strength;
 	}
 
-	EMISSION = col * emit_base + fog_layer_color * rim * 1.5;
+	EMISSION = pre_fog_col * emit_base + fog_layer_color * rim * 1.5;
 }

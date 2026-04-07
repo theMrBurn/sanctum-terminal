@@ -28,6 +28,7 @@ from core.systems.biome_data import (
     BIOME_REGISTRY,
     OUTDOOR_LIGHT_STATES, CAVERN_LIGHT_STATES,
     HARD_OBJECTS,
+    RENDER_SHELLS, KIND_RENDER_CLASS,
 )
 from core.systems.spatial_wake import SpatialHash, WakeChain, WAKE_CHAINS
 from core.systems.world_gen import generate_tile
@@ -35,6 +36,10 @@ from core.systems.tension_cycle import TensionCycle, OUTDOOR_CYCLE, CAVERN_CYCLE
 from core.systems.plane_exchange import classify_all_entities, CAVERN_EXCHANGE_NODES
 from core.systems.chronometer import Chronometer
 from core.systems.ambient_life import SpectrumEngine, set_active_biome
+from core.systems.macro_stamp import (
+    terrain_height, set_active_stamp, grid_density, grid_allowed,
+)
+from core.systems.biome_data import MACRO_STAMP_CAVERN_CHAMBER
 
 
 # -- Kind properties (same as godot_export.py) --------------------------------
@@ -93,6 +98,12 @@ class BrainWorld:
 
         # Set active biome for SpectrumEngine profile lookup
         set_active_biome(biome_name)
+
+        # Activate macro stamp for terrain elevation
+        biome_reg = BIOME_REGISTRY.get(biome_name, {})
+        macro_stamps = biome_reg.get("macro_stamps", [])
+        if macro_stamps:
+            set_active_stamp(macro_stamps[0], tile_size)
 
         # Spatial indexing
         chain_key = biome_name if biome_name in WAKE_CHAINS else "outdoor"
@@ -157,9 +168,18 @@ class BrainWorld:
         seed = self.base_seed + tx * 7919 + ty * 6271
         rng = random.Random(seed)
 
+        # Pick macro stamp for this tile — spawn tile gets first pattern,
+        # others rotate through available patterns by seed.
+        biome_reg = BIOME_REGISTRY.get(self.biome_name, {})
+        macro_stamps = biome_reg.get("macro_stamps", [])
+        ms = None
+        if macro_stamps:
+            ms = macro_stamps[0] if (tx == 0 and ty == 0) else \
+                 macro_stamps[seed % len(macro_stamps)]
+
         variant_name, tile_spawns = generate_tile(
             seed=seed, biome_name=self.biome_name, tile_size=self.tile_size,
-            is_spawn_tile=(tx == 0 and ty == 0))
+            is_spawn_tile=(tx == 0 and ty == 0), macro_stamp=ms)
         self.tile_variants[(tx, ty)] = variant_name
 
         offset_x = tx * self.tile_size
@@ -176,7 +196,7 @@ class BrainWorld:
             # World-space position (centered tiles)
             x = lx - half + offset_x
             y = ly - half + offset_y
-            z = 0.0
+            z = terrain_height(x, y)  # rolling elevation field
             if kind == "leaf":
                 z = 3.0
             elif kind == "ceiling_moss":
@@ -334,11 +354,11 @@ class BrainWorld:
         # Tension envelope overrides fog/ambient when active,
         # but clamped to floors so player can always navigate the scene.
         # Min ambient keeps silhouettes readable; min fog_far keeps depth usable.
-        AMBIENT_FLOOR = (0.58, 0.54, 0.48)
+        AMBIENT_FLOOR = (0.30, 0.28, 0.25)
         FOG_FAR_FLOOR = 55.0
         FOG_NEAR_CEIL = 12.0  # don't let fog pull closer than 12m
         if self.tension.active and envelope:
-            fog_near = min(envelope.fog[0], FOG_NEAR_CEIL)
+            fog_near = max(envelope.fog[0], FOG_NEAR_CEIL)
             fog_far = max(envelope.fog[1], FOG_FAR_FLOOR)
             amb = envelope.ambient
             ambient = [
@@ -378,6 +398,25 @@ class BrainWorld:
                 # Ceiling-attached entities are above ground by definition.
                 if ent.get("z", 0.0) < -0.5 and ent.get("attachment_plane", "") != "ceiling":
                     continue
+
+                # Render shell assignment — distance + kind class determines
+                # which shell this entity belongs to. Entities whose kind class
+                # isn't allowed in their distance shell are culled entirely.
+                dx_s = ent["x"] - cam_x
+                dy_s = ent["y"] - cam_y
+                dist = (dx_s * dx_s + dy_s * dy_s) ** 0.5
+                kind_class = KIND_RENDER_CLASS.get(ent["kind"], "scatter")
+                shell_idx = 6  # default: outermost (void)
+                for si, shell in enumerate(RENDER_SHELLS):
+                    if dist <= shell["radius"]:
+                        shell_idx = si
+                        break
+                # Skip if this kind class isn't rendered in this shell
+                if kind_class not in RENDER_SHELLS[shell_idx]["kind_classes"]:
+                    continue
+                ent["render_shell"] = shell_idx
+                ent["render_mode"] = RENDER_SHELLS[shell_idx]["mode"]
+
                 # Spectrum state for emissive kinds — hue drift via SpectrumEngine
                 spec_profile = SPECTRUM_MAP.get(ent["kind"])
                 if spec_profile and ent.get("emissive", 0) > 0:
@@ -521,7 +560,8 @@ class BrainWorld:
 
         return {
             "camera": {"x": cam_x, "y": cam_y, "z": cam_z,
-                       "heading": heading, "pitch": pitch},
+                       "heading": heading, "pitch": pitch,
+                       "terrain_z": terrain_height(cam_x, cam_y)},
             "fog": {
                 "near": fog_near,
                 "far": fog_far,

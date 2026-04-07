@@ -334,7 +334,7 @@ func _setup_environment() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	godot_env.ambient_light_energy = 0.30  # low floor — silhouettes readable, detail lives in light pools only
+	godot_env.ambient_light_energy = 0.18  # near-zero — darkness IS the default, light pools are the event
 	godot_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 
 	godot_env.tonemap_mode = 2
@@ -354,7 +354,7 @@ func _setup_environment() -> void:
 	godot_env.adjustment_enabled = true
 	godot_env.adjustment_brightness = 1.1
 	godot_env.adjustment_contrast = 1.1
-	godot_env.adjustment_saturation = 0.62  # enough color for Decal pools to read
+	godot_env.adjustment_saturation = 0.80  # let emissive color punch through
 
 	# Volumetric fog — ground haze, light shafts from emissives
 	godot_env.volumetric_fog_enabled = true
@@ -417,9 +417,9 @@ func _setup_camera() -> void:
 	var head_light := OmniLight3D.new()
 	head_light.name = "HeadLight"
 	head_light.light_color = Color(1.0, 0.92, 0.80)  # warm-neutral, not pure white
-	head_light.light_energy = 1.4
-	head_light.omni_range = 12.0
-	head_light.omni_attenuation = 1.0  # smooth linear-ish falloff
+	head_light.light_energy = 0.8
+	head_light.omni_range = 10.0
+	head_light.omni_attenuation = 1.4  # faster falloff — reveals nearby, doesn't flood
 	head_light.shadow_enabled = false
 	head_light.position = Vector3.ZERO  # at camera origin, moves with it
 	camera.add_child(head_light)
@@ -608,8 +608,8 @@ func _legacy_cavern_planes() -> Array:
 			"normal": [0.0, 0.0, 1.0], "offset": 0.0, "layer": "near",
 			"size": 2000.0, "follow_camera": true,
 			"material": {
-				"color_base": [0.18, 0.15, 0.12], "grain_scale": 0.22,
-				"grain_strength": 0.65, "normal_strength": 1.3,
+				"color_base": [0.10, 0.08, 0.06], "grain_scale": 0.22,
+				"grain_strength": 0.85, "normal_strength": 1.5,
 			},
 		},
 		{
@@ -670,6 +670,7 @@ func _spawn_plane(p: Dictionary) -> void:
 		"node": mi,
 		"follow": bool(p.get("follow_camera", true)),
 		"kind": p.get("kind", "ground"),
+		"offset": offset,
 	}
 
 	# Cache canonical ceiling Y for kinds that resolve attachment by tag.
@@ -996,7 +997,7 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			# Emissive objects: bright enough that inner_glow * color pushes
 			# past the bloom HDR threshold (0.25). The OBJECT is the light
 			# source — it needs to visibly glow, not just cast a floor Decal.
-			var boost: float = 1.0 + emissive * 0.9  # was 1.8 — dialed back, inner_glow does the work
+			var boost: float = 1.0 + emissive * 2.2  # cranked — object must visibly glow like Panda3D reference
 			mm.set_instance_color(i, Color(r * boost, g * boost, b * boost))
 		else:
 			var avg: float = (r + g + b) / 3.0
@@ -1059,11 +1060,15 @@ func _show_toast(msg: String) -> void:
 		toast_timer = 2.0
 
 func _setup_hud() -> void:
+	var overlay_cfg: Dictionary = kind_config.get("_global", {}).get("screenshot_overlay", {})
+	var font_size: int = overlay_cfg.get("font_size", 14)
+	var color_arr: Array = overlay_cfg.get("color", [0.7, 0.65, 0.55, 1.0])
+	var text_color := Color(color_arr[0], color_arr[1], color_arr[2], color_arr[3] if color_arr.size() > 3 else 1.0)
 	hud_label = Label.new()
 	hud_label.name = "HUD"
 	hud_label.position = Vector2(12, 8)
-	hud_label.add_theme_font_size_override("font_size", 14)
-	hud_label.add_theme_color_override("font_color", Color(0.7, 0.65, 0.55))
+	hud_label.add_theme_font_size_override("font_size", font_size)
+	hud_label.add_theme_color_override("font_color", text_color)
 	toast_label = Label.new()
 	toast_label.name = "Toast"
 	toast_label.position = Vector2(12, 30)
@@ -1078,40 +1083,16 @@ func _setup_hud() -> void:
 
 
 func _update_hud() -> void:
-	var biome: String = manifest.get("biome", "?")
-	var ent_count: int = manifest.get("entities", []).size()
-	var tension: String = manifest.get("tension_state", "")
-	var budget: float = manifest.get("tension_budget", 0.0)
-	var tiles: int = manifest.get("stats", {}).get("tiles", 1)
-	var conn_str := " [LIVE]" if connected else " [static]"
-
-	# Phase 1.5 — layer distribution readout. Sum layer membership weights
-	# across all visible entities to show the Merkabah wheel distribution
-	# in real time as the player moves. Each entity contributes its weights
-	# to the totals (entities in transition bands contribute to both layers).
-	var near_total: float = 0.0
-	var mid_total: float = 0.0
-	var far_total: float = 0.0
-	var void_total: float = 0.0
-	for ent: Dictionary in manifest.get("entities", []):
-		var lm: Dictionary = ent.get("layer_membership", {"near": 1.0})
-		near_total += lm.get("near", 0.0)
-		mid_total += lm.get("mid", 0.0)
-		far_total += lm.get("far", 0.0)
-		void_total += lm.get("void", 0.0)
-
-	var chrono: Dictionary = manifest.get("chronometer", {})
-	var phase: String = chrono.get("day_phase", "?")
-	var env: Dictionary = manifest.get("tension_envelope", {})
-	var lerp_t: float = env.get("lerp_t", 1.0)
-	var trans_str: String = " LERP" if env.get("transitioning", false) else ""
-	var dissoc: bool = env.get("dissociating", false)
-	var dwell: float = env.get("dwell_time", 0.0)
-	var dissoc_str: String = " | DISSOCIATING %.0fs" % dwell if dissoc else ""
-
-	hud_label.text = "Sanctum — %s | %d vis | %s (%.0f%% t=%.2f%s) | %s | N:%.0f M:%.0f F:%.0f V:%.0f | %d tiles%s%s" % [
-		biome, ent_count, tension, budget * 100, lerp_t, trans_str, phase,
-		near_total, mid_total, far_total, void_total, tiles, conn_str, dissoc_str]
+	var overlay_cfg: Dictionary = kind_config.get("_global", {}).get("screenshot_overlay", {})
+	if not overlay_cfg.get("enabled", true):
+		hud_label.text = ""
+		return
+	var cx: float = snapped(camera.position.x, 0.1)
+	var cy: float = snapped(camera.position.z, 0.1)
+	var ch: float = snapped(camera.rotation_degrees.y, 0.1)
+	var tension_st: String = manifest.get("tension_state", "?")
+	var vis: int = manifest.get("entities", []).size()
+	hud_label.text = _build_overlay_line(overlay_cfg, cx, cy, ch, tension_st, vis)
 
 
 # -- Brain server connection ---------------------------------------------------
@@ -1221,8 +1202,16 @@ func _rebuild_entities() -> void:
 	var new_by_kind: Dictionary = {}
 	collision_objects.clear()
 
+	var silhouette_ents: Array = []  # render_mode silhouette/hint → banner projection
 	for ent: Dictionary in manifest.get("entities", []):
 		var kind: String = ent.get("kind", "unknown")
+		var render_mode: String = ent.get("render_mode", "geometry")
+
+		# Non-geometry entities skip MultiMesh — they project onto banner cylinders
+		if render_mode == "silhouette" or render_mode == "hint":
+			silhouette_ents.append(ent)
+			continue
+
 		if not new_by_kind.has(kind):
 			new_by_kind[kind] = []
 		new_by_kind[kind].append(ent)
@@ -1253,7 +1242,12 @@ func _rebuild_entities() -> void:
 				kind_nodes[kind].queue_free()
 			_create_multimesh_for_kind(kind, ents)
 
-	# Contact shadow Decals — grounding for all rebuilt entities
+	# Silhouette shell — flat dark instances on outer shells.
+	# These are cheap: no grain, no normal, no decal, no mote.
+	# Just dark shapes at distance for spatial reading.
+	_rebuild_silhouettes(silhouette_ents)
+
+	# Contact shadow Decals — grounding for geometry entities only
 	_spawn_contact_shadows(new_by_kind)
 
 	# Motes: only rebuild when scene actually changes.
@@ -1267,6 +1261,87 @@ func _rebuild_entities() -> void:
 		mote_dirty = false
 		last_entity_count = ent_count
 		last_tension_state = t_state
+
+
+var silhouette_nodes: Dictionary = {}  # kind → MultiMeshInstance3D for silhouette shell
+
+func _rebuild_silhouettes(sil_ents: Array) -> void:
+	"""Rebuild silhouette-mode entities as flat dark shapes.
+
+	No grain, no normal, no decals, no motes. Just the mesh in flat dark color
+	so structural forms read as silhouettes at mid-distance. Cheaper than full
+	geometry: unshaded material, no per-instance effects.
+	"""
+	# Group by kind
+	var by_kind: Dictionary = {}
+	for ent: Dictionary in sil_ents:
+		var kind: String = ent.get("kind", "unknown")
+		if not by_kind.has(kind):
+			by_kind[kind] = []
+		by_kind[kind].append(ent)
+
+	# Remove old silhouette nodes for kinds no longer present
+	for kind: String in silhouette_nodes.keys():
+		if not by_kind.has(kind):
+			if is_instance_valid(silhouette_nodes[kind]):
+				silhouette_nodes[kind].queue_free()
+			silhouette_nodes.erase(kind)
+
+	for kind: String in by_kind:
+		var ents: Array = by_kind[kind]
+		# Check if rebuild needed (count changed)
+		if silhouette_nodes.has(kind) and is_instance_valid(silhouette_nodes[kind]):
+			var old_mm: MultiMesh = silhouette_nodes[kind].multimesh
+			if old_mm and old_mm.instance_count == ents.size():
+				continue  # same count, skip
+			silhouette_nodes[kind].queue_free()
+
+		var base_mesh: Mesh = _get_mesh_for_kind(kind, 0)
+		var bounds_key: String = kind if mesh_bounds.has(kind) else MESH_ALIAS.get(kind, kind)
+		var bounds: Dictionary = mesh_bounds.get(bounds_key, {})
+		var orig_scale: float = bounds.get("scale", 1.0)
+
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = base_mesh
+		mm.instance_count = ents.size()
+
+		for i in range(ents.size()):
+			var ent: Dictionary = ents[i]
+			var sv: float = ent.get("sv", 1.0)
+			var base_s: float = orig_scale * sv
+			var heading: float = deg_to_rad(ent.get("heading", 0.0))
+			var xform := Transform3D()
+			xform = xform.scaled(Vector3(base_s, base_s, base_s))
+			xform = xform.rotated(Vector3.UP, heading)
+			var ez: float = ent.get("z", 0.0)
+			var is_ceil: bool = ent.get("attachment_plane", "") == "ceiling"
+			if is_ceil:
+				xform = xform.rotated(Vector3.RIGHT, PI)
+				ez += base_s * 0.5
+			xform.origin = Vector3(ent.get("x", 0.0), ez, ent.get("y", 0.0))
+			mm.set_instance_transform(i, xform)
+			# Dark mass color — visible against fog but darker than lit geometry.
+			# Must read as a solid shape, not disappear into the background.
+			var render_mode: String = ent.get("render_mode", "silhouette")
+			var brightness: float = 0.12 if render_mode == "silhouette" else 0.06
+			mm.set_instance_color(i, Color(brightness, brightness * 0.9, brightness * 0.85))
+
+		# Flat unshaded material — cheapest possible rendering
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.04, 0.04, 0.06)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.cull_mode = BaseMaterial3D.CULL_BACK
+		mat.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+		var mi := MultiMeshInstance3D.new()
+		mi.multimesh = mm
+		mi.material_override = mat
+		mi.name = "Sil_%s" % kind
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		silhouette_nodes[kind] = mi
 
 
 func _update_atmosphere() -> void:
@@ -1431,6 +1506,7 @@ func _save_tag() -> void:
 	var vis: int = manifest.get("entities", []).size()
 	var fname: String = "sanctum_tag_%02d_x%s_y%s_h%s_%s_%dvis.png" % [
 		tag_count, str(cx), str(cy), str(ch), tension_st, vis]
+
 	# Save to absolute path — res:// is read-only at runtime
 	var tag_dir: String = "/Users/themrburn/git/sanctum-terminal/godot/tags"
 	DirAccess.make_dir_recursive_absolute(tag_dir)
@@ -1476,6 +1552,7 @@ func _save_tag() -> void:
 		"fog": manifest.get("fog", {}),
 		"ambient": manifest.get("ambient", []),
 		"connected": connected,
+		"overlay": hud_label.text,
 	}
 	var json_path: String = path.replace(".png", ".json")
 	var jfile := FileAccess.open(json_path, FileAccess.WRITE)
@@ -1485,6 +1562,54 @@ func _save_tag() -> void:
 	_show_toast("TAG #%d saved" % tag_count)
 	# Drop 3D marker at tag position
 	_drop_tag_marker(tag_count, camera.position)
+
+
+func _build_overlay_line(cfg: Dictionary,
+		cx: float, cy: float, ch: float, tension_st: String, vis: int) -> String:
+	"""Build the telemetry overlay string from config-driven field list."""
+	var sep: String = cfg.get("separator", " | ")
+	var fields: Array = cfg.get("fields", [])
+	var parts: PackedStringArray = PackedStringArray()
+	var chrono: Dictionary = manifest.get("chronometer", {})
+
+	for f: String in fields:
+		match f:
+			"biome":
+				parts.append(manifest.get("biome", "?"))
+			"position":
+				parts.append("x%.1f y%.1f" % [cx, cy])
+			"heading":
+				parts.append("h%.0f" % ch)
+			"fov":
+				parts.append("fov%.0f" % camera.fov)
+			"entities_visible":
+				parts.append("%dvis" % vis)
+			"tension_state":
+				parts.append(tension_st)
+			"tension_budget":
+				parts.append("t%.0f%%" % (manifest.get("tension_budget", 0.0) * 100))
+			"day_phase":
+				parts.append(chrono.get("day_phase", "?"))
+			"tiles":
+				parts.append("%dtiles" % manifest.get("stats", {}).get("tiles", 0))
+			"outline_mode":
+				parts.append(OUTLINE_MODE_NAMES[outline_mode])
+			"kind_summary":
+				var kc: Dictionary = {}
+				for ent_t: Dictionary in manifest.get("entities", []):
+					var k: String = ent_t.get("kind", "?")
+					kc[k] = kc.get(k, 0) + 1
+				var sorted_k: Array = kc.keys()
+				sorted_k.sort_custom(func(a: String, b: String) -> bool:
+					return kc[a] > kc[b])
+				var top: PackedStringArray = PackedStringArray()
+				for i: int in range(mini(3, sorted_k.size())):
+					top.append("%s:%d" % [sorted_k[i], kc[sorted_k[i]]])
+				parts.append(",".join(top) if top.size() > 0 else "empty")
+			"timestamp":
+				parts.append(Time.get_datetime_string_from_system(false, true))
+	return sep.join(parts)
+
 
 
 # -- Lighting + Motes ----------------------------------------------------------
@@ -1592,13 +1717,13 @@ const BIOME_LIGHT_PIPES := {
 	"cavern": [
 		{"name": "warm", "color": Color(0.50, 0.35, 0.12),
 		 "kinds": ["giant_fungus", "ceiling_moss", "firefly"],
-		 "energy": 14.0, "range": 24.0, "attenuation": 0.5},
+		 "energy": 22.0, "range": 28.0, "attenuation": 0.4},
 		{"name": "cool", "color": Color(0.30, 0.35, 0.60),
 		 "kinds": ["crystal_cluster", "filament", "exit_lure"],
-		 "energy": 16.0, "range": 24.0, "attenuation": 0.5},
+		 "energy": 26.0, "range": 28.0, "attenuation": 0.4},
 		{"name": "organic", "color": Color(0.15, 0.35, 0.10),
 		 "kinds": ["moss_patch"],
-		 "energy": 10.0, "range": 20.0, "attenuation": 0.5},
+		 "energy": 18.0, "range": 24.0, "attenuation": 0.4},
 	],
 	"outdoor": [
 		{"name": "warm", "color": Color(0.55, 0.45, 0.18),
@@ -2165,7 +2290,11 @@ func _physics_process(delta: float) -> void:
 			new_pos.x += (dx / dist) * push
 			new_pos.z += (dz / dist) * push
 
-	new_pos.y = EYE_HEIGHT
+	# Terrain elevation — brain sends terrain_z, camera follows the rolling field.
+	# Smooth lerp prevents jarring pops when height changes between frames.
+	var terrain_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
+	var target_y: float = EYE_HEIGHT + terrain_z
+	new_pos.y = lerpf(camera.position.y, target_y, 7.0 * delta)
 	camera.position = new_pos
 
 	# Creatures react to camera
@@ -2192,9 +2321,15 @@ func _physics_process(delta: float) -> void:
 					node.position.x = new_pos.x
 					node.position.y = new_pos.y
 			else:
-				# Floor/ceiling — track X/Z, keep Y
+				# Floor/ceiling — track X/Z, Y follows terrain height
 				node.position.x = new_pos.x
 				node.position.z = new_pos.z
+				if pkind == "ground":
+					var t_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
+					node.position.y = entry.get("offset", 0.0) + t_z
+				elif pkind == "ceiling":
+					var t_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
+					node.position.y = entry.get("offset", CEILING_PLANE_Y_DEFAULT) + t_z
 
 	# Banner cylinders follow camera X/Z, keep their Y offset
 	for bc: MeshInstance3D in banner_cylinders:
