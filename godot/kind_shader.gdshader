@@ -148,8 +148,10 @@ void fragment() {
 	// 1. Start from palette base
 	vec3 col = palette_base;
 
-	// 2. Blend in vertex color (subtle — just for per-instance variation)
-	col = mix(col, COLOR.rgb * palette_base * 2.0, vertex_color_blend);
+	// 2. Vertex color as edge darkening multiplier.
+	// Baked per-mesh: edge verts = 0.50 (dark mortar), interior = 1.0 (full stone).
+	// vertex_color_blend controls how much the baked edges show.
+	col *= mix(vec3(1.0), COLOR.rgb, vertex_color_blend);
 
 	// 3. Apply kind tint
 	col *= kind_tint;
@@ -178,9 +180,33 @@ void fragment() {
 		col *= 1.0 - wet_factor * 0.4;  // darken by up to 40% at base
 	}
 
-	// 4. World grain — subtle multiply for surface texture
+	// 4. Stone plate rendering — dark border, gradient, flat center per face.
+	// Every polygon reads as a distinct stone tile with mortar edges.
+	//
+	// Technique: screen-space partial derivatives of object-space position
+	// change direction at triangle boundaries. The cross-derivative magnitude
+	// spikes at edges even between coplanar faces because each triangle has
+	// its own interpolation gradient. This gives us per-face edge detection.
+
+	// Per-face edge detection via derivative discontinuity
+	vec3 dx = dFdx(VERTEX);
+	vec3 dy = dFdy(VERTEX);
+	// Rate of change of the derivatives — spikes at triangle edges
+	vec3 ddx = dFdx(dx);
+	vec3 ddy = dFdy(dy);
+	float edge_signal = length(ddx) + length(ddy);
+	// Normalize: 0 = face center, 1 = face edge
+	float face_edge = smoothstep(0.001, 0.08, edge_signal);
+
+	// Dark mortar at edges, clean stone at center
+	col *= mix(1.0, 0.45, face_edge * grain_strength);
+	// Faint lighter gradient just inside the edge (the "couple pixels" you described)
+	float inner_rim = smoothstep(0.08, 0.15, edge_signal) * (1.0 - face_edge);
+	col *= mix(1.0, 1.15, inner_rim * grain_strength);
+
+	// Secondary: world-space grain for subtle micro-texture within each plate
 	float grain = triplanar(grain_tex, world_pos, world_norm, grain_scale).r;
-	col *= mix(1.0, grain * 1.5 + 0.25, grain_strength);
+	col += vec3(grain * 0.04, grain * 0.035, grain * 0.03) * grain_strength * 0.5;
 
 	// 5. Normal map — subtle surface detail
 	if (normal_strength > 0.01) {
@@ -260,10 +286,9 @@ void fragment() {
 		col = mix(col, edge_color, edge * 0.85);
 	}
 
-	// Emissive objects: dim the albedo so the EMISSION does the visual work.
-	// High inner_glow → dark surface + bright emission = "light from within."
-	// Low inner_glow → normal albedo, no emission = opaque geological surface.
-	float albedo_dim = 1.0 - inner_glow * 0.7;  // at inner_glow=1.0, albedo is 30%
+	// Emissive objects: dim the albedo but preserve texture contrast.
+	// Inner glow dims the BASE color, not the texture detail on top.
+	float albedo_dim = 1.0 - inner_glow * 0.5;  // softer dim — was 0.7, texture was vanishing
 	ALBEDO = col * albedo_dim;
 	// Wet base reduces roughness — glossy damp surface catches light at ground contact
 	ROUGHNESS = roughness_base - wet_factor * 0.35 - inner_glow * 0.3;
@@ -281,7 +306,7 @@ void fragment() {
 		// Distance-scaled emission: near glows bright, far fades into fog.
 		// visibility already encodes layer membership (1.0 near → 0.15 void).
 		float emit_vis = max(visibility, 0.25);  // never fully dark — distant lamp in fog
-		emit_base = inner_glow * pulse * 1.5 * emit_vis;
+		emit_base = inner_glow * pulse * 4.0 * emit_vis;  // was 1.5 — emissives must overpower headlamp
 	}
 
 	// Rim light — fresnel edge glow for silhouette separation.

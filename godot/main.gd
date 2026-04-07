@@ -353,7 +353,7 @@ func _setup_environment() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	godot_env.ambient_light_energy = 0.18  # near-zero — darkness IS the default, light pools are the event
+	godot_env.ambient_light_energy = 0.40  # base visibility — every object shows texture, lights add character
 	godot_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 
 	godot_env.tonemap_mode = 2
@@ -428,19 +428,18 @@ func _setup_camera() -> void:
 	camera.position = Vector3(cam_data.get("x", 0.0), EYE_HEIGHT, cam_data.get("y", 0.0))
 	camera.rotation_degrees.y = cam_data.get("heading", 0.0)
 	camera.rotation_degrees.x = 10.0  # upward tilt — catches stalactites + ceiling features naturally
-	# Head light — personal illumination bubble attached to the camera.
-	# Solves perception-vs-collision confusion in dark areas. Soft warm-neutral
-	# glow with smooth attenuation — reveals nearby surfaces without flooding scene.
-	# Reference: Styx Amber vision glow, Dark Souls torch, Alien Isolation tracker.
-	var head_light := OmniLight3D.new()
-	head_light.name = "HeadLight"
-	head_light.light_color = Color(1.0, 0.92, 0.80)  # warm-neutral, not pure white
-	head_light.light_energy = 0.5
-	head_light.omni_range = 8.0
-	head_light.omni_attenuation = 1.8  # steep falloff — bright nearby, fades to touch at 18m
-	head_light.shadow_enabled = false
-	head_light.position = Vector3.ZERO  # at camera origin, moves with it
-	camera.add_child(head_light)
+	# Armor glow — warm omnidirectional bloom at waist height.
+	# Not a flashlight — a lantern. Lights ground AND objects equally from
+	# player's body, like bioluminescent armor plating. Soft dome of presence.
+	var armor_glow := OmniLight3D.new()
+	armor_glow.name = "ArmorGlow"
+	armor_glow.light_color = Color(0.95, 0.80, 0.55)  # warm amber, like firelight
+	armor_glow.light_energy = 1.8
+	armor_glow.omni_range = 12.0
+	armor_glow.omni_attenuation = 1.2  # gentle falloff — dome, not spotlight
+	armor_glow.shadow_enabled = false
+	armor_glow.position = Vector3(0.0, -1.2, 0.0)  # waist height below camera
+	camera.add_child(armor_glow)
 
 
 func _aim_spawn_heading() -> void:
@@ -599,7 +598,7 @@ func _legacy_cavern_planes() -> Array:
 			"normal": [0.0, 0.0, 1.0], "offset": 0.0, "layer": "near",
 			"size": 2000.0, "follow_camera": true,
 			"material": {
-				"color_base": [0.04, 0.035, 0.03], "grain_scale": 0.22,
+				"color_base": [0.035, 0.028, 0.02], "grain_scale": 0.22,
 				"grain_strength": 0.85, "normal_strength": 1.5,
 			},
 		},
@@ -608,7 +607,7 @@ func _legacy_cavern_planes() -> Array:
 			"normal": [0.0, 0.0, -1.0], "offset": CEILING_PLANE_Y_DEFAULT, "layer": "near",
 			"size": 2000.0, "follow_camera": true,
 			"material": {
-				"color_base": [0.04, 0.035, 0.03], "grain_scale": 0.22,
+				"color_base": [0.025, 0.02, 0.018], "grain_scale": 0.22,
 				"grain_strength": 0.55, "normal_strength": 1.1,
 			},
 		},
@@ -719,6 +718,10 @@ func _spawn_entities() -> void:
 
 	for ent: Dictionary in manifest.get("entities", []):
 		var kind: String = ent.get("kind", "unknown")
+		# Creature kinds get their own MeshInstance3D via _spawn_creatures().
+		# Exclude from MultiMesh to prevent ghost duplicates at spawn point.
+		if CREATURE_KINDS.has(kind):
+			continue
 		if not by_kind.has(kind):
 			by_kind[kind] = []
 		by_kind[kind].append(ent)
@@ -1008,35 +1011,8 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 	add_child(mmi)
 	kind_nodes["Kind_%s_v%d" % [kind, variant]] = mmi
 
-	# Inverted hull outline — outer silhouette. Slightly larger, dark, front-face culled.
-	# Post-process is broken on Metal, so hull is the sole outer edge system.
-	var hull_kinds: Array = ["crystal_cluster", "stalagmite", "boulder",
-		"mega_column", "column", "giant_fungus", "buttress", "rubble"]
-	if kind in hull_kinds and has_real_mesh:
-		var hull_mm := MultiMesh.new()
-		hull_mm.transform_format = MultiMesh.TRANSFORM_3D
-		hull_mm.mesh = base_mesh
-		hull_mm.instance_count = ents.size()
-
-		var hull_scale: float = 1.06  # 6% larger = visible outline thickness
-		for hi in range(ents.size()):
-			var src_xform: Transform3D = mm.get_instance_transform(hi)
-			var hull_xform := src_xform.scaled_local(Vector3.ONE * hull_scale)
-			hull_mm.set_instance_transform(hi, hull_xform)
-
-		var hull_mat := StandardMaterial3D.new()
-		hull_mat.albedo_color = Color(0.0, 0.0, 0.0)
-		hull_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		hull_mat.cull_mode = BaseMaterial3D.CULL_FRONT  # only back faces = dark silhouette
-		hull_mat.no_depth_test = false
-
-		var hull_mmi := MultiMeshInstance3D.new()
-		hull_mmi.multimesh = hull_mm
-		hull_mmi.name = "Hull_%s_v%d" % [kind, variant]
-		hull_mmi.material_override = hull_mat
-		hull_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(hull_mmi)
-		kind_nodes["Hull_%s_v%d" % [kind, variant]] = hull_mmi
+	# Hull outlines removed — created ground seam artifacts. Per-material facet
+	# edges + rim light handle object definition. Outlines need proper solution later.
 
 
 var toast_label: Label
@@ -1194,6 +1170,9 @@ func _rebuild_entities() -> void:
 	var silhouette_ents: Array = []  # render_mode silhouette/hint → banner projection
 	for ent: Dictionary in manifest.get("entities", []):
 		var kind: String = ent.get("kind", "unknown")
+		# Creature kinds handled by _spawn_creatures() — skip MultiMesh
+		if CREATURE_KINDS.has(kind):
+			continue
 		var render_mode: String = ent.get("render_mode", "geometry")
 
 		# Non-geometry entities skip MultiMesh — they project onto banner cylinders
@@ -1348,8 +1327,8 @@ func _update_atmosphere() -> void:
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	# Darkness IS the default — light pipes and headlamp are the events
-	godot_env.ambient_light_energy = 0.12
+	# Base visibility — every object shows texture, lights add character
+	godot_env.ambient_light_energy = 0.40
 
 	# Chronometer modulation — subtle, never fight the cavern's ambient floor
 	var chrono: Dictionary = manifest.get("chronometer", {})
