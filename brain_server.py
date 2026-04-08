@@ -46,17 +46,17 @@ from core.systems.biome_data import MACRO_STAMP_CAVERN_CHAMBER
 
 KIND_PROPS = {
     "mega_column":     {"scale": [3.0, 3.0, 12.0], "color": [0.28, 0.22, 0.16], "emissive": 0.0},
-    "column":          {"scale": [1.8, 1.8, 8.0],  "color": [0.30, 0.25, 0.18], "emissive": 0.0},
+    "column":          {"scale": [2.25, 2.25, 10.0], "color": [0.30, 0.25, 0.18], "emissive": 0.0},
     "buttress":        {"scale": [2.5, 2.5, 6.0],  "color": [0.26, 0.21, 0.16], "emissive": 0.0},
-    "boulder":         {"scale": [4.0, 3.5, 2.5],  "color": [0.25, 0.42, 0.16], "emissive": 0.0},
-    "stalagmite":      {"scale": [0.8, 0.8, 3.0],  "color": [0.28, 0.24, 0.18], "emissive": 0.0},
+    "boulder":         {"scale": [5.0, 4.4, 3.1],  "color": [0.25, 0.42, 0.16], "emissive": 0.0},
+    "stalagmite":      {"scale": [1.0, 1.0, 3.75], "color": [0.28, 0.24, 0.18], "emissive": 0.0},
     "crystal_cluster": {"scale": [2.8, 2.2, 3.5],  "color": [0.50, 0.55, 0.80], "emissive": 1.0},
-    "giant_fungus":    {"scale": [2.0, 2.0, 3.5],  "color": [0.30, 0.50, 0.25], "emissive": 0.8},
-    "dead_log":        {"scale": [3.0, 0.8, 0.6],  "color": [0.19, 0.27, 0.12], "emissive": 0.0},
+    "giant_fungus":    {"scale": [2.5, 2.5, 4.4],  "color": [0.30, 0.50, 0.25], "emissive": 0.8},
+    "dead_log":        {"scale": [3.75, 1.0, 0.75],"color": [0.19, 0.27, 0.12], "emissive": 0.0},
     "moss_patch":      {"scale": [1.5, 1.5, 0.15], "color": [0.22, 0.45, 0.15], "emissive": 0.9},
     "bone_pile":       {"scale": [0.6, 0.6, 0.3],  "color": [0.14, 0.13, 0.11], "emissive": 0.0},
     "grass_tuft":      {"scale": [0.3, 0.3, 0.25], "color": [0.18, 0.33, 0.11], "emissive": 0.0},
-    "rubble":          {"scale": [0.8, 0.8, 0.4],  "color": [0.28, 0.24, 0.19], "emissive": 0.0},
+    "rubble":          {"scale": [1.0, 1.0, 0.5],  "color": [0.28, 0.24, 0.19], "emissive": 0.0},
     "leaf_pile":       {"scale": [0.5, 0.5, 0.1],  "color": [0.30, 0.23, 0.12], "emissive": 0.0},
     "twig_scatter":    {"scale": [0.6, 0.4, 0.05], "color": [0.25, 0.21, 0.14], "emissive": 0.0},
     "cave_gravel":     {"scale": [0.2, 0.2, 0.05], "color": [0.24, 0.22, 0.16], "emissive": 0.0},
@@ -151,6 +151,9 @@ class BrainWorld:
         self.spawns = {}         # eid → (kind, x, y, z, heading, seed)
         self.loaded_tiles = set()
         self.next_eid = 0
+        # Structural anchor positions — for boulder proximity checks.
+        # Built incrementally as tiles load. (kind, x, y)
+        self._structural_positions = []
 
         # Generate center tile
         self._generate_tile(0, 0)
@@ -186,6 +189,16 @@ class BrainWorld:
         offset_y = ty * self.tile_size
         half = self.tile_size / 2.0
 
+        # Pre-pass: collect structural anchor positions for this tile so
+        # boulder proximity logic can reference them. O(n) over tile spawns.
+        _STRUCTURAL_KINDS = {"column", "mega_column", "buttress"}
+        for spawn in tile_spawns:
+            sk, (slx, sly), _, _, _ = spawn
+            if sk in _STRUCTURAL_KINDS:
+                sx_pos = slx - half + offset_x
+                sy_pos = sly - half + offset_y
+                self._structural_positions.append((sk, sx_pos, sy_pos))
+
         for spawn in tile_spawns:
             # Spawns are 5-tuples: (kind, (x,y), heading, seed, metadata_or_None)
             kind, (lx, ly), heading, kseed, meta = spawn
@@ -214,6 +227,43 @@ class BrainWorld:
             # Per-seed variation
             srng = random.Random(kseed)
             sv = srng.uniform(0.75, 1.25) * 1.30  # global scale boost — exaggerated but believable
+
+            # Boulder 75/25 split: 25% stay small IF near a structural anchor.
+            # Small boulders read as debris at the base of columns/mega_columns.
+            # The 75% that aren't near anchors get full (upgraded) scale.
+            if kind == "boulder":
+                near_anchor = False
+                for ak, ax, ay, *_ in self._structural_positions:
+                    dx, dy = x - ax, y - ay
+                    if dx * dx + dy * dy < 64.0:  # 8m radius
+                        near_anchor = True
+                        break
+                if near_anchor and srng.random() < 0.75:
+                    # Shrink to ~80% of original pre-upgrade size
+                    sv *= 0.64
+
+            # Crystal size variation: 10% render as small fragments (0.5x scale).
+            # Creates geological scatter — big formations + small debris.
+            if kind == "crystal_cluster" and srng.random() < 0.10:
+                sv *= 0.5
+
+            # Vine/moss attachment: snap to nearest structural surface.
+            # Instead of floating mid-air, drape on the closest column/stalag.
+            if kind in ("hanging_vine", "ceiling_moss"):
+                best_dist2 = 900.0  # 30m max search radius
+                snap_x, snap_y = x, y
+                for ak, ax, ay in self._structural_positions:
+                    dx, dy = x - ax, y - ay
+                    d2 = dx * dx + dy * dy
+                    if d2 < best_dist2 and d2 > 1.0:  # not ON the anchor
+                        best_dist2 = d2
+                        # Snap toward anchor surface — offset by ~2m from center
+                        dist = math.sqrt(d2)
+                        frac = min(1.0, 2.5 / dist)  # move toward anchor
+                        snap_x = x + (ax - x) * frac
+                        snap_y = y + (ay - y) * frac
+                x, y = snap_x, snap_y
+
             sx, sy_s, sz = props["scale"]
             r, g, b = props["color"]
 

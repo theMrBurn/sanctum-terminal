@@ -19,13 +19,13 @@ BIOME_CAVERN_DEFAULT = [
     ("boulder",           1.20,    3.0,       3),
     ("stalagmite",        1.80,    3.0,       2),
     ("giant_fungus",      0.30,    2.5,       3),
-    ("crystal_cluster",   0.25,    2.0,       3),
+    ("crystal_cluster",   1.10,    2.0,       3),
     ("dead_log",          0.50,    1.5,       2),
     ("bone_pile",         0.25,    0,         2),
-    ("moss_patch",        0.40,    0,         2),
-    ("ceiling_moss",      0.10,    0,         5),  # reduced — most placed via spore-spread from columns
+    ("moss_patch",        0.55,    0,         2),  # boosted — filament budget redistributed
+    ("ceiling_moss",      0.15,    0,         5),  # boosted — filament budget redistributed
     ("hanging_vine",      0.35,    0,         4),
-    ("filament",          0.15,    4.0,       2),  # reduced — most placed via landmarks/stamps
+    # filament removed — useless in current form, density redistributed to moss/ceiling_moss
     ("firefly",           0.40,    0,         1),
     ("grass_tuft",        0.60,    0,         1),
     ("rubble",            0.50,    0,         1),
@@ -270,11 +270,12 @@ OUTDOOR_TILE_VARIANTS = {
 # -- Companion spawns (ecosystem clustering) -----------------------------------
 
 COMPANION_SPAWNS = {
-    "boulder":    {"grass_tuft": 1, "radius": 4.0},
-    "column":     {"grass_tuft": 1, "radius": 5.0},
-    "moss_patch": {"grass_tuft": 1, "radius": 2.0},
-    "dead_log":   {"grass_tuft": 1, "radius": 2.5},
-    "stalagmite": {"grass_tuft": 1, "radius": 3.0},
+    "boulder":      {"grass_tuft": 1, "moss_patch": 1, "radius": 4.0},
+    "column":       {"grass_tuft": 1, "moss_patch": 1, "radius": 3.0},
+    "mega_column":  {"moss_patch": 1, "radius": 4.0},
+    "moss_patch":   {"grass_tuft": 1, "radius": 2.0},
+    "dead_log":     {"grass_tuft": 1, "radius": 2.5},
+    "stalagmite":   {"grass_tuft": 1, "radius": 3.0},
 }
 
 OUTDOOR_COMPANION_SPAWNS = {
@@ -1087,7 +1088,7 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.35, 0.32, 0.28],  # cavern ceiling — ground color -2 steps, clearly not black
+                "color_base": [0.12, 0.11, 0.09],  # cavern ceiling — deep overhead, warm not black
                 "grain_scale": 0.06,
                 "grain_strength": 0.0,
                 "normal_strength": 0.0,

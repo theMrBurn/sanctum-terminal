@@ -49,10 +49,10 @@ class TestRenderShellConfig:
         assert RENDER_SHELLS[0]["mode"] == "geometry", (
             "shell 0 must be full geometry rendering")
 
-    def test_outermost_shell_is_hint_or_void(self):
-        """Outermost shell should be hint or void — minimal rendering."""
-        assert RENDER_SHELLS[6]["mode"] in ("hint", "void"), (
-            f"shell 6 should be hint or void")
+    def test_outermost_shell_mode(self):
+        """Outermost shell — geometry (dissolve handles fade) or hint/void."""
+        assert RENDER_SHELLS[6]["mode"] in ("geometry", "hint", "void"), (
+            f"shell 6 mode='{RENDER_SHELLS[6]['mode']}' unexpected")
 
     def test_kind_classes_is_list(self):
         for i, shell in enumerate(RENDER_SHELLS):

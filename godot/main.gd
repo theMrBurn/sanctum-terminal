@@ -260,9 +260,18 @@ func _setup_environment() -> void:
 	# Clean room: fog OFF — see everything at all distances
 	godot_env.fog_enabled = false
 
-	# Cavern void — warm dark, clearly not black
+	# Background = ceiling plane color from manifest (biome_data is single source of truth).
+	# Falls back to project.godot clear_color if no ceiling plane found.
+	var bg := Color(0.10, 0.09, 0.08)
+	var planes: Array = manifest.get("planes", [])
+	for p in planes:
+		if p.get("kind", "") == "ceiling":
+			var cb: Array = p.get("material", {}).get("color_base", [])
+			if cb.size() >= 3:
+				bg = Color(cb[0], cb[1], cb[2])
+			break
 	godot_env.background_mode = Environment.BG_COLOR
-	godot_env.background_color = Color(0.30, 0.27, 0.24)
+	godot_env.background_color = bg
 
 	# Clean room: neutral grey ambient, no color bias
 	godot_env.ambient_light_color = Color(1.0, 1.0, 1.0)
@@ -479,7 +488,7 @@ func _legacy_cavern_planes() -> Array:
 			"normal": [0.0, 0.0, -1.0], "offset": CEILING_PLANE_Y_DEFAULT, "layer": "near",
 			"size": 2000.0, "follow_camera": true,
 			"material": {
-				"color_base": [0.025, 0.02, 0.018], "grain_scale": 0.22,
+				"color_base": [0.12, 0.11, 0.09], "grain_scale": 0.22,  # must match biome_data ceiling
 				"grain_strength": 0.55, "normal_strength": 1.1,
 			},
 		},
@@ -1022,16 +1031,11 @@ func _process_responses() -> void:
 		if data.get("unchanged", false):
 			continue
 
-		# Full manifest update — only rebuild geometry when scene content changes.
-		# Atmosphere + HUD always update (cheap). Entity/mote rebuild is expensive
-		# and gated by dirty detection: entity count or tension state change.
-		var old_ent_count: int = manifest.get("entities", []).size()
-		var old_tension: String = manifest.get("tension_state", "open")
+		# Full manifest update — brain sent new data, rebuild entities.
+		# The brain handles dirty detection via "unchanged" flag above.
+		# If we got here, the scene HAS changed — always rebuild.
 		manifest = data
-		var new_ent_count: int = data.get("entities", []).size()
-		var new_tension: String = data.get("tension_state", "open")
-		if new_ent_count != old_ent_count or new_tension != old_tension:
-			_rebuild_entities()
+		_rebuild_entities()
 		_update_atmosphere()
 		_update_hud()
 

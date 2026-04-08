@@ -1353,42 +1353,87 @@ def build_boulder(parent, seed=0):
     return root
 
 
-def build_grass_tuft(parent, seed=0):
-    """Cave grass clump — dense cluster of blades from multiple growth points.
+def _make_crossed_quad(w, h, color, seed=0, crosses=3):
+    """Crossed billboard quads — 2-3 flat planes intersecting at angles.
 
-    3-4 sub-clumps packed together, each with its own blade fan.
-    No gaps — reads as a thick patch of cave sedge, not scattered sticks.
-    Similar density pattern to crystal satellites or fungus clusters.
+    Each cross is a pair of tapered rectangles (wide base, narrow top)
+    rotated around Y axis. Walk-by parallax from the intersection.
+    No alpha needed — solid colored, works with flat-shaded pipeline.
+    ~12 verts per cross vs ~200+ for equivalent make_rock blades.
+    """
+    from panda3d.core import (GeomVertexFormat, GeomVertexData,
+                              GeomVertexWriter, GeomTriangles, Geom, GeomNode)
+    rng = random.Random(seed)
+    fmt = GeomVertexFormat.getV3c4()
+    r, g, b = color
+    # Each cross = `crosses` quads, each quad = 2 tris = 6 verts
+    vdata = GeomVertexData("xgrass", fmt, Geom.UHStatic)
+    vdata.setNumRows(crosses * 6)
+    vw = GeomVertexWriter(vdata, "vertex")
+    cw = GeomVertexWriter(vdata, "color")
+    tris = GeomTriangles(Geom.UHStatic)
+    vi = 0
+    taper = rng.uniform(0.2, 0.4)  # top width as fraction of base
+    for ci in range(crosses):
+        angle = math.pi * ci / crosses + rng.uniform(-0.2, 0.2)
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+        hw = w * 0.5  # half-width at base
+        tw = hw * taper  # half-width at top
+        blade_h = h * rng.uniform(0.7, 1.0)
+        # Two shades — front/back faces get different brightness
+        shade = rng.uniform(0.85, 1.0)
+        cr, cg, cb = r * shade, g * shade, b * shade
+        # Quad: bottom-left, bottom-right, top-right, top-left
+        bl = (-hw * cos_a, -hw * sin_a, 0.0)
+        br = (hw * cos_a, hw * sin_a, 0.0)
+        tr = (tw * cos_a, tw * sin_a, blade_h)
+        tl = (-tw * cos_a, -tw * sin_a, blade_h)
+        for px, py, pz in (bl, br, tr, bl, tr, tl):
+            vw.addData3(px, py, pz)
+            # Height-based color shift — darker at base (moisture)
+            h_frac = pz / max(blade_h, 0.01)
+            cw.addData4(cr * (0.7 + 0.3 * h_frac),
+                        cg * (0.7 + 0.3 * h_frac),
+                        cb * (0.7 + 0.3 * h_frac), 1.0)
+            tris.addVertex(vi)
+            vi += 1
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    gn = GeomNode("xgrass")
+    gn.addGeom(geom)
+    return gn
+
+
+def build_grass_tuft(parent, seed=0):
+    """Cave grass — crossed billboard quads for cheap wide coverage.
+
+    Each scatter point is 2-3 crossed quads (~18 verts) instead of
+    hundreds of make_rock blades. Walk-by parallax from the intersection
+    angles. Dome profile: center crosses tall, edge crosses shorter.
+    ~100 verts per instance covers ~1.2m diameter.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"grass_{seed}")
-    # Multiple growth points packed together — no gaps
-    clump_count = rng.randint(3, 4)
-    for ci in range(clump_count):
-        clump_angle = rng.uniform(0, 360)
-        clump_dist = rng.uniform(0.0, 0.08)  # tight packing
-        cx = math.cos(math.radians(clump_angle)) * clump_dist
-        cy = math.sin(math.radians(clump_angle)) * clump_dist
-        blade_count = rng.randint(4, 8)
-        max_h = rng.uniform(0.15, 0.35)
-        for i in range(blade_count):
-            rank = i / blade_count
-            h = max_h * rng.uniform(0.4, 1.0 - rank * 0.3)
-            w = rng.uniform(0.006, 0.014)
-            color = _cavern_color("dead_organic", rng, 0.03)
-            blade = root.attachNewNode(make_rock(
-                w * 0.5, h * 0.4, w * 0.15, color,
-                rings=3, segments=3, seed=seed + ci * 100 + i * 19,
-                roughness=rng.uniform(0.1, 0.25),
-            ))
-            angle = rng.uniform(0, 360)
-            dist = rng.uniform(0.01, 0.05)
-            blade.setPos(cx + math.cos(math.radians(angle)) * dist,
-                         cy + math.sin(math.radians(angle)) * dist, h * 0.5)
-            blade.setH(angle + rng.uniform(-40, 40))
-            blade.setP(rng.uniform(-30, 30))
-            blade.setR(rng.uniform(-20, 20))
-        blade.setTwoSided(True)
+    patch_radius = 0.6
+    cross_count = rng.randint(8, 12)
+    for ci in range(cross_count):
+        angle = rng.uniform(0, 360)
+        dist = rng.uniform(0.0, patch_radius)
+        cx = math.cos(math.radians(angle)) * dist
+        cy = math.sin(math.radians(angle)) * dist
+        # Dome profile
+        edge_t = dist / patch_radius
+        dome_scale = 1.0 - edge_t * 0.6
+        dome_sink = edge_t * edge_t * -0.03
+        h = rng.uniform(0.12, 0.30) * dome_scale
+        w = rng.uniform(0.04, 0.08)
+        color = _cavern_color("dead_organic", rng, 0.03)
+        crosses = rng.choice([2, 3, 3])  # most get 3 crosses
+        cross = root.attachNewNode(_make_crossed_quad(
+            w, h, color, seed=seed + ci * 71, crosses=crosses))
+        cross.setPos(cx, cy, dome_sink)
+        cross.setH(rng.uniform(0, 360))
+        cross.setTwoSided(True)
     tex = get_material_texture("dry_organic", seed=seed)
     ts = TextureStage("mat")
     ts.setMode(TextureStage.MModulate)
@@ -1626,32 +1671,65 @@ def build_stalagmite(parent, seed=0):
 
 
 def build_column(parent, seed=0):
-    """Massive cave column — single connected make_rock per profile.
+    """Cave column — flared base, eroded stem, 1/3 connect floor-to-ceiling.
 
-    No multi-section gaps. One tall rock with roughness providing
-    the surface variation that reads as geological character.
-    Profiles control the width/depth/height ratios.
+    Profiles: pillar (standard), curtain (thin wall), connected (floor-to-ceiling),
+    broken (short stump). Connected columns reuse the same geometry stretched
+    tall enough to reach ceiling — primitive inversion, not a new mesh.
+
+    Erosion: per-ring radius modulation creates vertical grooves and bulges
+    that read as water-carved channels at close range and irregular silhouette
+    at distance. Base flare uses cosine falloff from ground level.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"column_{seed}")
 
-    profile = rng.choice(["pillar", "pillar", "curtain", "broken"])  # hourglass removed — gap source
-    total_height = rng.uniform(12.0, 20.0)
+    # 1/3 connected (floor-to-ceiling), rest split between pillar/curtain/broken
+    profile = rng.choice(["pillar", "pillar", "curtain", "broken",
+                          "connected", "connected", "connected"])
     base_radius = rng.uniform(1.5, 3.0)
 
-    if profile == "pillar":
+    if profile == "connected":
+        total_height = rng.uniform(22.0, 30.0)  # tall enough to reach ceiling
+        w = base_radius * 1.1
+        d = base_radius * rng.uniform(0.7, 1.0)
+        roughness = rng.uniform(0.20, 0.35)
+    elif profile == "pillar":
+        total_height = rng.uniform(12.0, 20.0)
         w = base_radius
         d = base_radius * rng.uniform(0.7, 1.0)
         roughness = rng.uniform(0.25, 0.45)
     elif profile == "curtain":
+        total_height = rng.uniform(12.0, 20.0)
         w = base_radius * rng.uniform(1.5, 2.5)
         d = base_radius * 0.3  # thin wall
         roughness = rng.uniform(0.15, 0.30)
     elif profile == "broken":
-        total_height *= rng.uniform(0.3, 0.5)
+        total_height = rng.uniform(12.0, 20.0) * rng.uniform(0.3, 0.5)
         w = base_radius
         d = base_radius * rng.uniform(0.6, 0.9)
         roughness = rng.uniform(0.35, 0.55)  # jagged top
+
+    # -- Base flare: widen the bottom 25% of the column --
+    # Stored as tag so make_rock can apply per-ring radius scaling.
+    # flare_ratio: how much wider the base is vs the stem (1.6 = 60% wider)
+    flare_ratio = rng.uniform(1.4, 1.8)
+    flare_height_frac = 0.25  # bottom quarter gets the flare
+
+    # -- Erosion grooves: per-segment angular modulation --
+    # 3-5 vertical channels carved into the stem
+    num_grooves = rng.randint(3, 5)
+    groove_angles = [rng.uniform(0, 2 * 3.14159) for _ in range(num_grooves)]
+    groove_depths = [rng.uniform(0.08, 0.15) for _ in range(num_grooves)]
+    groove_width = rng.uniform(0.3, 0.5)  # angular width of each groove
+
+    # Pack erosion params into a tag for make_rock_column
+    erosion = {
+        "flare_ratio": flare_ratio,
+        "flare_height_frac": flare_height_frac,
+        "grooves": list(zip(groove_angles, groove_depths)),
+        "groove_width": groove_width,
+    }
 
     mineral_bases = [
         (0.11, 0.11, 0.13),
@@ -1662,17 +1740,16 @@ def build_column(parent, seed=0):
     sv = rng.uniform(-0.02, 0.02)
     color = (base_color[0] + sv, base_color[1] + sv * 0.7, base_color[2] + sv * 0.5)
 
-    # Single connected rock — height compensated for bottom squash
     col = root.attachNewNode(make_rock(
         w, total_height * 0.5 * 1.6, d, color,
         rings=14, segments=12, seed=seed,
         roughness=roughness,
+        erosion=erosion,
     ))
     col.setPos(0, 0, 0)
     col.setTwoSided(True)
 
-    # Store actual width for collision scaling (curtains are wider than default)
-    root.setPythonTag("base_radius", max(w, d))
+    root.setPythonTag("base_radius", max(w, d) * flare_ratio)
 
     tex = get_material_texture("stone_light", seed=seed)
     ts = TextureStage("mat")
@@ -1875,12 +1952,14 @@ def build_giant_fungus(parent, seed=0):
         waist.setLightOff()
         waist.setColorScale(1.5, 0.5, 2.0, 1.0)
 
-        # Cap — sits directly on top of waist, overlapping into it
-        cap_h = total_h * 0.30  # taller cap, less disc-like
-        cap_z = waist_z + waist_h * 0.15  # physically inside waist top
+        # Cap — wide flat mushroom disc on top of waist. Width 1.5-2.5x stem,
+        # height only 15% of total. Reads as shelf fungus / bracket cap.
+        cap_r_wide = base_r * rng.uniform(1.5, 2.5)
+        cap_h = total_h * 0.15  # flat pancake
+        cap_z = waist_z + waist_h * 0.15
         cap = root.attachNewNode(make_rock(
-            cap_r, cap_h * 0.5, cap_r * 0.9, glow_color,
-            rings=8, segments=10, seed=seed + 99, roughness=rng.uniform(0.08, 0.18),
+            cap_r_wide, cap_h * 0.4, cap_r_wide * rng.uniform(0.8, 1.0), glow_color,
+            rings=6, segments=12, seed=seed + 99, roughness=rng.uniform(0.05, 0.12),
         ))
         cap.setPos(0, 0, cap_z)
         cap.setTwoSided(True)
@@ -2266,10 +2345,11 @@ def build_ceiling_moss(parent, seed=0):
 
 
 def build_hanging_vine(parent, seed=0):
-    """Thin vine draping downward — single tapered rock, not dashed segments.
+    """Hanging vine — multi-segment spiral drape from ceiling.
 
+    5-8 segments with cumulative twist create a natural corkscrew.
+    Each segment is a small make_rock, positioned along a helical path.
     Dark organic, barely visible until backlit by bioluminescence.
-    Slight lean gives it a natural droop.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"vine_{seed}")
@@ -2278,15 +2358,37 @@ def build_hanging_vine(parent, seed=0):
     vine_length = rng.uniform(hang_height * 0.4, hang_height * 0.6)
     w = rng.uniform(0.03, 0.08)
     color = (0.05, 0.06, 0.04)
+    segments = rng.randint(5, 8)
+    seg_len = vine_length / segments
 
-    vine = root.attachNewNode(make_rock(
-        w, vine_length * 0.5, w * rng.uniform(0.5, 0.8), color,
-        rings=4, segments=4, seed=seed, roughness=rng.uniform(0.15, 0.30),
-    ))
-    vine.setPos(rng.uniform(-0.5, 0.5), rng.uniform(-0.5, 0.5), hang_height - vine_length * 0.5)
-    vine.setR(rng.uniform(-12, 12))
-    vine.setP(rng.uniform(-8, 8))
-    vine.setTwoSided(True)
+    # Spiral parameters — how tightly it corkscrews
+    spiral_radius = rng.uniform(0.05, 0.15)
+    spiral_rate = rng.uniform(1.5, 3.0)  # turns over the vine length
+    base_angle = rng.uniform(0, 360)
+
+    for i in range(segments):
+        t = i / segments  # 0 at top, 1 at bottom
+        z = hang_height - i * seg_len
+        # Helical offset — spiral around the vertical axis
+        angle_rad = math.radians(base_angle + t * 360 * spiral_rate)
+        # Radius increases toward bottom (gravity sag)
+        r_here = spiral_radius * (1.0 + t * 0.5)
+        sx = math.cos(angle_rad) * r_here
+        sy = math.sin(angle_rad) * r_here
+
+        # Each segment slightly thinner toward the tip
+        seg_w = w * (1.0 - t * 0.4)
+        seg = root.attachNewNode(make_rock(
+            seg_w, seg_len * 0.4, seg_w * rng.uniform(0.5, 0.8), color,
+            rings=3, segments=3, seed=seed + i * 17,
+            roughness=rng.uniform(0.15, 0.30),
+        ))
+        seg.setPos(sx, sy, z)
+        # Tilt each segment to follow the spiral direction
+        seg.setH(math.degrees(angle_rad) + rng.uniform(-20, 20))
+        seg.setR(rng.uniform(-18, 18))
+        seg.setP(rng.uniform(-12, 12))
+        seg.setTwoSided(True)
 
     tex = get_material_texture("dry_organic", seed=seed)
     ts = TextureStage("mat")
@@ -2295,7 +2397,7 @@ def build_hanging_vine(parent, seed=0):
     root.setTexture(ts, tex)
     sc = _mat_scale("dry_organic")
     root.setTexScale(ts, sc, sc)
-    root.setColorScale(0.45, 0.50, 0.40, 1.0)  # dark but slightly green-shifted
+    root.setColorScale(0.45, 0.50, 0.40, 1.0)
     return root
 
 
@@ -2406,10 +2508,19 @@ def build_filament(parent, seed=0):
     color = (0.06, 0.06, 0.07)
     thickness = rng.uniform(0.003, 0.008)
 
+    # Each segment dangles from the previous — cumulative drift + rotation
+    # creates a chain-sag effect, not a rigid pole.
+    drift_x, drift_y = 0.0, 0.0
     for i in range(segments):
         seg = root.attachNewNode(make_box(thickness, thickness, seg_len * 0.45, color))
         z = hang_z - i * seg_len
-        seg.setPos(rng.uniform(-0.03, 0.03), rng.uniform(-0.03, 0.03), z)
+        # Progressive drift — each segment swings further from vertical
+        drift_x += rng.uniform(-0.08, 0.08)
+        drift_y += rng.uniform(-0.08, 0.08)
+        seg.setPos(drift_x, drift_y, z)
+        # Each segment tilts slightly from the one above — dangle effect
+        seg.setR(rng.uniform(-15, 15))
+        seg.setP(rng.uniform(-15, 15))
         seg.setTwoSided(True)
 
     # Occasional mineral bead — tiny bright point on the strand
