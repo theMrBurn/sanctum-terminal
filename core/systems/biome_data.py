@@ -1067,7 +1067,7 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_rough",
-                "color_base": [0.35, 0.35, 0.35],  # CLEAN ROOM — neutral grey
+                "color_base": [0.58, 0.55, 0.50],  # warm cream canvas — objects pop as silhouettes
                 "grain_scale": 0.04,
                 "grain_strength": 0.0,
                 "normal_strength": 0.0,
@@ -1087,7 +1087,7 @@ BIOME_PLANES = {
             "material": {
                 "shader": "ground",
                 "surface": "stone_weathered",
-                "color_base": [0.25, 0.25, 0.25],  # CLEAN ROOM — neutral grey
+                "color_base": [0.35, 0.32, 0.28],  # cavern ceiling — ground color -2 steps, clearly not black
                 "grain_scale": 0.06,
                 "grain_strength": 0.0,
                 "normal_strength": 0.0,

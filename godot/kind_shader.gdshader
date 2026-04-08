@@ -50,13 +50,11 @@ void fragment() {
 	// 1.0 = facing camera directly, 0.0 = perpendicular/away
 	float facing = max(dot(face_normal, VIEW), 0.0);
 
-	// 3-color selection:
-	//   accent  — facets facing camera most directly (top 30%)
-	//   base    — mid-range facets (middle band)
-	//   shadow  — facets angled away from camera (bottom 40%)
+	// 3-color selection — hard snap, not gradient.
+	// Each facet is ONE color. The hard edge between planes IS the shape.
 	vec3 col = color_base;
-	col = mix(color_shadow, col, smoothstep(0.25, 0.45, facing));
-	col = mix(col, color_accent, smoothstep(0.70, 0.90, facing));
+	col = mix(color_shadow, col, step(0.35, facing));
+	col = mix(col, color_accent, step(0.75, facing));
 
 	// Light reactive kinds: blend toward white when eventually lit.
 	// For now, placeholder — light_reactive kinds get a subtle self-brightness

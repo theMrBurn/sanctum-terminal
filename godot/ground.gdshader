@@ -54,10 +54,7 @@ void fragment() {
 	float grain_effect = mix(0.25, 2.4, grain_shaped);  // wider range: darker lows, brighter highs
 	vec3 col = color_base * mix(1.0, grain_effect, grain_strength * amplitude);
 
-	// Fade to fog at far edges (still asymptotic, never fully replaces)
-	float edge_dist = cam_dist / 800.0;
-	float fade = smoothstep(0.4, 0.9, edge_dist);
-	col = mix(col, fog_color, fade * 0.85);
+	// Distance fade disabled — ground/ceiling stay their color at all distances
 
 	// Height gradient — walls darken toward ceiling, lighter near floor
 	// where light pools reflect. Creates vertical depth variation.

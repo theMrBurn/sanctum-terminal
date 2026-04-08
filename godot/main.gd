@@ -260,9 +260,9 @@ func _setup_environment() -> void:
 	# Clean room: fog OFF — see everything at all distances
 	godot_env.fog_enabled = false
 
-	# Clean room: neutral grey background — no sky, no drama
+	# Cavern void — warm dark, clearly not black
 	godot_env.background_mode = Environment.BG_COLOR
-	godot_env.background_color = Color(0.25, 0.25, 0.25)
+	godot_env.background_color = Color(0.30, 0.27, 0.24)
 
 	# Clean room: neutral grey ambient, no color bias
 	godot_env.ambient_light_color = Color(1.0, 1.0, 1.0)
@@ -470,7 +470,7 @@ func _legacy_cavern_planes() -> Array:
 			"normal": [0.0, 0.0, 1.0], "offset": 0.0, "layer": "near",
 			"size": 2000.0, "follow_camera": true,
 			"material": {
-				"color_base": [0.35, 0.35, 0.35], "grain_scale": 0.22,
+				"color_base": [0.58, 0.55, 0.50], "grain_scale": 0.22,
 				"grain_strength": 0.0, "normal_strength": 0.0,
 			},
 		},
@@ -556,8 +556,8 @@ func _create_plane_material(m: Dictionary, plane_kind: String = "") -> Material:
 		mat.shader = shader
 		var cb: Array = m.get("color_base", [0.18, 0.15, 0.12])
 		mat.set_shader_parameter("color_base", Color(cb[0], cb[1], cb[2]))
-		var fc_arr: Array = manifest.get("fog", {}).get("color", [0.1, 0.1, 0.1])
-		mat.set_shader_parameter("fog_color", Color(fc_arr[0], fc_arr[1], fc_arr[2]))
+		# Distance fade = ground color darkened — same family, not a separate fog system
+		mat.set_shader_parameter("fog_color", Color(cb[0] * 0.55, cb[1] * 0.55, cb[2] * 0.55))
 		var grain: Texture2D = load(albedo_path)
 		if grain:
 			mat.set_shader_parameter("grain_tex", grain)

@@ -104,16 +104,17 @@ class TestPalette:
             assert sum(ca) >= sum(cb) - 0.01, (
                 f"{kind} accent {ca} is darker than base {cb}")
 
-    def test_color_spread_within_2_steps(self, kind_config):
-        """Max difference between shadow and accent per channel <= 0.15 (~2 steps)."""
+    def test_color_spread_within_bounds(self, kind_config):
+        """Max spread per channel: 0.15 for deaf kinds, 0.25 for light_reactive."""
         for kind in kind_config.get("kinds", {}):
             params = self._resolve_kind(kind_config, kind)
             cs = params["color_shadow"]
             ca = params["color_accent"]
+            limit = 0.25 if params.get("light_reactive", False) else 0.15
             for i in range(3):
                 diff = abs(ca[i] - cs[i])
-                assert diff <= 0.15, (
-                    f"{kind} channel {i}: accent-shadow spread {diff:.3f} > 0.15")
+                assert diff <= limit, (
+                    f"{kind} channel {i}: accent-shadow spread {diff:.3f} > {limit}")
 
     def test_light_reactive_kinds(self, kind_config):
         """Known light-reactive kinds must have light_reactive=true."""

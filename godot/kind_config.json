@@ -103,9 +103,9 @@
       "scale_override": {"x": 2.2, "y": 1.0, "z": 2.2}
     },
     "crystalline": {
-      "color_base":   [0.40, 0.42, 0.52],
-      "color_shadow": [0.36, 0.38, 0.48],
-      "color_accent": [0.46, 0.48, 0.58],
+      "color_base":   [0.42, 0.44, 0.56],
+      "color_shadow": [0.32, 0.34, 0.44],
+      "color_accent": [0.52, 0.54, 0.66],
       "light_reactive": true,
       "contact": {"radius": 4.0, "darkness": 0.3},
       "sink": -0.05,
@@ -175,13 +175,13 @@
       "burial": {"min_frac": 0.25, "max_frac": 0.55, "min_above_ground": 2.5}},
 
     "crystal_cluster": {"class": "crystalline", "light_reactive": true,
-      "color_base": [0.42, 0.44, 0.55], "color_shadow": [0.38, 0.40, 0.50], "color_accent": [0.48, 0.50, 0.62],
+      "color_base": [0.44, 0.46, 0.58], "color_shadow": [0.34, 0.36, 0.46], "color_accent": [0.54, 0.56, 0.68],
       "burial": {"min_frac": 0.10, "max_frac": 0.25}},
     "filament":        {"class": "crystalline", "light_reactive": true,
-      "color_base": [0.46, 0.44, 0.52], "color_shadow": [0.42, 0.40, 0.48], "color_accent": [0.50, 0.48, 0.56],
+      "color_base": [0.48, 0.46, 0.56], "color_shadow": [0.38, 0.36, 0.44], "color_accent": [0.55, 0.53, 0.64],
       "burial": {"min_frac": 0.05, "max_frac": 0.15}},
     "exit_lure":       {"class": "crystalline", "light_reactive": true,
-      "color_base": [0.48, 0.46, 0.42], "color_shadow": [0.44, 0.42, 0.38], "color_accent": [0.52, 0.50, 0.46]},
+      "color_base": [0.50, 0.48, 0.44], "color_shadow": [0.40, 0.38, 0.34], "color_accent": [0.58, 0.56, 0.52]},
 
     "giant_fungus":    {"class": "organic_flora",
       "color_base": [0.34, 0.30, 0.22], "color_shadow": [0.30, 0.26, 0.18], "color_accent": [0.38, 0.34, 0.26],
