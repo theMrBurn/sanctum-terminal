@@ -40,6 +40,7 @@ from core.systems.macro_stamp import (
     terrain_height, set_active_stamp, grid_density, grid_allowed,
 )
 from core.systems.biome_data import MACRO_STAMP_CAVERN_CHAMBER
+from core.systems.tile_exchange import TileExchange
 
 
 # -- Kind properties (same as godot_export.py) --------------------------------
@@ -146,7 +147,7 @@ class BrainWorld:
         self.light_state_names = list(self.light_states.keys())
         self.light_state_idx = 1 if biome_name == "outdoor" else 0  # dusk / cave
 
-        # Entity storage
+        # Entity storage (legacy — kept for compatibility with non-exchange paths)
         self.entities = {}       # eid → entity dict (for manifest)
         self.spawns = {}         # eid → (kind, x, y, z, heading, seed)
         self.loaded_tiles = set()
@@ -155,7 +156,11 @@ class BrainWorld:
         # Built incrementally as tiles load. (kind, x, y)
         self._structural_positions = []
 
-        # Generate center tile
+        # TileExchange — the endocrine system. Generates, caches, scores,
+        # and gates entity delivery. Replaces ensure_tiles_around + wake query.
+        self.exchange = TileExchange(biome_name, base_seed, tile_size)
+
+        # Generate center tile (legacy path seeds spatial hash for extended skeleton query)
         self._generate_tile(0, 0)
 
     def _tile_key(self, cam_x, cam_y):
@@ -370,22 +375,30 @@ class BrainWorld:
                 self._generate_tile(ctx + dx, cty + dy)
 
     def get_manifest(self, cam_x, cam_y, cam_z, heading, pitch, dt):
-        """Compute visible entities and atmosphere for current camera."""
-        # Generate nearby tiles
-        self.ensure_tiles_around(cam_x, cam_y, radius=1)
+        """Compute visible entities and atmosphere for current camera.
 
-        # Wake set — visible entities by priority
-        # Skeleton kinds (mega_column, column) render at extended range
-        # so they're always visible as dark silhouettes through fog
-        wake_set = self.wake_chain.compute_wake_set(self.spatial, cam_x, cam_y)
+        Entity delivery is handled by the TileExchange — it generates tiles,
+        caches rosters, scores entities by priority, and gates to budget.
+        This method handles the per-frame work: render shells, spectrum drift,
+        tension, beacon clustering, light baking, and manifest assembly.
+        """
+        # Camera velocity estimate (for exchange scoring)
+        if not hasattr(self, '_prev_cam'):
+            self._prev_cam = (cam_x, cam_y)
+        vel_x = (cam_x - self._prev_cam[0]) / max(dt, 0.001)
+        vel_y = (cam_y - self._prev_cam[1]) / max(dt, 0.001)
+        self._prev_cam = (cam_x, cam_y)
 
-        # Add skeleton entities from extended range (2x normal)
-        extended = self.spatial.query(cam_x, cam_y, radius=60.0)
-        wake_ids = {eid for eid, _ in wake_set}
-        for eid, chain_idx in extended:
-            if chain_idx == 0 and eid not in wake_ids:  # chain 0 = skeleton
-                wake_set.append((eid, chain_idx))
-                wake_ids.add(eid)
+        # Exchange delivers scored, gated entities — replaces
+        # ensure_tiles_around + wake query + spatial hash filtering.
+        # Deep copy: brain mutates entities (render_shell, spectrum_state,
+        # render_tier) and those mutations must NOT bleed back into the
+        # exchange cache. Shallow dict copy per entity is sufficient —
+        # nested values (lists) are replaced not mutated.
+        exchange_entities = [
+            dict(e) for e in self.exchange.get_entities(
+                cam_x, cam_y, cam_z, heading, vel_x, vel_y)
+        ]
 
         # Accumulate elapsed time for spectrum drift
         self.spectrum_elapsed += dt
@@ -394,7 +407,7 @@ class BrainWorld:
         chrono_state = self.chronometer.read()
 
         # Tension cycle tick
-        entity_count = len(wake_set)
+        entity_count = len(exchange_entities)
         budget_max = self.tension._config.get("budget_max", 800)
         envelope = self.tension.tick(dt, entity_count, budget_max)
 
@@ -439,45 +452,41 @@ class BrainWorld:
             "moss_patch": "moss", "firefly": "moss",
         }
 
+        # Exchange already delivered scored, gated, below-ground-culled entities.
+        # Now apply per-frame render processing: shells, spectrum, emissive tagging.
+        # Strip exchange-internal fields before streaming to Godot.
         visible = []
         emissives = []
-        for eid, _ in wake_set:
-            ent = self.entities.get(eid)
-            if ent:
-                # Below-ground cull — skip entities below floor plane.
-                # Ceiling-attached entities are above ground by definition.
-                if ent.get("z", 0.0) < -0.5 and ent.get("attachment_plane", "") != "ceiling":
-                    continue
+        for ent in exchange_entities:
+            ent.pop("_chain_index", None)
+            # Render shell assignment — distance + kind class determines
+            # which shell this entity belongs to.
+            dx_s = ent["x"] - cam_x
+            dy_s = ent["y"] - cam_y
+            dist = (dx_s * dx_s + dy_s * dy_s) ** 0.5
+            kind_class = KIND_RENDER_CLASS.get(ent["kind"], "scatter")
+            shell_idx = 6  # default: outermost (void)
+            for si, shell in enumerate(RENDER_SHELLS):
+                if dist <= shell["radius"]:
+                    shell_idx = si
+                    break
+            # Skip if this kind class isn't rendered in this shell
+            if kind_class not in RENDER_SHELLS[shell_idx]["kind_classes"]:
+                continue
+            ent["render_shell"] = shell_idx
+            ent["render_mode"] = RENDER_SHELLS[shell_idx]["mode"]
 
-                # Render shell assignment — distance + kind class determines
-                # which shell this entity belongs to. Entities whose kind class
-                # isn't allowed in their distance shell are culled entirely.
-                dx_s = ent["x"] - cam_x
-                dy_s = ent["y"] - cam_y
-                dist = (dx_s * dx_s + dy_s * dy_s) ** 0.5
-                kind_class = KIND_RENDER_CLASS.get(ent["kind"], "scatter")
-                shell_idx = 6  # default: outermost (void)
-                for si, shell in enumerate(RENDER_SHELLS):
-                    if dist <= shell["radius"]:
-                        shell_idx = si
-                        break
-                # Skip if this kind class isn't rendered in this shell
-                if kind_class not in RENDER_SHELLS[shell_idx]["kind_classes"]:
-                    continue
-                ent["render_shell"] = shell_idx
-                ent["render_mode"] = RENDER_SHELLS[shell_idx]["mode"]
-
-                # Spectrum state for emissive kinds — hue drift via SpectrumEngine
-                spec_profile = SPECTRUM_MAP.get(ent["kind"])
-                if spec_profile and ent.get("emissive", 0) > 0:
-                    seed = hash((ent["x"], ent["y"])) & 0xFFFF
-                    r_s, g_s, b_s = SpectrumEngine.drift(
-                        spec_profile, self.spectrum_elapsed, seed)
-                    ent["spectrum_state"] = [
-                        round(r_s, 4), round(g_s, 4), round(b_s, 4)]
-                visible.append(ent)
-                if ent["kind"] in EMISSIVE_LIGHT_COLORS:
-                    emissives.append((ent["x"], ent["y"], EMISSIVE_LIGHT_COLORS[ent["kind"]]))
+            # Spectrum state for emissive kinds — hue drift via SpectrumEngine
+            spec_profile = SPECTRUM_MAP.get(ent["kind"])
+            if spec_profile and ent.get("emissive", 0) > 0:
+                seed = hash((ent["x"], ent["y"])) & 0xFFFF
+                r_s, g_s, b_s = SpectrumEngine.drift(
+                    spec_profile, self.spectrum_elapsed, seed)
+                ent["spectrum_state"] = [
+                    round(r_s, 4), round(g_s, 4), round(b_s, 4)]
+            visible.append(ent)
+            if ent["kind"] in EMISSIVE_LIGHT_COLORS:
+                emissives.append((ent["x"], ent["y"], EMISSIVE_LIGHT_COLORS[ent["kind"]]))
 
         # Phase 1.5: Merkabah plane-attachment — annotate each visible entity
         # with its layer membership based on distance to the observer (camera).
@@ -652,8 +661,9 @@ class BrainWorld:
             },
             "stats": {
                 "visible": len(visible),
-                "total": len(self.entities),
-                "tiles": len(self.loaded_tiles),
+                "total": sum(len(r) for r in self.exchange._tile_cache.values()),
+                "tiles": len(self.exchange._tile_cache),
+                "exchange_budget": self.exchange.config["delivery_budget"],
             },
         }
 
@@ -722,7 +732,11 @@ def run_server(biome_name, port=9877):
                 client = None
                 continue
 
-            # Process complete lines
+            # Process complete lines — drain all, but only act on the
+            # LATEST camera update. Commands (light_cycle etc.) are processed
+            # immediately. This prevents stall cascades: if tile generation
+            # takes 1s, 10 queued camera updates are skipped to the newest.
+            latest_cam_msg = None
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
                 if not line.strip():
@@ -732,10 +746,9 @@ def run_server(biome_name, port=9877):
                 except json.JSONDecodeError:
                     continue
 
-                # Handle commands
+                # Handle commands immediately (they're rare and cheap)
                 if msg.get("cmd") == "light_cycle":
                     name = world.cycle_light_state()
-                    # Force full update
                     last_wake_ids = set()
                     continue
 
@@ -759,7 +772,14 @@ def run_server(biome_name, port=9877):
                     last_wake_ids = set()
                     continue
 
-                # Camera update → manifest
+                # Camera update — stash, only process the latest after drain
+                latest_cam_msg = msg
+
+            # Process only the latest camera update (skip stale queued ones)
+            if latest_cam_msg is not None:
+                msg = latest_cam_msg
+                latest_cam_msg = None
+
                 cam_x = msg.get("cam_x", 0.0)
                 cam_y = msg.get("cam_y", 0.0)
                 cam_z = msg.get("cam_z", 2.5)
@@ -771,7 +791,6 @@ def run_server(biome_name, port=9877):
                 dx = abs(cam_x - prev_cam[0])
                 dy = abs(cam_y - prev_cam[1])
                 dh = abs(heading - prev_cam[2])
-                # Handle heading wraparound
                 if dh > 180.0:
                     dh = 360.0 - dh
                 dp = abs(pitch - prev_cam[3])
@@ -784,7 +803,6 @@ def run_server(biome_name, port=9877):
                         world.dissociation_pressure += DISSOCIATE_RATE * dt
                         world.tension._dissociation_pressure = world.dissociation_pressure
                 else:
-                    # Movement breaks the spell — pressure bleeds off
                     world.dwell_time = max(0.0, world.dwell_time - dt * 3.0)
                     world.dissociation_pressure = max(
                         0.0, world.dissociation_pressure - dt * 0.5)
@@ -793,7 +811,6 @@ def run_server(biome_name, port=9877):
                 manifest = world.get_manifest(
                     cam_x, cam_y, cam_z, heading, pitch, dt)
 
-                # Check if wake set changed (by entity count + position hash)
                 wake_ids = frozenset(
                     (e.get("kind",""), round(e.get("x",0),1), round(e.get("y",0),1))
                     for e in manifest["entities"])

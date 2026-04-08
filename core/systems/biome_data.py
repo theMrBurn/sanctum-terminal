@@ -18,11 +18,11 @@ BIOME_CAVERN_DEFAULT = [
     ("column",            0.30,    5.0,       10),
     ("boulder",           1.20,    3.0,       3),
     ("stalagmite",        1.80,    3.0,       2),
-    ("giant_fungus",      0.30,    2.5,       3),
+    ("giant_fungus",      0.15,    2.5,       3),  # halved — was dominating organic layer
     ("crystal_cluster",   1.10,    2.0,       3),
-    ("dead_log",          0.50,    1.5,       2),
-    ("bone_pile",         0.25,    0,         2),
-    ("moss_patch",        0.55,    0,         2),  # boosted — filament budget redistributed
+    ("dead_log",          0.70,    1.5,       2),  # boosted — needs presence
+    ("bone_pile",         0.35,    0,         2),  # boosted
+    ("moss_patch",        0.75,    0,         2),  # boosted — green counterweight to purple
     ("ceiling_moss",      0.15,    0,         5),  # boosted — filament budget redistributed
     ("hanging_vine",      0.35,    0,         4),
     # filament removed — useless in current form, density redistributed to moss/ceiling_moss
@@ -1404,6 +1404,25 @@ BIOME_REGISTRY = {
         "stamps": CAVERN_STAMPS,
         "banner_layers": CAVERN_BANNER_LAYERS,
         "macro_stamps": [MACRO_STAMP_CAVERN_CHAMBER, MACRO_STAMP_CAVERN_CORRIDOR],
+        "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
+        "exchange": {
+            "delivery_budget": 350,
+            "compression_threshold": 500,
+            "render_horizon": 65.0,          # meters — deliver everything within this radius
+            "mandatory_kinds": {"mega_column", "column"},
+            "scoring_weights": {
+                "wake_priority": 1.0,
+                "distance_band": 0.8,
+                "fov_relevance": 0.6,
+                "velocity_bias": 0.4,
+                "emissive_boost": -0.35,     # light sources debut early (negative = better score)
+                "ground_penalty": 0.25,      # floor scatter debuts last
+                "roster_stability": -0.30,   # incumbents stay in lineup
+                "newcomer_gate": 0.20,       # newcomers need a reason to debut
+            },
+            "speculative_radius": 1,
+            "cache_size": 64,
+        },
     },
     "outdoor": {
         "palette": OUTDOOR_PALETTE,
@@ -1418,5 +1437,24 @@ BIOME_REGISTRY = {
         "stamps": OUTDOOR_STAMPS,
         "banner_layers": OUTDOOR_BANNER_LAYERS,
         "macro_stamps": [MACRO_STAMP_OUTDOOR_CLEARING],
+        "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
+        "exchange": {
+            "delivery_budget": 400,
+            "compression_threshold": 600,
+            "render_horizon": 75.0,          # meters — outdoor sees farther
+            "mandatory_kinds": {"mega_column", "column"},
+            "scoring_weights": {
+                "wake_priority": 1.0,
+                "distance_band": 0.8,
+                "fov_relevance": 0.6,
+                "velocity_bias": 0.4,
+                "emissive_boost": -0.35,     # light sources debut early
+                "ground_penalty": 0.25,      # floor scatter debuts last
+                "roster_stability": -0.30,   # incumbents stay in lineup
+                "newcomer_gate": 0.20,       # newcomers need a reason to debut
+            },
+            "speculative_radius": 1,
+            "cache_size": 64,
+        },
     },
 }

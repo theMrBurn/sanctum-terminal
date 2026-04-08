@@ -1074,19 +1074,14 @@ func _rebuild_entities() -> void:
 				kind_nodes[kind].queue_free()
 			kind_nodes.erase(kind)
 
-	# Rebuild only kinds with different counts (fast heuristic)
+	# Always rebuild — brain gates updates via "unchanged" flag,
+	# so if we're here the manifest HAS changed. Count comparison
+	# masked tile transitions (same count, different positions).
 	for kind: String in new_by_kind:
 		var ents: Array = new_by_kind[kind]
-		var needs_rebuild := true
 		if kind_nodes.has(kind) and is_instance_valid(kind_nodes[kind]):
-			var old_mm: MultiMesh = kind_nodes[kind].multimesh
-			if old_mm and old_mm.instance_count == ents.size():
-				needs_rebuild = false  # same count, skip rebuild
-
-		if needs_rebuild:
-			if kind_nodes.has(kind) and is_instance_valid(kind_nodes[kind]):
-				kind_nodes[kind].queue_free()
-			_create_multimesh_for_kind(kind, ents)
+			kind_nodes[kind].queue_free()
+		_create_multimesh_for_kind(kind, ents)
 
 	# Silhouette shell — flat dark instances on outer shells.
 	# These are cheap: no grain, no normal, no decal, no mote.

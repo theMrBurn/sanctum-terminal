@@ -1353,50 +1353,149 @@ def build_boulder(parent, seed=0):
     return root
 
 
-def _make_crossed_quad(w, h, color, seed=0, crosses=3):
-    """Crossed billboard quads — 2-3 flat planes intersecting at angles.
+def _build_mushroom_cap(radius, dome_h, top_color, under_color,
+                        segments=14, rings=6, seed=0, rng=None):
+    """Mushroom cap — convex dome top, concave gill underside, thin rim.
 
-    Each cross is a pair of tapered rectangles (wide base, narrow top)
-    rotated around Y axis. Walk-by parallax from the intersection.
-    No alpha needed — solid colored, works with flat-shaded pipeline.
-    ~12 verts per cross vs ~200+ for equivalent make_rock blades.
+    Cross-section is eye-shaped. Top surface curves upward from rim to
+    center peak. Underside curves downward (concave) from rim to stem hole.
+    Rim edge is thin and extends well past the stem. Two separate surfaces
+    so the underside can be darker (gill shadow).
+    """
+    from panda3d.core import (GeomVertexFormat, GeomVertexData,
+                              GeomVertexWriter, GeomTriangles, Geom, GeomNode)
+    if rng is None:
+        rng = random.Random(seed)
+    fmt = GeomVertexFormat.getV3c4()
+    # Total verts: top dome + underside = 2 × (rings+1) × (segments+1)
+    n_verts = 2 * (rings + 1) * (segments + 1)
+    vdata = GeomVertexData("mushcap", fmt, Geom.UHStatic)
+    vdata.setNumRows(n_verts)
+    vw = GeomVertexWriter(vdata, "vertex")
+    cw = GeomVertexWriter(vdata, "color")
+    tris = GeomTriangles(Geom.UHStatic)
+
+    tr, tg, tb = top_color
+    ur, ug, ub = under_color
+    rim_droop = dome_h * rng.uniform(0.2, 0.5)  # how much rim droops below center
+
+    def _add_surface(z_func, color_r, color_g, color_b, vi_start, flip=False):
+        """Generate one surface (top or underside) as a radial mesh."""
+        vi = vi_start
+        for ri in range(rings + 1):
+            t = ri / rings  # 0=center, 1=rim
+            r = radius * t
+            for si in range(segments + 1):
+                angle = 2.0 * math.pi * si / segments
+                x = r * math.cos(angle)
+                y = r * math.sin(angle)
+                z = z_func(t)
+                # Slight noise for organic feel
+                noise = rng.uniform(-0.02, 0.02) * dome_h
+                vw.addData3(x, y, z + noise)
+                shade = 0.8 + 0.2 * (1.0 - t)  # brighter at center
+                cw.addData4(color_r * shade, color_g * shade, color_b * shade, 1.0)
+                vi += 1
+        # Triangulate
+        for ri in range(rings):
+            for si in range(segments):
+                row = segments + 1
+                a = vi_start + ri * row + si
+                b = a + 1
+                c = a + row
+                d = c + 1
+                if flip:
+                    tris.addVertices(a, c, b)
+                    tris.addVertices(b, c, d)
+                else:
+                    tris.addVertices(a, b, c)
+                    tris.addVertices(b, d, c)
+        return vi
+
+    # Top dome: center peaks at dome_h, rim droops to -rim_droop.
+    # Smooth cosine curve for natural dome shape.
+    def top_z(t):
+        return dome_h * math.cos(t * math.pi * 0.5) - rim_droop * t * t
+
+    # Underside: concave, center is at 0 (stem hole), rim meets top rim.
+    # Curves downward then back up to rim edge.
+    def under_z(t):
+        rim_z = top_z(1.0)
+        return rim_z * t * t - dome_h * 0.15 * (1.0 - t)  # concave scoop
+
+    vi = 0
+    vi = _add_surface(top_z, tr, tg, tb, vi, flip=False)
+    vi = _add_surface(under_z, ur, ug, ub, vi, flip=True)
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    gn = GeomNode("mushcap")
+    gn.addGeom(geom)
+    return gn
+
+
+def _make_crossed_quad(w, h, color, seed=0, crosses=3):
+    """Paired grass blades — criss-cross pattern side by side.
+
+    Each "cross" is a PAIR of blades placed next to each other,
+    leaning in opposite directions at mirrored angles. Not intersecting
+    at center like a Christmas tree — offset and fanning outward like
+    real grass clumps. Each blade is a tapered quad (wide base, pointed tip).
+    ~12 verts per pair.
     """
     from panda3d.core import (GeomVertexFormat, GeomVertexData,
                               GeomVertexWriter, GeomTriangles, Geom, GeomNode)
     rng = random.Random(seed)
     fmt = GeomVertexFormat.getV3c4()
     r, g, b = color
-    # Each cross = `crosses` quads, each quad = 2 tris = 6 verts
+    # Each cross = 2 blades (a mirrored pair), each blade = 2 tris = 6 verts
     vdata = GeomVertexData("xgrass", fmt, Geom.UHStatic)
-    vdata.setNumRows(crosses * 6)
+    vdata.setNumRows(crosses * 12)
     vw = GeomVertexWriter(vdata, "vertex")
     cw = GeomVertexWriter(vdata, "color")
     tris = GeomTriangles(Geom.UHStatic)
     vi = 0
-    taper = rng.uniform(0.2, 0.4)  # top width as fraction of base
+
     for ci in range(crosses):
-        angle = math.pi * ci / crosses + rng.uniform(-0.2, 0.2)
-        cos_a, sin_a = math.cos(angle), math.sin(angle)
-        hw = w * 0.5  # half-width at base
-        tw = hw * taper  # half-width at top
+        # Base angle for this pair — spread evenly with jitter
+        base_angle = math.pi * ci / crosses + rng.uniform(-0.4, 0.4)
+        # Blade dimensions
         blade_h = h * rng.uniform(0.7, 1.0)
-        # Two shades — front/back faces get different brightness
-        shade = rng.uniform(0.85, 1.0)
-        cr, cg, cb = r * shade, g * shade, b * shade
-        # Quad: bottom-left, bottom-right, top-right, top-left
-        bl = (-hw * cos_a, -hw * sin_a, 0.0)
-        br = (hw * cos_a, hw * sin_a, 0.0)
-        tr = (tw * cos_a, tw * sin_a, blade_h)
-        tl = (-tw * cos_a, -tw * sin_a, blade_h)
-        for px, py, pz in (bl, br, tr, bl, tr, tl):
-            vw.addData3(px, py, pz)
-            # Height-based color shift — darker at base (moisture)
-            h_frac = pz / max(blade_h, 0.01)
-            cw.addData4(cr * (0.7 + 0.3 * h_frac),
-                        cg * (0.7 + 0.3 * h_frac),
-                        cb * (0.7 + 0.3 * h_frac), 1.0)
-            tris.addVertex(vi)
-            vi += 1
+        hw = w * 0.5  # half-width at base
+        taper = rng.uniform(0.05, 0.15)  # narrow pointed tip
+        tw = hw * taper
+        # Lean angle — how far each blade tips from vertical
+        lean = rng.uniform(0.15, 0.40)  # radians, moderate lean
+        # Spacing — how far apart the two blades sit
+        spacing = w * rng.uniform(0.8, 1.5)
+
+        for side in (-1, 1):  # mirror pair
+            angle = base_angle + side * rng.uniform(0.3, 0.6)
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            # Offset from center — blades sit side by side, not on top
+            ox = cos_a * spacing * side * 0.5
+            oy = sin_a * spacing * side * 0.5
+            # Lean: tip leans outward from pair center
+            lean_x = cos_a * lean * blade_h * side
+            lean_y = sin_a * lean * blade_h * side
+            # Per-blade brightness variation
+            shade = rng.uniform(0.80, 1.0)
+            cr, cg, cb = r * shade, g * shade, b * shade
+            # Quad verts: base is perpendicular to blade direction
+            perp_x, perp_y = -sin_a, cos_a
+            bl = (ox - perp_x * hw, oy - perp_y * hw, 0.0)
+            br = (ox + perp_x * hw, oy + perp_y * hw, 0.0)
+            tr = (ox + perp_x * tw + lean_x, oy + perp_y * tw + lean_y, blade_h)
+            tl = (ox - perp_x * tw + lean_x, oy - perp_y * tw + lean_y, blade_h)
+            for px, py, pz in (bl, br, tr, bl, tr, tl):
+                vw.addData3(px, py, pz)
+                h_frac = pz / max(blade_h, 0.01)
+                cw.addData4(cr * (0.7 + 0.3 * h_frac),
+                            cg * (0.7 + 0.3 * h_frac),
+                            cb * (0.7 + 0.3 * h_frac), 1.0)
+                tris.addVertex(vi)
+                vi += 1
+
     geom = Geom(vdata)
     geom.addPrimitive(tris)
     gn = GeomNode("xgrass")
@@ -1925,46 +2024,70 @@ def build_giant_fungus(parent, seed=0):
             waist_r = base_r * rng.uniform(0.7, 0.9)
             cap_r = base_r * rng.uniform(0.4, 0.6)
 
-        # Bottom — stocky base, grounded
-        bottom_h = total_h * 0.4
+        # Stem — concave profile: wide base, pinched waist, flares at cap.
+        # Like a wine glass stem. Proportional to cap width (3x old).
+        stem_r = base_r * rng.uniform(0.9, 1.3)  # fat base, proportional to cap
+        stem_h = total_h * 0.7
+        lean_angle = rng.uniform(-8, 8)
+
+        # Bottom section — wide, grounded, flares outward at ground contact
+        bottom_r = stem_r * rng.uniform(1.1, 1.4)
+        bottom_h = stem_h * 0.4
         bottom = root.attachNewNode(make_rock(
-            base_r, bottom_h * 0.45, base_r * 0.85, stem_color,
-            rings=8, segments=10, seed=seed, roughness=rng.uniform(0.15, 0.25),
+            bottom_r, bottom_h * 0.45, bottom_r * 0.85, stem_color,
+            rings=8, segments=8, seed=seed, roughness=rng.uniform(0.10, 0.20),
         ))
         bottom.setPos(0, 0, 0)
+        bottom.setR(lean_angle)
         bottom.setTwoSided(True)
         bottom.setTexGen(ts, TexGenAttrib.MWorldPosition)
         bottom.setTexture(ts, tex)
         bottom.setTexScale(ts, sc, sc)
 
-        # Waist — overlaps into bottom via contact system
-        waist_h = total_h * 0.3
+        # Waist — pinched narrow section (concave profile)
+        waist_r_actual = stem_r * rng.uniform(0.5, 0.7)  # pinch
+        waist_h = stem_h * 0.3
         waist_z = overlap_z(bottom_h, waist_h)
         waist = root.attachNewNode(make_rock(
-            waist_r, waist_h * 0.45, waist_r * 0.8, glow_color,
-            rings=8, segments=10, seed=seed + 33, roughness=rng.uniform(0.12, 0.22),
+            waist_r_actual, waist_h * 0.45, waist_r_actual * 0.9, stem_color,
+            rings=6, segments=8, seed=seed + 33, roughness=rng.uniform(0.08, 0.15),
         ))
         waist.setPos(0, 0, waist_z)
+        waist.setR(lean_angle)
         waist.setTwoSided(True)
         waist.setTexGen(ts, TexGenAttrib.MWorldPosition)
         waist.setTexture(ts, tex)
         waist.setTexScale(ts, sc, sc)
-        waist.setLightOff()
-        waist.setColorScale(1.5, 0.5, 2.0, 1.0)
 
-        # Cap — wide flat mushroom disc on top of waist. Width 1.5-2.5x stem,
-        # height only 15% of total. Reads as shelf fungus / bracket cap.
-        cap_r_wide = base_r * rng.uniform(1.5, 2.5)
-        cap_h = total_h * 0.15  # flat pancake
-        cap_z = waist_z + waist_h * 0.15
-        cap = root.attachNewNode(make_rock(
-            cap_r_wide, cap_h * 0.4, cap_r_wide * rng.uniform(0.8, 1.0), glow_color,
-            rings=6, segments=12, seed=seed + 99, roughness=rng.uniform(0.05, 0.12),
+        # Flare — widens again where stem meets cap underside
+        flare_r = stem_r * rng.uniform(0.8, 1.1)
+        flare_h = stem_h * 0.3
+        flare_z = waist_z + waist_h * 0.25
+        flare = root.attachNewNode(make_rock(
+            flare_r, flare_h * 0.45, flare_r * 1.1, glow_color,
+            rings=6, segments=8, seed=seed + 55, roughness=rng.uniform(0.10, 0.18),
         ))
-        cap.setPos(0, 0, cap_z)
-        cap.setTwoSided(True)
-        cap.setLightOff()
-        cap.setColorScale(2.0, 0.7, 2.5, 1.0)
+        flare.setPos(0, 0, flare_z)
+        flare.setR(lean_angle)
+        flare.setTwoSided(True)
+        flare.setLightOff()
+        flare.setColorScale(1.5, 0.5, 2.0, 1.0)
+
+        # Cap — convex dome on top, concave gill underneath, thin sharp rim.
+        # Cross-section is eye-shaped: top curves up, underside curves down,
+        # rim extends well past stem. Built as custom geometry, not make_rock.
+        cap_r_wide = base_r * rng.uniform(2.2, 3.5)
+        cap_dome_h = total_h * rng.uniform(0.12, 0.20)
+        cap_z = flare_z + flare_h * 0.65  # sit on TOP of stem — stem must be visible below
+        cap_node = _build_mushroom_cap(
+            cap_r_wide, cap_dome_h, glow_color, stem_color,
+            segments=14, rings=6, seed=seed + 99, rng=rng,
+        )
+        cap_np = root.attachNewNode(cap_node)
+        cap_np.setPos(0, 0, cap_z)
+        cap_np.setTwoSided(True)
+        cap_np.setLightOff()
+        cap_np.setColorScale(2.0, 0.7, 2.5, 1.0)
 
         # Satellites — lean outward from base, stems touching ground
         for ci in range(rng.randint(2, 5)):
