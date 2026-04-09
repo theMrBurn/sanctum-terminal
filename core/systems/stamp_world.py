@@ -152,12 +152,34 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     return roster
 
 
+# Scale-in fade band — entities within fade_band of the visibility edge
+# scale up from min_scale to full size as you approach. Symmetric: walking
+# away shrinks them before they disappear. No state, no Godot diffing —
+# just distance math, recomputed every frame.
+SCALE_FADE_BAND = 14.0  # last 14m of visibility (35m → 49m at horizon=49)
+SCALE_MIN = 0.05        # smallest visible scale at the very edge
+
+
+def _scale_factor(dist: float, radius: float) -> float:
+    """Distance-driven scale fade. 1.0 inside fade band, lerps to SCALE_MIN at edge."""
+    fade_start = radius - SCALE_FADE_BAND
+    if dist <= fade_start:
+        return 1.0
+    if dist >= radius:
+        return SCALE_MIN
+    # Smooth lerp across the fade band
+    t = (radius - dist) / SCALE_FADE_BAND  # 1.0 at fade_start, 0.0 at radius
+    return SCALE_MIN + (1.0 - SCALE_MIN) * t
+
+
 def get_visible(cam_x: float, cam_y: float, radius: float,
                 seed: int, biome_name: str) -> List[Dict]:
     """Collect all entities from slots overlapping the camera circle.
 
     No cache. Iterates the AABB of slots that could intersect the circle,
     calls stamp_at for each, then filters entities by exact distance.
+    Applies a distance-driven scale fade so entities grow as you approach
+    the visibility edge — no instant pop-in.
     """
     radius_sq = radius * radius
 
@@ -172,7 +194,17 @@ def get_visible(cam_x: float, cam_y: float, radius: float,
             for ent in stamp_at(gx, gy, seed, biome_name):
                 dx = ent["x"] - cam_x
                 dy = ent["y"] - cam_y
-                if dx * dx + dy * dy <= radius_sq:
-                    visible.append(ent)
+                d2 = dx * dx + dy * dy
+                if d2 > radius_sq:
+                    continue
+                # Apply scale-in fade based on distance
+                dist = math.sqrt(d2)
+                fade = _scale_factor(dist, radius)
+                if fade < 1.0:
+                    # Mutate scale fields — these came from spawn_bucket so it's safe
+                    ent["sx"] = round(ent["sx"] * fade, 3)
+                    ent["sy"] = round(ent["sy"] * fade, 3)
+                    ent["sz"] = round(ent["sz"] * fade, 3)
+                visible.append(ent)
 
     return visible

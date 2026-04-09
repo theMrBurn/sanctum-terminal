@@ -149,6 +149,38 @@ class TestGetVisible:
                                seed=42, biome_name="cavern")
             assert len(ents) > 0, f"No entities at ({cx}, {cy})"
 
+    def test_scale_fade_at_edge(self):
+        """Entities near the visibility edge should be scaled smaller than full size."""
+        from core.systems.stamp_world import _scale_factor, SCALE_FADE_BAND, SCALE_MIN
+        radius = 49.0
+        # Inside fade band → full size
+        assert _scale_factor(0.0, radius) == 1.0
+        assert _scale_factor(20.0, radius) == 1.0
+        assert _scale_factor(radius - SCALE_FADE_BAND - 0.1, radius) == 1.0
+        # At the edge → smallest
+        assert _scale_factor(radius, radius) == SCALE_MIN
+        # Mid-band → between SCALE_MIN and 1.0
+        mid = _scale_factor(radius - SCALE_FADE_BAND / 2, radius)
+        assert SCALE_MIN < mid < 1.0
+
+    def test_far_entities_have_smaller_scale_than_near(self):
+        """An entity at the visibility edge should have a smaller sx than the same kind near the camera."""
+        from core.systems.stamp_world import get_visible
+        ents = get_visible(cam_x=0, cam_y=0, radius=49,
+                           seed=42, biome_name="cavern")
+        # Bin by distance and check that far entities are smaller on average
+        near = []
+        far = []
+        for e in ents:
+            dist = math.sqrt(e["x"] ** 2 + e["y"] ** 2)
+            if dist < 20:
+                near.append(e["sx"])
+            elif dist > 40:
+                far.append(e["sx"])
+        if near and far:
+            assert sum(far) / len(far) < sum(near) / len(near), \
+                "Far entities should average smaller scale than near"
+
     def test_min_density_per_visible_circle(self):
         """Every visible circle should have at least N entities — no empty zones."""
         from core.systems.stamp_world import get_visible
