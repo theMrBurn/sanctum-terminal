@@ -18,6 +18,7 @@ Usage:
 
 import json
 import math
+import os
 import random
 import select
 import socket
@@ -41,6 +42,15 @@ from core.systems.macro_stamp import (
 )
 from core.systems.biome_data import MACRO_STAMP_CAVERN_CHAMBER
 from core.systems.tile_exchange import TileExchange
+from core.systems.bucket_world import get_visible as bucket_get_visible
+from core.systems.stamp_world import get_visible as stamp_get_visible
+
+# Entity delivery mode — A/B/C testing.
+#   default: TileExchange (cached tiles, scored, gated, shells)
+#   SANCTUM_BUCKET=1: random density per 16m bucket (pure function)
+#   SANCTUM_STAMP=1:  authored stamp library per 16m slot (pure function)
+BUCKET_MODE = os.environ.get("SANCTUM_BUCKET", "").strip() in ("1", "true", "yes")
+STAMP_MODE = os.environ.get("SANCTUM_STAMP", "").strip() in ("1", "true", "yes")
 
 
 # -- Kind properties (same as godot_export.py) --------------------------------
@@ -322,10 +332,10 @@ class BrainWorld:
 
             # Buttress metadata — lean angle, stretch axes (for renderer tilt)
             if meta and kind == "buttress":
-                ent["lean_angle"] = round(meta["lean_angle"], 1)
-                ent["scale_x"] = round(meta["scale_x"], 3)
-                ent["scale_y"] = round(meta["scale_y"], 3)
-                ent["scale_z"] = round(meta["scale_z"], 3)
+                ent["lean_angle"] = round(meta.get("lean_angle", 0.0), 1)
+                ent["scale_x"] = round(meta.get("scale_x", 1.0), 3)
+                ent["scale_y"] = round(meta.get("scale_y", 1.0), 3)
+                ent["scale_z"] = round(meta.get("scale_z", 1.0), 3)
                 ent["formation"] = meta.get("formation", "")
 
             # Formation-scaled mega_column — columns inside formations get shrunk
@@ -389,16 +399,24 @@ class BrainWorld:
         vel_y = (cam_y - self._prev_cam[1]) / max(dt, 0.001)
         self._prev_cam = (cam_x, cam_y)
 
-        # Exchange delivers scored, gated entities — replaces
-        # ensure_tiles_around + wake query + spatial hash filtering.
-        # Deep copy: brain mutates entities (render_shell, spectrum_state,
-        # render_tier) and those mutations must NOT bleed back into the
-        # exchange cache. Shallow dict copy per entity is sufficient —
-        # nested values (lists) are replaced not mutated.
-        exchange_entities = [
-            dict(e) for e in self.exchange.get_entities(
-                cam_x, cam_y, cam_z, heading, vel_x, vel_y)
-        ]
+        # Entity delivery — three modes, A/B/C testable.
+        if STAMP_MODE:
+            radius = self.exchange.config.get("render_horizon", 49)
+            exchange_entities = stamp_get_visible(
+                cam_x, cam_y, radius, self.base_seed, self.biome_name)
+        elif BUCKET_MODE:
+            radius = self.exchange.config.get("render_horizon", 49)
+            exchange_entities = bucket_get_visible(
+                cam_x, cam_y, radius, self.base_seed, self.biome_name)
+        else:
+            # Deep copy: brain mutates entities (render_shell, spectrum_state,
+            # render_tier) and those mutations must NOT bleed back into the
+            # exchange cache. Shallow dict copy per entity is sufficient —
+            # nested values (lists) are replaced not mutated.
+            exchange_entities = [
+                dict(e) for e in self.exchange.get_entities(
+                    cam_x, cam_y, cam_z, heading, vel_x, vel_y)
+            ]
 
         # Accumulate elapsed time for spectrum drift
         self.spectrum_elapsed += dt

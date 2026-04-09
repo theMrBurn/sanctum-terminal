@@ -512,6 +512,47 @@ CAVERN_STAMPS = [
             {"kind": "cave_gravel", "dx": 2.0, "dy": -1.2, "scale_mult": None, "hard": False},
         ],
     },
+    # ---- MEGA STAMPS — landmark anchors, walkable interiors ----
+    # Obelisk court — single mega_column landmark, ground stays open around it
+    {
+        "name": "obelisk_court",
+        "footprint": 8.0,
+        "members": [
+            {"kind": "mega_column", "dx": 0.0, "dy": 0.0, "scale_mult": 1.0, "hard": True},
+            {"kind": "rubble", "dx": -3.5, "dy": -3.0, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 3.0, "dy": -3.5, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": -2.5, "dy": 2.5, "scale_mult": None, "hard": False},
+            {"kind": "crystal_cluster", "dx": 3.5, "dy": 3.0, "scale_mult": 0.6, "hard": False},
+            {"kind": "cave_gravel", "dx": 0.0, "dy": -2.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Column henge — three columns at the perimeter, walkable center
+    {
+        "name": "column_henge",
+        "footprint": 9.0,
+        "members": [
+            {"kind": "column", "dx": -4.0, "dy": -2.0, "scale_mult": 1.0, "hard": True},
+            {"kind": "column", "dx": 4.0, "dy": -2.0, "scale_mult": 1.0, "hard": True},
+            {"kind": "column", "dx": 0.0, "dy": 4.0, "scale_mult": 1.1, "hard": True},
+            {"kind": "moss_patch", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
+            {"kind": "firefly", "dx": 0.5, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -1.5, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 1.5, "dy": -1.0, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Buttress arch — buttress + mega_column flanking a gap, gateway feel
+    {
+        "name": "buttress_arch",
+        "footprint": 9.0,
+        "members": [
+            {"kind": "mega_column", "dx": -4.0, "dy": 0.0, "scale_mult": 0.85, "hard": True},
+            {"kind": "buttress", "dx": 4.0, "dy": 0.5, "scale_mult": 1.0, "hard": True},
+            {"kind": "boulder", "dx": -3.5, "dy": -3.5, "scale_mult": 0.7, "hard": False},
+            {"kind": "rubble", "dx": 3.0, "dy": -3.5, "scale_mult": None, "hard": False},
+            {"kind": "crystal_cluster", "dx": 0.0, "dy": 3.5, "scale_mult": 0.5, "hard": False},
+            {"kind": "moss_patch", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
+        ],
+    },
 ]
 
 OUTDOOR_STAMPS = [
@@ -1408,7 +1449,7 @@ BIOME_REGISTRY = {
         "exchange": {
             "delivery_budget": 350,
             "compression_threshold": 500,
-            "render_horizon": 65.0,          # meters — deliver everything within this radius
+            "render_horizon": 49,            # meters — matches outermost shell radius
             "mandatory_kinds": {"mega_column", "column"},
             "scoring_weights": {
                 "wake_priority": 1.0,
@@ -1420,7 +1461,18 @@ BIOME_REGISTRY = {
                 "roster_stability": -0.30,   # incumbents stay in lineup
                 "newcomer_gate": 0.20,       # newcomers need a reason to debut
             },
-            "speculative_radius": 1,
+            # Per-shell delivery budgets — 7 shells, inner to outer.
+            # Each shell gates independently: ground scatter can't starve
+            # distant structural. Shells ARE the horizon.
+            #   0: 0-7m   all kinds        80
+            #   1: 7-14m  all kinds        70
+            #   2: 14-21m no life          60
+            #   3: 21-28m struct/emis/gc   50
+            #   4: 28-35m struct/emis/atm  40
+            #   5: 35-42m struct/emis      30
+            #   6: 42-49m struct only      20
+            "shell_budgets": [80, 70, 60, 50, 40, 30, 20],
+            "tiles_per_frame": 2,            # max new tiles generated per response cycle
             "cache_size": 64,
         },
     },
@@ -1441,7 +1493,7 @@ BIOME_REGISTRY = {
         "exchange": {
             "delivery_budget": 400,
             "compression_threshold": 600,
-            "render_horizon": 75.0,          # meters — outdoor sees farther
+            "render_horizon": 49,            # meters — matches outermost shell radius
             "mandatory_kinds": {"mega_column", "column"},
             "scoring_weights": {
                 "wake_priority": 1.0,
@@ -1453,7 +1505,10 @@ BIOME_REGISTRY = {
                 "roster_stability": -0.30,   # incumbents stay in lineup
                 "newcomer_gate": 0.20,       # newcomers need a reason to debut
             },
-            "speculative_radius": 1,
+            # Outdoor gets more budget per shell — farther sight lines,
+            # but same 7-shell structure.
+            "shell_budgets": [90, 80, 70, 55, 45, 35, 25],
+            "tiles_per_frame": 2,
             "cache_size": 64,
         },
     },

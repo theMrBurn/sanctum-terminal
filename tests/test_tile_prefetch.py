@@ -82,9 +82,17 @@ class TestBrainWorldTileGeneration:
         assert (0, 0) in world.loaded_tiles
 
     def test_get_manifest_generates_correct_grid(self, world):
-        """get_manifest at (0, 0) should load a 5x5 grid (radius=2) via exchange."""
-        world.get_manifest(0.0, 0.0, 0.0, 0.0, 0.0, 0.1)
+        """get_manifest at (0, 0) should eventually load the full prefetch grid.
+
+        With tiles_per_frame capping generation, multiple calls are needed
+        to fill the grid. This mirrors real usage: the brain responds every
+        frame and incrementally builds out the tile cache.
+        """
         expected_radius = BIOME_REGISTRY["cavern"]["tile_prefetch_radius"]
+        grid_size = (2 * expected_radius + 1) ** 2
+        # Call enough times to generate all tiles (1 per frame + spawn already cached)
+        for _ in range(grid_size):
+            world.get_manifest(0.0, 0.0, 0.0, 0.0, 0.0, 0.1)
         for dx in range(-expected_radius, expected_radius + 1):
             for dy in range(-expected_radius, expected_radius + 1):
                 assert (dx, dy) in world.exchange._tile_cache, \

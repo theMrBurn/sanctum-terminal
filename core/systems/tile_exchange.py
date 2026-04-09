@@ -21,10 +21,9 @@ from __future__ import annotations
 import math
 import random
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
-from core.systems.biome_data import BIOME_REGISTRY
+from core.systems.biome_data import BIOME_REGISTRY, RENDER_SHELLS, KIND_RENDER_CLASS
 from core.systems.spatial_wake import WakeChain, WAKE_CHAINS
 from core.systems.world_gen import generate_tile
 from core.systems.macro_stamp import terrain_height, set_active_stamp
@@ -82,6 +81,25 @@ _STRUCTURAL_KINDS = {"column", "mega_column", "buttress"}
 
 # Ground-level scatter — below-knee objects the eye notices last.
 _GROUND_KINDS = {"grass_tuft", "rubble", "leaf_pile", "twig_scatter", "cave_gravel"}
+
+# Shell radii cache — extracted once from RENDER_SHELLS for fast lookup.
+_SHELL_RADII = [s["radius"] for s in RENDER_SHELLS]
+_SHELL_CLASSES = [set(s["kind_classes"]) for s in RENDER_SHELLS]
+
+
+def _assign_shell(ent: dict, cam_x: float, cam_y: float,
+                  shells: list = RENDER_SHELLS) -> int:
+    """Return the shell index (0-6) for an entity based on distance from camera.
+
+    Returns -1 if the entity is beyond all shells (should be culled).
+    """
+    dx = ent["x"] - cam_x
+    dy = ent["y"] - cam_y
+    dist = math.sqrt(dx * dx + dy * dy)
+    for i, shell in enumerate(shells):
+        if dist <= shell["radius"]:
+            return i
+    return -1
 
 
 class TileExchange:
@@ -141,6 +159,11 @@ class TileExchange:
         # Tile variant tracking
         self._tile_variants: Dict[Tuple[int, int], str] = {}
 
+        # Max new tiles to generate per frame — prevents TCP disconnect
+        # by capping how long the brain blocks on tile generation.
+        # Config: exchange.tiles_per_frame (default 1)
+        self.tiles_per_frame = self.config.get("tiles_per_frame", 1)
+
         # Generate spawn tile
         self.get_tile_roster(0, 0)
 
@@ -149,6 +172,37 @@ class TileExchange:
     def _tile_key(self, cam_x: float, cam_y: float) -> Tuple[int, int]:
         return (int(math.floor(cam_x / self.tile_size)),
                 int(math.floor(cam_y / self.tile_size)))
+
+    # -- Prefetch ordering ------------------------------------------------------
+
+    def _spiral_order(self, r: int, heading: float,
+                      vel_x: float, vel_y: float) -> List[Tuple[int, int]]:
+        """Tile offsets in spiral order: center out, front-of-movement first.
+
+        Chebyshev rings peel outward (ring 0 = camera tile, ring 1 = 8
+        neighbors, ring 2 = 16 tiles...). Within each ring, tiles sort by
+        angle relative to the movement direction so the tiles you're
+        walking toward generate before tiles behind you.
+        """
+        # Movement direction — fall back to heading if stationary
+        speed = math.sqrt(vel_x * vel_x + vel_y * vel_y)
+        if speed > 0.5:
+            front_angle = math.atan2(vel_y, vel_x)
+        else:
+            heading_rad = math.radians(heading)
+            front_angle = math.atan2(-math.cos(heading_rad), math.sin(heading_rad))
+
+        offsets = []
+        for dtx in range(-r, r + 1):
+            for dty in range(-r, r + 1):
+                ring = max(abs(dtx), abs(dty))
+                # Angle from center to this offset, relative to front
+                angle = math.atan2(dty, dtx) - front_angle
+                # Normalize to [0, 2π] — tiles near 0 are directly ahead
+                angle = angle % (2.0 * math.pi)
+                offsets.append((ring, angle, dtx, dty))
+        offsets.sort()
+        return [(dtx, dty) for _, _, dtx, dty in offsets]
 
     # -- Tile generation & cache ------------------------------------------------
 
@@ -397,24 +451,70 @@ class TileExchange:
 
     def gate(self, entities: List[Dict], cam_x: float, cam_y: float,
              heading: float, vel_x: float, vel_y: float) -> List[Dict]:
-        """Score, sort, and truncate entities to delivery budget.
+        """Score and gate entities per shell. Each shell has its own budget.
 
-        Mandatory kinds are always included regardless of budget.
+        The 7 render shells define concentric distance bands. Each band
+        has a budget and a list of allowed kind_classes. Entities compete
+        only within their shell — nearby ground scatter can't starve
+        distant structural anchors. Mandatory kinds bypass all budgets.
         """
         if not entities:
             return []
 
+        mandatory = self.config["mandatory_kinds"]
+        shell_budgets = self.config.get("shell_budgets")
+
+        # Fallback to flat budget if shell_budgets not configured
+        if not shell_budgets:
+            return self._gate_flat(entities, cam_x, cam_y, heading, vel_x, vel_y)
+
+        # Bin entities by shell, filtering by kind_class permission
+        n_shells = len(shell_budgets)
+        shell_bins: List[List[Tuple[float, Dict]]] = [[] for _ in range(n_shells)]
+        mandatory_ents = []
+
+        for ent in entities:
+            # Mandatory kinds always pass
+            if ent["kind"] in mandatory:
+                s = self.score_entity(ent, cam_x, cam_y, heading, vel_x, vel_y)
+                mandatory_ents.append((s, ent))
+                continue
+
+            shell_idx = _assign_shell(ent, cam_x, cam_y)
+            if shell_idx < 0 or shell_idx >= n_shells:
+                continue
+
+            # Check kind_class permission for this shell
+            kind_class = KIND_RENDER_CLASS.get(ent["kind"], "scatter")
+            if kind_class not in _SHELL_CLASSES[shell_idx]:
+                continue
+
+            s = self.score_entity(ent, cam_x, cam_y, heading, vel_x, vel_y)
+            shell_bins[shell_idx].append((s, ent))
+
+        # Gate each shell independently
+        result = [ent for _, ent in mandatory_ents]
+        for i, bin_list in enumerate(shell_bins):
+            bin_list.sort(key=lambda x: x[0])
+            budget = shell_budgets[i]
+            result.extend(ent for _, ent in bin_list[:budget])
+
+        # Sort final result by score for delivery order
+        result.sort(key=lambda e: self.score_entity(e, cam_x, cam_y, heading, vel_x, vel_y))
+        return result
+
+    def _gate_flat(self, entities: List[Dict], cam_x: float, cam_y: float,
+                   heading: float, vel_x: float, vel_y: float) -> List[Dict]:
+        """Flat budget gating — fallback when shell_budgets not configured."""
         budget = self.config["delivery_budget"]
         mandatory = self.config["mandatory_kinds"]
 
-        # Score all entities
         scored = []
         for ent in entities:
             s = self.score_entity(ent, cam_x, cam_y, heading, vel_x, vel_y)
             scored.append((s, ent))
         scored.sort(key=lambda x: x[0])
 
-        # Separate mandatory from optional
         mandatory_ents = []
         optional_scored = []
         for s, ent in scored:
@@ -423,15 +523,11 @@ class TileExchange:
             else:
                 optional_scored.append((s, ent))
 
-        # Fill budget: mandatory first, then best-scored optional.
-        # All entities arrive in one frame, sorted by perceptual priority.
-        # The scoring handles delivery order; the budget handles the cap.
         result = [ent for _, ent in mandatory_ents]
         remaining = budget - len(result)
         if remaining > 0:
             result.extend(ent for _, ent in optional_scored[:remaining])
 
-        # Sort final result by score for delivery order
         result.sort(key=lambda e: self.score_entity(e, cam_x, cam_y, heading, vel_x, vel_y))
         return result
 
@@ -441,20 +537,32 @@ class TileExchange:
                      heading: float, vel_x: float, vel_y: float) -> List[Dict]:
         """Full pipeline: ensure tiles → collect rosters → score → gate → deliver.
 
-        This is the single call brain_server makes instead of
-        ensure_tiles_around + wake query.
+        Generates at most tiles_per_frame new tiles per call to prevent
+        blocking the brain's TCP response loop. Cached tiles are always
+        collected. New tiles fill in over subsequent frames.
         """
-        # Ensure tiles around camera
         ctx, cty = self._tile_key(cam_x, cam_y)
         r = self.prefetch_radius
+
+        # Build prefetch grid sorted by distance from camera tile.
+        # Nearest tiles generate first — the tile you're standing on
+        # and the one directly ahead matter most.
+        needed = []
         for dtx in range(-r, r + 1):
             for dty in range(-r, r + 1):
-                self.get_tile_roster(ctx + dtx, cty + dty)
+                key = (ctx + dtx, cty + dty)
+                if key not in self._tile_cache:
+                    needed.append((dtx * dtx + dty * dty, key))
+        needed.sort()
 
-        # Collect all entities within render horizon. The scoring system
-        # handles priority (near beats far, skeleton beats scatter) and the
-        # budget caps total count. No per-kind wake radius cutoff — that
-        # caused pop-in at 15-30m in clean room where you can see 100m+.
+        generated = 0
+        for _, key in needed:
+            if generated >= self.tiles_per_frame:
+                break
+            self.get_tile_roster(*key)
+            generated += 1
+
+        # Collect all entities within render horizon from cached tiles.
         render_horizon = self.config.get("render_horizon", 65.0)
         render_horizon_sq = render_horizon * render_horizon
         all_ents = []

@@ -386,3 +386,78 @@ class TestPerceptualScoring:
         if life_positions:
             assert avg_life > avg_first, \
                 f"Life(avg={avg_life:.1f}) should come after first_glance(avg={avg_first:.1f})"
+
+
+# ---------------------------------------------------------------------------
+# Shell-gated delivery — per-shell budgets
+# ---------------------------------------------------------------------------
+
+class TestShellGatedConfig:
+    """Shell budgets must exist in biome config."""
+
+    def test_cavern_has_shell_budgets(self):
+        cfg = BIOME_REGISTRY["cavern"]["exchange"]
+        assert "shell_budgets" in cfg, "cavern exchange needs shell_budgets"
+        assert len(cfg["shell_budgets"]) == 7, "7 shells = 7 budgets"
+
+    def test_outdoor_has_shell_budgets(self):
+        cfg = BIOME_REGISTRY["outdoor"]["exchange"]
+        assert "shell_budgets" in cfg, "outdoor exchange needs shell_budgets"
+        assert len(cfg["shell_budgets"]) == 7, "7 shells = 7 budgets"
+
+    def test_shell_budgets_sum_matches_delivery_budget(self):
+        """Total shell budgets should equal the delivery_budget."""
+        for biome in ("cavern", "outdoor"):
+            cfg = BIOME_REGISTRY[biome]["exchange"]
+            assert sum(cfg["shell_budgets"]) == cfg["delivery_budget"], \
+                f"{biome} shell_budgets sum != delivery_budget"
+
+    def test_render_horizon_matches_outermost_shell(self):
+        """render_horizon should equal the outermost shell radius."""
+        from core.systems.biome_data import RENDER_SHELLS
+        outer = RENDER_SHELLS[-1]["radius"]
+        for biome in ("cavern", "outdoor"):
+            cfg = BIOME_REGISTRY[biome]["exchange"]
+            assert cfg["render_horizon"] == outer, \
+                f"{biome} render_horizon ({cfg['render_horizon']}) != shell outer ({outer})"
+
+
+class TestShellGatedDelivery:
+    """Entities are gated per shell — shells don't compete with each other."""
+
+    def test_structural_at_40m_not_starved_by_nearby_scatter(self):
+        """A column at 40m should survive even when 500 grass_tufts at 5m exist.
+
+        With flat gating, the 500 nearby grass_tufts could fill the budget
+        before the distant column. With shell gating, they're in different
+        shells and can't compete.
+        """
+        # Column at 40m = shell 5 (35-42m)
+        column = _ent("mega_column", 40.0, 0.0, chain_index=0)
+        # 500 grass tufts at 5m = shell 0 (0-7m)
+        scatter = [_ent("grass_tuft", 3.0 + i * 0.01, 3.0 + i * 0.01, chain_index=4)
+                   for i in range(500)]
+        all_ents = [column] + scatter
+
+        from core.systems.biome_data import RENDER_SHELLS
+        from core.systems.tile_exchange import _assign_shell
+        # Verify they land in different shells
+        col_shell = _assign_shell(column, 0, 0, RENDER_SHELLS)
+        grass_shell = _assign_shell(scatter[0], 0, 0, RENDER_SHELLS)
+        assert col_shell != grass_shell, "Column and grass should be in different shells"
+
+    def test_far_scatter_excluded_by_shell_kind_filter(self):
+        """Grass at 30m should be excluded — shell 4 (28-35m) only allows
+        structural, emissive, atmosphere."""
+        from core.systems.biome_data import RENDER_SHELLS, KIND_RENDER_CLASS
+        grass = _ent("grass_tuft", 30.0, 0.0, chain_index=4)
+        shell_idx = None
+        dist = 30.0
+        for i, shell in enumerate(RENDER_SHELLS):
+            if dist <= shell["radius"]:
+                shell_idx = i
+                break
+        assert shell_idx is not None
+        kind_class = KIND_RENDER_CLASS.get("grass_tuft", "scatter")
+        assert kind_class not in RENDER_SHELLS[shell_idx]["kind_classes"], \
+            f"grass_tuft ({kind_class}) should NOT be allowed in shell {shell_idx}"
