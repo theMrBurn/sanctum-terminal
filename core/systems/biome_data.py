@@ -650,6 +650,136 @@ CAVERN_STAMPS = [
     },
 ]
 
+
+# -- Origin hub (authored, fixed) ---------------------------------------------
+#
+# The starting location. NOT in CAVERN_STAMPS — this stamp is placed
+# deterministically at slot (0, 0) by stamp_world.stamp_at(), bypassing the
+# weighted selection. World coordinates are centered on (0, 0), not the
+# slot center — the hub is the literal origin of the cavern.
+#
+# Composition philosophy:
+#   - Axis mundi at center: the tallest landmark, visible from everywhere
+#     inside the hub, readable from outside the hub as "that's where I
+#     started." Primitive = mega_column.
+#   - Four cardinal arches at distance ~12m — N/E/S/W — each built from
+#     DIFFERENT vocabulary so the player learns the language by walking
+#     through all four. The gateway grammar:
+#       N arch: doorframe (lintel+runes) flanked by two mega_columns
+#       E arch: column + two buttresses (the structural brother pair)
+#       S arch: doorframe flanked by two monoliths (ancient gate feel)
+#       W arch: column pair + mega_column backer (wide threshold)
+#   - Four provision quadrants between arches, each with a lore role:
+#       NE — toadstool grove        (food / warmth / ringed ritual site)
+#       SE — spore_pod + giant_fungus  (forage / fungal partnership)
+#       SW — bone_pile + crystal     (relic light / memento mori)
+#       NW — boulder alcove + crystal (shelter / stone cache / beacon)
+#   - Walkable floor: moss_patch + grass_tuft + cave_gravel filling the
+#     inner ring, nothing >0.3m tall inside the central ~8m walking area.
+#   - Perimeter stalagmites between the arches, acting as visual walls.
+#     Breaks the silhouette so the hub reads as enclosed but not solid.
+#
+# This hub is the first authored spatial frame in the game. Every piece
+# is a composition of existing kinds — no new meshes, no new shaders.
+# It proves the stack can absorb an authored starting moment without
+# touching any of the render pipeline.
+#
+# Spawn position (main.gd): player should emerge through the SOUTH arch
+# at world (0, -14), facing +y (north), so the walk into the hub is
+# through the authored gateway, not a teleport into the center.
+
+ORIGIN_HUB = {
+    "name": "origin_hub",
+    "footprint": 30.0,
+    "members": [
+        # --- AXIS MUNDI (tallest landmark, visible from every cardinal) ---
+        {"kind": "mega_column", "dx":  0.0, "dy":  0.0, "scale_mult": 1.25, "hard": True},
+
+        # --- N ARCH (doorframe with mega_column flankers) ---
+        {"kind": "doorframe",   "dx":  0.0, "dy": 12.0, "scale_mult": 1.15, "hard": True},
+        {"kind": "mega_column", "dx": -3.2, "dy": 12.5, "scale_mult": 0.65, "hard": True},
+        {"kind": "mega_column", "dx":  3.2, "dy": 12.5, "scale_mult": 0.65, "hard": True},
+
+        # --- E ARCH (column + buttress pair) ---
+        {"kind": "column",      "dx": 12.0, "dy":  0.0, "scale_mult": 1.05, "hard": True},
+        {"kind": "buttress",    "dx": 12.5, "dy":  3.0, "scale_mult": 0.90, "hard": True},
+        {"kind": "buttress",    "dx": 12.5, "dy": -3.0, "scale_mult": 0.90, "hard": True},
+
+        # --- S ARCH (doorframe flanked by monoliths — ancient gate) ---
+        {"kind": "doorframe",   "dx":  0.0, "dy":-12.0, "scale_mult": 1.05, "hard": True},
+        {"kind": "monolith",    "dx": -3.2, "dy":-12.5, "scale_mult": 1.00, "hard": True},
+        {"kind": "monolith",    "dx":  3.2, "dy":-12.5, "scale_mult": 1.00, "hard": True},
+
+        # --- W ARCH (column pair + mega_column backer) ---
+        {"kind": "column",      "dx":-12.0, "dy":  2.0, "scale_mult": 1.00, "hard": True},
+        {"kind": "column",      "dx":-12.0, "dy": -2.0, "scale_mult": 1.00, "hard": True},
+        {"kind": "mega_column", "dx":-14.0, "dy":  0.0, "scale_mult": 0.55, "hard": True},
+
+        # --- NE QUADRANT — toadstool grove (food / warmth) ---
+        {"kind": "toadstool",   "dx":  5.5, "dy":  5.5, "scale_mult": 1.00, "hard": False},
+        {"kind": "toadstool",   "dx":  7.0, "dy":  4.0, "scale_mult": 0.80, "hard": False},
+        {"kind": "toadstool",   "dx":  4.5, "dy":  7.0, "scale_mult": 0.90, "hard": False},
+        {"kind": "toadstool",   "dx":  6.5, "dy":  6.5, "scale_mult": 0.75, "hard": False},
+        {"kind": "moss_patch",  "dx":  5.5, "dy":  5.5, "scale_mult": None, "hard": False},
+
+        # --- SE QUADRANT — spore_pod cluster + giant_fungus partner ---
+        {"kind": "giant_fungus","dx":  7.0, "dy": -6.5, "scale_mult": 0.75, "hard": True},
+        {"kind": "spore_pod",   "dx":  5.0, "dy": -5.0, "scale_mult": 1.10, "hard": False},
+        {"kind": "spore_pod",   "dx":  6.5, "dy": -3.8, "scale_mult": 0.90, "hard": False},
+        {"kind": "spore_pod",   "dx":  4.0, "dy": -6.8, "scale_mult": 0.85, "hard": False},
+        {"kind": "moss_patch",  "dx":  5.0, "dy": -5.0, "scale_mult": None, "hard": False},
+
+        # --- SW QUADRANT — bone relic + crystal witness light ---
+        {"kind": "bone_pile",   "dx": -5.0, "dy": -5.0, "scale_mult": 1.25, "hard": False},
+        {"kind": "rubble",      "dx": -6.5, "dy": -4.0, "scale_mult": None, "hard": False},
+        {"kind": "rubble",      "dx": -4.0, "dy": -6.5, "scale_mult": None, "hard": False},
+        {"kind": "crystal_cluster", "dx": -7.0, "dy": -3.0, "scale_mult": 0.60, "hard": True},
+        {"kind": "moss_patch",  "dx": -5.0, "dy": -5.0, "scale_mult": None, "hard": False},
+
+        # --- NW QUADRANT — boulder alcove + crystal beacon ---
+        {"kind": "boulder",     "dx": -5.0, "dy":  5.0, "scale_mult": 1.20, "hard": True},
+        {"kind": "boulder",     "dx": -7.0, "dy":  4.0, "scale_mult": 0.90, "hard": True},
+        {"kind": "rubble",      "dx": -5.5, "dy":  6.5, "scale_mult": None, "hard": False},
+        {"kind": "crystal_cluster", "dx": -4.0, "dy":  7.5, "scale_mult": 0.80, "hard": True},
+        {"kind": "moss_patch",  "dx": -5.0, "dy":  5.0, "scale_mult": None, "hard": False},
+
+        # --- CENTRAL BEACON RING (secondary light near axis mundi) ---
+        {"kind": "crystal_cluster", "dx":  2.0, "dy":  2.0, "scale_mult": 0.55, "hard": True},
+        {"kind": "firefly",     "dx":  0.5, "dy":  0.5, "scale_mult": None, "hard": False},
+        {"kind": "firefly",     "dx": -0.5, "dy":  1.0, "scale_mult": None, "hard": False},
+        {"kind": "firefly",     "dx":  1.0, "dy": -0.5, "scale_mult": None, "hard": False},
+
+        # --- WALKABLE FLOOR TISSUE (inner 8m ring) ---
+        {"kind": "moss_patch",  "dx":  0.0, "dy":  3.5, "scale_mult": None, "hard": False},
+        {"kind": "moss_patch",  "dx":  3.5, "dy":  0.0, "scale_mult": None, "hard": False},
+        {"kind": "moss_patch",  "dx":  0.0, "dy": -3.5, "scale_mult": None, "hard": False},
+        {"kind": "moss_patch",  "dx": -3.5, "dy":  0.0, "scale_mult": None, "hard": False},
+        {"kind": "grass_tuft",  "dx":  2.0, "dy":  2.5, "scale_mult": None, "hard": False},
+        {"kind": "grass_tuft",  "dx": -2.5, "dy":  1.5, "scale_mult": None, "hard": False},
+        {"kind": "grass_tuft",  "dx":  2.5, "dy": -2.0, "scale_mult": None, "hard": False},
+        {"kind": "grass_tuft",  "dx": -1.8, "dy": -3.0, "scale_mult": None, "hard": False},
+        {"kind": "cave_gravel", "dx":  1.5, "dy":  0.0, "scale_mult": None, "hard": False},
+        {"kind": "cave_gravel", "dx":  0.0, "dy":  1.5, "scale_mult": None, "hard": False},
+        {"kind": "cave_gravel", "dx": -1.5, "dy":  0.0, "scale_mult": None, "hard": False},
+        {"kind": "cave_gravel", "dx":  0.0, "dy": -1.5, "scale_mult": None, "hard": False},
+
+        # --- PERIMETER WALL STALAGMITES (between arches — visual enclosure) ---
+        # NE corner
+        {"kind": "stalagmite",  "dx":  9.0, "dy":  7.5, "scale_mult": 0.85, "hard": True},
+        {"kind": "stalagmite",  "dx":  7.5, "dy":  9.0, "scale_mult": 0.90, "hard": True},
+        # SE corner
+        {"kind": "stalagmite",  "dx":  9.0, "dy": -7.5, "scale_mult": 0.85, "hard": True},
+        {"kind": "stalagmite",  "dx":  7.5, "dy": -9.0, "scale_mult": 0.90, "hard": True},
+        # SW corner
+        {"kind": "stalagmite",  "dx": -9.0, "dy": -7.5, "scale_mult": 0.85, "hard": True},
+        {"kind": "stalagmite",  "dx": -7.5, "dy": -9.0, "scale_mult": 0.90, "hard": True},
+        # NW corner
+        {"kind": "stalagmite",  "dx": -9.0, "dy":  7.5, "scale_mult": 0.85, "hard": True},
+        {"kind": "stalagmite",  "dx": -7.5, "dy":  9.0, "scale_mult": 0.90, "hard": True},
+    ],
+}
+
+
 OUTDOOR_STAMPS = [
     # Fern clearing — open circle, green mound, dappled light feeling
     {

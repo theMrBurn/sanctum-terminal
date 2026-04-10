@@ -29,8 +29,24 @@ from core.systems.biome_data import (
     BIOME_REGISTRY,
     CAVERN_STAMPS,
     OUTDOOR_STAMPS,
+    ORIGIN_HUB,
 )
 from core.systems.bucket_world import KIND_PROPS
+
+
+# Mega stamps — these get filtered out of the neighborhood around the
+# origin hub so the authored hub doesn't get swallowed by adjacent mega
+# anchors. The transition from hub → procedural should feel intentional.
+_MEGA_STAMP_NAMES = {"obelisk_court", "column_henge", "buttress_arch"}
+
+# Slots where the origin hub owns the space or the mega filter applies.
+# (0, 0) = hub itself.
+# (-1..1, -1..1) \ (0,0) = 8 adjacent slots where mega stamps are excluded.
+_HUB_ORIGIN_SLOT = (0, 0)
+_HUB_ADJACENT_SLOTS = {(gx, gy)
+                       for gx in (-1, 0, 1)
+                       for gy in (-1, 0, 1)
+                       if (gx, gy) != _HUB_ORIGIN_SLOT}
 
 
 # Slot grid — each cell holds one stamp. 16m matches the visible radius
@@ -119,17 +135,54 @@ def _weighted_pick(stamps: list, rng: random.Random) -> Dict:
     return stamps[-1]   # numerical safety
 
 
+def _instantiate_hub(world_cx: float, world_cy: float,
+                     seed: int) -> List[Dict]:
+    """Emit ORIGIN_HUB members at the given world position.
+
+    Unlike procedural stamps, the hub is NOT placed at a slot center —
+    it's placed at world (0, 0), regardless of which slot the origin
+    falls in. The hub does not rotate (its arches are cardinal) and
+    members skip per-instance scatter. This is the only hand-authored
+    scene in the game, and it owns its coordinate frame.
+    """
+    rng = random.Random(seed ^ 0xBADC0DE)
+    roster: list[Dict] = []
+    for member in ORIGIN_HUB["members"]:
+        kind = member["kind"]
+        x = world_cx + member.get("dx", 0.0)
+        y = world_cy + member.get("dy", 0.0)
+        scale_mult = member.get("scale_mult") or 1.0
+        ent = _make_entity(kind, x, y, rng, scale_mult)
+        if ent is not None:
+            roster.append(ent)
+    return roster
+
+
 def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     """Pure function: slot coords → entity list.
 
-    Picks one stamp deterministically via weighted selection,
-    instantiates its members at the slot center with random rotation,
-    then adds tissue scatter within the slot bounds. Same input always
-    returns the same output.
+    For the cavern biome, slot (0, 0) is the origin hub — a hand-authored
+    stamp placed at world (0, 0) regardless of slot center offset. All
+    other slots pick procedurally via weighted selection. The 8 slots
+    immediately adjacent to (0, 0) exclude mega stamps so the transition
+    from authored hub to procedural periphery stays legible.
     """
+    # Origin hub special case — the only hand-authored scene in the game.
+    # Takes full ownership of slot (0, 0) in the cavern biome; skips the
+    # weighted pool and skips tissue scatter so the authored composition
+    # stays clean.
+    if biome_name == "cavern" and (gx, gy) == _HUB_ORIGIN_SLOT:
+        return _instantiate_hub(0.0, 0.0, seed)
+
     stamps = _stamps_for(biome_name)
     if not stamps:
         return []
+
+    # Mega-stamp exclusion zone — keep the neighborhood of the hub calm
+    # so the transition from authored hub to procedural periphery is
+    # readable and you can see the hub's silhouette from outside.
+    if biome_name == "cavern" and (gx, gy) in _HUB_ADJACENT_SLOTS:
+        stamps = [s for s in stamps if s.get("name") not in _MEGA_STAMP_NAMES]
 
     rng = random.Random(_slot_seed(gx, gy, seed))
     cx = (gx + 0.5) * SLOT_SIZE

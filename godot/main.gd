@@ -369,12 +369,41 @@ func _setup_camera() -> void:
 
 
 func _aim_spawn_heading() -> void:
-	"""Point camera at the nearest natural mega_column outside the spawn clearance.
+	"""Spawn ritual — position and orient the camera for first frame.
 
-	The foreground silhouette comes from the world's existing honeycomb, not from
-	a staged blocking object. Camera is aimed with a 20° offset so the landmark
-	falls in the right-forward peripheral instead of dead-center.
+	Cavern biome: player emerges through the SOUTH arch of the origin hub
+	at world (0, -14), facing +Y (north) into the hub. The hub is
+	hand-authored in biome_data.ORIGIN_HUB with four cardinal arches at
+	~12m radius, and stamp_world.stamp_at() places it deterministically
+	at slot (0, 0).
+
+	Other biomes: fall back to the legacy "find nearest mega_column and
+	frame it peripheral" landmark search.
+
+	Both branches finalize via _finalize_spawn_scene() which handles
+	camera attachment, light pipes, and banner cylinders.
 	"""
+	var biome_name: String = manifest.get("biome", "cavern")
+
+	if biome_name == "cavern":
+		# Godot coordinate map: camera.position.x = world X, camera.position.z
+		# = world Y, camera.position.y = world up. Default camera forward is -Z;
+		# rotating 180° around Y makes it face +Z (= +world Y = north).
+		camera.position = Vector3(0.0, EYE_HEIGHT, -14.0)
+		camera.rotation.y = PI
+		camera.rotation.x = deg_to_rad(8.0)  # slight upward tilt — catches arch lintel
+		print("Hub spawn: camera at (0, -14) facing north (180°)")
+	else:
+		_legacy_landmark_aim()
+
+	_finalize_spawn_scene()
+
+
+func _legacy_landmark_aim() -> void:
+	"""Rotates the camera to frame the nearest mega_column in the right
+	peripheral. Used by non-cavern biomes that don't yet have an
+	authored hub. Leaves camera.position alone (set by _setup_camera
+	from manifest.camera)."""
 	const SPAWN_CLEARANCE: float = 18.0
 	const IDEAL_MIN_DIST: float = 18.0
 	const IDEAL_MAX_DIST: float = 32.0
@@ -408,19 +437,21 @@ func _aim_spawn_heading() -> void:
 	if not found:
 		print("Spawn aim: no mega_column found, keeping default heading")
 		return
-	# Compute heading to face landmark, then offset 20° so it sits in right peripheral
+	# Compute heading to face landmark, then offset 35° so it sits in right peripheral
 	var dx: float = best_x - cam_x
 	var dz: float = best_z - cam_z
-	# Godot: -Z is forward. atan2(-dx, dz) gives heading where 0 = +Z forward
 	var landmark_heading: float = atan2(dx, -dz)
-	# Offset 35° LEFT so the landmark sits clearly in right-forward peripheral,
-	# not center-blocking. FOV 52° means 20° was still near-center; 35° pushes
-	# the landmark to the right edge of the frame so foreground is open.
 	var peripheral_offset: float = deg_to_rad(-35.0)
 	var final_heading: float = landmark_heading + peripheral_offset
 	camera.rotation.y = final_heading
 	print("Spawn aim: landmark at (%.1f, %.1f), dist %.1fm, heading %.1f°" % [
 		best_x, best_z, sqrt(dx*dx + dz*dz), rad_to_deg(final_heading)])
+
+
+func _finalize_spawn_scene() -> void:
+	"""Attach the camera to the scene tree and initialize light pipes +
+	banner cylinders. Shared by both spawn modes (hub + legacy landmark).
+	Must run exactly once per scene setup — do not call from _process."""
 	var fog_data: Dictionary = manifest.get("fog", {})
 	camera.far = fog_data.get("far", 55.0) * 2.5  # extended for skeleton silhouettes
 	camera.fov = 62.0  # wider peripheral — catches ceiling features + passive pull cues
