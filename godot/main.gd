@@ -1026,6 +1026,21 @@ func _update_hud() -> void:
 	hud_label.text = _build_overlay_line(overlay_cfg, cx, cy, ch, tension_st, vis)
 
 
+# Snapshot of Godot's Performance singleton — used by both the HUD overlay
+# and the tag telemetry sidecar. Read once per caller to keep the values
+# coherent across all consumers in the same frame.
+func _read_perf() -> Dictionary:
+	return {
+		"fps":          int(Engine.get_frames_per_second()),
+		"frame_ms":     snapped(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, 0.01),
+		"physics_ms":   snapped(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, 0.01),
+		"draw_calls":   int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		"objects":      int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)),
+		"primitives":   int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)),
+		"static_mem_mb": snapped(Performance.get_monitor(Performance.MEMORY_STATIC) / (1024.0 * 1024.0), 0.1),
+	}
+
+
 # -- Brain server connection ---------------------------------------------------
 
 func _connect_to_brain() -> void:
@@ -1556,6 +1571,7 @@ func _save_tag() -> void:
 		"ambient": manifest.get("ambient", []),
 		"connected": connected,
 		"overlay": hud_label.text,
+		"perf": _read_perf(),
 	}
 	var json_path: String = path.replace(".png", ".json")
 	var jfile := FileAccess.open(json_path, FileAccess.WRITE)
@@ -1574,6 +1590,14 @@ func _build_overlay_line(cfg: Dictionary,
 	var fields: Array = cfg.get("fields", [])
 	var parts: PackedStringArray = PackedStringArray()
 	var chrono: Dictionary = manifest.get("chronometer", {})
+	# Lazy-read perf only if any perf field is requested — avoids the
+	# Performance.get_monitor calls every frame when no one asks.
+	var perf: Dictionary = {}
+	for f: String in fields:
+		if f in ["fps", "frame_ms", "physics_ms", "draw_calls",
+				 "render_objects", "render_tris", "static_mem"]:
+			perf = _read_perf()
+			break
 
 	for f: String in fields:
 		match f:
@@ -1611,6 +1635,26 @@ func _build_overlay_line(cfg: Dictionary,
 				parts.append(",".join(top) if top.size() > 0 else "empty")
 			"timestamp":
 				parts.append(Time.get_datetime_string_from_system(false, true))
+			"fps":
+				parts.append("%dfps" % perf.get("fps", 0))
+			"frame_ms":
+				parts.append("%.1fms" % perf.get("frame_ms", 0.0))
+			"physics_ms":
+				parts.append("p%.1fms" % perf.get("physics_ms", 0.0))
+			"draw_calls":
+				parts.append("%ddc" % perf.get("draw_calls", 0))
+			"render_objects":
+				parts.append("%dobj" % perf.get("objects", 0))
+			"render_tris":
+				var prims: int = perf.get("primitives", 0)
+				if prims >= 1_000_000:
+					parts.append("%.1fMtri" % (prims / 1_000_000.0))
+				elif prims >= 1000:
+					parts.append("%.0fKtri" % (prims / 1000.0))
+				else:
+					parts.append("%dtri" % prims)
+			"static_mem":
+				parts.append("%.0fMB" % perf.get("static_mem_mb", 0.0))
 	return sep.join(parts)
 
 

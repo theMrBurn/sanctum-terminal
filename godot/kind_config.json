@@ -75,6 +75,10 @@
         "position",
         "heading",
         "entities_visible",
+        "fps",
+        "frame_ms",
+        "draw_calls",
+        "render_tris",
         "tension_state",
         "day_phase",
         "timestamp"
