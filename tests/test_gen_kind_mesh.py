@@ -436,3 +436,54 @@ class TestFloraComposedFamily:
         for i, v in enumerate(build_kind("giant_fungus")):
             assert 100 <= len(v.faces) <= 500, (
                 f"giant_fungus v{i}: {len(v.faces)} tris outside 100-500 budget")
+
+
+# -- Family: scatter_tissue ----------------------------------------------------
+#
+# Tier 2 plant tissue — grass_tuft, leaf_pile, twig_scatter, moss_patch.
+# Dome scatter of crossed-quad billboards. No atoms, no composed
+# primitives. Cheapest path in the pipeline.
+
+
+SCATTER_TISSUE_KINDS = ["grass_tuft", "leaf_pile", "twig_scatter", "moss_patch"]
+
+
+class TestScatterTissueFamily:
+
+    def test_family_builder_registered(self):
+        assert "scatter_tissue" in FAMILY_BUILDERS
+
+    @pytest.mark.parametrize("kind", SCATTER_TISSUE_KINDS)
+    def test_produces_four_variants(self, kind):
+        assert len(build_kind(kind)) == 4
+
+    @pytest.mark.parametrize("kind", SCATTER_TISSUE_KINDS)
+    def test_variants_have_vertex_colors(self, kind):
+        for i, v in enumerate(build_kind(kind)):
+            assert v.visual.vertex_colors.shape == (len(v.vertices), 4)
+
+    @pytest.mark.parametrize("kind", SCATTER_TISSUE_KINDS)
+    def test_variants_ground_hugging(self, kind):
+        # All tissue types should be wider than tall (dome, not spire)
+        for i, v in enumerate(build_kind(kind)):
+            w, d, h = v.extents
+            assert h < max(w, d), (
+                f"{kind} v{i}: height {h:.2f} >= max(w,d) {max(w,d):.2f} "
+                f"(tissue should be dome-shaped)")
+
+    @pytest.mark.parametrize("kind", SCATTER_TISSUE_KINDS)
+    def test_variants_have_no_atoms(self, kind):
+        # Tier 2 regression guard — tissue should not carry atom markers
+        target = np.array(_CREAM_ATOM[:3], dtype=int)
+        for i, v in enumerate(build_kind(kind)):
+            colors = v.visual.vertex_colors[:, :3].astype(int)
+            match = np.all(np.abs(colors - target) <= 1, axis=1)
+            assert not match.any(), (
+                f"{kind} v{i}: tissue should not carry atom markers")
+
+    @pytest.mark.parametrize("kind", SCATTER_TISSUE_KINDS)
+    def test_variants_low_poly_budget(self, kind):
+        # Tissue should be cheap — under 250 tris per instance
+        for i, v in enumerate(build_kind(kind)):
+            assert 10 <= len(v.faces) <= 250, (
+                f"{kind} v{i}: {len(v.faces)} tris outside 10-250 tissue budget")

@@ -1654,6 +1654,118 @@ def _family_rock_lobed(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
     return variants
 
 
+def _family_scatter_tissue(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
+    """Scatter tissue family — crossed-quad dome scatter for low-cost
+    plant tissue. Used by grass_tuft, leaf_pile, twig_scatter, moss_patch.
+
+    Each instance is a dome-profile scatter of N crossed-quad billboards,
+    where each "cross" is 2-3 flat quads rotated around a shared vertical
+    axis. Cheap (~40-120 tris per instance) and the crossing angles
+    provide parallax when the player walks past.
+
+    No atoms, no composed primitives. Tier 2 tissue path only.
+
+    Recipe fields (kind_cfg["recipe"]):
+      bounds           [w, d, h]   dome footprint and typical height
+      variant_count    int          4 for consistency with pipeline
+      variant_spread   float        size drift
+      family_params    dict:
+        cross_count        int     number of cross-stacks in the dome (4-14)
+        cross_planes       int     quads per cross (2 or 3)
+        cross_width_frac   float   quad width / bounds width
+        dome_flatness      float   0..1, how much edges are shorter
+        lean_jitter_deg    float   random per-cross Z-rotation
+    """
+    recipe = kind_cfg["recipe"]
+    fp = recipe.get("family_params", {})
+    bounds = recipe["bounds"]
+    variant_count = int(recipe["variant_count"])
+    variant_spread = float(recipe.get("variant_spread", 0.30))
+
+    canonical_width  = float(bounds[0])
+    canonical_height = float(bounds[2])
+
+    cross_count      = int(fp.get("cross_count", 9))
+    cross_planes     = int(fp.get("cross_planes", 3))
+    cross_width_frac = float(fp.get("cross_width_frac", 0.08))
+    dome_flatness    = float(fp.get("dome_flatness", 0.5))
+    lean_jitter_deg  = float(fp.get("lean_jitter_deg", 0.0))
+
+    base_color   = _rgb01_to_rgba_u8(kind_cfg.get("color_base",   [0.24, 0.26, 0.20]))
+    shadow_color = _rgb01_to_rgba_u8(kind_cfg.get("color_shadow", [0.20, 0.22, 0.17]))
+    accent_color = _rgb01_to_rgba_u8(kind_cfg.get("color_accent", [0.28, 0.30, 0.24]))
+
+    variants = []
+    for v_idx in range(variant_count):
+        seed = zlib.crc32(f"{kind_name}-{v_idx}".encode()) & 0xFFFFFFFF
+        rng = np.random.default_rng(seed)
+
+        size_drift = 1.0 + variant_spread * (rng.random() * 2.0 - 1.0)
+        v_width  = canonical_width  * size_drift
+        v_height = canonical_height * size_drift
+        footprint_r = v_width * 0.5
+
+        parts = []
+        for ci in range(cross_count):
+            angle = rng.random() * 2.0 * math.pi
+            dist = rng.random() * footprint_r
+            cx = math.cos(angle) * dist
+            cy = math.sin(angle) * dist
+
+            # Dome profile — edges of the dome are shorter than center
+            edge_t = dist / max(footprint_r, 1e-6)
+            dome_scale = 1.0 - edge_t * dome_flatness
+            h_local = v_height * dome_scale * (0.7 + rng.random() * 0.6)
+            w_local = canonical_width * cross_width_frac * (0.8 + rng.random() * 0.4)
+
+            rot_base = rng.random() * 2.0 * math.pi
+            lean = math.radians(lean_jitter_deg) * (rng.random() - 0.5) * 2.0
+
+            for pi in range(cross_planes):
+                plane_angle = rot_base + pi * (math.pi / cross_planes)
+                cos_a = math.cos(plane_angle)
+                sin_a = math.sin(plane_angle)
+                half_w = w_local * 0.5
+                # Build a vertical quad in the plane defined by (cos_a, sin_a)
+                # rotated around Z. Optionally lean the top forward by `lean`.
+                lean_offset = math.sin(lean) * h_local * 0.4
+                v0 = [-half_w * cos_a, -half_w * sin_a, 0.0]
+                v1 = [ half_w * cos_a,  half_w * sin_a, 0.0]
+                v2 = [ half_w * cos_a + lean_offset * -sin_a,
+                       half_w * sin_a + lean_offset * cos_a,
+                       h_local]
+                v3 = [-half_w * cos_a + lean_offset * -sin_a,
+                      -half_w * sin_a + lean_offset * cos_a,
+                      h_local]
+                verts = np.array([v0, v1, v2, v3])
+                verts[:, 0] += cx
+                verts[:, 1] += cy
+                faces = np.array([[0, 1, 2], [0, 2, 3]])
+                quad = trimesh.Trimesh(
+                    vertices=verts, faces=faces, process=False
+                )
+                _solid_color(quad, base_color)
+                parts.append(quad)
+
+        if not parts:
+            # Degenerate safety: empty tuft becomes a single 1mm dot
+            tiny = trimesh.Trimesh(
+                vertices=np.array([[0.0, 0.0, 0.0],
+                                   [0.001, 0.0, 0.0],
+                                   [0.0, 0.001, 0.0]]),
+                faces=np.array([[0, 1, 2]]),
+                process=False,
+            )
+            _solid_color(tiny, base_color)
+            parts = [tiny]
+
+        cluster = compose(parts)
+        _apply_z_gradient_three_stop(cluster, shadow_color, base_color, accent_color)
+        variants.append(cluster)
+
+    return variants
+
+
 def _family_flora_composed(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
     """Composed flora family — stem + cap construction for giant_fungus
     and any future organic kind that needs "body + cap" silhouette.
@@ -2128,7 +2240,7 @@ FAMILY_BUILDERS: dict[str, callable] = {
     "rock_lobed":       _family_rock_lobed,
     "crystal_spike":    _family_crystal_spike,
     "flora_composed":   _family_flora_composed,
-    # "scatter_tissue":   _family_scatter_tissue,
+    "scatter_tissue":   _family_scatter_tissue,
 }
 
 

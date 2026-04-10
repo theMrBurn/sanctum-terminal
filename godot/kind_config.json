@@ -366,21 +366,65 @@
         "family_params": {"taper_strength": 0.2, "has_cap": false}
       }},
     "moss_patch":      {"class": "organic_flora",
+      "use_vertex_colors": true,
       "color_base": [0.18, 0.34, 0.22], "color_shadow": [0.14, 0.28, 0.17], "color_accent": [0.22, 0.40, 0.26],
       "light_reactive": true, "sink": -0.03,
-      "burial": {"min_frac": 0.15, "max_frac": 0.30}},
+      "burial": {"min_frac": 0.15, "max_frac": 0.30},
+      "recipe": {
+        "tier": 2, "family": "scatter_tissue",
+        "variant_count": 4, "bounds": [2.0, 2.0, 0.2], "variant_spread": 0.30,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "cross_count": 12, "cross_planes": 2,
+          "cross_width_frac": 0.10, "dome_flatness": 0.9, "lean_jitter_deg": 0.0
+        }
+      }},
     "grass_tuft":      {"class": "organic_flora",
+      "use_vertex_colors": true,
       "color_base": [0.24, 0.30, 0.22], "color_shadow": [0.19, 0.24, 0.17], "color_accent": [0.28, 0.35, 0.26],
-      "wind_strength": 0.05},
+      "wind_strength": 0.05,
+      "recipe": {
+        "tier": 2, "family": "scatter_tissue",
+        "variant_count": 4, "bounds": [1.2, 1.2, 0.35], "variant_spread": 0.30,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "cross_count": 10, "cross_planes": 3,
+          "cross_width_frac": 0.08, "dome_flatness": 0.5, "lean_jitter_deg": 8.0
+        }
+      }},
     "dead_log":        {"class": "organic_flora",
       "color_base": [0.24, 0.20, 0.22], "color_shadow": [0.20, 0.16, 0.18], "color_accent": [0.28, 0.24, 0.26],
       "burial": {"min_frac": 0.15, "max_frac": 0.35}},
     "leaf_pile":       {"class": "organic_flora",
+      "use_vertex_colors": true,
       "color_base": [0.34, 0.28, 0.24], "color_shadow": [0.28, 0.22, 0.19], "color_accent": [0.40, 0.34, 0.30],
-      "sink": -0.02},
+      "sink": -0.02,
+      "recipe": {
+        "tier": 2, "family": "scatter_tissue",
+        "variant_count": 4, "bounds": [0.8, 0.8, 0.15], "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "cross_count": 8, "cross_planes": 2,
+          "cross_width_frac": 0.12, "dome_flatness": 0.85, "lean_jitter_deg": 15.0
+        }
+      }},
     "twig_scatter":    {"class": "organic_flora",
+      "use_vertex_colors": true,
       "color_base": [0.30, 0.26, 0.28], "color_shadow": [0.24, 0.20, 0.22], "color_accent": [0.36, 0.32, 0.34],
-      "sink": -0.01},
+      "sink": -0.01,
+      "recipe": {
+        "tier": 2, "family": "scatter_tissue",
+        "variant_count": 4, "bounds": [1.5, 1.5, 0.18], "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "cross_count": 6, "cross_planes": 2,
+          "cross_width_frac": 0.22, "dome_flatness": 0.9, "lean_jitter_deg": 30.0
+        }
+      }},
     "bone_pile":       {"class": "organic_flora",
       "use_vertex_colors": true,
       "color_base": [0.42, 0.40, 0.44], "color_shadow": [0.36, 0.34, 0.38], "color_accent": [0.48, 0.46, 0.50],
