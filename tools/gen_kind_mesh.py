@@ -713,6 +713,69 @@ def spore_pod_variants() -> list[trimesh.Trimesh]:
 # dark stone range matching the existing facet-normal column kinds.
 DOORFRAME_POST_COLOR: RGBA   = (32, 26, 21, 255)     # dark weathered stone
 DOORFRAME_LINTEL_COLOR: RGBA = (22, 17, 13, 255)     # shadowed beam — even darker
+DOORFRAME_RUNE_COLOR: RGBA   = (75, 62, 48, 255)     # carved rune highlights
+
+
+def doorframe_runes(
+    lintel_length: float,
+    lintel_depth: float,
+    lintel_height: float,
+    lintel_z_center: float,
+    rune_count_front: int = 4,
+    rune_count_back: int = 2,
+    rune_size: float = 0.13,
+    rune_seed: int = 0,
+    color: RGBA = DOORFRAME_RUNE_COLOR,
+) -> trimesh.Trimesh:
+    """Heptagonal carved runes scattered across the front and back
+    faces of the doorframe lintel. Atom-doctrine compliant
+    (design_heptagonal_mote.md / design_meta_pixel_mote.md).
+
+    The lintel is the natural surface for an inscription on a
+    doorway — the carved beam over the threshold that names what
+    you're entering. Same scattered_heptagons mechanism the monolith
+    uses for its body glyphs, just oriented along a horizontal beam
+    instead of a vertical body slab.
+
+    Front face gets more runes than back (player approaches from
+    front). Position scatter via deterministic hash so each variant
+    carries a unique inscription pattern.
+    """
+    rng = np.random.default_rng(rune_seed)
+    positions: list[np.ndarray] = []
+    normals: list[np.ndarray] = []
+    sizes: list[float] = []
+
+    # Front face (y = -lintel_depth/2, normal points -Y)
+    for _ in range(rune_count_front):
+        x = rng.uniform(-lintel_length * 0.40, lintel_length * 0.40)
+        z = lintel_z_center + rng.uniform(-lintel_height * 0.30,
+                                          lintel_height * 0.30)
+        pos = np.array([x, -lintel_depth * 0.5 - 0.005, z])
+        nrm = np.array([0.0, -1.0, 0.0])
+        sz = rune_size * (0.7 + rng.random() * 0.6)
+        positions.append(pos)
+        normals.append(nrm)
+        sizes.append(sz)
+
+    # Back face (y = +lintel_depth/2, normal points +Y) — fewer runes
+    for _ in range(rune_count_back):
+        x = rng.uniform(-lintel_length * 0.40, lintel_length * 0.40)
+        z = lintel_z_center + rng.uniform(-lintel_height * 0.30,
+                                          lintel_height * 0.30)
+        pos = np.array([x, lintel_depth * 0.5 + 0.005, z])
+        nrm = np.array([0.0, 1.0, 0.0])
+        sz = rune_size * (0.7 + rng.random() * 0.6)
+        positions.append(pos)
+        normals.append(nrm)
+        sizes.append(sz)
+
+    return scattered_heptagons(
+        np.array(positions),
+        np.array(normals),
+        sizes,
+        color,
+    )
 
 
 def build_doorframe(
@@ -725,6 +788,11 @@ def build_doorframe(
     post_sections: int = 6,        # hexagonal posts (low-poly faceted)
     left_post_lean: float = 0.0,   # radians of lean — non-zero for ruined variants
     right_post_lean: float = 0.0,
+    # Carved runes — heptagonal recognition markers on the lintel
+    rune_count_front: int = 4,
+    rune_count_back: int = 2,
+    rune_size: float = 0.13,
+    rune_seed: int = 0,
 ) -> trimesh.Trimesh:
     """Compose a doorway: two posts + heavy lintel beam, all vertex-colored.
 
@@ -771,45 +839,76 @@ def build_doorframe(
     # --- Lintel: chunky rectangular block across the top ---
     lintel_length = post_spacing + (post_width * 2) + (lintel_overhang * 2)
     lintel_depth = post_width * lintel_depth_mult
+    lintel_z_center = post_height + lintel_height * 0.5
     lintel = trimesh.creation.box(
         extents=[lintel_length, lintel_depth, lintel_height]
     )
     _solid_color(lintel, DOORFRAME_LINTEL_COLOR)
-    lintel.apply_translation([0.0, 0.0, post_height + lintel_height * 0.5])
+    lintel.apply_translation([0.0, 0.0, lintel_z_center])
 
-    return compose([left_post, right_post, lintel])
+    parts = [left_post, right_post, lintel]
+
+    # --- Carved heptagonal runes on the lintel face ---
+    # Atom-doctrine recognition marker via the same scattered_heptagons
+    # primitive the monolith uses for body glyphs. Closes the recipe
+    # gap on the doorframe — every authored kind in the gen_kind_mesh
+    # set now carries the doctrine-compliant marker.
+    if rune_count_front + rune_count_back > 0:
+        runes = doorframe_runes(
+            lintel_length=lintel_length,
+            lintel_depth=lintel_depth,
+            lintel_height=lintel_height,
+            lintel_z_center=lintel_z_center,
+            rune_count_front=rune_count_front,
+            rune_count_back=rune_count_back,
+            rune_size=rune_size,
+            rune_seed=rune_seed,
+        )
+        parts.append(runes)
+
+    return compose(parts)
 
 
 def doorframe_variants() -> list[trimesh.Trimesh]:
-    """Four doorway variants. Two are intact, two are weathered/ruined
-    with subtle post lean for collapsed-arch character. Lintels are
-    chunky stone blocks now, not beams."""
+    """Four doorway variants with carved heptagonal runes on the
+    lintel. Two are intact, two are weathered/ruined with subtle post
+    lean for collapsed-arch character. Each variant carries a distinct
+    rune_seed so the inscription patterns differ."""
     return [
-        # v0: standard — solid intact doorway
+        # v0: standard — solid intact doorway, dense runes
         build_doorframe(
             post_height=3.2, post_width=0.50,
             post_spacing=1.80, lintel_overhang=0.55,
             lintel_height=0.80, lintel_depth_mult=2.0,
+            rune_count_front=5, rune_count_back=2,
+            rune_size=0.13, rune_seed=171,
         ),
-        # v1: tall passage — narrow vertical
+        # v1: tall passage — narrow vertical, fewer runes
         build_doorframe(
             post_height=4.2, post_width=0.45,
             post_spacing=1.40, lintel_overhang=0.50,
             lintel_height=0.70, lintel_depth_mult=1.9,
+            rune_count_front=4, rune_count_back=2,
+            rune_size=0.11, rune_seed=282,
         ),
-        # v2: wide gateway — heavy stone, slight inward lean (ruined)
+        # v2: wide gateway — heavy stone, slight inward lean (ruined),
+        # MORE runes (the wide lintel has room for an inscription)
         build_doorframe(
             post_height=3.0, post_width=0.65,
             post_spacing=2.40, lintel_overhang=0.75,
             lintel_height=1.00, lintel_depth_mult=2.2,
             left_post_lean=0.06, right_post_lean=-0.06,  # ~3.4° inward
+            rune_count_front=7, rune_count_back=3,
+            rune_size=0.15, rune_seed=393,
         ),
-        # v3: ruined collapse — outward lean, broken feel
+        # v3: ruined collapse — fewer worn runes (most have eroded away)
         build_doorframe(
             post_height=2.6, post_width=0.55,
             post_spacing=1.70, lintel_overhang=0.45,
             lintel_height=0.65, lintel_depth_mult=1.8,
             left_post_lean=-0.10, right_post_lean=0.04,  # asymmetric collapse
+            rune_count_front=3, rune_count_back=1,
+            rune_size=0.12, rune_seed=404,
         ),
     ]
 
