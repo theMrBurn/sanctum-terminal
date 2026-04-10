@@ -1654,6 +1654,139 @@ def _family_rock_lobed(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
     return variants
 
 
+def _family_flora_composed(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
+    """Composed flora family — stem + cap construction for giant_fungus
+    and any future organic kind that needs "body + cap" silhouette.
+
+    Reuses _build_tapered_vertical_instance for the stem (with bulbous
+    params — strong base flare, mild taper, thick mid-body) and a
+    hemisphere for the cap. Atoms scatter on the cap surface for
+    recognition markers.
+
+    Recipe fields (kind_cfg["recipe"]):
+      bounds           [w, d, h]   overall kind bbox
+      variant_count    int
+      variant_spread   float
+      atoms            dict|null   cap marker spec
+      family_params    dict:
+        stem_height_frac   float  0..1, stem_height / total_height
+        stem_radius_frac   float  0..1, stem_base_diameter / v_width
+        cap_radius_frac    float  0..1, cap_diameter / v_width
+        cap_height_frac    float  0..1, cap_height / stem_height
+        stem_taper         float  0..1, taper of the stem body
+        stem_flare         float  >1, flare ratio at stem base
+        noise_strength     float  stem radial noise
+
+    Palette: color_base/shadow/accent used for stem. cap color derived
+    from color_accent brightened, unless color_cap override given.
+    """
+    recipe = kind_cfg["recipe"]
+    fp = recipe.get("family_params", {})
+    bounds = recipe["bounds"]
+    variant_count = int(recipe["variant_count"])
+    variant_spread = float(recipe.get("variant_spread", 0.20))
+
+    canonical_width  = float(bounds[0])
+    canonical_height = float(bounds[2])
+
+    stem_height_frac = float(fp.get("stem_height_frac", 0.60))
+    stem_radius_frac = float(fp.get("stem_radius_frac", 0.30))
+    cap_radius_frac  = float(fp.get("cap_radius_frac",  0.50))
+    cap_height_frac  = float(fp.get("cap_height_frac",  0.35))
+    stem_taper       = float(fp.get("stem_taper",       0.20))
+    stem_flare       = float(fp.get("stem_flare",       1.30))
+    noise_strength   = float(fp.get("noise_strength",   0.05))
+
+    stem_base   = _rgb01_to_rgba_u8(kind_cfg.get("color_base",   [0.22, 0.20, 0.22]))
+    stem_shadow = _rgb01_to_rgba_u8(kind_cfg.get("color_shadow", [0.17, 0.16, 0.18]))
+    stem_accent = _rgb01_to_rgba_u8(kind_cfg.get("color_accent", [0.26, 0.24, 0.27]))
+
+    # Cap color: explicit override or derive from stem_accent (brighter)
+    cap_override = kind_cfg.get("color_cap")
+    if cap_override is not None:
+        cap_color = _rgb01_to_rgba_u8(cap_override)
+    else:
+        r, g, b, _ = stem_accent
+        cap_color = (
+            min(int(round(r * 1.35)), 255),
+            min(int(round(g * 1.35)), 255),
+            min(int(round(b * 1.35)), 255),
+            255,
+        )
+
+    atoms_cfg = recipe.get("atoms")
+
+    variants = []
+    for v_idx in range(variant_count):
+        seed = zlib.crc32(f"{kind_name}-{v_idx}".encode()) & 0xFFFFFFFF
+        rng = np.random.default_rng(seed)
+
+        size_drift = 1.0 + variant_spread * (rng.random() * 2.0 - 1.0)
+        v_width  = canonical_width  * size_drift
+        v_height = canonical_height * size_drift
+
+        stem_height = v_height * stem_height_frac
+        stem_radius = v_width * 0.5 * stem_radius_frac
+        cap_radius  = v_width * 0.5 * cap_radius_frac
+        cap_h       = stem_height * cap_height_frac
+
+        stem_rng = np.random.default_rng(seed + 1)
+        stem = _build_tapered_vertical_instance(
+            base_radius=stem_radius,
+            height=stem_height,
+            taper_strength=stem_taper,
+            flare_ratio=stem_flare,
+            flare_frac=0.30,
+            noise_strength=noise_strength,
+            facet_count=8,
+            ring_count=6,
+            base_color=stem_base,
+            shadow_color=stem_shadow,
+            accent_color=stem_accent,
+            atoms_cfg=None,
+            rng=stem_rng,
+        )
+
+        cap = hemisphere(
+            radius=cap_radius, height=cap_h, color=cap_color,
+            meridian_sections=10, parallel_rings=3,
+        )
+        cap.apply_translation([0.0, 0.0, stem_height])
+
+        parts = [stem, cap]
+
+        # Atoms on the cap surface — ring of heptagons around the dome
+        if atoms_cfg:
+            atom_count = int(atoms_cfg.get("count", 7))
+            atom_size = float(atoms_cfg.get("size", 0.15))
+            atom_pts = []
+            atom_nrms = []
+            for i in range(atom_count):
+                theta = 2.0 * math.pi * i / atom_count
+                # Place atoms on the upper dome — phi from ~30° to ~75°
+                phi = math.pi * (0.18 + 0.22 * ((i % 3) / 2.0))
+                nx = math.cos(theta) * math.sin(phi)
+                ny = math.sin(theta) * math.sin(phi)
+                nz = math.cos(phi)
+                atom_pts.append([
+                    nx * cap_radius * 1.02,
+                    ny * cap_radius * 1.02,
+                    stem_height + nz * cap_h * 1.02,
+                ])
+                atom_nrms.append([nx, ny, nz])
+            atoms_mesh = scattered_heptagons(
+                np.array(atom_pts),
+                np.array(atom_nrms),
+                [atom_size] * atom_count,
+                _CREAM_ATOM,
+            )
+            parts.append(atoms_mesh)
+
+        variants.append(compose(parts))
+
+    return variants
+
+
 def _family_crystal_spike(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
     """Crystal spike cluster family — crystal_cluster (Tier 1 anchor).
 
@@ -1994,7 +2127,7 @@ FAMILY_BUILDERS: dict[str, callable] = {
     "tapered_vertical": _family_tapered_vertical,
     "rock_lobed":       _family_rock_lobed,
     "crystal_spike":    _family_crystal_spike,
-    # "flora_composed":   _family_flora_composed,
+    "flora_composed":   _family_flora_composed,
     # "scatter_tissue":   _family_scatter_tissue,
 }
 

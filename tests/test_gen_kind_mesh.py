@@ -385,3 +385,54 @@ class TestCrystalSpikeFamily:
         heights = [float(v.extents[2]) for v in build_kind("crystal_cluster")]
         assert len(set(round(h, 2) for h in heights)) >= 2, (
             f"crystal_cluster variants have identical heights: {heights}")
+
+
+# -- Family: flora_composed ----------------------------------------------------
+#
+# Giant fungus and any future organic flora character — stem + cap
+# composition with atoms on the cap. Differs from toadstool's hand-
+# authored recipe mainly in scale and palette; same visual grammar.
+
+
+class TestFloraComposedFamily:
+
+    def test_family_builder_registered(self):
+        assert "flora_composed" in FAMILY_BUILDERS
+
+    def test_giant_fungus_has_four_variants(self):
+        assert len(build_kind("giant_fungus")) == 4
+
+    def test_variants_have_vertex_colors(self):
+        for i, v in enumerate(build_kind("giant_fungus")):
+            assert v.visual.vertex_colors.shape == (len(v.vertices), 4)
+
+    def test_variants_taller_than_wide(self):
+        # Mushroom silhouette: stem dominates vertical, cap widens the top
+        for i, v in enumerate(build_kind("giant_fungus")):
+            w, d, h = v.extents
+            assert h > max(w, d) * 0.9, (
+                f"giant_fungus v{i}: height {h:.2f} should dominate "
+                f"width {max(w,d):.2f}")
+
+    def test_variants_have_cream_atoms(self):
+        target = np.array(_CREAM_ATOM[:3], dtype=int)
+        for i, v in enumerate(build_kind("giant_fungus")):
+            colors = v.visual.vertex_colors[:, :3].astype(int)
+            match = np.all(np.abs(colors - target) <= 1, axis=1)
+            assert match.any(), (
+                f"giant_fungus v{i}: no cream atoms on cap")
+
+    def test_variants_have_cap_color(self):
+        # color_cap override [0.50, 0.20, 0.60] should appear on cap vertices
+        from tools.gen_kind_mesh import _rgb01_to_rgba_u8
+        target = np.array(_rgb01_to_rgba_u8([0.50, 0.20, 0.60])[:3], dtype=int)
+        for i, v in enumerate(build_kind("giant_fungus")):
+            colors = v.visual.vertex_colors[:, :3].astype(int)
+            match = np.all(np.abs(colors - target) <= 1, axis=1)
+            assert match.any(), (
+                f"giant_fungus v{i}: cap override color missing")
+
+    def test_variants_poly_budget(self):
+        for i, v in enumerate(build_kind("giant_fungus")):
+            assert 100 <= len(v.faces) <= 500, (
+                f"giant_fungus v{i}: {len(v.faces)} tris outside 100-500 budget")

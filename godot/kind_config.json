@@ -299,8 +299,21 @@
       "color_base": [0.50, 0.48, 0.44], "color_shadow": [0.40, 0.38, 0.34], "color_accent": [0.58, 0.56, 0.52]},
 
     "giant_fungus":    {"class": "organic_flora",
+      "use_vertex_colors": true,
       "color_base": [0.22, 0.20, 0.22], "color_shadow": [0.17, 0.16, 0.18], "color_accent": [0.26, 0.24, 0.27],
-      "burial": {"min_frac": 0.10, "max_frac": 0.25}},
+      "color_cap": [0.50, 0.20, 0.60],
+      "burial": {"min_frac": 0.10, "max_frac": 0.25},
+      "recipe": {
+        "tier": 1, "family": "flora_composed",
+        "variant_count": 4, "bounds": [2.5, 2.5, 4.5], "variant_spread": 0.25,
+        "apron": null,
+        "atoms": {"pattern": "cap_ring_7", "count": 7, "size": 0.18, "palette": "cream"},
+        "family_params": {
+          "stem_height_frac": 0.65, "stem_radius_frac": 0.35,
+          "cap_radius_frac": 0.75, "cap_height_frac": 0.40,
+          "stem_taper": 0.15, "stem_flare": 1.4, "noise_strength": 0.06
+        }
+      }},
     "toadstool":       {"class": "organic_flora",
       "use_vertex_colors": true,
       "wind_strength": 0.02,
