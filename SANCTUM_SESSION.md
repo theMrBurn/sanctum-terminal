@@ -202,6 +202,91 @@ open pending in-engine confirmation; everything else is committed and
 stable.
 
 ---
+SESSION ADDENDUM (2026-04-10 ~12:00 → ~12:30, ~30min, atom doctrine
++ visual confirmation):
+
+Three things landed back-to-back, closing the spore_pod loop.
+
+  TWO MORE WINS:
+
+  9. ATOM DOCTRINE COMPLIANCE — Caught mid-loop by user observation
+     ("we have an Atom Mote structure, didn't we??"). The puffball
+     warts had been built as scattered_quads — flat 4-vertex square
+     billboards — which violates design_heptagonal_mote.md and
+     design_meta_pixel_mote.md. The doctrine says small bright
+     markers should be heptagonal atoms (7-sided, prime, non-tiling,
+     no rotational sub-symmetry with environmental shapes). Added
+     heptagon_billboard() and scattered_heptagons() primitives to
+     gen_kind_mesh.py and swapped the wart call in build_puffball.
+     Each heptagon = 7 perimeter vertices, fan-triangulated from
+     vertex 0 (5 triangles per heptagon). Apron sections reduced
+     8 → 6 to free triangle budget for the heptagonal overhead.
+     quad_billboard / scattered_quads kept in the library — toadstool
+     spots still use them (separately committed kind, not in scope).
+     Puffball is the first kind to align with the atom mote doctrine
+     at the geometry level.
+  10. VISUAL CONFIRMATION — Loop closed. User screenshotted single
+      puffballs from 1-2m distance after the heptagon regen + reload.
+      All five visual regions readable: dome body, cream wart speckles
+      on the upper surface, dark center pore, and a tonal variation
+      across the body (the Z-graded crown halo, subtle but present).
+      User: "if that's it, it matches the visual language from the
+      very good Toadstool rendering." That confirmation is the proof
+      that the toadstool recipe scales — composed primitives + vertex
+      regions + heptagonal atoms + cream marker speckles work as a
+      consistent fungal family across kinds with completely different
+      silhouettes.
+
+  CREAM REGISTER IS INTENTIONAL: Initially noted as a gamma-shift
+  side effect (SPORE_POD_BODY source RGB (95, 65, 80) was meant to be
+  dusty mauve; trimesh → glTF → Godot pipeline shifts brighter to
+  cream / light grey on display). User then refined the mycelium
+  camouflage doctrine on the spot: *"i like how its distinct, it
+  should mimic SHAPE but not color, it has no idea what the stone
+  color is, unless it somehow understands chemestry, and i don't
+  think we need to render something that deep. it stands out, while
+  being a part of the scene."* That makes the cream the CORRECT body
+  color for the spore_pod, not an accident to be corrected. The
+  mycelium camouflage memory was rewritten to lock this in:
+  fungal kinds mimic SHAPE grammar of geological kinds, not color.
+  The fungus has no chemistry sense; it borrows form, never pigment.
+  Lithops inverted — same shape, distinct pigment. Chromatic mismatch
+  is the reveal. This refinement applies to every future fungal kind
+  including crystal_cap.
+
+  POLYCOUNT (post-heptagon swap):
+    spore_pod_v0  509 tris  bounds 1.22 × 1.11 × 0.33
+    spore_pod_v1  539 tris  bounds 1.41 × 1.24 × 0.36
+    spore_pod_v2  569 tris  bounds 1.68 × 1.11 × 0.36
+    spore_pod_v3  524 tris  bounds 1.43 × 1.24 × 0.38
+  All within budget (150-600). bounds.json scale: 1.22.
+
+  PINNED DISCOVERY (this addendum):
+    The atom doctrine is the kind of architectural principle that
+    has to be ENFORCED at the primitive level — not at the kind
+    level. If the gen_kind_mesh primitive library has both
+    quad_billboard and heptagon_billboard available, kinds will
+    grab whichever they reached for first. The doctrine isn't
+    self-enforcing unless the wrong primitive is removed or
+    deprecated. Long-term: rename quad_billboard to something
+    discouraging (legacy_quad_billboard?) or just delete it once
+    every consuming kind is migrated. For now, the only consumer
+    of quad_billboard is build_toadstool's spots — those stay until
+    the toadstool gets its own atom doctrine pass.
+
+  NEXT STEP: Commit this loop, then pivot to monolith. The recipe
+  loop is now battle-tested — read kind, compose primitives, vertex
+  regions, hand-tuned variants, eyes-on iteration with one variable
+  per change. Apply to monolith next, then boulder, then crystal_cap.
+
+---
+Live hash. Updated 2026-04-10 ~12:30. Closing on the spore_pod loop
+proper. HEAD: [next commit]. The puffball reads, the recipe scales,
+the atom doctrine holds. Cream-register puffballs are now visual
+citizens of the same family as the toadstool. Pivoting to monolith
+next.
+
+---
 
 ## 2026-04-09 Session — The Refinement Slog (and the Atmospheric Exit)
 

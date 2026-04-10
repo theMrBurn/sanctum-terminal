@@ -198,6 +198,68 @@ def scattered_quads(surface_points: np.ndarray,
     return combined
 
 
+def heptagon_billboard(center: np.ndarray, normal: np.ndarray,
+                       size: float, color: RGBA) -> trimesh.Trimesh:
+    """Single flat seven-sided polygon at a position, facing a normal.
+
+    The atom of the meta-pixel mote system. Heptagonal because:
+      - Seven is prime: no rotational sub-symmetry with environmental
+        shapes (hex columns, square grids, triangular mesh facets).
+      - Heptagons cannot tile the plane: negative space stays
+        irreducible, the shape cannot dissolve into its surroundings.
+      - Merkabah-coded (seven Hekhalot halls). Each atom is a tiny
+        working model of the architecture.
+
+    Pinned by design_heptagonal_mote.md and design_meta_pixel_mote.md.
+    Use this instead of quad_billboard for any small bright marker on
+    a surface that should read as part of the visual atom doctrine.
+
+    7 vertices triangulated as a fan from vertex 0 → 5 triangles per
+    heptagon. `size` is the inscribed circle radius.
+    """
+    n = normal / (np.linalg.norm(normal) + 1e-9)
+    up = np.array([0.0, 0.0, 1.0]) if abs(n[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    tangent = np.cross(up, n)
+    tangent /= np.linalg.norm(tangent) + 1e-9
+    bitangent = np.cross(n, tangent)
+
+    # 7 perimeter vertices around center, in the tangent-bitangent plane
+    verts = []
+    for i in range(7):
+        angle = (2.0 * math.pi * i) / 7.0
+        offset = tangent * (math.cos(angle) * size) + \
+                 bitangent * (math.sin(angle) * size)
+        verts.append(center + offset)
+
+    # Fan triangulation from vertex 0: (0, 1, 2), (0, 2, 3), ..., (0, 5, 6)
+    # 5 triangles total for a 7-vertex polygon.
+    faces = [[0, i + 1, i + 2] for i in range(5)]
+
+    verts_array = np.array(verts)
+    faces_array = np.array(faces)
+    mesh = trimesh.Trimesh(vertices=verts_array, faces=faces_array, process=False)
+    return _solid_color(mesh, color)
+
+
+def scattered_heptagons(surface_points: np.ndarray,
+                        surface_normals: np.ndarray,
+                        sizes: Sequence[float],
+                        color: RGBA) -> trimesh.Trimesh:
+    """Batch of heptagonal billboards placed on a surface.
+
+    Same interface as scattered_quads but each marker is a 7-sided
+    atom from the meta-pixel doctrine. Use for surface markers on
+    any kind that should be visually consistent with the atom mote
+    system (puffball warts, fungal spore points, designed surface
+    speckles).
+    """
+    meshes = []
+    for pt, nrm, sz in zip(surface_points, surface_normals, sizes):
+        meshes.append(heptagon_billboard(pt, nrm, sz, color))
+    combined = trimesh.util.concatenate(meshes)
+    return combined
+
+
 def compose(parts: list[trimesh.Trimesh]) -> trimesh.Trimesh:
     """Concatenate multiple colored meshes into one assembly.
 
@@ -477,19 +539,25 @@ def build_puffball(
 
     # Base contact shadow — flat ring around the body's base, just above
     # ground. Hidden under the body where it overlaps; the visible part
-    # is the outer rim that extends beyond body_radius. Section count is
-    # decoupled from body — 8 facets is plenty for a ground shadow and
-    # keeps the cluster polycount under budget regardless of body detail.
+    # is the outer rim that extends beyond body_radius. Section count
+    # decoupled from body — 6 facets is plenty for a ground shadow and
+    # frees up triangle budget for the heptagonal warts above.
     apron = trimesh.creation.annulus(
         r_min=body_radius * apron_inner_mult,
         r_max=body_radius * apron_outer_mult,
-        height=0.015, sections=8,
+        height=0.015, sections=6,
     )
     _solid_color(apron, SPORE_POD_APRON)
     apron.apply_translation([0.0, 0.0, 0.005])
 
-    # Warts — scattered cream quads on the upper hemisphere. Avoid the
-    # apex (where the pore sits) and the equator (where the apron is).
+    # Warts — scattered HEPTAGONAL atoms on upper hemisphere surface.
+    # Avoid the apex (where the pore sits) and the equator (where the
+    # apron is). Heptagons follow the atom mote doctrine
+    # (design_heptagonal_mote.md, design_meta_pixel_mote.md): 7-sided,
+    # prime, non-tiling, no rotational sub-symmetry with environmental
+    # shapes. Replaces the previous quad billboards which were a
+    # one-off violation of the atom doctrine — the puffball wart cluster
+    # is exactly the use case the meta-pixel system was built for.
     rng = np.random.default_rng(wart_seed)
     wart_positions = []
     wart_normals = []
@@ -508,7 +576,7 @@ def build_puffball(
         ]))
         wart_sizes.append(wart_size * (0.7 + rng.random() * 0.6))
 
-    warts = scattered_quads(
+    warts = scattered_heptagons(
         np.array(wart_positions),
         np.array(wart_normals),
         wart_sizes,
