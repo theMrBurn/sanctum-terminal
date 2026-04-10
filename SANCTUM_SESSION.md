@@ -411,6 +411,164 @@ glyphs in action; the spore_pod loop is fully closed visually. Next
 session opens with the boulder fork choice.
 
 ---
+SESSION ADDENDUM (2026-04-10 ~13:05 → ~13:55, ~50min, the recipe
+sweep — boulder + toadstool + doorframe land in one continuous
+arc, every authored kind now recipe-compliant):
+
+User came back from monolith visual confirmation with new tag
+screenshots showing the monolith glyphs reading clearly in-engine
+(carved heptagonal marks visible on the body, the wide-narrow-wide
+silhouette finally reading as MONUMENT). User picked Option A on
+the boulder fork choice ("its A for sure"), opening the second
+loop of the recipe sweep. Three more loops landed back-to-back,
+closing the gen_kind_mesh authored set into full recipe + atom
+doctrine compliance.
+
+THREE MORE WINS:
+  13. BOULDER VIA GEN_KIND_MESH — Replaced the legacy
+      boulder_v0..v3.glb (origin: untraceable, no make_rock script
+      in tools/, no build_boulder in gen_kind_mesh.py) with a
+      recipe-aligned build_boulder() composed via the same primitive
+      library every other authored kind uses. Multi-lobe composition
+      (1 main icosphere + 2 secondary at overlapping offsets), Z-graded
+      vertex coloring (BOULDER_BASE → BOULDER_CROWN linearly across
+      the body, then a moss overlay above moss_threshold lerping
+      toward BOULDER_MOSS scaled by moss_strength). The moss is the
+      recognition marker — value+hue contrast against the stone body
+      that says "this rock has been sitting here long enough to grow
+      a coat." Base apron annulus for fake contact shadow. Roughly
+      cubic bounds (1.17-1.31m wide × 0.75-0.86m tall) keep main.gd's
+      per-instance scaling working without breaking the existing
+      boulder placement logic. Boulder is REAL stone, NOT a fungal
+      mimic, so the mycelium camouflage doctrine does not apply
+      (palette stays in the cavern grey-brown family). Per-variant
+      weathering stages: newer fall (sparse moss) → typical settled
+      → long-settled mossy → asymmetric main lobe. 304 tris/variant,
+      4x smaller GLB than the legacy file (7100 vs 26608 bytes).
+      KIND_BUILDERS dict updated to include boulder so make meshes
+      regenerates it alongside the other authored kinds. Commit:
+      38a75a5.
+  14. TOADSTOOL ATOM-DOCTRINE RETROFIT — Replaced the toadstool's
+      scattered_quads cap spots with scattered_heptagons. The
+      toadstool was the LAST kind in gen_kind_mesh.py still using
+      square quad billboards for surface markers (originally authored
+      before the atom doctrine landed). Spore_pod got the heptagon
+      swap in 42c2528, monolith got heptagonal glyphs from the start
+      in 6affdc7, and now toadstool is brought into compliance.
+      ZERO behavioral changes other than the geometry of the spots:
+      same hash-driven placement, same TOADSTOOL_SPOT_CREAM color,
+      same per-spot size variation, same spot count per variant.
+      Polycount goes from ~280 → 290-320 tris per variant (within
+      the 150-500 budget). Both fungal kinds now share the same
+      atomic surface marker primitive. Commit: 626f00a.
+  15. DOORFRAME LINTEL RUNES — Adds heptagonal carved runes to the
+      doorframe lintel face. Closes the recipe gap on the last kind
+      in the gen_kind_mesh authored set. New helper doorframe_runes()
+      scatters heptagonal billboards across the front and back faces
+      of the lintel, with deterministic per-variant rune_seed and
+      front-face bias (player approaches the doorway from the front).
+      New palette constant DOORFRAME_RUNE_COLOR (75, 62, 48) brighter
+      than DOORFRAME_LINTEL_COLOR for value contrast, same warm stone
+      hue family. Per-variant rune counts: v0 dense (5+2), v1 fewer
+      tall (4+2), v2 most wide-gateway (7+3), v3 worn ruined (3+1).
+      Polycount went 60 flat → 80-110 per variant, all distinct face
+      counts. Commit: 1a4a099.
+
+THE GEN_KIND_MESH AUTHORED SET IS NOW FULLY RECIPE-COMPLIANT:
+  toadstool   ✅ heptagonal cap spots
+  spore_pod   ✅ heptagonal warts on puffball
+  doorframe   ✅ heptagonal lintel runes
+  monolith    ✅ heptagonal body glyphs
+  boulder     ✅ multi-lobe + Z-grading + moss (real stone, no
+              fungal markers needed)
+
+All five kinds follow the toadstool recipe. All four marker-bearing
+kinds use the same scattered_heptagons primitive. The atom doctrine
+holds across the entire authored set. The mycelium camouflage
+doctrine has its first implemented pair (spore_pod ↔ boulder
+shape-grammar mimicry, distinct palette). The make meshes target
+regenerates everything in one command. The make brain-cavern target
+auto-launches in stamp_world mode. The .gitignore is clean of
+defensive cruft.
+
+EIGHT COMMITS SINCE THE MORNING-AFTER TRIAGE:
+  1a4a099  feat: doorframe lintel runes — atom doctrine recognition marker
+  626f00a  feat: toadstool atom-doctrine retrofit — heptagonal cap spots
+  38a75a5  feat: boulder via gen_kind_mesh — multi-lobe with mossy upper grading
+  36ef749  docs: SANCTUM addendum — autonomous run progress, boulder drift point
+  a30a08f  chore: tooling commit — make meshes target, brain defaults, gitignore
+  6affdc7  feat: monolith heptagonal glyphs — atom doctrine recognition marker
+  42c2528  feat: heptagonal warts on puffball + mycelium shape-not-color refinement
+  7a70fa6  feat: spore_pod puffball — boulder-mimic with 5 vertex regions
+
+WHAT'S NOW TRUE — FULL CHECKPOINT:
+  - 5 authored kinds, all recipe-compliant
+  - 4 atom-doctrine-compliant marker-bearing kinds
+  - Atom doctrine enforced from the primitive level (heptagon_billboard,
+    scattered_heptagons in the gen_kind_mesh library)
+  - Mycelium camouflage doctrine refined to "shape only, not color"
+    and pinned as design memory (design_mycelium_camouflage.md)
+  - Tooling regression-proof: make brain-cavern does the right thing
+    automatically, make meshes regenerates everything, .gitignore
+    handles defensive cruft
+  - 17/17 mesh tests passing
+  - Working tree clean
+  - Brain server still running in stamp_world mode
+
+PINNED DISCOVERIES (this final addendum):
+  - The recipe, the atom doctrine, and the mycelium camouflage
+    refinement all converged into a single cohesive visual system
+    for the cavern. Five kinds, three doctrines, one primitive
+    library, one builder pattern. The morning-after triage was the
+    inflection point — three cohesive doctrines emerged from
+    investigating one rough night.
+  - Sweep commits land faster than initial commits. The toadstool
+    retrofit was a 5-minute commit because the doctrine, the
+    primitive, and the test budget were all already in place. The
+    second time you apply a doctrine to a kind, it's almost free.
+  - "Refine and commit" as a forward-momentum framing works well
+    when there's a clear backlog of small refinements queued from
+    earlier doctrine landings. Three retrofits in 50 minutes
+    because each was ONE swap or ONE addition with no design
+    decisions.
+  - Stopping at the drift point worked. When the user came back
+    they had complete information about boulder, picked Option A
+    decisively, and the loop landed clean. No wasted iterations
+    on guessed-wrong implementations.
+
+NEXT SESSION — CRYSTAL_CAP + WIDE VISUAL PASS:
+  1. Read MEMORY.md + this live hash
+  2. Verify HEAD on feat/render-manifest (1a4a099 + the doc commit)
+  3. Reload Godot in stamp_world mode (brain auto-launches via
+     make brain-cavern with everything wired in)
+  4. Wide visual pass through the cavern with fresh eyes — tag
+     anything that still feels off after all five kinds got the
+     recipe + atom doctrine treatment
+  5. Decide on crystal_cap next:
+     - Silhouette: fungal but NOT cap+stem (toadstool already owns
+       that), NOT dome cluster (puffball owns that)
+     - Palette: fungal hue family but NOT crystal blue (chromatic
+       mismatch is mandatory per refined mycelium camouflage)
+     - Composition: must follow the toadstool recipe (composed
+       primitives, vertex regions, heptagonal markers, hand-tuned
+       variants)
+     - Spawn grammar: borrows from crystal_cluster (vertical spike
+       cluster, multi-form upright)
+     - Stamp: possibly a new mycelium_spire stamp
+  6. Execute crystal_cap loop with the standard recipe pattern
+  7. After crystal_cap lands, the cavern will have its first full
+     mycelium camouflage pair (spore_pod ↔ boulder grammar AND
+     crystal_cap ↔ crystal_cluster grammar) plus a complete
+     atom-doctrine-compliant authored kind set
+
+---
+Live hash. Updated 2026-04-10 ~14:00. Closing on the recipe sweep.
+HEAD: 1a4a099. Eight commits since the morning. Five recipe-compliant
+authored kinds. Four heptagonal-marker kinds. One mycelium camouflage
+pair. The doctrine system is coherent and the tooling is regression-
+proof. This is a baseline. Pushing to origin to mark it.
+
+---
 
 ## 2026-04-09 Session — The Refinement Slog (and the Atmospheric Exit)
 
