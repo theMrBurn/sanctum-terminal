@@ -373,7 +373,16 @@ def build_toadstool(
         # Vary spot size 0.75-1.25x
         spot_sizes.append(spot_size * (0.75 + rng.random() * 0.50))
 
-    spots = scattered_quads(
+    # Spots — heptagonal atom-doctrine billboards, the toadstool's
+    # signature recognition marker. Originally authored as
+    # scattered_quads (square billboards) before the heptagon doctrine
+    # landed; retrofitted to scattered_heptagons here to align with
+    # design_heptagonal_mote.md / design_meta_pixel_mote.md. Same
+    # placement logic, same color, same per-spot size variation —
+    # only the underlying primitive geometry changes (4-vert squares
+    # → 7-vert heptagons). Both fungal kinds (toadstool + spore_pod)
+    # now share the same atomic surface marker primitive.
+    spots = scattered_heptagons(
         np.array(spot_positions),
         np.array(spot_normals),
         spot_sizes,
