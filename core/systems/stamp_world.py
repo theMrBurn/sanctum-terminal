@@ -100,12 +100,32 @@ def _make_entity(kind: str, x: float, y: float, rng: random.Random,
     }
 
 
+def _weighted_pick(stamps: list, rng: random.Random) -> Dict:
+    """Pick one stamp using its `weight` field (default 1).
+
+    Mega stamps (obelisk_court, column_henge, buttress_arch) carry
+    weight: 4 in biome_data.py so they dominate the selection — a
+    claustrophobic cavern needs big anchors in ~half the slots, not
+    ~a fifth.
+    """
+    weights = [float(s.get("weight", 1)) for s in stamps]
+    total = sum(weights)
+    r = rng.uniform(0.0, total)
+    cum = 0.0
+    for stamp, w in zip(stamps, weights):
+        cum += w
+        if r <= cum:
+            return stamp
+    return stamps[-1]   # numerical safety
+
+
 def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     """Pure function: slot coords → entity list.
 
-    Picks one stamp deterministically, instantiates its members at the
-    slot center with random rotation, then adds tissue scatter within
-    the slot bounds. Same input always returns the same output.
+    Picks one stamp deterministically via weighted selection,
+    instantiates its members at the slot center with random rotation,
+    then adds tissue scatter within the slot bounds. Same input always
+    returns the same output.
     """
     stamps = _stamps_for(biome_name)
     if not stamps:
@@ -115,8 +135,8 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     cx = (gx + 0.5) * SLOT_SIZE
     cy = (gy + 0.5) * SLOT_SIZE
 
-    # Pick one stamp from the library
-    stamp = rng.choice(stamps)
+    # Pick one stamp from the library via weighted selection
+    stamp = _weighted_pick(stamps, rng)
 
     # Slot rotation — rotates the whole stamp by 0/90/180/270 to add variety
     rotation_steps = rng.randint(0, 3)

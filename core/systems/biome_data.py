@@ -601,9 +601,14 @@ CAVERN_STAMPS = [
         ],
     },
     # ---- MEGA STAMPS — landmark anchors, walkable interiors ----
+    # All mega stamps have weight: 4 — weighted selection in stamp_world
+    # pushes their pick rate from 19% (uniform 3/16) to ~48%
+    # (3×4 / (13 + 12) = 12/25). Claustrophobic cavern is the intent.
+    #
     # Obelisk court — single mega_column landmark, ground stays open around it
     {
         "name": "obelisk_court",
+        "weight": 4,
         "footprint": 8.0,
         "members": [
             {"kind": "mega_column", "dx": 0.0, "dy": 0.0, "scale_mult": 1.0, "hard": True},
@@ -617,6 +622,7 @@ CAVERN_STAMPS = [
     # Column henge — three columns at the perimeter, walkable center
     {
         "name": "column_henge",
+        "weight": 4,
         "footprint": 9.0,
         "members": [
             {"kind": "column", "dx": -4.0, "dy": -2.0, "scale_mult": 1.0, "hard": True},
@@ -631,6 +637,7 @@ CAVERN_STAMPS = [
     # Buttress arch — buttress + mega_column flanking a gap, gateway feel
     {
         "name": "buttress_arch",
+        "weight": 4,
         "footprint": 9.0,
         "members": [
             {"kind": "mega_column", "dx": -4.0, "dy": 0.0, "scale_mult": 0.85, "hard": True},
