@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://duby30wwshva6"
-path="res://.godot/imported/horizon_form.glb-89a3d74ebcef84c0364845ffd05aa4ee.scn"
+uid="uid://ddby155k8cynf"
+path="res://.godot/imported/toadstool_v2.glb-7c928c668c1a03eb831c993ef778cb86.scn"
 
 [deps]
 
-source_file="res://meshes/horizon_form.glb"
-dest_files=["res://.godot/imported/horizon_form.glb-89a3d74ebcef84c0364845ffd05aa4ee.scn"]
+source_file="res://meshes/toadstool_v2.glb"
+dest_files=["res://.godot/imported/toadstool_v2.glb-7c928c668c1a03eb831c993ef778cb86.scn"]
 
 [params]
 

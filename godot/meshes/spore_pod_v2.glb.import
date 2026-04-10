@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://yf2lf62qlbey"
-path="res://.godot/imported/stalagmite.glb-f66778280f3fc6f8761853e05cf6a9ac.scn"
+uid="uid://6qkb5usf36gf"
+path="res://.godot/imported/spore_pod_v2.glb-7f191dbe874991caf0f790475395ec23.scn"
 
 [deps]
 
-source_file="res://meshes/stalagmite.glb"
-dest_files=["res://.godot/imported/stalagmite.glb-f66778280f3fc6f8761853e05cf6a9ac.scn"]
+source_file="res://meshes/spore_pod_v2.glb"
+dest_files=["res://.godot/imported/spore_pod_v2.glb-7f191dbe874991caf0f790475395ec23.scn"]
 
 [params]
 

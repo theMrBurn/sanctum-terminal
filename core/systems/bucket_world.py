@@ -41,6 +41,8 @@ KIND_PROPS = {
     "stalagmite":      {"scale": [1.0, 1.0, 3.75], "color": [0.28, 0.24, 0.18], "emissive": 0.0},
     "crystal_cluster": {"scale": [2.8, 2.2, 3.5],  "color": [0.50, 0.55, 0.80], "emissive": 1.0},
     "giant_fungus":    {"scale": [2.5, 2.5, 4.4],  "color": [0.30, 0.50, 0.25], "emissive": 0.8},
+    "toadstool":       {"scale": [1.2, 1.2, 2.3],  "color": [1.00, 1.00, 1.00], "emissive": 0.0},
+    "spore_pod":       {"scale": [1.5, 1.5, 0.9],  "color": [1.00, 1.00, 1.00], "emissive": 0.0},
     "dead_log":        {"scale": [3.75, 1.0, 0.75],"color": [0.19, 0.27, 0.12], "emissive": 0.0},
     "moss_patch":      {"scale": [1.5, 1.5, 0.15], "color": [0.22, 0.45, 0.15], "emissive": 0.9},
     "bone_pile":       {"scale": [0.6, 0.6, 0.3],  "color": [0.14, 0.13, 0.11], "emissive": 0.0},

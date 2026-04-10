@@ -47,6 +47,21 @@ var kind_nodes: Dictionary = {}
 # manifest.planes. Ground/ceiling/future walls all live here.
 var plane_nodes: Dictionary = {}
 
+# Stone density texture — small grid covering ±DENSITY_WORLD_RADIUS around
+# the player, with each pixel holding accumulated density from nearby
+# stone-class entities. Sampled by ground.gdshader to bias mark polarity
+# (light marks cluster where stones are, dark marks elsewhere). Rebuilt
+# inside _rebuild_entities so it stays in sync with visible entities.
+const DENSITY_TEX_SIZE := 32
+const DENSITY_WORLD_RADIUS := 100.0  # texture covers a 200×200m square
+const STONE_KINDS_FOR_DENSITY := {
+	"boulder": true, "stalagmite": true, "rubble": true, "cave_gravel": true,
+	"mega_column": true, "column": true, "buttress": true, "bone_pile": true,
+}
+var stone_density_tex: ImageTexture = null
+var stone_density_buffer := PackedByteArray()
+var stone_density_origin: Vector2 = Vector2.ZERO
+
 # HUD
 var hud_label: Label
 
@@ -191,6 +206,27 @@ func _create_kind_material(kind: String) -> Material:
 	mat.set_shader_parameter("taper_strength", params.get("taper_strength", 0.0))
 	mat.set_shader_parameter("twist_amount", params.get("twist_amount", 0.0))
 
+	# Per-instance horizontal banding — strength per kind class.
+	# Stone kinds (structural/geological) get visible stratification;
+	# organic/life/atmosphere default to 0 (no rock layers on living things).
+	mat.set_shader_parameter("band_strength", params.get("band_strength", 0.0))
+
+	# Per-instance wind sway — organic kinds animate, stone kinds stay inert.
+	# Stamped for grass/moss/vine/atmosphere via kind_config class defaults.
+	mat.set_shader_parameter("wind_strength", params.get("wind_strength", 0.0))
+
+	# Per-instance ghost fade — distance-based dither discard on a hash-
+	# selected fraction of instances. Geological kinds ghost at distance;
+	# structural landmarks and everything else stay solid.
+	mat.set_shader_parameter("ghost_chance", params.get("ghost_chance", 0.0))
+
+	# Vertex color path — designed kinds (toadstool, shrubs, fauna) bake
+	# color regions into mesh vertex data. When true, shader skips the
+	# facet-normal palette and reads COLOR directly. Stone kinds default
+	# to false so they keep banding + facet stratification.
+	mat.set_shader_parameter("use_vertex_colors",
+		1.0 if params.get("use_vertex_colors", false) else 0.0)
+
 	return mat
 
 
@@ -257,8 +293,12 @@ func _setup_environment() -> void:
 	var fc: Array = fog.get("color", [0.1, 0.1, 0.1])
 	var fog_far: float = fog.get("far", 55.0)
 
-	# Clean room: fog OFF — see everything at all distances
-	godot_env.fog_enabled = false
+	# Atmospheric mode — fog ON, depth fade across distance.
+	godot_env.fog_enabled = true
+	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
+	godot_env.fog_density = 0.015
+	godot_env.fog_sky_affect = 1.0
+	godot_env.fog_aerial_perspective = 0.4
 
 	# Background = ceiling plane color from manifest (biome_data is single source of truth).
 	# Falls back to project.godot clear_color if no ceiling plane found.
@@ -273,18 +313,25 @@ func _setup_environment() -> void:
 	godot_env.background_mode = Environment.BG_COLOR
 	godot_env.background_color = bg
 
-	# Clean room: neutral grey ambient, no color bias
-	godot_env.ambient_light_color = Color(1.0, 1.0, 1.0)
-	godot_env.ambient_light_energy = 1.0  # full flat ambient — no shadows, no drama
+	# Atmospheric mode — low warm ambient. Light pools from pipes carry
+	# the rest of the lighting. Memory: design_light_pipes (3 fixed pipes
+	# per biome, drift to nearest emissive cluster).
+	godot_env.ambient_light_color = Color(0.55, 0.50, 0.45)  # warm cream tint
+	godot_env.ambient_light_energy = 0.18                    # was 1.0 (clean room)
 	godot_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 
 	godot_env.tonemap_mode = 2
 	godot_env.tonemap_white = 5.0
 
-	# -- CLEAN ROOM MODE --
-	# Everything off. Neutral ambient only. See shapes honestly.
-	# Re-enable systems one at a time to build lighting intentionally.
-	godot_env.glow_enabled = false
+	# Bloom — emissives carry the highlights now (Sable in reverse).
+	godot_env.glow_enabled = true
+	godot_env.glow_intensity = 1.4
+	godot_env.glow_strength = 1.1
+	godot_env.glow_bloom = 0.30
+	godot_env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+	godot_env.glow_hdr_threshold = 0.85
+	godot_env.glow_hdr_scale = 2.0
+
 	godot_env.adjustment_enabled = false
 	godot_env.volumetric_fog_enabled = false
 
@@ -300,9 +347,6 @@ func _setup_environment() -> void:
 	env_node.environment = godot_env
 	add_child(env_node)
 
-	# Clean room: sun/moon OFF — ambient only
-	pass
-
 
 func _setup_camera() -> void:
 	camera = Camera3D.new()
@@ -315,10 +359,10 @@ func _setup_camera() -> void:
 	# player's body, like bioluminescent armor plating. Soft dome of presence.
 	var armor_glow := OmniLight3D.new()
 	armor_glow.name = "ArmorGlow"
-	armor_glow.light_color = Color(1.0, 1.0, 1.0)  # clean room — neutral white
-	armor_glow.light_energy = 0.0  # OFF — ambient only, no point lights
-	armor_glow.omni_range = 1.0
-	armor_glow.omni_attenuation = 1.0
+	armor_glow.light_color = Color(0.95, 0.78, 0.52)  # warm lantern amber
+	armor_glow.light_energy = 0.45  # subtle waist lantern, not a flashlight
+	armor_glow.omni_range = 6.0
+	armor_glow.omni_attenuation = 1.4
 	armor_glow.shadow_enabled = false
 	armor_glow.position = Vector3(0.0, -1.2, 0.0)  # waist height below camera
 	camera.add_child(armor_glow)
@@ -410,8 +454,9 @@ func _aim_spawn_heading() -> void:
 			"target_pos": camera.position, "active": false,
 		})
 
-	# CLEAN ROOM: banner cylinders OFF
-	var banner_layers: Array = []  # manifest.get("banner_layers", [])
+	# Banner cylinders — projection layers fake atmospheric depth where
+	# geometry stops. Each ring is a translucent inside-facing cylinder.
+	var banner_layers: Array = manifest.get("banner_layers", [])
 	for bl: Dictionary in banner_layers:
 		var cyl_mesh := CylinderMesh.new()
 		cyl_mesh.top_radius = bl.get("distance", 20.0)
@@ -581,9 +626,13 @@ func _create_plane_material(m: Dictionary, plane_kind: String = "") -> Material:
 			float(m.get("normal_strength", surface_entry.get("normal_strength", 1.3))))
 		mat.set_shader_parameter("roughness_val",
 			float(m.get("roughness", 0.95)))
-		# Wall planes: vertical UV projection + height darkening gradient
+		# Plane kind routing — three states: floor (Voronoi), ceiling
+		# (smooth, no Voronoi), wall (vertical projection + darken). Both
+		# floor and ceiling are non-vertical, so a third bool isolates floor.
 		var is_wall: bool = plane_kind == "wall"
+		var is_floor: bool = plane_kind == "ground"
 		mat.set_shader_parameter("vertical_surface", is_wall)
+		mat.set_shader_parameter("is_floor", is_floor)
 		mat.set_shader_parameter("height_darken", 0.8 if is_wall else 0.0)
 		return mat
 	var fallback := StandardMaterial3D.new()
@@ -629,8 +678,8 @@ const CONTACT_SHADOW_KINDS := {
 var contact_shadow_decals: Array[Decal] = []
 
 func _spawn_contact_shadows(by_kind: Dictionary) -> void:
-	# CLEAN ROOM: no contact shadows
-	return
+	# Atmospheric mode: dark radial Decals at entity bases for ambient
+	# occlusion / contact shadow grounding.
 	# Remove old
 	for d: Decal in contact_shadow_decals:
 		if is_instance_valid(d):
@@ -785,6 +834,26 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 				var r_z: float = base_s * (0.70 + p_hash2 * 0.60)
 				effective_y_height = r_y
 				xform = xform.scaled(Vector3(r_x, r_y, r_z))
+			elif kind == "grass_tuft":
+				# Grass: aggressive per-axis hash. Height has the widest range
+				# (0.60-1.60) so the silhouette breaks hardest. Width stays
+				# narrower (0.80-1.30) so the tuft still reads as grass, not
+				# shrub. Combined with Y-rotation (below) + wind sway (shader)
+				# to kill uniform silhouette repetition at distance.
+				var g_xz: float = base_s * (0.80 + p_hash * 0.50)    # 0.80-1.30
+				var g_y:  float = base_s * (0.60 + p_hash2 * 1.00)   # 0.60-1.60
+				effective_y_height = g_y
+				xform = xform.scaled(Vector3(g_xz, g_y, g_xz * (0.85 + p_hash2 * 0.30)))
+			elif kind == "giant_fungus":
+				# Fungus: radially symmetric cap, so couple XZ (no oval squish).
+				# Decouple width from height so we get squat short, tall narrow,
+				# average stubby, lanky — all independent via the two hashes.
+				# Range narrower than grass — fungus is a big silhouette, too
+				# much stretch reads as "broken mushroom" not "natural variety".
+				var gf_xz: float = base_s * (0.80 + p_hash * 0.45)    # 0.80-1.25
+				var gf_y:  float = base_s * (0.80 + p_hash2 * 0.55)   # 0.80-1.35
+				effective_y_height = gf_y
+				xform = xform.scaled(Vector3(gf_xz, gf_y, gf_xz))
 			else:
 				effective_y_height = base_s
 				xform = xform.scaled(Vector3.ONE * base_s)
@@ -793,10 +862,14 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			var sy: float = ent.get("sy", 1.0)
 			var sz: float = ent.get("sz", 1.0)
 			xform = xform.scaled(Vector3(sx, sz, sy))
-		# Random rotation for geological kinds (break repeating mesh silhouettes)
+		# Random rotation for geological kinds, grass, and fungus —
+		# break repeating mesh silhouettes. Fungus caps are radially
+		# symmetric but the gill/stem asymmetry and facet normals create
+		# visible orientation cues, so a full hash rotation still helps.
 		var final_heading: float = heading
 		if kind == "mega_column" or kind == "column" or kind == "boulder" \
-				or kind == "stalagmite" or kind == "rubble" or kind == "bone_pile":
+				or kind == "stalagmite" or kind == "rubble" or kind == "bone_pile" \
+				or kind == "grass_tuft" or kind == "giant_fungus":
 			var rot_hash: float = sin(ent.get("x", 0.0) * 4.73 + ent.get("y", 0.0) * 9.11)
 			final_heading = rot_hash * PI
 		xform = xform.rotated(Vector3.UP, final_heading)
@@ -1083,6 +1156,11 @@ func _rebuild_entities() -> void:
 			kind_nodes[kind].queue_free()
 		_create_multimesh_for_kind(kind, ents)
 
+	# Stone density texture — refresh from current entity positions
+	# and push to all ground plane materials so the ground shader can
+	# cluster light marks where stones are likely to occur.
+	_build_stone_density_texture(new_by_kind)
+
 	# Silhouette shell — flat dark instances on outer shells.
 	# These are cheap: no grain, no normal, no decal, no mote.
 	# Just dark shapes at distance for spatial reading.
@@ -1102,6 +1180,80 @@ func _rebuild_entities() -> void:
 		mote_dirty = false
 		last_entity_count = ent_count
 		last_tension_state = t_state
+
+
+func _build_stone_density_texture(by_kind: Dictionary) -> void:
+	# Splat each stone-class entity into a small density grid centered on
+	# the player. The ground shader samples this texture and uses it to
+	# bias mark polarity (light marks cluster where density is high).
+	# Per-rebuild cost: ~3000 entities × 9 pixel writes = ~27k buffer ops,
+	# trivially fast since we use PackedByteArray indexing instead of
+	# Image.set_pixel.
+	stone_density_buffer.resize(DENSITY_TEX_SIZE * DENSITY_TEX_SIZE)
+	for i in range(stone_density_buffer.size()):
+		stone_density_buffer[i] = 0
+
+	# Center the texture on the player. Brain x/y → Godot x/z.
+	var cam_pos: Vector3 = camera.global_position if camera else Vector3.ZERO
+	stone_density_origin = Vector2(cam_pos.x, cam_pos.z)
+
+	var pixels_per_meter: float = float(DENSITY_TEX_SIZE) / (DENSITY_WORLD_RADIUS * 2.0)
+
+	for kind: String in by_kind:
+		if not STONE_KINDS_FOR_DENSITY.has(kind):
+			continue
+		for ent: Dictionary in by_kind[kind]:
+			# Brain coordinates: ent.x is world X, ent.y is world Z (depth).
+			var rel_x: float = float(ent.get("x", 0.0)) - stone_density_origin.x
+			var rel_z: float = float(ent.get("y", 0.0)) - stone_density_origin.y
+			if abs(rel_x) > DENSITY_WORLD_RADIUS or abs(rel_z) > DENSITY_WORLD_RADIUS:
+				continue
+			var nx: float = (rel_x + DENSITY_WORLD_RADIUS) * pixels_per_meter
+			var nz: float = (rel_z + DENSITY_WORLD_RADIUS) * pixels_per_meter
+			var px: int = int(nx)
+			var pz: int = int(nz)
+			# Splat 3x3 with center weighted heavier — accumulate up to 255
+			for dx in range(-1, 2):
+				for dz in range(-1, 2):
+					var tx: int = px + dx
+					var tz: int = pz + dz
+					if tx < 0 or tz < 0 or tx >= DENSITY_TEX_SIZE or tz >= DENSITY_TEX_SIZE:
+						continue
+					var idx: int = tz * DENSITY_TEX_SIZE + tx
+					var add: int = 80 if (dx == 0 and dz == 0) else 35
+					var existing: int = stone_density_buffer[idx]
+					stone_density_buffer[idx] = min(255, existing + add)
+
+	# Build/update the ImageTexture
+	var img := Image.create_from_data(
+		DENSITY_TEX_SIZE, DENSITY_TEX_SIZE, false,
+		Image.FORMAT_R8, stone_density_buffer
+	)
+	if stone_density_tex == null:
+		stone_density_tex = ImageTexture.create_from_image(img)
+	else:
+		stone_density_tex.update(img)
+
+	# Push to all ground-plane materials. Ceiling and walls are skipped
+	# because their materials don't sample the density texture.
+	for tag: String in plane_nodes:
+		var entry: Dictionary = plane_nodes[tag]
+		if entry.get("kind", "") != "ground":
+			continue
+		var node = entry.get("node")
+		if node == null or not is_instance_valid(node):
+			continue
+		if node.mesh == null:
+			continue
+		var mat: Material = node.mesh.surface_get_material(0)
+		if mat == null:
+			mat = node.material_override
+		if mat is ShaderMaterial:
+			var smat: ShaderMaterial = mat
+			smat.set_shader_parameter("stone_density_tex", stone_density_tex)
+			smat.set_shader_parameter("stone_density_origin", stone_density_origin)
+			smat.set_shader_parameter("stone_density_radius", DENSITY_WORLD_RADIUS)
+			smat.set_shader_parameter("stone_density_enabled", true)
 
 
 var silhouette_nodes: Dictionary = {}  # kind → MultiMeshInstance3D for silhouette shell
@@ -1558,13 +1710,13 @@ const BIOME_LIGHT_PIPES := {
 	"cavern": [
 		{"name": "warm", "color": Color(0.50, 0.35, 0.12),
 		 "kinds": ["giant_fungus", "ceiling_moss", "firefly"],
-		 "energy": 0.0, "range": 30.0, "attenuation": 0.7},
+		 "energy": 9.0, "range": 28.0, "attenuation": 0.7},
 		{"name": "cool", "color": Color(0.30, 0.35, 0.60),
 		 "kinds": ["crystal_cluster", "filament", "exit_lure"],
-		 "energy": 0.0, "range": 30.0, "attenuation": 0.7},
+		 "energy": 11.0, "range": 28.0, "attenuation": 0.7},
 		{"name": "organic", "color": Color(0.15, 0.35, 0.10),
 		 "kinds": ["moss_patch"],
-		 "energy": 0.0, "range": 25.0, "attenuation": 0.7},
+		 "energy": 7.0, "range": 24.0, "attenuation": 0.7},
 	],
 	"outdoor": [
 		{"name": "warm", "color": Color(0.55, 0.45, 0.18),
@@ -1731,9 +1883,8 @@ func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
 
 
 func _update_motes() -> void:
-	# CLEAN ROOM: skip all mote/light/decal/particle spawning.
-	# Re-enable when building lighting channels intentionally.
-	return
+	# Atmospheric mode: rebuild emissive decals + particles + persistent
+	# pipe lights from current entities each time the scene changes.
 	# Decals and particles rebuild each update (cheap, position-dependent).
 	# OmniLights are PERSISTENT — see persistent_lights dict. They stay alive
 	# and get energy updates, never destroyed until env exit.

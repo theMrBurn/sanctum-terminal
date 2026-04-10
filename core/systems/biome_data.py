@@ -458,17 +458,38 @@ CAVERN_STAMPS = [
             {"kind": "grass_tuft", "dx": 1.0, "dy": 1.8, "scale_mult": None, "hard": False},
         ],
     },
-    # Spore cluster — tight radial group of small fungi, low ground feature
+    # Spore cluster — partner-type group: one giant_fungus hero (cap-bearing,
+    # skyward spore release) with surrounding spore_pod ground partners
+    # (boulder-mimic, ground spore receivers). Lore: fungus releases spores
+    # from cap, pods catch them at ground level. Both species in one stamp.
     {
         "name": "spore_cluster",
         "footprint": 4.0,
         "members": [
             {"kind": "giant_fungus", "dx": 0.0, "dy": 0.0, "scale_mult": 0.6, "hard": True},
-            {"kind": "giant_fungus", "dx": -1.5, "dy": 1.2, "scale_mult": 0.4, "hard": False},
-            {"kind": "giant_fungus", "dx": 1.8, "dy": 0.5, "scale_mult": 0.35, "hard": False},
-            {"kind": "giant_fungus", "dx": 0.5, "dy": -1.8, "scale_mult": 0.45, "hard": False},
+            {"kind": "spore_pod", "dx": -1.5, "dy": 1.2, "scale_mult": None, "hard": False},
+            {"kind": "spore_pod", "dx": 1.8, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "spore_pod", "dx": 0.5, "dy": -1.8, "scale_mult": None, "hard": False},
             {"kind": "moss_patch", "dx": -0.5, "dy": -0.5, "scale_mult": None, "hard": False},
             {"kind": "cave_gravel", "dx": 1.0, "dy": 1.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Toadstool grove — biome-agnostic landmark fungus (classic Fly Agaric).
+    # Hero toadstool centered, partner-type spore_pods flanking (lore: pods
+    # catch spores released by toadstool gills), moss ring underneath.
+    # Rare stamp = singleton presence when it appears.
+    # Authored via tools/gen_kind_mesh.py with baked vertex colors.
+    {
+        "name": "toadstool_grove",
+        "footprint": 6.0,
+        "members": [
+            {"kind": "toadstool", "dx": 0.0, "dy": 0.0, "scale_mult": 1.0, "hard": True},
+            {"kind": "spore_pod", "dx": -2.2, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "spore_pod", "dx": 2.0, "dy": -1.8, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": -0.8, "dy": 0.6, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 0.7, "dy": -0.5, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": 1.5, "dy": 1.8, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -1.5, "dy": -1.8, "scale_mult": None, "hard": False},
         ],
     },
     # Rubble field — collapsed area, wide low scatter, tells a story

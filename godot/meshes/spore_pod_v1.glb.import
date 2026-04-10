@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://df7m7sxdlasnx"
-path="res://.godot/imported/horizon_near.glb-0e582456732a9614278662bc65035d53.scn"
+uid="uid://bb1f11s6yt47q"
+path="res://.godot/imported/spore_pod_v1.glb-80862122e9572c939402636a8f82ac0a.scn"
 
 [deps]
 
-source_file="res://meshes/horizon_near.glb"
-dest_files=["res://.godot/imported/horizon_near.glb-0e582456732a9614278662bc65035d53.scn"]
+source_file="res://meshes/spore_pod_v1.glb"
+dest_files=["res://.godot/imported/spore_pod_v1.glb-80862122e9572c939402636a8f82ac0a.scn"]
 
 [params]
 

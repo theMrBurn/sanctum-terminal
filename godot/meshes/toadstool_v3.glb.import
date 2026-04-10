@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://6drojeqbajit"
-path="res://.godot/imported/ceiling_moss.glb-0c4bf18d98e8df4c0b619783d6fab4d0.scn"
+uid="uid://qqso4bpi1ey5"
+path="res://.godot/imported/toadstool_v3.glb-e6cde5863cce9c382c28776efc3ce40a.scn"
 
 [deps]
 
-source_file="res://meshes/ceiling_moss.glb"
-dest_files=["res://.godot/imported/ceiling_moss.glb-0c4bf18d98e8df4c0b619783d6fab4d0.scn"]
+source_file="res://meshes/toadstool_v3.glb"
+dest_files=["res://.godot/imported/toadstool_v3.glb-e6cde5863cce9c382c28776efc3ce40a.scn"]
 
 [params]
 

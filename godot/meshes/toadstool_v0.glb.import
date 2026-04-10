@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://ty7nd1sw667h"
-path="res://.godot/imported/giant_fungus.glb-1d69443db631c6305634aa14cdf08cdc.scn"
+uid="uid://cxi3b5auwitwh"
+path="res://.godot/imported/toadstool_v0.glb-3acfbacdbd1ffadd7b9d290eb12ece8e.scn"
 
 [deps]
 
-source_file="res://meshes/giant_fungus.glb"
-dest_files=["res://.godot/imported/giant_fungus.glb-1d69443db631c6305634aa14cdf08cdc.scn"]
+source_file="res://meshes/toadstool_v0.glb"
+dest_files=["res://.godot/imported/toadstool_v0.glb-3acfbacdbd1ffadd7b9d290eb12ece8e.scn"]
 
 [params]
 

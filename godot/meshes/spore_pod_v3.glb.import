@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://ds2oga7csub10"
-path="res://.godot/imported/boulder.glb-857017b79618f7f287abbca4dd4ef087.scn"
+uid="uid://kvdt7nvqh3tq"
+path="res://.godot/imported/spore_pod_v3.glb-7a68127f3a2b4dbe006fdfd4ff5dcd4f.scn"
 
 [deps]
 
-source_file="res://meshes/boulder.glb"
-dest_files=["res://.godot/imported/boulder.glb-857017b79618f7f287abbca4dd4ef087.scn"]
+source_file="res://meshes/spore_pod_v3.glb"
+dest_files=["res://.godot/imported/spore_pod_v3.glb-7a68127f3a2b4dbe006fdfd4ff5dcd4f.scn"]
 
 [params]
 

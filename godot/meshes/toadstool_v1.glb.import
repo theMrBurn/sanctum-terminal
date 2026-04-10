@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://b4b0xubkaulbv"
-path="res://.godot/imported/dead_log.glb-87e24a1172c474402e25ccda9d309658.scn"
+uid="uid://cu8wmwrl83mbj"
+path="res://.godot/imported/toadstool_v1.glb-583a14a311ca08bed92c442222a83550.scn"
 
 [deps]
 
-source_file="res://meshes/dead_log.glb"
-dest_files=["res://.godot/imported/dead_log.glb-87e24a1172c474402e25ccda9d309658.scn"]
+source_file="res://meshes/toadstool_v1.glb"
+dest_files=["res://.godot/imported/toadstool_v1.glb-583a14a311ca08bed92c442222a83550.scn"]
 
 [params]
 
