@@ -1,4 +1,4 @@
-.PHONY: clean factory test test-unit test-quest run seed-db trunk-check
+.PHONY: clean factory test test-unit test-quest run seed-db trunk-check meshes brain brain-cavern
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
@@ -82,8 +82,22 @@ godot-export-cavern:
 godot-meshes:
 	PYTHONPATH=. ./.venv/bin/python tools/export_glb.py
 
-brain:
-	PYTHONPATH=. ./.venv/bin/python brain_server.py outdoor
+# Regenerate every gen_kind_mesh-authored kind. Eliminates the
+# invisible-build-step problem where editing tools/gen_kind_mesh.py
+# does nothing visible until someone manually re-runs the script.
+# Run this after any change to gen_kind_mesh.py before reloading
+# Godot, or wire it as a dependency of brain-cavern / brain.
+meshes:
+	PYTHONPATH=. ./.venv/bin/python tools/gen_kind_mesh.py --all
 
-brain-cavern:
-	PYTHONPATH=. ./.venv/bin/python brain_server.py cavern
+# Brain server — both targets default to SANCTUM_STAMP=1 (pure-function
+# stamp_world mode) so infinite walking works without manual env var.
+# bc6ca1f added stamp_world / bucket_world as opt-in flags but never
+# updated the launcher; the slow TileExchange path was leaking through
+# as the silent default. Setting the env var here locks in the intended
+# operating mode.
+brain: meshes
+	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py outdoor
+
+brain-cavern: meshes
+	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py cavern

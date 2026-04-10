@@ -48,3 +48,12 @@ assets/kenney/
 # ── Godot ─────────────────────────────────────────────────────────────────────
 godot/.godot/
 godot/manifest.json
+
+# ── Defensive snapshots and backups (recovery artifacts, not source) ─────────
+# .baseline files = pre-change snapshots saved during refinement panics
+# pre_repair_backup/ = wholesale mesh backups before destructive operations
+*.baseline
+godot/meshes/pre_repair_backup/
+
+# ── Claude Code session data ─────────────────────────────────────────────────
+.claude/
