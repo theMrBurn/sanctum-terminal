@@ -1036,6 +1036,209 @@ def monolith_variants() -> list[trimesh.Trimesh]:
 
 
 # -----------------------------------------------------------------------------
+# Kind: boulder
+# -----------------------------------------------------------------------------
+#
+# Geological mass — composed multi-lobe mound. NOT a single deformed
+# sphere. Three icospheres (1 main + 2 secondary) at overlapping
+# offset positions create a knobby asymmetric silhouette that the
+# brain parses as "weathered stone mass" rather than "lump." The
+# secondary lobes overlap the main lobe enough to read as bumps, not
+# as separate balls — concatenate-based composition with deliberate
+# overlap.
+#
+# Composition follows the toadstool recipe applied to a real-stone
+# kind (no fungal mimic, no chromatic mismatch needed):
+#   1. Composed primitives — 3 lobes per boulder (Ingredient 1)
+#   2. Vertex color regions — Z-graded body + apron (Ingredient 2)
+#   3. Palette anchored to env — warm grey-brown stone (Ingredient 3)
+#   4. Scale spread across lobes — 0.50 / 0.30 / 0.22 (~2.3x spread)
+#   5. Hand-tuned 4 variants — different lobe arrangements + moss
+#      coverage stages (newer fall vs long-settled)
+#   6. Mossy upper grading via Z-gradient — top vertices pull toward
+#      moss color (the recognition marker — "this rock has been
+#      sitting here long enough to grow a coat")
+#   7. Roughly cubic bounds — keeps main.gd's per-instance scaling
+#      working without breaking existing boulder placement logic
+#   8. Base apron — flat ring at z=0 fakes contact shadow
+
+
+# Boulder palette — warm grey-brown stone with mossy upper grading.
+# Boulder is REAL stone, not a fungal mimic, so the mycelium camouflage
+# doctrine does NOT apply. Stone color is in the cavern grey family.
+# Moss is the recognition marker — value+hue contrast against the
+# stone body, anchored to the cavern's existing moss palette so it
+# reads as the same green family as moss_patch.
+BOULDER_BASE: RGBA   = (38, 32, 26, 255)   # dark warm grey-brown body
+BOULDER_CROWN: RGBA  = (62, 52, 40, 255)   # lighter weathered upper
+BOULDER_MOSS: RGBA   = (45, 65, 30, 255)   # muted dark mossy green
+BOULDER_APRON: RGBA  = (22, 18, 15, 255)   # deepest shadow under
+
+
+def build_boulder(
+    main_radius: float = 0.50,
+    main_z_squash: float = 0.78,
+    secondary_offset_a: tuple = (0.32, 0.18, 0.05),
+    secondary_radius_a: float = 0.30,
+    secondary_offset_b: tuple = (-0.25, -0.20, 0.10),
+    secondary_radius_b: float = 0.22,
+    moss_strength: float = 0.55,
+    moss_threshold: float = 0.55,
+    apron_outer_mult: float = 1.18,
+    apron_inner_mult: float = 0.72,
+) -> trimesh.Trimesh:
+    """Multi-lobe boulder mass — main mound + 2 smaller bumps + base
+    apron, with Z-graded vertex coloring (stone at the equator,
+    lighter weathered crown above, mossy green at the very top).
+
+    NOT a single deformed sphere. Three composed icospheres at
+    overlapping offset positions break the "smooth round blob"
+    reading. The secondary lobes are placed inside the main lobe's
+    radius so they appear as bumps protruding from the surface, not
+    as separate balls touching each other.
+
+    moss_strength controls how aggressively the upper vertices pull
+    toward MOSS color. moss_threshold is the Z fraction above which
+    moss starts (0.0 = full body, 1.0 = only the very apex).
+    """
+    parts = []
+
+    # Main lobe — squashed icosphere centered at origin
+    main = sphere(
+        radius=main_radius,
+        color=BOULDER_BASE,
+        subdivisions=1,
+        squash=main_z_squash,
+    )
+    main.apply_translation([0.0, 0.0, main_radius * main_z_squash])
+    parts.append(main)
+
+    # Secondary lobe A — smaller, offset to one side, deliberately
+    # placed inside the main lobe so it reads as a bump not a ball
+    sec_a = sphere(
+        radius=secondary_radius_a,
+        color=BOULDER_BASE,
+        subdivisions=1,
+        squash=main_z_squash,
+    )
+    sec_a.apply_translation([
+        secondary_offset_a[0],
+        secondary_offset_a[1],
+        secondary_radius_a * main_z_squash + secondary_offset_a[2],
+    ])
+    parts.append(sec_a)
+
+    # Secondary lobe B — even smaller, opposite side
+    sec_b = sphere(
+        radius=secondary_radius_b,
+        color=BOULDER_BASE,
+        subdivisions=1,
+        squash=main_z_squash,
+    )
+    sec_b.apply_translation([
+        secondary_offset_b[0],
+        secondary_offset_b[1],
+        secondary_radius_b * main_z_squash + secondary_offset_b[2],
+    ])
+    parts.append(sec_b)
+
+    # Combine the lobes into one body before grading
+    body = compose(parts)
+
+    # Z-gradient vertex recoloring on the combined body:
+    #   t=0 (z_min) → BOULDER_BASE (dark stone)
+    #   t=1 (z_max) → BOULDER_CROWN (lighter weathered)
+    #   above moss_threshold → lerp toward BOULDER_MOSS
+    # Same per-vertex grading pattern the puffball body uses.
+    verts = body.vertices
+    z_min = float(verts[:, 2].min())
+    z_max = float(verts[:, 2].max())
+    z_range = max(z_max - z_min, 1e-6)
+    t = (verts[:, 2] - z_min) / z_range  # 0 at base, 1 at top
+
+    base_rgb = np.array(BOULDER_BASE[:3], dtype=float)
+    crown_rgb = np.array(BOULDER_CROWN[:3], dtype=float)
+    moss_rgb = np.array(BOULDER_MOSS[:3], dtype=float)
+
+    # Linear lerp base → crown across the whole body
+    body_color = base_rgb * (1.0 - t)[:, None] + crown_rgb * t[:, None]
+
+    # Moss overlay: above moss_threshold, lerp toward moss_rgb
+    moss_t = np.clip(
+        (t - moss_threshold) / max(1.0 - moss_threshold, 1e-6),
+        0.0, 1.0,
+    )
+    moss_t = moss_t * moss_strength
+    final_color = body_color * (1.0 - moss_t)[:, None] + moss_rgb * moss_t[:, None]
+
+    final_u8 = np.clip(final_color, 0, 255).astype(np.uint8)
+    alpha = np.full((len(final_u8), 1), 255, dtype=np.uint8)
+    body.visual.vertex_colors = np.hstack([final_u8, alpha])
+
+    # Base apron — flat shadow ring around the body's footprint
+    apron = trimesh.creation.annulus(
+        r_min=main_radius * apron_inner_mult,
+        r_max=main_radius * apron_outer_mult,
+        height=0.015, sections=8,
+    )
+    _solid_color(apron, BOULDER_APRON)
+    apron.apply_translation([0.0, 0.0, 0.005])
+
+    return compose([body, apron])
+
+
+def boulder_variants() -> list[trimesh.Trimesh]:
+    """Four boulder masses — different lobe arrangements and moss
+    coverage stages. The multi-lobe composition + Z-graded mossy
+    crown reads as 'weathered stone mass with a moss coat' instead
+    of 'generic round blob.' Each variant is a different stage of
+    weathering (newer fall → long-settled mossy)."""
+    return [
+        # v0: standard 3-lobe — main + medium + small to one side,
+        # moderate moss coverage (typical settled boulder)
+        build_boulder(
+            main_radius=0.50,
+            secondary_offset_a=(0.32, 0.18, 0.05),
+            secondary_radius_a=0.30,
+            secondary_offset_b=(-0.25, -0.20, 0.10),
+            secondary_radius_b=0.22,
+            moss_strength=0.55,
+            moss_threshold=0.55,
+        ),
+        # v1: heavy 3-lobe — bigger main, sparse moss (newer fall)
+        build_boulder(
+            main_radius=0.55,
+            secondary_offset_a=(0.30, -0.15, 0.08),
+            secondary_radius_a=0.28,
+            secondary_offset_b=(-0.30, 0.18, 0.06),
+            secondary_radius_b=0.20,
+            moss_strength=0.30,
+            moss_threshold=0.65,
+        ),
+        # v2: weathered 3-lobe — long-settled, dominant moss coat
+        build_boulder(
+            main_radius=0.48,
+            secondary_offset_a=(0.28, 0.22, 0.08),
+            secondary_radius_a=0.32,
+            secondary_offset_b=(-0.22, -0.15, 0.12),
+            secondary_radius_b=0.25,
+            moss_strength=0.75,
+            moss_threshold=0.45,
+        ),
+        # v3: asymmetric 3-lobe — main offset, dramatic secondary
+        build_boulder(
+            main_radius=0.52,
+            secondary_offset_a=(0.38, 0.10, 0.04),
+            secondary_radius_a=0.32,
+            secondary_offset_b=(-0.20, 0.25, 0.08),
+            secondary_radius_b=0.18,
+            moss_strength=0.45,
+            moss_threshold=0.55,
+        ),
+    ]
+
+
+# -----------------------------------------------------------------------------
 # Export + bounds
 # -----------------------------------------------------------------------------
 
@@ -1133,6 +1336,7 @@ KIND_BUILDERS = {
     "spore_pod": spore_pod_variants,
     "doorframe": doorframe_variants,
     "monolith": monolith_variants,
+    "boulder": boulder_variants,
     # Add future kinds here: "shrub", "fish", "tree", etc.
 }
 
