@@ -277,8 +277,21 @@
       }},
 
     "crystal_cluster": {"class": "crystalline", "light_reactive": true,
-      "color_base": [0.30, 0.32, 0.42], "color_shadow": [0.24, 0.26, 0.34], "color_accent": [0.36, 0.38, 0.48],
-      "burial": {"min_frac": 0.10, "max_frac": 0.25}},
+      "use_vertex_colors": true,
+      "color_base": [0.20, 0.22, 0.34], "color_shadow": [0.14, 0.16, 0.26], "color_accent": [0.28, 0.30, 0.42],
+      "burial": {"min_frac": 0.10, "max_frac": 0.25},
+      "recipe": {
+        "tier": 1, "family": "crystal_spike",
+        "variant_count": 4, "bounds": [4.8, 3.5, 5.0], "variant_spread": 0.20,
+        "apron": null,
+        "atoms": {"pattern": "lattice_7", "count": 3, "size": 0.10, "palette": "cream"},
+        "family_params": {
+          "main_spires": 3, "satellite_spires": 4,
+          "spire_facets": 6, "spire_rings": 5,
+          "noise_strength": 0.03, "lean_angle_deg": 15.0
+        },
+        "camouflage": {"fungal_pair_target": "crystal_cap", "rule": "shape_not_color"}
+      }},
     "filament":        {"class": "crystalline", "light_reactive": true,
       "color_base": [0.48, 0.46, 0.56], "color_shadow": [0.38, 0.36, 0.44], "color_accent": [0.55, 0.53, 0.64],
       "burial": {"min_frac": 0.05, "max_frac": 0.15}},

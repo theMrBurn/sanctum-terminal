@@ -335,3 +335,53 @@ class TestRockLobedFamily:
             assert w > d * 1.4, (
                 f"bone_pile v{i}: width {w:.2f} not elongated relative to "
                 f"depth {d:.2f} (expected ratio ≥1.4 from elongation=1.8)")
+
+
+# -- Family: crystal_spike -----------------------------------------------------
+#
+# Crystal cluster — Tier 1 anchor, pending mycelium camouflage pair
+# crystal_cap. Composes leaning main spires + satellite spires using
+# the same tapered_vertical primitive as the structural kinds, but with
+# sharper taper, lower noise, fewer facets (crystalline look).
+
+
+class TestCrystalSpikeFamily:
+
+    def test_family_builder_registered(self):
+        assert "crystal_spike" in FAMILY_BUILDERS
+
+    def test_crystal_cluster_has_four_variants(self):
+        variants = build_kind("crystal_cluster")
+        assert len(variants) == 4
+
+    def test_variants_have_vertex_colors(self):
+        for i, v in enumerate(build_kind("crystal_cluster")):
+            assert v.visual.vertex_colors.shape == (len(v.vertices), 4)
+
+    def test_variants_taller_than_wide(self):
+        # Main spires lean outward, so the cluster is often wider than a
+        # single spire but should still be taller than it is wide overall.
+        for i, v in enumerate(build_kind("crystal_cluster")):
+            w, d, h = v.extents
+            assert h > max(w, d) * 0.7, (
+                f"crystal_cluster v{i}: height {h:.2f} should dominate "
+                f"width {max(w,d):.2f}")
+
+    def test_variants_have_cream_atoms(self):
+        # Main spires carry atoms per recipe; cream cream markers visible
+        target = np.array(_CREAM_ATOM[:3], dtype=int)
+        for i, v in enumerate(build_kind("crystal_cluster")):
+            colors = v.visual.vertex_colors[:, :3].astype(int)
+            match = np.all(np.abs(colors - target) <= 1, axis=1)
+            assert match.any(), (
+                f"crystal_cluster v{i}: no cream atoms found (atom doctrine violated)")
+
+    def test_variants_poly_budget(self):
+        for i, v in enumerate(build_kind("crystal_cluster")):
+            assert 200 <= len(v.faces) <= 700, (
+                f"crystal_cluster v{i}: {len(v.faces)} tris outside 200-700 budget")
+
+    def test_variants_distinct(self):
+        heights = [float(v.extents[2]) for v in build_kind("crystal_cluster")]
+        assert len(set(round(h, 2) for h in heights)) >= 2, (
+            f"crystal_cluster variants have identical heights: {heights}")

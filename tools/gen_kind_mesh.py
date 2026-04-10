@@ -1654,6 +1654,135 @@ def _family_rock_lobed(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
     return variants
 
 
+def _family_crystal_spike(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
+    """Crystal spike cluster family — crystal_cluster (Tier 1 anchor).
+
+    Reuses _build_tapered_vertical_instance as the spire primitive with
+    crystalline-specific parameters: sharp taper (no natural body
+    tapering toward a point), no flare (crystals grow straight), low
+    noise (crystalline facets are smooth), fewer facets (6 → harder
+    silhouette reading). Composes a trunk-based cluster of N leaning
+    main spires + M shorter satellite spires.
+
+    Recipe fields (kind_cfg["recipe"]):
+      bounds           [w, d, h]   cluster footprint
+      variant_count    int
+      variant_spread   float
+      atoms            dict|null   atom markers per spire
+      family_params    dict:
+        main_spires       int     tall main spires (3 default)
+        satellite_spires  int     short perimeter spires (4 default)
+        spire_facets      int     6 for crystalline, 8 for smoother
+        spire_rings       int     4-6 for crystals (sharp profile)
+        noise_strength    float   <0.05 for crystalline smoothness
+        lean_angle_deg    float   outward lean per main spire
+
+    Palette from kind_cfg["color_base"/"color_shadow"/"color_accent"].
+    """
+    recipe = kind_cfg["recipe"]
+    fp = recipe.get("family_params", {})
+    bounds = recipe["bounds"]
+    variant_count = int(recipe["variant_count"])
+    variant_spread = float(recipe.get("variant_spread", 0.25))
+
+    canonical_width  = float(bounds[0])
+    canonical_height = float(bounds[2])
+
+    main_spires     = int(fp.get("main_spires", 3))
+    satellite_spires = int(fp.get("satellite_spires", 4))
+    spire_facets    = int(fp.get("spire_facets", 6))
+    spire_rings     = int(fp.get("spire_rings", 5))
+    noise_strength  = float(fp.get("noise_strength", 0.03))
+    lean_angle_deg  = float(fp.get("lean_angle_deg", 15.0))
+
+    atoms_cfg = recipe.get("atoms")
+
+    base_color   = _rgb01_to_rgba_u8(kind_cfg.get("color_base",   [0.30, 0.32, 0.42]))
+    shadow_color = _rgb01_to_rgba_u8(kind_cfg.get("color_shadow", [0.24, 0.26, 0.34]))
+    accent_color = _rgb01_to_rgba_u8(kind_cfg.get("color_accent", [0.36, 0.38, 0.48]))
+
+    variants = []
+    for v_idx in range(variant_count):
+        seed = zlib.crc32(f"{kind_name}-{v_idx}".encode()) & 0xFFFFFFFF
+        rng = np.random.default_rng(seed)
+
+        size_drift = 1.0 + variant_spread * (rng.random() * 2.0 - 1.0)
+        cluster_width  = canonical_width  * size_drift
+        cluster_height = canonical_height * size_drift
+        footprint_r    = cluster_width * 0.3   # how spread out spire bases are
+
+        parts = []
+
+        # Main spires — distributed ~evenly in a ring, each leaning outward
+        for si in range(main_spires):
+            angle = (si * (2.0 * math.pi / main_spires)
+                     + (rng.random() - 0.5) * 0.5)
+            spire_h = cluster_height * (0.7 + rng.random() * 0.3)
+            spire_r = cluster_width * 0.12 * (0.8 + rng.random() * 0.4)
+            offset_x = math.cos(angle) * footprint_r * 0.3
+            offset_y = math.sin(angle) * footprint_r * 0.3
+
+            spire_rng = np.random.default_rng(seed + 1 + si * 1000)
+            spire = _build_tapered_vertical_instance(
+                base_radius=spire_r,
+                height=spire_h,
+                taper_strength=0.92,      # very sharp tip
+                flare_ratio=1.0,          # no flare
+                flare_frac=0.0,
+                noise_strength=noise_strength,
+                facet_count=spire_facets,
+                ring_count=spire_rings,
+                base_color=base_color,
+                shadow_color=shadow_color,
+                accent_color=accent_color,
+                atoms_cfg=atoms_cfg,      # cream atoms on each main spire
+                rng=spire_rng,
+            )
+
+            # Lean outward: rotate around an axis perpendicular to the outward
+            # direction, tilted by lean_angle_deg toward that direction.
+            lean_rad = math.radians(lean_angle_deg)
+            lean_axis = np.array([-math.sin(angle), math.cos(angle), 0.0])
+            lean_mat = trimesh.transformations.rotation_matrix(lean_rad, lean_axis)
+            spire.apply_transform(lean_mat)
+            spire.apply_translation([offset_x, offset_y, 0.0])
+            parts.append(spire)
+
+        # Satellite spires — shorter, at a wider radius, no lean, no atoms
+        for sati in range(satellite_spires):
+            sat_angle = rng.random() * 2.0 * math.pi
+            sat_dist = footprint_r * (0.8 + rng.random() * 0.5)
+            sat_h = cluster_height * (0.2 + rng.random() * 0.25)
+            sat_r = cluster_width * 0.06 * (0.7 + rng.random() * 0.5)
+
+            sat_rng = np.random.default_rng(seed + 5000 + sati * 100)
+            sat = _build_tapered_vertical_instance(
+                base_radius=sat_r,
+                height=sat_h,
+                taper_strength=0.92,
+                flare_ratio=1.0,
+                flare_frac=0.0,
+                noise_strength=noise_strength,
+                facet_count=spire_facets,
+                ring_count=4,
+                base_color=base_color,
+                shadow_color=shadow_color,
+                accent_color=accent_color,
+                atoms_cfg=None,        # satellites stay clean
+                rng=sat_rng,
+            )
+            sat.apply_translation([
+                math.cos(sat_angle) * sat_dist,
+                math.sin(sat_angle) * sat_dist,
+                0.0,
+            ])
+            parts.append(sat)
+
+        variants.append(compose(parts))
+
+    return variants
+
+
 def _family_tapered_vertical(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
     """Tapered vertical family — stalagmites, columns, mega_columns,
     buttresses. A single noisy revolved profile with optional base flare,
@@ -1864,7 +1993,7 @@ LEGACY_BUILDERS = {
 FAMILY_BUILDERS: dict[str, callable] = {
     "tapered_vertical": _family_tapered_vertical,
     "rock_lobed":       _family_rock_lobed,
-    # "crystal_spike":    _family_crystal_spike,
+    "crystal_spike":    _family_crystal_spike,
     # "flora_composed":   _family_flora_composed,
     # "scatter_tissue":   _family_scatter_tissue,
 }
