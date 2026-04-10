@@ -205,11 +205,33 @@
         }
       }},
     "rubble":          {"class": "geological",
+      "use_vertex_colors": true,
       "color_base": [0.37, 0.33, 0.28], "color_shadow": [0.33, 0.29, 0.24], "color_accent": [0.41, 0.37, 0.31],
-      "burial": {"min_frac": 0.30, "max_frac": 0.55, "min_above_ground": 0.3}},
+      "burial": {"min_frac": 0.30, "max_frac": 0.55, "min_above_ground": 0.3},
+      "recipe": {
+        "tier": 2, "family": "rock_lobed",
+        "variant_count": 4, "bounds": [1.0, 1.0, 0.5], "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "lobe_count": 4, "spread_radius": 1.0, "flatness": 0.65,
+          "noise_strength": 0.22, "elongation": 1.0
+        }
+      }},
     "cave_gravel":     {"class": "geological",
+      "use_vertex_colors": true,
       "color_base": [0.39, 0.36, 0.31], "color_shadow": [0.35, 0.32, 0.27], "color_accent": [0.43, 0.40, 0.35],
-      "sink": -0.02},
+      "sink": -0.02,
+      "recipe": {
+        "tier": 2, "family": "rock_lobed",
+        "variant_count": 4, "bounds": [0.24, 0.24, 0.08], "variant_spread": 0.40,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "lobe_count": 2, "spread_radius": 0.6, "flatness": 0.5,
+          "noise_strength": 0.18, "elongation": 1.0
+        }
+      }},
 
     "mega_column":     {"class": "structural",
       "use_vertex_colors": true,
@@ -334,8 +356,19 @@
       "color_base": [0.30, 0.26, 0.28], "color_shadow": [0.24, 0.20, 0.22], "color_accent": [0.36, 0.32, 0.34],
       "sink": -0.01},
     "bone_pile":       {"class": "organic_flora",
+      "use_vertex_colors": true,
       "color_base": [0.42, 0.40, 0.44], "color_shadow": [0.36, 0.34, 0.38], "color_accent": [0.48, 0.46, 0.50],
-      "burial": {"min_frac": 0.20, "max_frac": 0.45, "min_above_ground": 0.5}},
+      "burial": {"min_frac": 0.20, "max_frac": 0.45, "min_above_ground": 0.5},
+      "recipe": {
+        "tier": 2, "family": "rock_lobed",
+        "variant_count": 4, "bounds": [1.0, 1.0, 0.32], "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "lobe_count": 3, "spread_radius": 0.9, "flatness": 0.4,
+          "noise_strength": 0.12, "elongation": 1.8
+        }
+      }},
 
     "ceiling_moss":    {"class": "atmosphere",
       "color_base": [0.26, 0.30, 0.22], "color_shadow": [0.20, 0.25, 0.17], "color_accent": [0.30, 0.36, 0.26],

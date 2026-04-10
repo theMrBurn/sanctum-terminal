@@ -273,3 +273,65 @@ class TestTaperedVerticalFamily:
         direct = toadstool_variants()
         for va, vd in zip(variants, direct):
             assert np.array_equal(va.vertices, vd.vertices)
+
+
+# -- Family: rock_lobed --------------------------------------------------------
+#
+# Tier 2 tissue — rubble, cave_gravel, bone_pile. Multi-lobe icosphere
+# clusters, no atoms, no composed primitives, just unified render path.
+# Variants are tighter (2 each) because tissue doesn't need 4-way character.
+
+
+ROCK_LOBED_KINDS = ["rubble", "cave_gravel", "bone_pile"]
+
+
+class TestRockLobedFamily:
+
+    def test_family_builder_registered(self):
+        assert "rock_lobed" in FAMILY_BUILDERS
+
+    @pytest.mark.parametrize("kind", ROCK_LOBED_KINDS)
+    def test_produces_four_variants(self, kind):
+        # Tier 2 emits 4 variants to match the v0..v3 pipeline expectation.
+        # Fewer would leave stale v2/v3 GLBs from the legacy path on disk.
+        variants = build_kind(kind)
+        assert len(variants) == 4, f"{kind} produced {len(variants)} variants, expected 4"
+
+    @pytest.mark.parametrize("kind", ROCK_LOBED_KINDS)
+    def test_variants_have_vertex_colors(self, kind):
+        for i, v in enumerate(build_kind(kind)):
+            assert v.visual.vertex_colors.shape == (len(v.vertices), 4), (
+                f"{kind} v{i} missing or malformed vertex colors")
+
+    @pytest.mark.parametrize("kind", ROCK_LOBED_KINDS)
+    def test_variants_have_no_atoms(self, kind):
+        # Tier 2 tissue: no atom markers. No vertex should match _CREAM_ATOM.
+        target = np.array(_CREAM_ATOM[:3], dtype=int)
+        for i, v in enumerate(build_kind(kind)):
+            colors = v.visual.vertex_colors[:, :3].astype(int)
+            match = np.all(np.abs(colors - target) <= 1, axis=1)
+            assert not match.any(), (
+                f"{kind} v{i}: tissue kinds should not carry atom markers")
+
+    @pytest.mark.parametrize("kind", ROCK_LOBED_KINDS)
+    def test_variants_ground_hugging(self, kind):
+        # Every rock_lobed kind should be wider than tall (flatness < 1.0)
+        for i, v in enumerate(build_kind(kind)):
+            w, d, h = v.extents
+            assert h < max(w, d), (
+                f"{kind} v{i}: height {h:.2f} >= max(w,d) {max(w,d):.2f} "
+                f"(rock_lobed should be flat, not tall)")
+
+    @pytest.mark.parametrize("kind", ROCK_LOBED_KINDS)
+    def test_variants_poly_budget(self, kind):
+        for i, v in enumerate(build_kind(kind)):
+            assert 60 <= len(v.faces) <= 500, (
+                f"{kind} v{i}: {len(v.faces)} tris outside 60-500 budget")
+
+    def test_bone_pile_is_elongated(self):
+        # bone_pile has elongation=1.8 → X should be noticeably larger than Y
+        for i, v in enumerate(build_kind("bone_pile")):
+            w, d, _ = v.extents
+            assert w > d * 1.4, (
+                f"bone_pile v{i}: width {w:.2f} not elongated relative to "
+                f"depth {d:.2f} (expected ratio ≥1.4 from elongation=1.8)")

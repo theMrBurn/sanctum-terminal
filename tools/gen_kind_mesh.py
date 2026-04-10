@@ -1502,6 +1502,158 @@ def _build_tapered_vertical_instance(
     return body
 
 
+def _build_rock_lobed_instance(
+    v_width: float,
+    v_depth: float,
+    v_height: float,
+    lobe_count: int,
+    spread_radius_frac: float,
+    flatness: float,
+    noise_strength: float,
+    elongation: float,
+    base_color: RGBA,
+    shadow_color: RGBA,
+    accent_color: RGBA,
+    rng: np.random.Generator,
+) -> trimesh.Trimesh:
+    """Single variant of a rock-lobed cluster: N squashed icospheres
+    scattered within a footprint, radially noise-displaced, Z-gradient
+    colored. Used by Tier 2 geological tissue (rubble, cave_gravel,
+    bone_pile) — not a recipe-faithful anchor, just enough shape to
+    unify the render path with vertex colors."""
+    parts = []
+    cluster_radius = v_width * 0.5 * spread_radius_frac
+    lobe_base_r = v_width * 0.25  # each lobe is about a quarter of the cluster width
+
+    for li in range(lobe_count):
+        # First lobe is the biggest; subsequent lobes decay in size
+        decay = 1.0 - 0.3 * (li / max(lobe_count - 1, 1))
+        lobe_r = lobe_base_r * decay * (0.85 + rng.random() * 0.3)
+
+        # Position within the cluster footprint
+        if li == 0:
+            offset_x, offset_y = 0.0, 0.0
+        else:
+            angle = rng.random() * 2.0 * math.pi
+            dist = cluster_radius * (0.3 + rng.random() * 0.7)
+            offset_x = math.cos(angle) * dist * elongation
+            offset_y = math.sin(angle) * dist
+
+        lobe = sphere(
+            radius=lobe_r,
+            color=base_color,
+            subdivisions=1,
+            squash=flatness,
+        )
+        # Rest on ground — center at (x, y, lobe_r*flatness*0.7) so the
+        # bottom is at ~0.3 × squashed_radius below ground (concave sink)
+        z_offset = lobe_r * flatness * 0.7
+        lobe.apply_translation([offset_x, offset_y, z_offset])
+
+        # Radial noise: push each vertex outward or inward by ±noise_strength
+        if noise_strength > 0:
+            verts = lobe.vertices
+            center = np.array([offset_x, offset_y, z_offset])
+            directions = verts - center
+            norms = np.linalg.norm(directions, axis=1, keepdims=True)
+            directions_norm = directions / np.maximum(norms, 1e-6)
+            noise_amt = (rng.random(len(verts)) - 0.5) * 2.0 * noise_strength * lobe_r
+            lobe.vertices = verts + directions_norm * noise_amt[:, None]
+
+        parts.append(lobe)
+
+    body = compose(parts)
+    _apply_z_gradient_three_stop(body, base_color, shadow_color, accent_color)
+
+    # Fit the cluster's natural footprint to canonical bounds. Elongation
+    # is preserved by using a non-uniform target: X = v_width, Y = v_depth
+    # (where v_depth can be shrunk by elongation at the caller level).
+    natural_ext = body.extents
+    sx = v_width  / natural_ext[0] if natural_ext[0] > 1e-6 else 1.0
+    sy = v_depth  / natural_ext[1] if natural_ext[1] > 1e-6 else 1.0
+    sz = v_height / natural_ext[2] if natural_ext[2] > 1e-6 else 1.0
+    body.vertices[:, 0] *= sx
+    body.vertices[:, 1] *= sy
+    body.vertices[:, 2] *= sz
+
+    return body
+
+
+def _family_rock_lobed(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
+    """Rock lobed cluster family — Tier 2 geological tissue. Used for
+    rubble, cave_gravel, bone_pile: multi-lobe scatter of squashed
+    icospheres merged into one mesh per variant, Z-gradient colored,
+    no atoms, no composed primitives. Cheap, consistent, unifies the
+    shader path for all ground-rock scatter.
+
+    NOT a generalization of build_boulder. Boulder stays on its
+    hand-authored legacy path; this family is authored fresh for the
+    non-landmark rocks.
+
+    Recipe fields (kind_cfg["recipe"]):
+      bounds           [w, d, h]   cluster footprint
+      variant_count    int          typically 2 for Tier 2
+      variant_spread   float        per-variant size drift
+      family_params    dict:
+        lobe_count        int       1 (single rock) to 5 (debris field)
+        spread_radius     float     0..1 fraction of width for scatter
+        flatness          float     icosphere squash (0.3-1.0)
+        noise_strength    float     radial vertex displacement 0..0.5
+        elongation        float     1=round cluster, >1=elongated along X
+
+    Palette from kind_cfg["color_base"/"color_shadow"/"color_accent"].
+    """
+    recipe = kind_cfg["recipe"]
+    fp = recipe.get("family_params", {})
+    bounds = recipe["bounds"]
+    variant_count = int(recipe["variant_count"])
+    variant_spread = float(recipe.get("variant_spread", 0.30))
+
+    canonical_width  = float(bounds[0])
+    canonical_depth  = float(bounds[1])
+    canonical_height = float(bounds[2])
+
+    lobe_count         = int(fp.get("lobe_count", 3))
+    spread_radius_frac = float(fp.get("spread_radius", 0.8))
+    flatness           = float(fp.get("flatness", 0.7))
+    noise_strength     = float(fp.get("noise_strength", 0.15))
+    elongation         = float(fp.get("elongation", 1.0))
+    # Elongation shrinks Y (depth) relative to X (width). Bone_pile with
+    # elongation 1.8 → depth = 0.55 × width. Uniform clusters use 1.0.
+    effective_depth = canonical_depth / elongation
+
+    base_color   = _rgb01_to_rgba_u8(kind_cfg.get("color_base",   [0.30, 0.27, 0.23]))
+    shadow_color = _rgb01_to_rgba_u8(kind_cfg.get("color_shadow", [0.26, 0.23, 0.19]))
+    accent_color = _rgb01_to_rgba_u8(kind_cfg.get("color_accent", [0.34, 0.30, 0.25]))
+
+    variants = []
+    for v_idx in range(variant_count):
+        seed = zlib.crc32(f"{kind_name}-{v_idx}".encode()) & 0xFFFFFFFF
+        rng = np.random.default_rng(seed)
+
+        size_drift = 1.0 + variant_spread * (rng.random() * 2.0 - 1.0)
+        v_width  = canonical_width  * size_drift
+        v_depth  = effective_depth  * size_drift
+        v_height = canonical_height * size_drift
+
+        variants.append(_build_rock_lobed_instance(
+            v_width=v_width,
+            v_depth=v_depth,
+            v_height=v_height,
+            lobe_count=lobe_count,
+            spread_radius_frac=spread_radius_frac,
+            flatness=flatness,
+            noise_strength=noise_strength,
+            elongation=elongation,
+            base_color=base_color,
+            shadow_color=shadow_color,
+            accent_color=accent_color,
+            rng=rng,
+        ))
+
+    return variants
+
+
 def _family_tapered_vertical(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
     """Tapered vertical family — stalagmites, columns, mega_columns,
     buttresses. A single noisy revolved profile with optional base flare,
@@ -1711,7 +1863,7 @@ LEGACY_BUILDERS = {
 # where kind_cfg is the per-kind dict from kind_config.json (palette + recipe block).
 FAMILY_BUILDERS: dict[str, callable] = {
     "tapered_vertical": _family_tapered_vertical,
-    # "rock_lobed":       _family_rock_lobed,
+    "rock_lobed":       _family_rock_lobed,
     # "crystal_spike":    _family_crystal_spike,
     # "flora_composed":   _family_flora_composed,
     # "scatter_tissue":   _family_scatter_tissue,
