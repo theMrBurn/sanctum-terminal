@@ -11,6 +11,8 @@ color baking, blows poly budget, or drifts scale, tests fail loudly.
 import numpy as np
 import trimesh
 
+import pytest
+
 from tools.gen_kind_mesh import (
     build_toadstool,
     toadstool_variants,
@@ -20,10 +22,13 @@ from tools.gen_kind_mesh import (
     capped_cylinder,
     torus_ring,
     sphere,
+    build_kind,
+    FAMILY_BUILDERS,
     TOADSTOOL_CAP_RED,
     TOADSTOOL_SPOT_CREAM,
     TOADSTOOL_STEM_BROWN,
     SPORE_POD_BODY,
+    _CREAM_ATOM,
 )
 
 
@@ -185,3 +190,86 @@ class TestSporePod:
             glb_bytes = v.export(file_type="glb")
             assert 1000 < len(glb_bytes) < 200_000, (
                 f"spore_pod v{i} GLB {len(glb_bytes)} bytes — out of bounds")
+
+
+# -- Family: tapered_vertical --------------------------------------------------
+#
+# Four consumers — stalagmite, column, mega_column, buttress — all routed
+# through the same parameterized _family_tapered_vertical primitive. Tests
+# exercise the dispatcher path (build_kind) rather than importing the family
+# function directly, so this also functions as an integration test for the
+# Option 3 refined sweep's config-driven family dispatch.
+
+
+TAPERED_VERTICAL_KINDS = ["stalagmite", "column", "mega_column", "buttress"]
+
+
+class TestTaperedVerticalFamily:
+
+    def test_family_builder_registered(self):
+        assert "tapered_vertical" in FAMILY_BUILDERS
+
+    @pytest.mark.parametrize("kind", TAPERED_VERTICAL_KINDS)
+    def test_produces_four_variants(self, kind):
+        variants = build_kind(kind)
+        assert len(variants) == 4, f"{kind} produced {len(variants)} variants, expected 4"
+
+    @pytest.mark.parametrize("kind", TAPERED_VERTICAL_KINDS)
+    def test_variants_have_vertex_colors(self, kind):
+        for i, v in enumerate(build_kind(kind)):
+            assert v.visual.vertex_colors.shape == (len(v.vertices), 4), (
+                f"{kind} v{i} missing or malformed vertex colors")
+
+    @pytest.mark.parametrize("kind", TAPERED_VERTICAL_KINDS)
+    def test_variants_have_reasonable_poly_budget(self, kind):
+        # Rough envelope: tapered_vertical instances are ~80-300 tris
+        # depending on facet_count × ring_count + optional atom markers.
+        for i, v in enumerate(build_kind(kind)):
+            assert 60 <= len(v.faces) <= 400, (
+                f"{kind} v{i}: {len(v.faces)} tris outside 60-400 budget")
+
+    @pytest.mark.parametrize("kind", TAPERED_VERTICAL_KINDS)
+    def test_variants_are_tall_not_flat(self, kind):
+        # Every tapered_vertical consumer should be taller than wide
+        for i, v in enumerate(build_kind(kind)):
+            w, d, h = v.extents
+            assert h > max(w, d) * 0.9, (
+                f"{kind} v{i}: height {h:.2f} not taller than max(w,d) {max(w,d):.2f}")
+
+    @pytest.mark.parametrize("kind", TAPERED_VERTICAL_KINDS)
+    def test_variants_distinct_silhouettes(self, kind):
+        # At least 2 of the 4 variants should differ in extents
+        variants = build_kind(kind)
+        heights = [float(v.extents[2]) for v in variants]
+        assert len(set(round(h, 2) for h in heights)) >= 2, (
+            f"{kind} variants have identical heights: {heights}")
+
+    @pytest.mark.parametrize("kind", TAPERED_VERTICAL_KINDS)
+    def test_variants_have_cream_atoms(self, kind):
+        # Atom markers are painted with _CREAM_ATOM — at least one vertex
+        # per variant should match that color (within ±1 per channel).
+        target = np.array(_CREAM_ATOM[:3], dtype=int)
+        for i, v in enumerate(build_kind(kind)):
+            colors = v.visual.vertex_colors[:, :3].astype(int)
+            match = np.all(np.abs(colors - target) <= 1, axis=1)
+            assert match.any(), (
+                f"{kind} v{i}: no vertex matches _CREAM_ATOM "
+                f"(atom markers missing or wrong color)")
+
+    def test_determinism_across_calls(self):
+        # Same kind built twice must produce identical geometry
+        a = build_kind("stalagmite")
+        b = build_kind("stalagmite")
+        for va, vb in zip(a, b):
+            assert np.array_equal(va.vertices, vb.vertices), (
+                "stalagmite builds are not deterministic across calls")
+
+    def test_legacy_kinds_untouched_by_dispatcher(self):
+        # build_kind on a legacy name must route through LEGACY_BUILDERS —
+        # no recipe lookup, no family dispatch.
+        variants = build_kind("toadstool")
+        assert len(variants) == 4
+        # Legacy output is the same as calling the legacy builder directly
+        direct = toadstool_variants()
+        for va, vd in zip(variants, direct):
+            assert np.array_equal(va.vertices, vd.vertices)

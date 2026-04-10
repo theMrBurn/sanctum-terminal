@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import zlib
 from pathlib import Path
 from typing import Sequence
 
@@ -1346,6 +1347,243 @@ def boulder_variants() -> list[trimesh.Trimesh]:
     ]
 
 
+# =============================================================================
+# Family builders — parameterized primitives ported from ambient_life.py
+# =============================================================================
+#
+# Each family builder has the signature:
+#     (kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]
+#
+# `kind_cfg` is the per-kind dict from godot/kind_config.json["kinds"][name].
+# The family builder reads:
+#   - kind_cfg["recipe"]  (tier, variant_count, bounds, variant_spread,
+#                          apron, atoms, family_params)
+#   - kind_cfg["color_base"], ["color_shadow"], ["color_accent"]  (palette)
+#
+# Determinism: seeds derive from hash((kind_name, variant_idx)) so
+# regenerating the same kind produces byte-identical variants.
+
+
+# Shared constants used across family builders
+_CREAM_ATOM: RGBA = (225, 215, 195, 255)  # heptagonal recognition markers
+
+
+def _rgb01_to_rgba_u8(rgb01: Sequence[float], alpha: int = 255) -> RGBA:
+    """Convert [0..1] float RGB from kind_config into a (0..255) RGBA tuple."""
+    return (
+        int(round(rgb01[0] * 255)),
+        int(round(rgb01[1] * 255)),
+        int(round(rgb01[2] * 255)),
+        alpha,
+    )
+
+
+def _apply_z_gradient_three_stop(mesh: trimesh.Trimesh,
+                                 base: RGBA,
+                                 mid: RGBA,
+                                 top: RGBA) -> trimesh.Trimesh:
+    """Paint a 3-stop Z-gradient onto a mesh in place.
+
+    t=0   → base color   (bottom of mesh)
+    t=0.5 → mid color    (middle)
+    t=1.0 → top color    (crown)
+
+    Used by every family builder whose kind wants "dark base, mid-value
+    body, lighter crown" — the default stone/flora reading. Same pattern
+    as build_boulder's Z-gradient but extracted for reuse.
+    """
+    verts = mesh.vertices
+    z_min = float(verts[:, 2].min())
+    z_max = float(verts[:, 2].max())
+    z_range = max(z_max - z_min, 1e-6)
+    t = (verts[:, 2] - z_min) / z_range
+
+    base_rgb = np.array(base[:3], dtype=float)
+    mid_rgb = np.array(mid[:3], dtype=float)
+    top_rgb = np.array(top[:3], dtype=float)
+
+    lower_mask = t < 0.5
+    upper_mask = ~lower_mask
+
+    colors = np.zeros((len(verts), 3), dtype=float)
+    lt = (t[lower_mask] * 2.0)[:, None]               # 0..1 across lower half
+    colors[lower_mask] = base_rgb * (1 - lt) + mid_rgb * lt
+    ut = ((t[upper_mask] - 0.5) * 2.0)[:, None]       # 0..1 across upper half
+    colors[upper_mask] = mid_rgb * (1 - ut) + top_rgb * ut
+
+    colors_u8 = np.clip(colors, 0, 255).astype(np.uint8)
+    alpha = np.full((len(colors_u8), 1), 255, dtype=np.uint8)
+    mesh.visual.vertex_colors = np.hstack([colors_u8, alpha])
+    return mesh
+
+
+def _build_tapered_vertical_instance(
+    base_radius: float,
+    height: float,
+    taper_strength: float,
+    flare_ratio: float,
+    flare_frac: float,
+    noise_strength: float,
+    facet_count: int,
+    ring_count: int,
+    base_color: RGBA,
+    shadow_color: RGBA,
+    accent_color: RGBA,
+    atoms_cfg: dict | None,
+    rng: np.random.Generator,
+) -> trimesh.Trimesh:
+    """Single variant of a tapered-vertical body: revolved noisy profile
+    + optional base flare + 3-stop Z-gradient + optional heptagonal atom
+    markers on the surface."""
+    # Build the 2D profile: ring_count+1 points from base (z=0) to tip (z=height).
+    # Each point has a per-ring radius that incorporates taper, flare, and noise.
+    z_values = np.linspace(0.0, height, ring_count + 1)
+    profile_radii = []
+    for i, z in enumerate(z_values):
+        t = z / height if height > 0 else 0.0   # 0 at base, 1 at tip
+
+        # Taper: 1.0 at base, (1 - taper_strength) at tip
+        r = base_radius * (1.0 - t * taper_strength)
+
+        # Base flare: widen the bottom `flare_frac` of the height
+        if t < flare_frac and flare_frac > 0:
+            flare_t = 1.0 - (t / flare_frac)  # 1 at z=0, 0 at top of flare zone
+            r *= 1.0 + (flare_ratio - 1.0) * flare_t
+
+        # Radial noise (deterministic via rng): ±noise_strength of current radius
+        noise = 1.0 + (rng.random() - 0.5) * 2.0 * noise_strength
+        r *= noise
+        profile_radii.append(max(r, 0.005))
+
+    # trimesh.creation.revolve expects a profile starting AND ending on the Z axis
+    # for a closed solid. Add a closing point at the origin below the base.
+    profile_2d = np.column_stack([profile_radii, z_values])
+    profile_2d = np.vstack([profile_2d, [0.0, 0.0]])   # close base
+
+    body = trimesh.creation.revolve(profile_2d, sections=facet_count)
+    _apply_z_gradient_three_stop(body, base_color, shadow_color, accent_color)
+
+    # Atom markers — scatter heptagons along the vertical at chain_5 positions
+    if atoms_cfg:
+        atom_count = int(atoms_cfg.get("count", 5))
+        atom_size = float(atoms_cfg.get("size", 0.08))
+
+        atom_points = []
+        atom_normals = []
+        # Stagger vertically between 15% and 85% of height (avoid base & tip)
+        for i in range(atom_count):
+            y_frac = 0.15 + 0.7 * (i / max(atom_count - 1, 1))
+            z_pos = y_frac * height
+            # Interpolate the profile radius at this height
+            ring_pos = y_frac * ring_count
+            lower_idx = int(np.floor(ring_pos))
+            upper_idx = min(lower_idx + 1, ring_count)
+            frac = ring_pos - lower_idx
+            r_here = profile_radii[lower_idx] * (1 - frac) + profile_radii[upper_idx] * frac
+            # Distinct angle per atom (staggered so they don't line up)
+            angle = (i * (2.0 * math.pi / atom_count)
+                     + (i % 2) * (math.pi / atom_count))
+            # Place slightly outside the surface so the heptagon's flat plane
+            # doesn't co-plane with the body and cause z-fighting
+            outward_offset = 1.03
+            px = math.cos(angle) * r_here * outward_offset
+            py = math.sin(angle) * r_here * outward_offset
+            atom_points.append([px, py, z_pos])
+            atom_normals.append([math.cos(angle), math.sin(angle), 0.0])
+
+        atoms_mesh = scattered_heptagons(
+            np.array(atom_points),
+            np.array(atom_normals),
+            [atom_size] * atom_count,
+            _CREAM_ATOM,
+        )
+        body = compose([body, atoms_mesh])
+
+    return body
+
+
+def _family_tapered_vertical(kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]:
+    """Tapered vertical family — stalagmites, columns, mega_columns,
+    buttresses. A single noisy revolved profile with optional base flare,
+    3-stop Z-gradient coloring, and heptagonal atom markers scattered
+    along the spine.
+
+    Recipe fields (kind_cfg["recipe"]):
+      bounds           [w, d, h]   canonical bounding box before variation
+      variant_count    int          how many v0..vN to emit
+      variant_spread   float        ± size variation across variants
+      atoms            dict|null    marker spec {pattern, count, size, palette}
+      family_params    dict         kind-specific tuning:
+        taper_strength  (0..1)      0 = cylinder, 1 = sharp point
+        flare_ratio     (>1)        how much wider the base is vs body
+        flare_frac      (0..1)      vertical fraction affected by flare
+        noise_strength  (0..)       radial noise per ring
+        facet_count     int         revolved side count (6-12 recommended)
+        ring_count      int         profile segment count (4-10 recommended)
+
+    Palette read from kind_cfg["color_base"/"color_shadow"/"color_accent"].
+    """
+    recipe = kind_cfg["recipe"]
+    fp = recipe.get("family_params", {})
+    bounds = recipe["bounds"]
+    variant_count = int(recipe["variant_count"])
+    variant_spread = float(recipe.get("variant_spread", 0.25))
+
+    canonical_width = float(bounds[0])
+    canonical_height = float(bounds[2])
+
+    taper_strength = float(fp.get("taper_strength", 0.75))
+    flare_ratio    = float(fp.get("flare_ratio", 1.4))
+    flare_frac     = float(fp.get("flare_frac", 0.25))
+    noise_strength = float(fp.get("noise_strength", 0.08))
+    facet_count    = int(fp.get("facet_count", 8))
+    ring_count     = int(fp.get("ring_count", 6))
+
+    base_rgb01   = kind_cfg.get("color_base",   [0.30, 0.27, 0.23])
+    shadow_rgb01 = kind_cfg.get("color_shadow", [0.26, 0.23, 0.19])
+    accent_rgb01 = kind_cfg.get("color_accent", [0.34, 0.30, 0.25])
+    base_color   = _rgb01_to_rgba_u8(base_rgb01)
+    shadow_color = _rgb01_to_rgba_u8(shadow_rgb01)
+    accent_color = _rgb01_to_rgba_u8(accent_rgb01)
+
+    atoms_cfg = recipe.get("atoms")
+
+    variants = []
+    for v_idx in range(variant_count):
+        # Deterministic per-variant rng — crc32 is stable across processes,
+        # Python's built-in hash() is randomized per-run and would produce
+        # different GLBs each make meshes.
+        seed = (zlib.crc32(f"{kind_name}-{v_idx}".encode()) & 0xFFFFFFFF)
+        rng = np.random.default_rng(seed)
+
+        # Per-variant size drift
+        size_drift = 1.0 + variant_spread * (rng.random() * 2.0 - 1.0)
+        v_radius = (canonical_width * 0.5) * size_drift
+        v_height = canonical_height * size_drift
+
+        # Slight per-variant family param jitter for silhouette variety
+        v_taper = np.clip(taper_strength * (0.9 + rng.random() * 0.2), 0.0, 1.0)
+        v_flare = flare_ratio * (0.9 + rng.random() * 0.2)
+
+        variants.append(_build_tapered_vertical_instance(
+            base_radius=v_radius,
+            height=v_height,
+            taper_strength=v_taper,
+            flare_ratio=v_flare,
+            flare_frac=flare_frac,
+            noise_strength=noise_strength,
+            facet_count=facet_count,
+            ring_count=ring_count,
+            base_color=base_color,
+            shadow_color=shadow_color,
+            accent_color=accent_color,
+            atoms_cfg=atoms_cfg,
+            rng=rng,
+        ))
+
+    return variants
+
+
 # -----------------------------------------------------------------------------
 # Export + bounds
 # -----------------------------------------------------------------------------
@@ -1469,9 +1707,10 @@ LEGACY_BUILDERS = {
 }
 
 # Populated in Steps 4–8 of the clean-room normalization sweep.
-# Each family builder has signature: (kind_name: str, recipe: dict) -> list[trimesh.Trimesh]
+# Each family builder has signature: (kind_name: str, kind_cfg: dict) -> list[trimesh.Trimesh]
+# where kind_cfg is the per-kind dict from kind_config.json (palette + recipe block).
 FAMILY_BUILDERS: dict[str, callable] = {
-    # "tapered_vertical": _family_tapered_vertical,
+    "tapered_vertical": _family_tapered_vertical,
     # "rock_lobed":       _family_rock_lobed,
     # "crystal_spike":    _family_crystal_spike,
     # "flora_composed":   _family_flora_composed,
@@ -1520,7 +1759,7 @@ def build_kind(kind_name: str) -> list[trimesh.Trimesh]:
         raise SystemExit(
             f"Kind '{kind_name}' has family '{family}' but no builder is "
             f"registered. Known families: {sorted(FAMILY_BUILDERS)}")
-    return FAMILY_BUILDERS[family](kind_name, recipe)
+    return FAMILY_BUILDERS[family](kind_name, kind_cfg)
 
 
 def _all_known_kinds() -> list[str]:

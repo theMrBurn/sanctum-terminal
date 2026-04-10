@@ -190,9 +190,20 @@
         "family_params": {"lobe_count": 3, "noise_strength": 0.35, "moss_grade_upper": true}
       }},
     "stalagmite":      {"class": "geological",
+      "use_vertex_colors": true,
       "color_base": [0.33, 0.28, 0.23], "color_shadow": [0.29, 0.24, 0.19], "color_accent": [0.37, 0.32, 0.26],
       "taper_strength": 0.30, "twist_amount": 0.15,
-      "burial": {"min_frac": 0.10, "max_frac": 0.20, "min_above_ground": 0.6}},
+      "burial": {"min_frac": 0.10, "max_frac": 0.20, "min_above_ground": 0.6},
+      "recipe": {
+        "tier": 1, "family": "tapered_vertical",
+        "variant_count": 4, "bounds": [1.2, 1.2, 3.75], "variant_spread": 0.30,
+        "apron": null,
+        "atoms": {"pattern": "chain_5", "count": 5, "size": 0.07, "palette": "cream"},
+        "family_params": {
+          "taper_strength": 0.85, "flare_ratio": 1.5, "flare_frac": 0.25,
+          "noise_strength": 0.10, "facet_count": 8, "ring_count": 7
+        }
+      }},
     "rubble":          {"class": "geological",
       "color_base": [0.37, 0.33, 0.28], "color_shadow": [0.33, 0.29, 0.24], "color_accent": [0.41, 0.37, 0.31],
       "burial": {"min_frac": 0.30, "max_frac": 0.55, "min_above_ground": 0.3}},
@@ -201,14 +212,47 @@
       "sink": -0.02},
 
     "mega_column":     {"class": "structural",
+      "use_vertex_colors": true,
       "color_base": [0.22, 0.19, 0.17], "color_shadow": [0.18, 0.16, 0.14], "color_accent": [0.26, 0.23, 0.20],
-      "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0}},
+      "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0},
+      "recipe": {
+        "tier": 1, "family": "tapered_vertical",
+        "variant_count": 4, "bounds": [3.0, 3.0, 12.0], "variant_spread": 0.20,
+        "apron": null,
+        "atoms": {"pattern": "chain_5", "count": 7, "size": 0.18, "palette": "cream"},
+        "family_params": {
+          "taper_strength": 0.35, "flare_ratio": 1.7, "flare_frac": 0.30,
+          "noise_strength": 0.07, "facet_count": 10, "ring_count": 9
+        }
+      }},
     "column":          {"class": "structural",
+      "use_vertex_colors": true,
       "color_base": [0.26, 0.23, 0.20], "color_shadow": [0.22, 0.19, 0.17], "color_accent": [0.30, 0.26, 0.23],
-      "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0}},
+      "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0},
+      "recipe": {
+        "tier": 1, "family": "tapered_vertical",
+        "variant_count": 4, "bounds": [2.25, 2.25, 10.0], "variant_spread": 0.25,
+        "apron": null,
+        "atoms": {"pattern": "chain_5", "count": 6, "size": 0.14, "palette": "cream"},
+        "family_params": {
+          "taper_strength": 0.30, "flare_ratio": 1.6, "flare_frac": 0.25,
+          "noise_strength": 0.08, "facet_count": 10, "ring_count": 8
+        }
+      }},
     "buttress":        {"class": "structural",
+      "use_vertex_colors": true,
       "color_base": [0.24, 0.21, 0.18], "color_shadow": [0.20, 0.18, 0.15], "color_accent": [0.28, 0.24, 0.21],
-      "burial": {"min_frac": 0.25, "max_frac": 0.55, "min_above_ground": 2.5}},
+      "burial": {"min_frac": 0.25, "max_frac": 0.55, "min_above_ground": 2.5},
+      "recipe": {
+        "tier": 1, "family": "tapered_vertical",
+        "variant_count": 4, "bounds": [2.5, 2.5, 6.0], "variant_spread": 0.25,
+        "apron": null,
+        "atoms": {"pattern": "chain_5", "count": 5, "size": 0.13, "palette": "cream"},
+        "family_params": {
+          "taper_strength": 0.40, "flare_ratio": 1.8, "flare_frac": 0.35,
+          "noise_strength": 0.10, "facet_count": 9, "ring_count": 7
+        }
+      }},
 
     "crystal_cluster": {"class": "crystalline", "light_reactive": true,
       "color_base": [0.30, 0.32, 0.42], "color_shadow": [0.24, 0.26, 0.34], "color_accent": [0.36, 0.38, 0.48],
