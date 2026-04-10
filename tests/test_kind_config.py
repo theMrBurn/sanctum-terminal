@@ -52,7 +52,11 @@ class TestKindConfigSchema:
 
 LIGHT_REACTIVE_KINDS = [
     "crystal_cluster", "filament", "exit_lure",
-    "giant_fungus", "moss_patch", "ceiling_moss", "firefly",
+    "moss_patch", "ceiling_moss", "firefly",
+    # giant_fungus removed 2026-04-10: light_reactive boost combined with
+    # warm pipe color was producing uncanny pink glow against the cavern.
+    # Now inherits organic_flora class default (false). Pipes still light
+    # it diffusely; the shader self-brightening boost is what was wrong.
 ]
 
 
@@ -269,13 +273,19 @@ class TestBandStrength:
                 f"{kind} ({cls}) should default to 0 bands, got {params['band_strength']}")
 
     def test_stone_kinds_have_visible_bands(self, kind_config):
-        """Geological + structural + crystalline kinds must have non-zero bands."""
+        """Geological + structural + crystalline kinds must have non-zero
+        bands UNLESS they use baked vertex colors. The kind_shader gates
+        the banding pass off when use_vertex_colors is true (banding would
+        paint horizontal stripes across designed color regions), so for
+        those kinds the band_strength value is moot."""
         stone_classes = {"geological", "structural", "crystalline"}
         for kind, entry in kind_config.get("kinds", {}).items():
             cls = entry.get("class", "geological")
             if cls not in stone_classes:
                 continue
             params = self._resolve_kind(kind_config, kind)
+            if params.get("use_vertex_colors", False):
+                continue  # banding gated off in shader for these
             assert params["band_strength"] > 0.0, (
                 f"{kind} ({cls}) should have visible bands, got 0")
 

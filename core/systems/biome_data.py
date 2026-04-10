@@ -474,6 +474,73 @@ CAVERN_STAMPS = [
             {"kind": "cave_gravel", "dx": 1.0, "dy": 1.5, "scale_mult": None, "hard": False},
         ],
     },
+    # Ruined doorway (existing kinds) — composition experiment C from the
+    # 2026-04-09 evening session. Two columns as posts, rubble fall
+    # between them, moss/gravel dressing. Tests whether the doorway
+    # concept READS before authoring a custom doorframe mesh.
+    {
+        "name": "ruined_doorway_columns",
+        "footprint": 6.0,
+        "members": [
+            {"kind": "column", "dx": -1.6, "dy": 0.0, "scale_mult": 0.85, "hard": True},
+            {"kind": "column", "dx": 1.6, "dy": 0.0, "scale_mult": 0.85, "hard": True},
+            {"kind": "rubble", "dx": 0.0, "dy": -0.3, "scale_mult": 1.2, "hard": False},
+            {"kind": "rubble", "dx": -0.6, "dy": 0.4, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 0.7, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": -2.5, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 2.5, "dy": -0.8, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": -1.4, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 1.4, "dy": 0.6, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -1.0, "dy": -1.5, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": -2.0, "dy": 1.5, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Ancient threshold (custom doorframe kind) — experiment A from the
+    # 2026-04-09 evening session. Uses the new gen_kind_mesh-built
+    # doorframe kind (vertex-colored stone post + lintel beam) as the
+    # hero, with rubble fall, moss accents, and a guardian monolith
+    # standing off to one side as a way-marker.
+    {
+        "name": "ancient_threshold",
+        "footprint": 7.0,
+        "members": [
+            {"kind": "doorframe", "dx": 0.0, "dy": 0.0, "scale_mult": 1.0, "hard": True},
+            {"kind": "monolith", "dx": -3.0, "dy": -1.5, "scale_mult": 1.0, "hard": True},
+            {"kind": "rubble", "dx": 0.0, "dy": -0.4, "scale_mult": 1.3, "hard": False},
+            {"kind": "rubble", "dx": -1.2, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 1.0, "dy": 0.3, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": -1.8, "dy": 0.6, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 1.8, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": 2.5, "dy": 1.8, "scale_mult": None, "hard": False},
+        ],
+    },
+    # Standing stones (monolith kind) — irregular menhir scatter.
+    # NOT a clean triangle — five stones placed asymmetrically across
+    # the footprint with rubble fall and moss in between. Each monolith
+    # picks its own variant + per-instance scale hash, so no two read
+    # alike. Boundary marker / collapsed ritual site language.
+    {
+        "name": "standing_stones",
+        "footprint": 9.0,
+        "members": [
+            {"kind": "monolith", "dx": -3.5, "dy": -2.0, "scale_mult": 1.0, "hard": True},
+            {"kind": "monolith", "dx": 2.8, "dy": -2.5, "scale_mult": 1.0, "hard": True},
+            {"kind": "monolith", "dx": -1.0, "dy": 3.2, "scale_mult": 0.85, "hard": True},
+            {"kind": "monolith", "dx": 3.5, "dy": 1.5, "scale_mult": 0.9, "hard": True},
+            {"kind": "monolith", "dx": -2.5, "dy": 0.8, "scale_mult": 0.75, "hard": False},
+            {"kind": "rubble", "dx": -1.8, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 1.5, "dy": -1.5, "scale_mult": None, "hard": False},
+            {"kind": "rubble", "dx": 0.5, "dy": 2.5, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
+            {"kind": "moss_patch", "dx": -2.0, "dy": 2.5, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": 0.5, "dy": 1.0, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -0.5, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": -3.0, "dy": 1.5, "scale_mult": None, "hard": False},
+            {"kind": "grass_tuft", "dx": 2.5, "dy": 0.5, "scale_mult": None, "hard": False},
+        ],
+    },
     # Toadstool grove — biome-agnostic landmark fungus (classic Fly Agaric).
     # Hero toadstool centered, partner-type spore_pods flanking (lore: pods
     # catch spores released by toadstool gills), moss ring underneath.

@@ -854,6 +854,15 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 				var gf_y:  float = base_s * (0.80 + p_hash2 * 0.55)   # 0.80-1.35
 				effective_y_height = gf_y
 				xform = xform.scaled(Vector3(gf_xz, gf_y, gf_xz))
+			elif kind == "monolith":
+				# Standing stones: dramatic per-instance silhouette variance.
+				# Wide range so even the same variant looks different from
+				# its neighbors — no two menhirs in a circle should match.
+				# XZ coupled (radially symmetric base), Y independent.
+				var mn_xz: float = base_s * (0.70 + p_hash * 0.55)    # 0.70-1.25
+				var mn_y:  float = base_s * (0.65 + p_hash2 * 0.85)   # 0.65-1.50
+				effective_y_height = mn_y
+				xform = xform.scaled(Vector3(mn_xz, mn_y, mn_xz))
 			else:
 				effective_y_height = base_s
 				xform = xform.scaled(Vector3.ONE * base_s)
@@ -862,14 +871,15 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			var sy: float = ent.get("sy", 1.0)
 			var sz: float = ent.get("sz", 1.0)
 			xform = xform.scaled(Vector3(sx, sz, sy))
-		# Random rotation for geological kinds, grass, and fungus —
-		# break repeating mesh silhouettes. Fungus caps are radially
-		# symmetric but the gill/stem asymmetry and facet normals create
-		# visible orientation cues, so a full hash rotation still helps.
+		# Random rotation for geological kinds, grass, fungus, and the
+		# new architectural kinds. Doorframes get full hash rotation so
+		# stamps don't all face the same way; monoliths similarly for
+		# silhouette variety in distance vistas.
 		var final_heading: float = heading
 		if kind == "mega_column" or kind == "column" or kind == "boulder" \
 				or kind == "stalagmite" or kind == "rubble" or kind == "bone_pile" \
-				or kind == "grass_tuft" or kind == "giant_fungus":
+				or kind == "grass_tuft" or kind == "giant_fungus" \
+				or kind == "doorframe" or kind == "monolith":
 			var rot_hash: float = sin(ent.get("x", 0.0) * 4.73 + ent.get("y", 0.0) * 9.11)
 			final_heading = rot_hash * PI
 		xform = xform.rotated(Vector3.UP, final_heading)

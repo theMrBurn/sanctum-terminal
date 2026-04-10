@@ -127,6 +127,38 @@ def sphere(radius: float, color: RGBA, subdivisions: int = 1,
     return _solid_color(s, color)
 
 
+def teardrop(radius: float, height: float, color: RGBA,
+             sections: int = 8) -> trimesh.Trimesh:
+    """Teardrop / pear-shaped pod via revolved profile.
+
+    Bulbous base, tapering smoothly to a pointed apex. Used for spore
+    pods and any organic kind that wants a discrete pointed-bulb shape
+    instead of a sphere or cylinder. Each pod reads as its own form
+    even when clustered with neighbors.
+    """
+    profile = np.array([
+        [radius * 1.00, 0.00],
+        [radius * 0.98, height * 0.18],
+        [radius * 0.90, height * 0.36],
+        [radius * 0.72, height * 0.54],
+        [radius * 0.48, height * 0.72],
+        [radius * 0.22, height * 0.88],
+        [0.0,           height],
+    ])
+    profile = np.vstack([profile, [0.0, 0.0]])  # close base
+    mesh = trimesh.creation.revolve(profile, sections=sections)
+    return _solid_color(mesh, color)
+
+
+def slab(width: float, depth: float, height: float,
+         color: RGBA) -> trimesh.Trimesh:
+    """Rectangular stone slab — wider than thick, the building block of
+    standing stones, walls, and architectural fragments. Lower poly than
+    a tapered cylinder and reads as flat-faced megalithic stone."""
+    mesh = trimesh.creation.box(extents=[width, depth, height])
+    return _solid_color(mesh, color)
+
+
 def quad_billboard(center: np.ndarray, normal: np.ndarray,
                    size: float, color: RGBA) -> trimesh.Trimesh:
     """Single flat quad at a position, facing a normal direction.
@@ -334,108 +366,502 @@ def toadstool_variants() -> list[trimesh.Trimesh]:
 # Kind: spore_pod
 # -----------------------------------------------------------------------------
 #
-# Boulder-mimic partner to giant_fungus. Cluster of rounded spore sacs at
-# ground level. Receives spores from skyward fungus releases (lore). No cap,
-# no stem — silhouette is "knobby growth" not "mushroom shape." Carries the
-# fungus partner-type design without conflating with the cap-bearing form.
+# Boulder-mimic partner to giant_fungus. NOT a mushroom — no cap, no stem.
+# Each pod is a PUFFBALL: squashed hemisphere body + dark apex pore (the
+# spore-release vent) + flat dark contact-shadow disc at the base + cream
+# warts scattered on the upper surface. Three puffballs at distinctly
+# different scales (~3x spread) cluster as a colony catching the giant
+# fungus's airborne spore release. Carries the fungus partner-type design
+# without conflating with the cap-bearing toadstool / giant_fungus forms.
+#
+# Composition follows the toadstool recipe applied to a non-mushroom fungal
+# silhouette:
+#   1. Composed primitives — 4 sub-shapes per puffball (body, pore, apron, warts)
+#   2. Vertex color regions per sub-shape
+#   3. Palette anchored to cream cavern floor with deliberate value contrast
+#   4. ~3x scale spread across the three pods in a cluster
+#   5. Hand-tuned variants — different cluster spreads + size scales
+#   6. Recognition markers — apex pore + cream warts (the "puffball brand")
+#   7. Ground-hugging proportions (squashed hemisphere, body_height < radius)
+#   8. Base contact-shadow disc fakes ground anchoring without lighting
 
 
-# Palette — partner to giant_fungus purple-pink, but earthier and darker so
-# it reads as ground-hugging mass against the cream cavern floor.
-SPORE_POD_BODY: RGBA      = (95, 70, 88, 255)     # dusty mauve-brown
-SPORE_POD_HIGHLIGHT: RGBA = (115, 90, 105, 255)   # lighter mauve cap
-SPORE_POD_DEEP: RGBA      = (60, 42, 55, 255)     # darker fold/shadow
+# Palette — dusty mauve body distinct from toadstool red and giant_fungus
+# purple-pink. Source RGB intentionally moderate; the trimesh→glTF→Godot
+# pipeline shifts brighter on display so these will read lighter than the
+# raw bytes. Cream warts use the same trick as toadstool spots, slightly
+# cooler so the species reads as different.
+#
+# Five-region structure (matches toadstool's region count, applied to a
+# non-mushroom silhouette via vertex-graded body instead of separate parts):
+#   BODY  — equator skin, the lightest mauve, base of the dome
+#   CROWN — dark "spore halo" near the apex, baked into body vertices via
+#           a Z-gradient. Same hue as BODY, deeper value. Lets the body
+#           read as two distinct zones inside one continuous hemisphere.
+#   PORE  — near-black disc at the very apex, sits inside the dark crown
+#           for maximum value contrast. Primary recognition marker.
+#   APRON — deepest mauve, flat ring on the ground around the body base,
+#           fakes a contact shadow without lighting.
+#   WART  — warm cream scattered quads on the upper surface, secondary
+#           recognition marker (same trick as toadstool spots).
+SPORE_POD_BODY: RGBA  = (95, 65, 80, 255)     # equator skin (lightest)
+SPORE_POD_CROWN: RGBA = (55, 35, 50, 255)     # apex spore halo (darker)
+SPORE_POD_PORE: RGBA  = (28, 18, 24, 255)     # near-black apex vent
+SPORE_POD_APRON: RGBA = (48, 32, 40, 255)     # deep mauve ground shadow
+SPORE_POD_WART: RGBA  = (215, 195, 178, 255)  # warm cream warts
+
+
+def build_puffball(
+    body_radius: float = 0.45,
+    body_height: float = 0.30,
+    pore_radius: float = 0.10,
+    apron_outer_mult: float = 1.15,
+    apron_inner_mult: float = 0.70,
+    wart_count: int = 7,
+    wart_size: float = 0.060,
+    body_sections: int = 12,
+    body_rings: int = 3,
+    wart_seed: int = 0,
+) -> trimesh.Trimesh:
+    """Single puffball — squashed dome + apex pore + base shadow + warts.
+
+    NOT a mushroom. Four composed sub-shapes give the brain enough
+    distinct features to read 'puffball / spore body' instead of generic
+    'lump.' Same compositional grammar as the toadstool (dome+stem+ring
+    +spots) translated to a non-cap-bearing fungal silhouette.
+
+    body_radius / body_height — squashed hemisphere main mass; height
+        should be < radius to read as ground-hugging not balloon-like.
+    pore_radius — small dark disc on top, the spore-release vent. The
+        primary recognition marker that says "this is a puffball."
+    apron_outer_mult / apron_inner_mult — flat ring around the base
+        (radius range body_radius * inner..outer) faking a contact shadow.
+    wart_count / wart_size — surface recognition marker, scattered cream
+        quad billboards on the upper hemisphere (same trick as toadstool
+        spots).
+    """
+    # Body — squashed hemisphere, ground-hugging
+    body = hemisphere(
+        radius=body_radius,
+        height=body_height,
+        color=SPORE_POD_BODY,
+        meridian_sections=body_sections,
+        parallel_rings=body_rings,
+    )
+
+    # Z-graded body recoloring — equator stays SPORE_POD_BODY, the apex
+    # pulls toward SPORE_POD_CROWN. Quadratic falloff (t*t) gives a tight
+    # dark halo near the pore and lets the lower 60% of the dome stay the
+    # lighter base shade. This creates two distinct visual zones inside
+    # one continuous hemisphere — the texture-region trick that makes
+    # the body itself feel multi-part instead of a single uniform blob.
+    # Same hue family for both zones, only the value changes, so the
+    # surface still reads as one organism not two stacked shapes.
+    verts = body.vertices  # (N, 3) — Z is up in author space
+    t = np.clip(verts[:, 2] / max(body_height, 1e-6), 0.0, 1.0)
+    t = t * t  # quadratic — tight halo near apex, broad lighter zone below
+    base_rgb = np.array(SPORE_POD_BODY[:3], dtype=float)
+    crown_rgb = np.array(SPORE_POD_CROWN[:3], dtype=float)
+    graded = base_rgb * (1.0 - t)[:, None] + crown_rgb * t[:, None]
+    graded_u8 = np.clip(graded, 0, 255).astype(np.uint8)
+    alpha = np.full((len(graded_u8), 1), 255, dtype=np.uint8)
+    body.visual.vertex_colors = np.hstack([graded_u8, alpha])
+
+    # Apex pore — small dark disc at the apex, just above the dome top
+    pore = trimesh.creation.annulus(
+        r_min=0.0, r_max=pore_radius,
+        height=0.020, sections=10,
+    )
+    _solid_color(pore, SPORE_POD_PORE)
+    pore.apply_translation([0.0, 0.0, body_height + 0.005])
+
+    # Base contact shadow — flat ring around the body's base, just above
+    # ground. Hidden under the body where it overlaps; the visible part
+    # is the outer rim that extends beyond body_radius. Section count is
+    # decoupled from body — 8 facets is plenty for a ground shadow and
+    # keeps the cluster polycount under budget regardless of body detail.
+    apron = trimesh.creation.annulus(
+        r_min=body_radius * apron_inner_mult,
+        r_max=body_radius * apron_outer_mult,
+        height=0.015, sections=8,
+    )
+    _solid_color(apron, SPORE_POD_APRON)
+    apron.apply_translation([0.0, 0.0, 0.005])
+
+    # Warts — scattered cream quads on the upper hemisphere. Avoid the
+    # apex (where the pore sits) and the equator (where the apron is).
+    rng = np.random.default_rng(wart_seed)
+    wart_positions = []
+    wart_normals = []
+    wart_sizes = []
+    for _ in range(wart_count):
+        theta = rng.uniform(0, 2 * math.pi)
+        phi = rng.uniform(0.20, 1.15)  # 0=apex (avoid), pi/2=equator (avoid)
+        x = body_radius * math.sin(phi) * math.cos(theta)
+        y = body_radius * math.sin(phi) * math.sin(theta)
+        z = body_height * math.cos(phi)
+        wart_positions.append(np.array([x, y, z]))
+        wart_normals.append(np.array([
+            x / body_radius,
+            y / body_radius,
+            (body_height * math.cos(phi)) / body_radius,
+        ]))
+        wart_sizes.append(wart_size * (0.7 + rng.random() * 0.6))
+
+    warts = scattered_quads(
+        np.array(wart_positions),
+        np.array(wart_normals),
+        wart_sizes,
+        SPORE_POD_WART,
+    )
+
+    return compose([body, pore, apron, warts])
 
 
 def build_spore_pod(
-    pod_count: int = 4,
-    pod_radius: float = 0.42,
-    radius_jitter: float = 0.18,
     cluster_radius: float = 0.55,
-    height_squash: float = 0.78,
+    size_scale: float = 1.0,
+    body_sections: int = 12,
     pod_seed: int = 0,
-    subdivisions: int = 1,
 ) -> trimesh.Trimesh:
-    """Compose a spore_pod cluster from N small squashed spheres.
+    """Three-puffball cluster — large mother + medium + small satellites.
 
-    Each pod is a low-poly icosphere placed at a hash-jittered offset from
-    the cluster center, with slight per-pod radius and color variation.
-    The cluster sits flat on the ground (Z=0 base after normalization).
+    Three puffballs at ~3x scale spread (recipe Ingredient 4: distinct
+    feature scales). Mother sits at the cluster center, two satellites
+    at hash-driven angles around it. Each pod gets a different wart seed
+    so the surface marker patterns don't repeat. The size spread does
+    the heavy lifting for visual variety so the brain doesn't read
+    'three identical lumps.'
 
-    pod_count       — number of sub-pods in the cluster
-    pod_radius      — base radius before jitter
-    radius_jitter   — ±range applied per pod
-    cluster_radius  — XY spread of pod centers from cluster center
-    height_squash   — Z scale on each pod (< 1.0 = flatter, more growth-like)
+    cluster_radius — XY spread of satellites from the mother
+    size_scale     — uniform scale across all three pods (per-variant tweak)
+    body_sections  — meridian count for body + apron (per-variant variation
+                     so face counts differ across the four canonical variants)
+    pod_seed       — seed for satellite angles + per-pod wart placement
     """
     rng = np.random.default_rng(pod_seed)
-    pods = []
-    # First pod sits at center, slightly larger
-    center_r = pod_radius * 1.15
-    center_pod = sphere(
-        radius=center_r,
-        color=SPORE_POD_BODY,
-        subdivisions=subdivisions,
-        squash=height_squash,
-    )
-    center_pod.apply_translation([0, 0, center_r * height_squash])
-    pods.append(center_pod)
 
-    # Surrounding pods at golden-angle distribution
-    golden_angle = math.pi * (3.0 - math.sqrt(5.0))
-    for i in range(1, pod_count):
-        angle = i * golden_angle
-        # Inner pods cluster tighter than outer
-        radial = cluster_radius * (0.4 + (i / max(1, pod_count - 1)) * 0.6)
+    # Per-pod base sizes — large mother, medium, small (~3x spread)
+    # (body_radius, body_height, pore_radius, wart_count, wart_size)
+    pod_specs = [
+        (0.55, 0.34, 0.13, 8, 0.062),
+        (0.36, 0.24, 0.09, 6, 0.048),
+        (0.22, 0.16, 0.06, 5, 0.036),
+    ]
+
+    pods = []
+
+    # Mother at center
+    br, bh, pr, wc, ws = pod_specs[0]
+    mother = build_puffball(
+        body_radius=br * size_scale,
+        body_height=bh * size_scale,
+        pore_radius=pr * size_scale,
+        wart_count=wc,
+        wart_size=ws * size_scale,
+        body_sections=body_sections,
+        wart_seed=pod_seed,
+    )
+    pods.append(mother)
+
+    # Medium + small satellites at varied angles around mother
+    for i, (br, bh, pr, wc, ws) in enumerate(pod_specs[1:], start=1):
+        angle = rng.uniform(0, 2 * math.pi)
+        radial = cluster_radius * (0.75 + rng.random() * 0.30)
         x = radial * math.cos(angle)
         y = radial * math.sin(angle)
-        # Per-pod radius variation
-        r = pod_radius + rng.uniform(-radius_jitter, radius_jitter)
-        r = max(r, 0.15)
-        # Per-pod color: 70% body, 25% highlight, 5% deep
-        roll = rng.random()
-        if roll < 0.25:
-            color = SPORE_POD_HIGHLIGHT
-        elif roll < 0.30:
-            color = SPORE_POD_DEEP
-        else:
-            color = SPORE_POD_BODY
-        pod = sphere(
-            radius=r,
-            color=color,
-            subdivisions=subdivisions,
-            squash=height_squash,
+
+        sat = build_puffball(
+            body_radius=br * size_scale,
+            body_height=bh * size_scale,
+            pore_radius=pr * size_scale,
+            wart_count=wc,
+            wart_size=ws * size_scale,
+            body_sections=body_sections,
+            wart_seed=pod_seed + i * 13,
         )
-        # Z position: pod center sits at its squashed radius so it touches
-        # the ground plane (Z=0 at base, max at 2*r*squash).
-        pod.apply_translation([x, y, r * height_squash])
-        pods.append(pod)
+        sat.apply_translation([x, y, 0.0])
+        pods.append(sat)
 
     return compose(pods)
 
 
 def spore_pod_variants() -> list[trimesh.Trimesh]:
-    """Four cluster arrangements — different pod counts and spreads."""
+    """Four puffball cluster arrangements. Same mother+medium+small
+    composition; variants differ by cluster spread, overall scale,
+    body section count, and seed for natural distribution when several
+    instances spawn nearby."""
     return [
-        # v0: tight 3-pod
+        # v0: tight intimate trio — slightly smaller overall
         build_spore_pod(
-            pod_count=3, pod_radius=0.45, cluster_radius=0.45,
-            height_squash=0.80, pod_seed=11,
+            cluster_radius=0.45, size_scale=0.90,
+            body_sections=10, pod_seed=11,
         ),
-        # v1: loose 4-pod
+        # v1: standard
         build_spore_pod(
-            pod_count=4, pod_radius=0.40, cluster_radius=0.65,
-            height_squash=0.78, pod_seed=22,
+            cluster_radius=0.55, size_scale=1.00,
+            body_sections=12, pod_seed=22,
         ),
-        # v2: linear 3-pod (more spread on one axis via custom seed)
+        # v2: wider spread, slightly larger mother
         build_spore_pod(
-            pod_count=3, pod_radius=0.48, cluster_radius=0.70,
-            height_squash=0.85, radius_jitter=0.10, pod_seed=33,
+            cluster_radius=0.65, size_scale=1.00,
+            body_sections=14, pod_seed=33,
         ),
-        # v3: mound 5-pod
+        # v3: tight cluster, slightly larger overall
         build_spore_pod(
-            pod_count=5, pod_radius=0.36, cluster_radius=0.55,
-            height_squash=0.75, pod_seed=44,
+            cluster_radius=0.50, size_scale=1.05,
+            body_sections=11, pod_seed=44,
+        ),
+    ]
+
+
+# -----------------------------------------------------------------------------
+# Kind: doorframe
+# -----------------------------------------------------------------------------
+#
+# Architectural kind — two upright stone posts + horizontal lintel beam.
+# The threshold of a passage. Larger than fungus, smaller than mega_column.
+# Reads as "carved entrance" / "ancient doorway." Vertex-colored so the
+# lintel can be slightly darker than the posts (gives the illusion of
+# weathered stone with shadowed underside).
+#
+# This is the first ARCHITECTURAL output of the gen_kind_mesh pipeline,
+# proving the same composition framework handles man-made forms not just
+# organic kinds. Pattern is reusable for arches, lintels, walls, doors.
+
+
+# Aggressive darkening — vertex colors gamma-shift brighter through the
+# trimesh→glTF→Godot pipeline. Source bytes need to be much lower than
+# the intended display value. ~40% of first-pass values lands these in
+# dark stone range matching the existing facet-normal column kinds.
+DOORFRAME_POST_COLOR: RGBA   = (32, 26, 21, 255)     # dark weathered stone
+DOORFRAME_LINTEL_COLOR: RGBA = (22, 17, 13, 255)     # shadowed beam — even darker
+
+
+def build_doorframe(
+    post_height: float = 3.2,
+    post_width: float = 0.50,      # square cross-section
+    post_spacing: float = 1.80,    # gap between post inner edges
+    lintel_overhang: float = 0.55, # how far lintel extends past posts (heavier)
+    lintel_height: float = 0.80,   # vertical thickness of the beam (chunkier)
+    lintel_depth_mult: float = 2.0,# how much deeper than the posts
+    post_sections: int = 6,        # hexagonal posts (low-poly faceted)
+    left_post_lean: float = 0.0,   # radians of lean — non-zero for ruined variants
+    right_post_lean: float = 0.0,
+) -> trimesh.Trimesh:
+    """Compose a doorway: two posts + heavy lintel beam, all vertex-colored.
+
+    Lintel is now significantly chunkier than first pass — taller, deeper,
+    with more overhang. Reads as a weathered stone block, not a beam.
+    Optional per-post lean lets ruined variants tilt the posts inward
+    or outward (subtle, ~3-8 degrees) for collapsed-arch character.
+    """
+    # --- Left post ---
+    left_post = capped_cylinder(
+        radius_bottom=post_width,
+        radius_top=post_width * 0.85,
+        height=post_height,
+        sections=post_sections,
+        color=DOORFRAME_POST_COLOR,
+    )
+    left_post.apply_translation([0.0, 0.0, post_height * 0.5])
+    if abs(left_post_lean) > 0.001:
+        # Rotate around Y axis (lean toward/away from doorway center)
+        rot = trimesh.transformations.rotation_matrix(
+            angle=left_post_lean, direction=[0.0, 1.0, 0.0],
+            point=[0.0, 0.0, 0.0],
+        )
+        left_post.apply_transform(rot)
+    left_post.apply_translation([-post_spacing * 0.5 - post_width, 0.0, 0.0])
+
+    # --- Right post ---
+    right_post = capped_cylinder(
+        radius_bottom=post_width,
+        radius_top=post_width * 0.85,
+        height=post_height,
+        sections=post_sections,
+        color=DOORFRAME_POST_COLOR,
+    )
+    right_post.apply_translation([0.0, 0.0, post_height * 0.5])
+    if abs(right_post_lean) > 0.001:
+        rot = trimesh.transformations.rotation_matrix(
+            angle=right_post_lean, direction=[0.0, 1.0, 0.0],
+            point=[0.0, 0.0, 0.0],
+        )
+        right_post.apply_transform(rot)
+    right_post.apply_translation([post_spacing * 0.5 + post_width, 0.0, 0.0])
+
+    # --- Lintel: chunky rectangular block across the top ---
+    lintel_length = post_spacing + (post_width * 2) + (lintel_overhang * 2)
+    lintel_depth = post_width * lintel_depth_mult
+    lintel = trimesh.creation.box(
+        extents=[lintel_length, lintel_depth, lintel_height]
+    )
+    _solid_color(lintel, DOORFRAME_LINTEL_COLOR)
+    lintel.apply_translation([0.0, 0.0, post_height + lintel_height * 0.5])
+
+    return compose([left_post, right_post, lintel])
+
+
+def doorframe_variants() -> list[trimesh.Trimesh]:
+    """Four doorway variants. Two are intact, two are weathered/ruined
+    with subtle post lean for collapsed-arch character. Lintels are
+    chunky stone blocks now, not beams."""
+    return [
+        # v0: standard — solid intact doorway
+        build_doorframe(
+            post_height=3.2, post_width=0.50,
+            post_spacing=1.80, lintel_overhang=0.55,
+            lintel_height=0.80, lintel_depth_mult=2.0,
+        ),
+        # v1: tall passage — narrow vertical
+        build_doorframe(
+            post_height=4.2, post_width=0.45,
+            post_spacing=1.40, lintel_overhang=0.50,
+            lintel_height=0.70, lintel_depth_mult=1.9,
+        ),
+        # v2: wide gateway — heavy stone, slight inward lean (ruined)
+        build_doorframe(
+            post_height=3.0, post_width=0.65,
+            post_spacing=2.40, lintel_overhang=0.75,
+            lintel_height=1.00, lintel_depth_mult=2.2,
+            left_post_lean=0.06, right_post_lean=-0.06,  # ~3.4° inward
+        ),
+        # v3: ruined collapse — outward lean, broken feel
+        build_doorframe(
+            post_height=2.6, post_width=0.55,
+            post_spacing=1.70, lintel_overhang=0.45,
+            lintel_height=0.65, lintel_depth_mult=1.8,
+            left_post_lean=-0.10, right_post_lean=0.04,  # asymmetric collapse
+        ),
+    ]
+
+
+# -----------------------------------------------------------------------------
+# Kind: monolith
+# -----------------------------------------------------------------------------
+#
+# Standing-stone landmark — single tall narrow stone with subtle vertical
+# fluting. Adds a third landmark class beyond mega_column (huge fat) and
+# column (rounded spire). Different silhouette = more visual variety in
+# distance vistas. Reads as "menhir / standing stone / boundary marker."
+# Single-color (no per-region painting needed) but uses use_vertex_colors
+# so it integrates with the same shader path as toadstool/spore_pod.
+
+
+# Slab palette — three vertical zones for the standing stone:
+#   base = mossy/buried foot, body = main stone, crown = weathered top
+# Source bytes are aggressively gamma-compensated (dark) to land in
+# stone-grey display range.
+SLAB_BASE_COLOR: RGBA  = (28, 24, 21, 255)   # dark earth-bound foot
+SLAB_BODY_COLOR: RGBA  = (40, 34, 28, 255)   # main stone body
+SLAB_CROWN_COLOR: RGBA = (52, 44, 36, 255)   # lighter weathered crown
+# Backwards-compat alias for any external import — maps to body color
+MONOLITH_STONE_COLOR: RGBA = SLAB_BODY_COLOR
+
+
+def build_monolith(
+    # Base — wider footing planted in ground (slightly buried)
+    base_width: float = 1.40,
+    base_depth: float = 0.70,
+    base_height: float = 0.45,
+    # Body — tall narrow main slab (this is the "stone" itself)
+    body_width: float = 0.95,
+    body_depth: float = 0.45,
+    body_height: float = 3.20,
+    # Capital — wider overhanging top (the architectural feature that
+    # makes this read as a CARVED stone, not just a rock)
+    capital_width: float = 1.30,
+    capital_depth: float = 0.65,
+    capital_height: float = 0.40,
+    has_capital: bool = True,
+    overall_lean: float = 0.0,
+) -> trimesh.Trimesh:
+    """Carved standing stone — base + body + capital stack.
+
+    Three distinct architectural zones, each wider/narrower than the next,
+    that together read as a carved monument fragment:
+      - BASE  : wide footing, darker, partially buried (the foundation)
+      - BODY  : narrow tall slab, mid-tone (the stone itself)
+      - CAPITAL: wide flat overhang, lighter (the carved top — Greek/
+                 Egyptian column capital, Mayan stele top, tombstone)
+
+    The capital is the key feature. A rock without a capital is just a
+    rock. A rock WITH a flat overhanging top reads as carved/monumental.
+    The width steps in (wide-narrow-wide) create a recognizable carved
+    silhouette that the eye reads as "stone monument" instantly.
+
+    has_capital=False produces a "broken" variant — body alone with
+    weathered top, the monument fragment after the capital fell.
+    """
+    sections = []
+
+    # Base — wider, darker, planted into ground
+    base = slab(width=base_width, depth=base_depth,
+                height=base_height, color=SLAB_BASE_COLOR)
+    base.apply_translation([0.0, 0.0, base_height * 0.5])
+    sections.append(base)
+
+    # Body — tall narrow main slab
+    body = slab(width=body_width, depth=body_depth,
+                height=body_height, color=SLAB_BODY_COLOR)
+    body.apply_translation([0.0, 0.0, base_height + body_height * 0.5])
+    sections.append(body)
+
+    # Capital — wide overhanging top (the carved feature)
+    if has_capital and capital_height > 0.001:
+        capital = slab(width=capital_width, depth=capital_depth,
+                       height=capital_height, color=SLAB_CROWN_COLOR)
+        capital.apply_translation([
+            0.0, 0.0,
+            base_height + body_height + capital_height * 0.5,
+        ])
+        sections.append(capital)
+
+    mesh = compose(sections)
+
+    if abs(overall_lean) > 0.001:
+        rot = trimesh.transformations.rotation_matrix(
+            angle=overall_lean, direction=[0.0, 1.0, 0.0],
+            point=[0.0, 0.0, 0.0],
+        )
+        mesh.apply_transform(rot)
+        min_z = float(mesh.vertices[:, 2].min())
+        mesh.apply_translation([0.0, 0.0, -min_z])
+
+    return mesh
+
+
+def monolith_variants() -> list[trimesh.Trimesh]:
+    """Four carved standing stones — base+body+capital architecture.
+    The wide-narrow-wide silhouette reads as MONUMENT, not as ROCK."""
+    return [
+        # v0: standard carved stele — clean architectural form
+        build_monolith(
+            base_width=1.40, base_depth=0.70, base_height=0.45,
+            body_width=0.95, body_depth=0.45, body_height=3.20,
+            capital_width=1.30, capital_depth=0.65, capital_height=0.40,
+        ),
+        # v1: tall slim stele — narrower body, taller, slight lean
+        build_monolith(
+            base_width=1.20, base_depth=0.60, base_height=0.40,
+            body_width=0.80, body_depth=0.38, body_height=4.00,
+            capital_width=1.15, capital_depth=0.55, capital_height=0.35,
+            overall_lean=0.07,  # ~4° lean
+        ),
+        # v2: broken monument — capital fallen off, weathered body alone
+        build_monolith(
+            base_width=1.50, base_depth=0.75, base_height=0.55,
+            body_width=1.00, body_depth=0.50, body_height=2.50,
+            capital_width=0.0, capital_depth=0.0, capital_height=0.0,
+            has_capital=False,
+        ),
+        # v3: heavy short pillar — wide squat stele, dramatic capital
+        build_monolith(
+            base_width=1.60, base_depth=0.80, base_height=0.55,
+            body_width=1.05, body_depth=0.55, body_height=2.20,
+            capital_width=1.55, capital_depth=0.80, capital_height=0.50,
+            overall_lean=-0.05,  # slight opposite lean
         ),
     ]
 
@@ -536,6 +962,8 @@ def update_bounds_file(kind_name: str, bounds: dict) -> None:
 KIND_BUILDERS = {
     "toadstool": toadstool_variants,
     "spore_pod": spore_pod_variants,
+    "doorframe": doorframe_variants,
+    "monolith": monolith_variants,
     # Add future kinds here: "shrub", "fish", "tree", etc.
 }
 

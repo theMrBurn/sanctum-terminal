@@ -43,6 +43,8 @@ KIND_PROPS = {
     "giant_fungus":    {"scale": [2.5, 2.5, 4.4],  "color": [0.30, 0.50, 0.25], "emissive": 0.8},
     "toadstool":       {"scale": [1.2, 1.2, 2.3],  "color": [1.00, 1.00, 1.00], "emissive": 0.0},
     "spore_pod":       {"scale": [1.5, 1.5, 0.9],  "color": [1.00, 1.00, 1.00], "emissive": 0.0},
+    "doorframe":       {"scale": [3.8, 0.9, 3.8],  "color": [1.00, 1.00, 1.00], "emissive": 0.0},
+    "monolith":        {"scale": [1.1, 0.42, 4.3], "color": [1.00, 1.00, 1.00], "emissive": 0.0},
     "dead_log":        {"scale": [3.75, 1.0, 0.75],"color": [0.19, 0.27, 0.12], "emissive": 0.0},
     "moss_patch":      {"scale": [1.5, 1.5, 0.15], "color": [0.22, 0.45, 0.15], "emissive": 0.9},
     "bone_pile":       {"scale": [0.6, 0.6, 0.3],  "color": [0.14, 0.13, 0.11], "emissive": 0.0},
