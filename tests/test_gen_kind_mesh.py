@@ -194,14 +194,14 @@ class TestSporePod:
 
 # -- Family: tapered_vertical --------------------------------------------------
 #
-# Four consumers — stalagmite, column, mega_column, buttress — all routed
-# through the same parameterized _family_tapered_vertical primitive. Tests
-# exercise the dispatcher path (build_kind) rather than importing the family
-# function directly, so this also functions as an integration test for the
-# Option 3 refined sweep's config-driven family dispatch.
+# After the Option 4 refinement: stalagmite, column, and mega_column reverted
+# to their pre-sweep legacy GLBs (git checkout ca1c38e). Their recipe blocks
+# removed from kind_config.json — the dispatcher naturally skips them.
+# Only buttress remains as a direct family consumer. crystal_spike also uses
+# _build_tapered_vertical_instance internally, keeping the primitive live.
 
 
-TAPERED_VERTICAL_KINDS = ["stalagmite", "column", "mega_column", "buttress"]
+TAPERED_VERTICAL_KINDS = ["buttress"]
 
 
 class TestTaperedVerticalFamily:
@@ -257,12 +257,13 @@ class TestTaperedVerticalFamily:
                 f"(atom markers missing or wrong color)")
 
     def test_determinism_across_calls(self):
-        # Same kind built twice must produce identical geometry
-        a = build_kind("stalagmite")
-        b = build_kind("stalagmite")
+        # Same kind built twice must produce identical geometry (the
+        # crc32-seeded rng guarantees reproducibility).
+        a = build_kind("buttress")
+        b = build_kind("buttress")
         for va, vb in zip(a, b):
             assert np.array_equal(va.vertices, vb.vertices), (
-                "stalagmite builds are not deterministic across calls")
+                "buttress builds are not deterministic across calls")
 
     def test_legacy_kinds_untouched_by_dispatcher(self):
         # build_kind on a legacy name must route through LEGACY_BUILDERS —
