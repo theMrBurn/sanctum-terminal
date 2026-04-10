@@ -1435,26 +1435,112 @@ def update_bounds_file(kind_name: str, bounds: dict) -> None:
 
 
 # -----------------------------------------------------------------------------
-# Registry + CLI
+# Registry + Dispatcher + CLI
 # -----------------------------------------------------------------------------
+#
+# Two authoring paths, resolved at dispatch time:
+#
+#   1. LEGACY_BUILDERS — hand-authored, per-kind functions. The 5 compliant
+#      kinds (toadstool, spore_pod, doorframe, monolith, boulder) live here.
+#      They take NO arguments; their params are baked into the function body.
+#      Byte-identical GLB output across sessions as long as this file and
+#      the primitive helpers above are unchanged.
+#
+#   2. FAMILY_BUILDERS — parameterized family primitives added by the
+#      clean-room normalization sweep. Each family builder takes
+#      `(kind_name, recipe)` where `recipe` is the per-kind recipe block
+#      from godot/kind_config.json. Family builders read bounds, variants,
+#      palette, atoms, and family_params from the recipe and produce
+#      variants deterministically.
+#
+# Dispatch rule: if a kind name is in LEGACY_BUILDERS, it routes there
+# regardless of what kind_config says. Otherwise the dispatcher reads
+# kind_config.kinds[name].recipe.family and calls the matching family
+# builder. This is the "backwards-compatible" half of the Option 3 refined
+# sweep: proven kinds never touch the new codepath.
 
 
-KIND_BUILDERS = {
+LEGACY_BUILDERS = {
     "toadstool": toadstool_variants,
     "spore_pod": spore_pod_variants,
     "doorframe": doorframe_variants,
-    "monolith": monolith_variants,
-    "boulder": boulder_variants,
-    # Add future kinds here: "shrub", "fish", "tree", etc.
+    "monolith":  monolith_variants,
+    "boulder":   boulder_variants,
+}
+
+# Populated in Steps 4–8 of the clean-room normalization sweep.
+# Each family builder has signature: (kind_name: str, recipe: dict) -> list[trimesh.Trimesh]
+FAMILY_BUILDERS: dict[str, callable] = {
+    # "tapered_vertical": _family_tapered_vertical,
+    # "rock_lobed":       _family_rock_lobed,
+    # "crystal_spike":    _family_crystal_spike,
+    # "flora_composed":   _family_flora_composed,
+    # "scatter_tissue":   _family_scatter_tissue,
 }
 
 
-def generate_kind(kind_name: str) -> None:
-    if kind_name not in KIND_BUILDERS:
+# Lightweight cached loader — kind_config.json is the master table the
+# dispatcher reads from. Godot also reads this file, so it remains the
+# single source of truth.
+_KIND_CONFIG_CACHE: dict | None = None
+_KIND_CONFIG_PATH = Path(__file__).resolve().parent.parent / "godot" / "kind_config.json"
+
+
+def _load_kind_config() -> dict:
+    global _KIND_CONFIG_CACHE
+    if _KIND_CONFIG_CACHE is None:
+        _KIND_CONFIG_CACHE = json.loads(_KIND_CONFIG_PATH.read_text())
+    return _KIND_CONFIG_CACHE
+
+
+def build_kind(kind_name: str) -> list[trimesh.Trimesh]:
+    """Resolve a kind name to its variant mesh list.
+
+    Legacy kinds take precedence — they route through LEGACY_BUILDERS
+    unchanged and produce byte-identical output to the pre-sweep baseline.
+    Non-legacy kinds are dispatched via their recipe.family field in
+    kind_config.json.
+    """
+    if kind_name in LEGACY_BUILDERS:
+        return LEGACY_BUILDERS[kind_name]()
+
+    config = _load_kind_config()
+    kind_cfg = config.get("kinds", {}).get(kind_name)
+    if kind_cfg is None:
         raise SystemExit(
-            f"Unknown kind '{kind_name}'. Known: {list(KIND_BUILDERS)}")
+            f"Unknown kind '{kind_name}' — not in LEGACY_BUILDERS and "
+            f"no entry in kind_config.json")
+    recipe = kind_cfg.get("recipe")
+    if recipe is None:
+        raise SystemExit(
+            f"Kind '{kind_name}' has no recipe block in kind_config.json "
+            f"— cannot dispatch via family builder")
+    family = recipe.get("family")
+    if family not in FAMILY_BUILDERS:
+        raise SystemExit(
+            f"Kind '{kind_name}' has family '{family}' but no builder is "
+            f"registered. Known families: {sorted(FAMILY_BUILDERS)}")
+    return FAMILY_BUILDERS[family](kind_name, recipe)
+
+
+def _all_known_kinds() -> list[str]:
+    """Every kind the dispatcher can build: LEGACY_BUILDERS ∪ config-declared
+    kinds whose family is in FAMILY_BUILDERS."""
+    known = set(LEGACY_BUILDERS.keys())
+    config = _load_kind_config()
+    for name, cfg in config.get("kinds", {}).items():
+        recipe = cfg.get("recipe")
+        if recipe is None:
+            continue
+        family = recipe.get("family")
+        if family in FAMILY_BUILDERS:
+            known.add(name)
+    return sorted(known)
+
+
+def generate_kind(kind_name: str) -> None:
     print(f"Generating {kind_name}...")
-    variants = KIND_BUILDERS[kind_name]()
+    variants = build_kind(kind_name)
     bounds = export_kind(kind_name, variants)
     update_bounds_file(kind_name, bounds)
 
@@ -1468,7 +1554,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.all or not args.kinds:
-        targets = list(KIND_BUILDERS)
+        targets = _all_known_kinds()
     else:
         targets = args.kinds
 
