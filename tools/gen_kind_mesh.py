@@ -817,15 +817,82 @@ def doorframe_variants() -> list[trimesh.Trimesh]:
 # so it integrates with the same shader path as toadstool/spore_pod.
 
 
-# Slab palette — three vertical zones for the standing stone:
-#   base = mossy/buried foot, body = main stone, crown = weathered top
+# Slab palette — three vertical zones for the standing stone plus a
+# glyph color for the carved heptagonal recognition markers:
+#   base  = mossy/buried foot
+#   body  = main stone
+#   crown = weathered top
+#   glyph = carved heptagonal markers on the body face (atom doctrine)
 # Source bytes are aggressively gamma-compensated (dark) to land in
-# stone-grey display range.
+# stone-grey display range. Glyph is brighter than body for value
+# contrast (so the marks read as carved-out / weathered-bright).
 SLAB_BASE_COLOR: RGBA  = (28, 24, 21, 255)   # dark earth-bound foot
 SLAB_BODY_COLOR: RGBA  = (40, 34, 28, 255)   # main stone body
 SLAB_CROWN_COLOR: RGBA = (52, 44, 36, 255)   # lighter weathered crown
+SLAB_GLYPH_COLOR: RGBA = (95, 82, 68, 255)   # brighter weathered carved marks
 # Backwards-compat alias for any external import — maps to body color
 MONOLITH_STONE_COLOR: RGBA = SLAB_BODY_COLOR
+
+
+def monolith_glyphs(
+    body_width: float,
+    body_depth: float,
+    body_height: float,
+    body_z_offset: float,
+    glyph_count_front: int = 5,
+    glyph_count_back: int = 3,
+    glyph_size: float = 0.12,
+    glyph_seed: int = 0,
+    color: RGBA = SLAB_GLYPH_COLOR,
+) -> trimesh.Trimesh:
+    """Heptagonal carved glyphs scattered across the front and back
+    faces of a monolith body. Each glyph is an atom-doctrine-compliant
+    heptagonal billboard (design_heptagonal_mote.md /
+    design_meta_pixel_mote.md).
+
+    Adds the recognition marker that distinguishes a monolith from a
+    generic standing rock — the toadstool recipe says every kind needs
+    a marker (Ingredient 6), and the atom doctrine says markers must
+    be heptagonal. The glyphs read as worn / weathered carvings on the
+    monolith face.
+
+    Glyphs scatter via deterministic hash, so the same monolith
+    variant always carries the same glyph pattern (no shimmer between
+    frames). Front face gets more glyphs than back (player view bias).
+    """
+    rng = np.random.default_rng(glyph_seed)
+    positions: list[np.ndarray] = []
+    normals: list[np.ndarray] = []
+    sizes: list[float] = []
+
+    # Front face (y = -body_depth/2, normal points -Y)
+    for _ in range(glyph_count_front):
+        x = rng.uniform(-body_width * 0.35, body_width * 0.35)
+        z = body_z_offset + rng.uniform(body_height * 0.20, body_height * 0.85)
+        pos = np.array([x, -body_depth * 0.5 - 0.005, z])
+        nrm = np.array([0.0, -1.0, 0.0])
+        sz = glyph_size * (0.7 + rng.random() * 0.6)
+        positions.append(pos)
+        normals.append(nrm)
+        sizes.append(sz)
+
+    # Back face (y = +body_depth/2, normal points +Y) — fewer glyphs
+    for _ in range(glyph_count_back):
+        x = rng.uniform(-body_width * 0.35, body_width * 0.35)
+        z = body_z_offset + rng.uniform(body_height * 0.20, body_height * 0.85)
+        pos = np.array([x, body_depth * 0.5 + 0.005, z])
+        nrm = np.array([0.0, 1.0, 0.0])
+        sz = glyph_size * (0.7 + rng.random() * 0.6)
+        positions.append(pos)
+        normals.append(nrm)
+        sizes.append(sz)
+
+    return scattered_heptagons(
+        np.array(positions),
+        np.array(normals),
+        sizes,
+        color,
+    )
 
 
 def build_monolith(
@@ -844,6 +911,11 @@ def build_monolith(
     capital_height: float = 0.40,
     has_capital: bool = True,
     overall_lean: float = 0.0,
+    # Carved glyphs — heptagonal recognition markers on the body face
+    glyph_count_front: int = 5,
+    glyph_count_back: int = 3,
+    glyph_size: float = 0.12,
+    glyph_seed: int = 0,
 ) -> trimesh.Trimesh:
     """Carved standing stone — base + body + capital stack.
 
@@ -886,6 +958,22 @@ def build_monolith(
         ])
         sections.append(capital)
 
+    # Carved heptagonal glyphs on the body face — recognition marker
+    # via the atom doctrine. Adds the "this is a monument" cue that
+    # distinguishes a monolith from a generic stone slab.
+    if glyph_count_front + glyph_count_back > 0:
+        glyphs = monolith_glyphs(
+            body_width=body_width,
+            body_depth=body_depth,
+            body_height=body_height,
+            body_z_offset=base_height,
+            glyph_count_front=glyph_count_front,
+            glyph_count_back=glyph_count_back,
+            glyph_size=glyph_size,
+            glyph_seed=glyph_seed,
+        )
+        sections.append(glyphs)
+
     mesh = compose(sections)
 
     if abs(overall_lean) > 0.001:
@@ -901,35 +989,48 @@ def build_monolith(
 
 
 def monolith_variants() -> list[trimesh.Trimesh]:
-    """Four carved standing stones — base+body+capital architecture.
-    The wide-narrow-wide silhouette reads as MONUMENT, not as ROCK."""
+    """Four carved standing stones — base+body+capital architecture
+    with heptagonal carved glyphs on the body face. The wide-narrow-wide
+    silhouette + glyph markers read as MONUMENT, not as ROCK. Each
+    variant gets a distinct glyph_seed so the carving patterns differ."""
     return [
-        # v0: standard carved stele — clean architectural form
+        # v0: standard carved stele — clean architectural form, dense glyphs
         build_monolith(
             base_width=1.40, base_depth=0.70, base_height=0.45,
             body_width=0.95, body_depth=0.45, body_height=3.20,
             capital_width=1.30, capital_depth=0.65, capital_height=0.40,
+            glyph_count_front=6, glyph_count_back=4,
+            glyph_size=0.13, glyph_seed=131,
         ),
-        # v1: tall slim stele — narrower body, taller, slight lean
+        # v1: tall slim stele — narrower body, taller, slight lean,
+        # slightly fewer glyphs (taller body needs spacing not clutter)
         build_monolith(
             base_width=1.20, base_depth=0.60, base_height=0.40,
             body_width=0.80, body_depth=0.38, body_height=4.00,
             capital_width=1.15, capital_depth=0.55, capital_height=0.35,
             overall_lean=0.07,  # ~4° lean
+            glyph_count_front=5, glyph_count_back=3,
+            glyph_size=0.11, glyph_seed=242,
         ),
-        # v2: broken monument — capital fallen off, weathered body alone
+        # v2: broken monument — capital fallen off, weathered body alone,
+        # MORE glyphs (the body is the only feature so it carries more)
         build_monolith(
             base_width=1.50, base_depth=0.75, base_height=0.55,
             body_width=1.00, body_depth=0.50, body_height=2.50,
             capital_width=0.0, capital_depth=0.0, capital_height=0.0,
             has_capital=False,
+            glyph_count_front=7, glyph_count_back=4,
+            glyph_size=0.14, glyph_seed=353,
         ),
-        # v3: heavy short pillar — wide squat stele, dramatic capital
+        # v3: heavy short pillar — wide squat stele, dramatic capital,
+        # fewer larger glyphs (wide body, bigger marks read at distance)
         build_monolith(
             base_width=1.60, base_depth=0.80, base_height=0.55,
             body_width=1.05, body_depth=0.55, body_height=2.20,
             capital_width=1.55, capital_depth=0.80, capital_height=0.50,
             overall_lean=-0.05,  # slight opposite lean
+            glyph_count_front=4, glyph_count_back=2,
+            glyph_size=0.16, glyph_seed=464,
         ),
     ]
 
