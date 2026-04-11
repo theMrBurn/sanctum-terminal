@@ -260,7 +260,13 @@ func _get_mesh_for_kind(kind: String, variant: int = 0) -> Mesh:
 		glb_path = "res://meshes/%s.glb" % mesh_kind  # legacy fallback
 
 	if ResourceLoader.exists(glb_path):
-		var scene: PackedScene = load(glb_path)
+		# CACHE_MODE_IGNORE forces ResourceLoader to reload from disk
+		# instead of returning a process-wide cached copy. Without this,
+		# changing a .glb on disk doesn't take effect until Godot is
+		# fully restarted — even Stop+Play in the editor keeps the old
+		# in-memory resource. The per-scene mesh_cache above still
+		# prevents redundant loads within a single session.
+		var scene: PackedScene = ResourceLoader.load(glb_path, "", ResourceLoader.CACHE_MODE_IGNORE)
 		if scene:
 			var instance := scene.instantiate()
 			var mi := _find_mesh_instance(instance)

@@ -89,22 +89,31 @@ HARD_OBJECTS = {
 }
 
 # PLAYER_COLLISION_RADII is used for PHYSICS — the radius at which the
-# player's _physics_process push-out engages. Values are tuned to roughly
-# match the visible mesh footprint (not the walking-margin bubble) so the
-# player stops at the surface of a landmark, not at its spacing zone.
+# player's _physics_process push-out engages. These are a brain-side
+# approximation: one value per kind, scaled at spawn by sv/1.30. The
+# "right" fix is to compute collision in Godot from the actual per-
+# instance applied transform (it's a deferred refactor). In the meantime,
+# values are a compromise between covering max rendered radii for close-
+# viewing clip-through AND staying small enough that authored hub
+# compositions with tight flanker spacing remain walkable.
 #
-# Doorframe is INTENTIONALLY OMITTED — doorframes are architectural
-# walk-through gates. Their visual language promises passage; collision
-# would break that contract. Same for tissue kinds (moss/grass/rubble/
-# cave_gravel) — default 0 means walk-through.
+# buttress raised to 2.3 to cover its ~2.77m max rendered radius (user
+# was clipping through at sv 1.50 in a buttress_arch stamp). Other kinds
+# left at their original values — the hub's authored arches depend on
+# their current radii for walkability (see test_hub_arches_are_walkable).
+# Mega_column in particular has ~7m max rendered radius at max sv, but
+# bumping its collision that high blocks the hub N arch flankers.
 #
-# Tuning heuristic: roughly 0.5× the kind's widest visible bounds (in
-# meters) so the player's 0.5m buffer + the collision radius ≈ the visible
-# surface. Adjust per-kind after walking the hub.
+# Known tradeoff: large mega_column/column/dead_log variants are still
+# clip-throughable in the procedural periphery. Follow-up is the Godot-
+# side per-instance collision refactor — scaffolding already designed.
+#
+# Doorframe is INTENTIONALLY OMITTED — architectural walk-through gate.
+# Tissue kinds default to 0 = walk-through.
 PLAYER_COLLISION_RADII = {
     "mega_column":      2.5,
     "column":           1.2,
-    "buttress":         1.5,
+    "buttress":         2.3,   # BUMPED from 1.5 — covers sv_max rendered ~2.77m
     "stalagmite":       0.6,
     "boulder":          0.8,
     "crystal_cluster":  1.2,
