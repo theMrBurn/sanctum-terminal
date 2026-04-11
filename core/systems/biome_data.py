@@ -67,14 +67,17 @@ BIOME_OUTDOOR_FOREST = [
 
 # -- Collision radii -----------------------------------------------------------
 
+# HARD_OBJECTS is used for STAMP SPACING — the keep-out margin between
+# landmarks during procedural placement. Values are intentionally larger
+# than the visual footprint so columns/mega_columns/buttresses create
+# walking-margin bubbles around themselves (other anchors respect these
+# radii, preserving walkable paths in dense stamps). This is the GENERATION
+# radius, not the physics radius.
 HARD_OBJECTS = {
-    # Increased for mega_column/column/buttress to create walking margin around
-    # landmarks — the visible silhouette becomes a "keep out" zone other anchors
-    # respect, preserving walkable paths around every major landmark.
     "boulder":          2.5,
-    "column":           4.0,   # was 2.5 — walking margin
-    "mega_column":      5.0,   # was 2.5 — walking margin
-    "buttress":         3.0,   # was 1.8 — walking margin
+    "column":           4.0,   # walking margin
+    "mega_column":      5.0,   # walking margin
+    "buttress":         3.0,   # walking margin
     "stalagmite":       1.2,
     "giant_fungus":     1.2,
     "crystal_cluster":  1.0,
@@ -83,6 +86,34 @@ HARD_OBJECTS = {
     "horizon_form":     3.0,
     "horizon_mid":      2.0,
     "horizon_near":     1.0,
+}
+
+# PLAYER_COLLISION_RADII is used for PHYSICS — the radius at which the
+# player's _physics_process push-out engages. Values are tuned to roughly
+# match the visible mesh footprint (not the walking-margin bubble) so the
+# player stops at the surface of a landmark, not at its spacing zone.
+#
+# Doorframe is INTENTIONALLY OMITTED — doorframes are architectural
+# walk-through gates. Their visual language promises passage; collision
+# would break that contract. Same for tissue kinds (moss/grass/rubble/
+# cave_gravel) — default 0 means walk-through.
+#
+# Tuning heuristic: roughly 0.5× the kind's widest visible bounds (in
+# meters) so the player's 0.5m buffer + the collision radius ≈ the visible
+# surface. Adjust per-kind after walking the hub.
+PLAYER_COLLISION_RADII = {
+    "mega_column":      2.5,
+    "column":           1.2,
+    "buttress":         1.5,
+    "stalagmite":       0.6,
+    "boulder":          0.8,
+    "crystal_cluster":  1.2,
+    "giant_fungus":     0.9,
+    "monolith":         0.4,
+    "bone_pile":        0.3,
+    "dead_log":         0.5,
+    # doorframe: INTENTIONALLY OMITTED — walk-through architectural gate
+    # tissue / atmosphere / creatures: 0 (default, walk-through)
 }
 
 

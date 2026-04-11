@@ -191,3 +191,113 @@ class TestGetVisible:
                                seed=42, biome_name="cavern")
             assert len(ents) >= 30, \
                 f"Sparse zone at ({cx}, {cy}): only {len(ents)} entities"
+
+
+# ---------------------------------------------------------------------------
+# collision_radius — player physics boundaries
+# ---------------------------------------------------------------------------
+#
+# _make_entity reads from PLAYER_COLLISION_RADII (biome_data.py) and scales
+# by per-variant size. The Godot _physics_process loop consumes these
+# radii via `collision_objects` and pushes the player out. This test class
+# guards the brain-side half of that contract.
+
+class TestCollisionRadius:
+
+    def test_hard_kind_carries_collision(self):
+        from core.systems.stamp_world import get_visible
+        ents = get_visible(cam_x=0, cam_y=0, radius=49,
+                           seed=42, biome_name="cavern")
+        mega = [e for e in ents if e["kind"] == "mega_column"]
+        assert len(mega) > 0, "Expected mega_columns in hub spawn"
+        for e in mega:
+            assert e["collision_radius"] > 0.5, (
+                f"mega_column missing collision: {e['collision_radius']}")
+
+    def test_soft_kind_has_zero_collision(self):
+        from core.systems.stamp_world import get_visible
+        ents = get_visible(cam_x=0, cam_y=0, radius=49,
+                           seed=42, biome_name="cavern")
+        # Tissue should walk-through: grass_tuft, moss_patch, cave_gravel, rubble
+        for soft_kind in ("grass_tuft", "moss_patch", "cave_gravel"):
+            soft = [e for e in ents if e["kind"] == soft_kind]
+            if not soft:
+                continue  # not in this particular view
+            for e in soft:
+                assert e["collision_radius"] == 0.0, (
+                    f"{soft_kind} should be walk-through but has radius "
+                    f"{e['collision_radius']}")
+
+    def test_doorframe_is_walk_through(self):
+        """Doorframes are architectural gates — explicitly omitted from the
+        collision table so the player can walk through them as the visual
+        language promises. This is a regression guard for that contract."""
+        from core.systems.stamp_world import get_visible
+        ents = get_visible(cam_x=0, cam_y=0, radius=49,
+                           seed=42, biome_name="cavern")
+        doors = [e for e in ents if e["kind"] == "doorframe"]
+        # Hub has doorframes at N and S arches — must be present
+        assert len(doors) >= 2, "Expected doorframes in hub"
+        for e in doors:
+            assert e["collision_radius"] == 0.0, (
+                f"doorframe must be walk-through but has radius "
+                f"{e['collision_radius']}")
+
+    def test_collision_scales_with_variant(self):
+        """Per-variant size variance should scale the collision radius
+        proportionally, so small variants have small collision and large
+        variants have large collision."""
+        from core.systems.stamp_world import get_visible
+        ents = get_visible(cam_x=0, cam_y=0, radius=49,
+                           seed=42, biome_name="cavern")
+        # Group same-kind entities and check their radius correlates with sv
+        by_kind: dict = {}
+        for e in ents:
+            if e["collision_radius"] == 0.0:
+                continue
+            by_kind.setdefault(e["kind"], []).append(e)
+        # Find a kind with multiple instances and verify correlation
+        for kind, group in by_kind.items():
+            if len(group) < 3:
+                continue
+            svs = [e["sv"] for e in group]
+            rs = [e["collision_radius"] for e in group]
+            # Pearson-ish: larger sv should mean larger collision_radius
+            # Cheap check: the max-sv instance has the max radius (± rounding)
+            max_sv_idx = svs.index(max(svs))
+            min_sv_idx = svs.index(min(svs))
+            assert rs[max_sv_idx] >= rs[min_sv_idx], (
+                f"{kind}: collision radius should scale with sv but doesn't")
+            return  # one kind tested is enough
+        pytest.skip("No kind had enough instances to test scaling")
+
+    def test_hub_arches_are_walkable(self):
+        """Each cardinal arch in the origin hub must have enough gap between
+        its hard members for the player (0.5m buffer) to pass through.
+        This is a composition regression guard — if the hub layout changes
+        and an arch becomes too tight, this test catches it."""
+        from core.systems.stamp_world import stamp_at
+
+        hub_ents = stamp_at(0, 0, seed=42, biome_name="cavern")
+        # Collect hard entities (those with non-zero collision)
+        hard = [(e["kind"], e["x"], e["y"], e["collision_radius"])
+                for e in hub_ents if e["collision_radius"] > 0.0]
+
+        PLAYER_BUFFER = 0.5
+
+        # S arch at y ≈ -12 — find hard members at y < -11 and confirm
+        # there's a walkable gap at x=0
+        s_arch_hards = [h for h in hard if h[2] < -11]
+        for kind, hx, hy, hr in s_arch_hards:
+            distance_to_centerline = abs(hx)
+            assert distance_to_centerline > (hr + PLAYER_BUFFER) - 0.01, (
+                f"S arch blocked: {kind} at ({hx},{hy}) r={hr} "
+                f"leaves only {distance_to_centerline - hr - PLAYER_BUFFER}m "
+                f"clearance at centerline")
+
+        # N arch at y ≈ 12
+        n_arch_hards = [h for h in hard if h[2] > 11]
+        for kind, hx, hy, hr in n_arch_hards:
+            distance_to_centerline = abs(hx)
+            assert distance_to_centerline > (hr + PLAYER_BUFFER) - 0.01, (
+                f"N arch blocked: {kind} at ({hx},{hy}) r={hr}")

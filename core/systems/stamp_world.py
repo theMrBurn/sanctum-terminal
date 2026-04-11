@@ -30,6 +30,7 @@ from core.systems.biome_data import (
     CAVERN_STAMPS,
     OUTDOOR_STAMPS,
     ORIGIN_HUB,
+    PLAYER_COLLISION_RADII,
 )
 from core.systems.bucket_world import KIND_PROPS
 
@@ -86,13 +87,24 @@ def _tissue_for(biome_name: str) -> list:
 
 def _make_entity(kind: str, x: float, y: float, rng: random.Random,
                  scale_mult: float = 1.0) -> Dict | None:
-    """Build an entity dict from KIND_PROPS + per-instance jitter."""
+    """Build an entity dict from KIND_PROPS + per-instance jitter.
+
+    collision_radius is read from PLAYER_COLLISION_RADII (biome_data.py)
+    and scaled by the per-instance variant scale so small variants get
+    proportionally smaller collision. Kinds not in the table get 0 —
+    tissue, tissue-sized scatter, atmospheric kinds, and intentionally-
+    walkable structures (doorframe) all walk-through by default.
+    """
     props = KIND_PROPS.get(kind)
     if props is None:
         return None
     sv = rng.uniform(0.75, 1.25) * 1.30 * scale_mult
     sx, sy_s, sz = props["scale"]
     r, g, b = props["color"]
+    coll_base = PLAYER_COLLISION_RADII.get(kind, 0.0)
+    # Scale collision by the same variance multiplier as the visual size
+    # (normalized by the 1.30 global boost so radius matches visual footprint).
+    coll_radius = coll_base * (sv / 1.30)
     return {
         "kind": kind,
         "x": round(x, 2),
@@ -108,7 +120,7 @@ def _make_entity(kind: str, x: float, y: float, rng: random.Random,
         "b": round(b * rng.uniform(0.85, 1.15), 3),
         "emissive": props["emissive"],
         "light_hue": rng.randint(0, 3),
-        "collision_radius": 0.0,
+        "collision_radius": round(coll_radius, 3),
         "tile_variant": "standard",
         "behavior_type": "",
         "decay_stage": 0.0,
