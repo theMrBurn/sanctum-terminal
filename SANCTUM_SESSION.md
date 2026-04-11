@@ -569,6 +569,425 @@ pair. The doctrine system is coherent and the tooling is regression-
 proof. This is a baseline. Pushing to origin to mark it.
 
 ---
+SESSION ADDENDUM (2026-04-10 ~14:00 → ~17:30, ~3.5h active, ~51h
+cumulative arc — the clean-room normalization sweep, Option 4
+refinement, perf telemetry, weighted mega stamps, and the hub PoC
+trajectory pivot):
+
+Opened with the recipe sweep baseline from the morning and a user
+question: "are the non-compliant kinds rendering like the established
+ones?" Closed with the cavern's starting point now an authored
+hand-crafted hub the player emerges through. Between: twelve commits,
+three architectural additions, one Dr. Seuss detour, one per-kind
+revert, one perf measurement run that proved 7-14× headroom over 60fps
+floor, and a project-scope pivot from "procedural cavern with mega
+anchors" to "authored hub + procedural periphery." First build of the
+hub landed with "it all works, no notes" feedback from user — no
+iteration needed. This session went further than any prior one in
+terms of architectural reach and trajectory change.
+
+PRIOR SESSION RECONCILIATION:
+  ~~1. Read MEMORY.md + this live hash~~ — done, multi-round
+  ~~2. Verify HEAD on feat/render-manifest~~ — ca1c38e was baseline
+  ~~3. Reload Godot in stamp_world mode~~ — done, multi-round
+  ~~4. Wide visual pass with fresh eyes~~ — completed via
+     normalization sweep then superseded by hub PoC
+  crystal_cap — STILL DEFERRED (pending user silhouette+palette input,
+     not blocking other work; grammar host crystal_cluster now locked
+     to the new crystal_spike family, pair will plug in cleanly)
+
+TWELVE COMMITS, chronological from ca1c38e:
+  f63b7b3  fix: boulder use_vertex_colors flag — unblock moss-grading render
+  a03915d  chore: recipe schema blocks on compliant 5 kinds (informational)
+  a929a6a  feat: build_kind dispatcher + LEGACY_BUILDERS / FAMILY_BUILDERS split
+  c75dcc2  feat: tapered_vertical family — stalagmite, column, mega_column, buttress
+  9d3259d  feat: rock_lobed family — rubble, cave_gravel, bone_pile
+  fd332b5  feat: crystal_spike family — crystal_cluster (Tier 1 anchor)
+  24f015e  feat: flora_composed family — giant_fungus (Tier 1 anchor)
+  94b8b6b  feat: scatter_tissue family — grass_tuft, leaf_pile, twig_scatter, moss_patch
+  902f1d9  fix: Option 4 refinement — revert mega structures, fix grass numbers
+  67cc760  feat: perf telemetry — FPS, frame time, draw calls in HUD + tag sidecar
+  3a583de  feat: weighted stamp selection — mega anchors now dominate
+  a32644e  feat: origin hub — authored starting expedition point
+
+THE ARC IN THREE PHASES:
+
+  PHASE 1 — CLEAN-ROOM NORMALIZATION SWEEP (~14:00 → ~15:30)
+
+    Starting point: 5 kinds compliant via the morning's recipe sweep,
+    13 other kinds (stalagmite, column, mega_column, buttress,
+    crystal_cluster, filament, exit_lure, giant_fungus, rubble,
+    cave_gravel, bone_pile, grass_tuft, leaf_pile, twig_scatter,
+    moss_patch, and legacy extract_meshes leftovers) still on the
+    facet-palette path with no vertex colors, no atoms, no composed
+    primitives. User: "we've got to normalize all of these, so whatever
+    order you see fit, the pattern needs to match our established
+    visual language."
+
+    Went through an options review ending at "Option 3 Refined" — a
+    backwards-compatible dispatcher split where the 5 compliant kinds
+    stay byte-identical in LEGACY_BUILDERS and new kinds route through
+    FAMILY_BUILDERS with family primitives ported from
+    core/systems/ambient_life.py (the legacy Panda3D authoring source).
+    Six steps committed in order:
+
+    STEP 1 — BOULDER P0 CONFIG FLIP. build_boulder painted vertex
+    colors but kind_config.json inherited use_vertex_colors: false
+    from geological class default. Shader was reading facet palette
+    and throwing away the moss grading. One-line fix, verified via
+    shasum + test pass.
+
+    STEP 2 — SCHEMA EXTENSION. Added informational `recipe` blocks
+    (tier, family, variant_count, bounds, variant_spread, apron,
+    atoms, family_params) to the 5 compliant kinds. Dispatcher-
+    agnostic — the field is documentation, the LEGACY_BUILDERS
+    registry is truth for those kinds. 17/17 tests still passing.
+
+    STEP 3 — DISPATCHER SKELETON. Added build_kind(name) dispatcher
+    + LEGACY_BUILDERS registry (existing 5) + FAMILY_BUILDERS (empty)
+    + _all_known_kinds() loader that unions legacy + config-declared
+    kinds whose family is registered. The dispatcher routes
+    legacy-first: if a name is in LEGACY_BUILDERS it takes that
+    path regardless of config. Otherwise it looks up recipe.family.
+    Verified: all 20 legacy GLBs regenerate byte-identical via
+    shasum diff.
+
+    STEPS 4-8 — FIVE FAMILY BUILDERS. Each step added ONE family
+    primitive + its consumer config rows + a test class, committed,
+    legacy-byte-identity re-verified. The families:
+
+      tapered_vertical — stalagmite, column, mega_column, buttress
+        revolved noisy profile with flare + 3-stop Z gradient +
+        heptagonal atoms on spine. First family, sets the pattern.
+
+      rock_lobed — rubble, cave_gravel, bone_pile
+        multi-icosphere cluster with per-axis bounds fit (so
+        bone_pile can be elongated 1.8× along one axis). Tier 2
+        tissue, no atoms.
+
+      crystal_spike — crystal_cluster
+        leverages _build_tapered_vertical_instance as the spire
+        sub-primitive with crystalline params (sharp taper, zero
+        flare, low noise, few facets). Composes 3 leaning main
+        spires + 4 satellite spires. Design Law #13 applied at
+        family level — primitive inversion via parameter variation.
+
+      flora_composed — giant_fungus
+        stem (via tapered_vertical helper) + hemisphere cap +
+        heptagonal atom ring on cap dome. New color_cap field
+        in kind_cfg for explicit cap override.
+
+      scatter_tissue — grass_tuft, leaf_pile, twig_scatter, moss_patch
+        crossed-quad dome scatter. Billboard primitives. Tier 2.
+        Cheapest path in the pipeline.
+
+    After step 8: 96/96 tests passing, all 5 families with real
+    consumers, 13 new kinds dispatched through the new path, legacy
+    5 byte-identical throughout the entire sweep. Brain restarted
+    in SANCTUM_STAMP=1 mode with the new meshes loaded.
+
+  PHASE 2 — OPTION 4 REFINEMENT (~15:30 → ~16:00)
+
+    User walked the normalized cavern and tagged 17 screenshots. The
+    feedback was generous — "kind of a cool effect but we regressed
+    grass, and my mega structures are gone, so no more wandering
+    through an expressive claustrophobic cavern.. its a weird (in a
+    good way) Doctor Suess env." The clean-room sweep had produced
+    a whimsical forest of tall thin cones because tapered_vertical's
+    parameterized approach couldn't carry the character of the legacy
+    make_rock erosion grooves that columns/mega_columns had.
+
+    Diagnosis: per-kind granular rather than wholesale revert. The
+    crystals and giant_fungus were working (user validated them).
+    The tissue kinds were fine but grass_tuft/leaf_pile/etc. had
+    been given the wrong cross_width_frac numbers — they rendered
+    as flat plates instead of blades. Shape primitive was correct;
+    numbers were wrong. The stalagmite/column/mega_column reverts
+    were the real fix.
+
+    OPTION 4 LANDED in one commit:
+    - grass_tuft: cross_width 0.08→0.015, count 10→18, planes 3→2
+    - leaf_pile: cross_width 0.12→0.04, count 8→14, jitter 15°→45°
+    - twig_scatter: cross_width 0.22→0.03, count 6→10
+    - moss_patch: cross_width 0.10→0.025, count 12→22, jitter 0°→30°
+    - stalagmite/column/mega_column: git checkout ca1c38e to restore
+      pre-sweep byte-identical legacy GLBs + recipe blocks removed
+      from kind_config so dispatcher skips them + removed from
+      TestTaperedVerticalFamily parametrize list
+    - buttress stayed on the new family path (no legacy state to
+      restore to — buttress_v*.glb was introduced by the sweep)
+    - crystal_cluster and giant_fungus stayed on new family path
+      (user validated visually)
+    - tapered_vertical family primitive stayed in code, now with
+      buttress as direct consumer + crystal_spike using it internally
+
+    Result: 78/78 tests passing (-18 from removing three kinds'
+    parametrize entries), legacy 5 still byte-identical, reverted 3
+    byte-identical to ca1c38e via shasum diff. Dr. Seuss preserved
+    in c75dcc2's history for future cherry-pick.
+
+  PHASE 3 — PERF TELEMETRY + WEIGHTED STAMPS + HUB POC (~16:00 → ~17:30)
+
+    User asked two questions after Option 4 landed: "are we wasting
+    object placement and total count available to view being lost in
+    the overlapping of the mega structures" and "how much overhead do
+    we have for additional stuff??" Neither was answerable without
+    telemetry, so perf instrumentation came first.
+
+    PERF TELEMETRY COMMIT (67cc760):
+    Added _read_perf() in main.gd reading Godot's Performance
+    singleton. HUD overlay gained seven new field types:
+      fps, frame_ms, physics_ms, draw_calls, render_objects,
+      render_tris (with K/M suffix), static_mem
+    Tag sidecar JSON gained a "perf" block with the full snapshot.
+    Lazy reads — only triggered when an overlay field requests them.
+    Fields added to kind_config.json > _global > screenshot_overlay.
+
+    USER TAGGED A BOUNDARY WALK (8 tags, radius 40m from spawn):
+    Data extraction:
+      fps range:       399 – 851   (avg 558, 1s smoothed)
+      frame_ms range:  3.77 – 25.78 (TIME_PROCESS, per-frame)
+      draw_calls:      52 – 76
+      render_objects:  132 – 162
+      triangles:       7.7K – 10.7K per frame
+      static_mem:      73 – 96 MB
+    Translation: we're 7-14× over 60fps floor, GPU is asleep (0.1%
+    of tri budget), CPU spikes on update frames (22-25ms _process)
+    are MultiMesh rebuilds not render work. Massive headroom for
+    more entities, denser stamps, bigger render_horizon, or all
+    three at once.
+
+    WEIGHTED STAMP SELECTION COMMIT (3a583de):
+    stamp_world's rng.choice(CAVERN_STAMPS) was uniform across 16
+    entries of which only 3 were mega stamps — 19% mega rate, ~1.7
+    mega per view. Added `weight` field to stamp recipes (default 1)
+    + _weighted_pick helper. Mega stamps at weight 4 pushes share to
+    48% (empirically verified via 1600-slot sample: 47.9%). Player
+    now sees ~4.3 mega anchors per view instead of 1.7.
+
+    User's response: "i like that density, what i am experiencing is
+    this, upon spawn, im in a cluster of them at wherever i am on the
+    map." That cluster experience was the seed of the trajectory
+    pivot — the complaint turned into a design opportunity.
+
+    ORIGIN HUB POC COMMIT (a32644e):
+    User: "could we lean into this situation, and build literal arches
+    to emmerge through?? lets look at the stack, and see if we can
+    build a logical solution, turn this starting qr code stamp into
+    the literal starting point that has everything somebody would need
+    on a whole expedition, can we change the project scope and
+    trajectory to make that happen as our short term proof of concept?
+    - using everything we have now, with this as the new baseline
+    starting point?"
+
+    A formal project-scope pivot request, with the constraint that
+    the PoC use only what we already have. Planned in depth before
+    writing code (see feedback_plan_before_code.md). Three moves
+    proposed, user blessed ("you are blessed"), executed in one
+    session with no iteration.
+
+    MOVE 1 — ORIGIN_HUB stamp in biome_data.py. 57 members at ~30m
+    footprint centered at world (0, 0), using all 17 in-scene kinds.
+    Layout:
+      Center: mega_column axis mundi + crystal beacon + 3 fireflies
+      N arch: doorframe + two mega_column flankers
+      E arch: column + two buttresses
+      S arch: doorframe + two monoliths (ancient gate)
+      W arch: column pair + mega_column backer
+      NE quadrant: toadstool grove (food/warmth)
+      SE quadrant: spore_pod + giant_fungus (forage/fungal partner)
+      SW quadrant: bone_pile + crystal (relic/memento mori)
+      NW quadrant: boulder alcove + crystal (shelter/beacon)
+      Inner floor: moss_patch/grass_tuft/cave_gravel
+      Perimeter: 8 stalagmites between arches (visual walls)
+    Each arch uses DIFFERENT gateway grammar so the player learns
+    the visual vocabulary by walking through all four.
+
+    MOVE 2 — stamp_world origin override + hub-adjacency filter.
+    New _instantiate_hub() emits ORIGIN_HUB members at world (0, 0)
+    (not slot center) when called for slot (0, 0) in cavern biome.
+    The 8 adjacent slots exclude mega stamps from their weighted
+    pool so the hub silhouette survives against its surroundings.
+    Everything beyond the 9-slot neighborhood uses the weighted
+    pool unchanged (still 48% mega share).
+
+    MOVE 3 — spawn at south arch (main.gd). _aim_spawn_heading now
+    branches on biome: cavern forces camera to world (0, -14, EYE_HEIGHT)
+    facing +Y (rotation.y = PI, 8° upward tilt). Non-cavern falls
+    back to _legacy_landmark_aim(). Light pipes + banner cylinders
+    extracted into shared _finalize_spawn_scene() helper called by
+    both branches.
+
+    FIRST BUILD LANDED WITH "IT ALL WORKS, NO NOTES" from user on
+    first reload. No iteration cycles, no screenshot rounds. The
+    plan absorbed the risk up front — see PINNED DISCOVERIES below.
+
+WHAT'S NOW TRUE — FULL CHECKPOINT:
+  - 18 kinds dispatchable through build_kind()
+      * 5 legacy (toadstool, spore_pod, doorframe, monolith, boulder)
+      * 13 family-dispatched (buttress, crystal_cluster, giant_fungus,
+        rubble, cave_gravel, bone_pile, grass_tuft, leaf_pile,
+        twig_scatter, moss_patch)
+      * 3 reverted-to-legacy-GLBs (stalagmite, column, mega_column) —
+        no recipe block, dispatcher skips, Godot loads committed GLBs
+  - 5 family builders, all with real consumers
+      * tapered_vertical (buttress + crystal_spike helper)
+      * rock_lobed (rubble, cave_gravel, bone_pile)
+      * crystal_spike (crystal_cluster)
+      * flora_composed (giant_fungus)
+      * scatter_tissue (grass_tuft, leaf_pile, twig_scatter, moss_patch)
+  - 78/78 gen_kind_mesh tests passing
+  - Perf telemetry in HUD + tag sidecar (FPS, frame_ms, draw_calls,
+    objects, triangles, memory)
+  - Weighted stamp selection at 48% mega share across the cavern
+    (excluding hub neighborhood)
+  - Origin hub authored at slot (0, 0): 57 members, 17 kinds, 4
+    cardinal arches, 4 provision quadrants, walkable interior
+  - Spawn at south arch (0, -14) facing north into hub
+  - 9-slot hub neighborhood has mega stamps filtered out
+  - Everything outside the neighborhood runs weighted stamp pool
+  - Brain-cavern entity count: ~4200 (hub adds ~57, adjacent slots
+    quieter, rest unchanged)
+  - Measured perf headroom: 400-850 fps = 7-14× over 60fps floor
+  - Legacy 5 still byte-identical to pre-sweep hashes (ca1c38e)
+
+ARCHITECTURAL SHIFTS:
+  - tools/gen_kind_mesh.py: gained LEGACY_BUILDERS + FAMILY_BUILDERS
+    split, build_kind() dispatcher, 5 family primitives, _load_kind_config
+    cached reader, _all_known_kinds() union. ~500 lines added.
+  - core/systems/biome_data.py: gained ORIGIN_HUB (57-member authored
+    composition), weight field on 3 mega stamps.
+  - core/systems/stamp_world.py: gained _instantiate_hub,
+    _weighted_pick, hub origin override, 9-slot adjacency mega filter.
+  - godot/kind_config.json: gained recipe blocks on all new kinds,
+    color_cap field for flora_composed, new overlay fields for perf.
+  - godot/main.gd: split _aim_spawn_heading into biome branches +
+    _finalize_spawn_scene helper, added _read_perf, added 7 HUD
+    field types, added perf block to tag sidecar.
+  - tests/test_gen_kind_mesh.py: gained TestTaperedVerticalFamily,
+    TestRockLobedFamily, TestCrystalSpikeFamily, TestFloraComposedFamily,
+    TestScatterTissueFamily — 61 new assertions total.
+  - Memory system: project_hub_poc.md, design_hub_and_spoke.md,
+    feedback_plan_before_code.md, project_next_session.md rewritten.
+
+PERF TELEMETRY NUMBERS (8-tag boundary walk, radius 40m from spawn):
+  fps smoothed:     399 – 851  (avg 558, 7-14× over 60fps floor)
+  frame_ms process: 3.77 – 25.78 (spikes on update frames only)
+  draw calls:       52 – 76 (5-7% of comfort zone)
+  render objects:   132 – 162 (1.5% of comfort zone)
+  triangles/frame:  7.7K – 10.7K (0.1% of GPU budget)
+  static memory:    73 – 96 MB (negligible)
+
+  Headroom estimate: 7× current entity count before 60fps floor.
+  Could double render_horizon AND tighten slot grid AND triple tissue
+  density and still have 3× headroom remaining.
+
+PROJECT TRAJECTORY PIVOT — "AUTHORED HUB + PROCEDURAL PERIPHERY":
+  The cavern is no longer a flat procedural scatter. Spawn is an
+  authored ritual: player emerges through the SOUTH arch of a
+  hand-crafted hub at world (0, 0), facing north into the axis
+  mundi mega_column. The hub is the physical expression of multiple
+  pinned design memories converging into one concrete deliverable:
+    - design_frame_composer (directed wandering, composed spatial frames)
+    - design_spawn_macro_stamp (9x9 sketch AS the tile primitive)
+    - design_journal_quest_pipeline (hub = ledger location, expedition
+      = walking out and back)
+    - design_path_memory (return trips free via pure-function world)
+    - design_passive_pull_loop (axis mundi = peripheral pull center)
+    - design_approach_reveal (hub visible as silhouette on return)
+    - design_wayfinding (hub = the one guaranteed landmark)
+  Pinned as project_hub_poc.md + design_hub_and_spoke.md.
+
+PINNED DISCOVERIES (this session):
+  - Plan deeply before code on trajectory-shifting moves. The hub
+    PoC plan named every kind's role, every arch's grammar, every
+    coordinate ahead of time, and what was explicitly out of scope.
+    Implementation landed first-try with "no notes." Contrast with
+    the earlier Option 3 sweep that produced Dr. Seuss: same plan
+    shape but shallower depth. Plan shape was correct (backwards-
+    compatible dispatcher split) but didn't pressure-test whether
+    the family primitives could CARRY the visual character of the
+    specific kinds they'd replace. Depth-of-plan correlates directly
+    with first-build quality. Pinned as feedback_plan_before_code.md.
+  - Per-kind granular revert beats wholesale revert. Option 1 from
+    the options review was "full Tier 1 revert" — would have thrown
+    away working crystals and fungus along with the failed columns.
+    Option 4 ("per-kind based on visual evidence") preserved the
+    wins and fixed only what was broken. The dispatcher architecture
+    enabled this — legacy GLBs can coexist with family-dispatched
+    kinds in the same pipeline.
+  - Perf concerns often evaporate under measurement. User's intuitive
+    concern was "are we wasting cycles on mega overlap" — the answer
+    turned out to be "no, we're at 0.1% of GPU budget and MultiMesh
+    is handling overlap for free." The cost of adding perf telemetry
+    was trivial (~30 lines) and the payoff was unlocking confidence
+    to pivot project scope. Measurement is cheap when the telemetry
+    infrastructure already exists; add it early, use it often.
+  - The stamp system was hub-ready and we didn't know it. Pure-
+    function world = free path memory = return trips work. Stamp
+    composition grammar = hand-authored hub uses the same recipe
+    format as procedural stamps. Weighted selection = adjacent-slot
+    filtering without touching the rest of the pool. The hub PoC
+    required zero new engine concepts — only recombination of what
+    already existed. The stack was designed for this without the
+    designer knowing it.
+  - "No notes" on first build is a signal worth capturing as memory.
+    It means the plan absorbed all the risk. The memory system's
+    whole point is to recognize these inflection moments and pin
+    the patterns that produced them.
+
+NEXT SESSION — OPEN-ENDED FROM THE HUB:
+  The baseline is now the hub and the procedural periphery around it.
+  Next moves are user-directed. Candidate threads, all clearly
+  describable from the current state:
+
+  VISUAL / SPATIAL
+  - Walk the hub more, tag anything that should be refined
+  - Author hubs for other biomes (outdoor forest spawn composition)
+  - Tighten or loosen hub-adjacency transition based on feel
+  - make_rock erosion port for tapered_vertical family so
+    stalagmite/column/mega_column can rejoin the recipe path without
+    losing character (explicitly deferred in Option 4 plan)
+  - crystal_cap (pending mycelium pair with crystal_cluster, still
+    needs user silhouette+palette decision)
+  - Ceiling_moss + hanging_vine recipe (the 2 drape kinds still on
+    legacy path, could be new family or scatter_tissue extension)
+
+  SYSTEMS (downstream from hub)
+  - Collision so player stops walking through mega_columns
+  - Quest ledger at hub — provision quadrants as actual caches
+  - Tension triggers at arch thresholds — crossing an arch toward
+    periphery engages tension, crossing back dissipates
+  - Save state: (seed, player_pos) hub-invariance guarantees
+    persistence cheaply
+  - Journal pipeline integration (design_journal_quest_pipeline
+    finally gets wired)
+
+  TOOLING / TELEMETRY
+  - Incremental MultiMesh updates — the 20-25ms _process spikes on
+    manifest updates are full rebuilds. Known Godot pattern: diff +
+    partial update. Unlocks sustained 120+ fps target.
+  - OccluderInstance3D for mega_columns — saves vertex work at
+    higher density
+  - Rolling FPS graph overlay — the HUD shows instant values, a
+    graph would show spike patterns
+
+  Pick whichever thread has the highest pull-through momentum.
+  The plan-before-code discipline applies: if the move is trajectory-
+  shifting, plan in depth first.
+
+---
+Live hash. Updated 2026-04-10 ~17:30. Closing on the clean-room
+normalization sweep + hub PoC trajectory pivot. HEAD: a32644e. Twelve
+commits since the morning recipe baseline. The cavern has an authored
+starting point for the first time. 7-14× perf headroom measured.
+The dispatcher architecture absorbs authored and procedural content
+in the same pipeline. Every pinned design memory about spatial
+composition now has a physical expression at slot (0, 0). First
+build landed "no notes" — the plan absorbed the risk. This is the
+new baseline. Stop here or pick up any of the NEXT SESSION threads.
+
+---
 
 ## 2026-04-09 Session — The Refinement Slog (and the Atmospheric Exit)
 
