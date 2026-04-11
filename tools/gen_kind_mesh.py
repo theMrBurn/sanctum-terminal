@@ -1431,10 +1431,20 @@ def _build_tapered_vertical_instance(
     accent_color: RGBA,
     atoms_cfg: dict | None,
     rng: np.random.Generator,
+    accent_ring_y: float | None = None,
+    accent_ring_width: float = 0.06,
+    accent_ring_color: RGBA | None = None,
 ) -> trimesh.Trimesh:
     """Single variant of a tapered-vertical body: revolved noisy profile
     + optional base flare + 3-stop Z-gradient + optional heptagonal atom
-    markers on the surface."""
+    markers on the surface.
+
+    Optional horizontal accent ring: if `accent_ring_y` is not None,
+    vertices within [y - width/2, y + width/2] of the normalized height
+    get overridden with `accent_ring_color` (solid), creating a hard-edge
+    horizontal stripe at a chosen Z fraction. Used by buttress (at 0.68)
+    as a slate sediment-line accent.
+    """
     # Build the 2D profile: ring_count+1 points from base (z=0) to tip (z=height).
     # Each point has a per-ring radius that incorporates taper, flare, and noise.
     z_values = np.linspace(0.0, height, ring_count + 1)
@@ -1462,6 +1472,25 @@ def _build_tapered_vertical_instance(
 
     body = trimesh.creation.revolve(profile_2d, sections=facet_count)
     _apply_z_gradient_three_stop(body, base_color, shadow_color, accent_color)
+
+    # Accent ring override: paint a hard-edge horizontal stripe at a chosen
+    # Z fraction. Runs AFTER the gradient so it stomps whatever color was
+    # painted in that band. Used by buttress to get a slate sediment line
+    # at an asymmetric vertical position (0.68) — the "odd spot" ring.
+    if accent_ring_y is not None and accent_ring_color is not None:
+        verts = body.vertices
+        z_min = float(verts[:, 2].min())
+        z_max = float(verts[:, 2].max())
+        z_range = max(z_max - z_min, 1e-6)
+        t_vals = (verts[:, 2] - z_min) / z_range
+        ring_lo = max(0.0, accent_ring_y - accent_ring_width * 0.5)
+        ring_hi = min(1.0, accent_ring_y + accent_ring_width * 0.5)
+        ring_mask = (t_vals >= ring_lo) & (t_vals <= ring_hi)
+        if ring_mask.any():
+            ring_rgba = np.array(accent_ring_color, dtype=np.uint8)
+            colors = body.visual.vertex_colors.copy()
+            colors[ring_mask] = ring_rgba
+            body.visual.vertex_colors = colors
 
     # Atom markers — scatter heptagons along the vertical at chain_5 positions
     if atoms_cfg:
@@ -2065,6 +2094,15 @@ def _family_tapered_vertical(kind_name: str, kind_cfg: dict) -> list[trimesh.Tri
     facet_count    = int(fp.get("facet_count", 8))
     ring_count     = int(fp.get("ring_count", 6))
 
+    # Optional horizontal accent ring at a chosen normalized-Z fraction.
+    # Present only on kinds that opt-in via family_params — used by buttress
+    # to get a slate sediment-line accent at y=0.68.
+    accent_ring_y     = fp.get("accent_ring_y")  # None if not set
+    accent_ring_width = float(fp.get("accent_ring_width", 0.06))
+    accent_ring_rgb01 = fp.get("accent_ring_color")
+    accent_ring_color = (_rgb01_to_rgba_u8(accent_ring_rgb01)
+                         if accent_ring_rgb01 is not None else None)
+
     base_rgb01   = kind_cfg.get("color_base",   [0.30, 0.27, 0.23])
     shadow_rgb01 = kind_cfg.get("color_shadow", [0.26, 0.23, 0.19])
     accent_rgb01 = kind_cfg.get("color_accent", [0.34, 0.30, 0.25])
@@ -2105,6 +2143,9 @@ def _family_tapered_vertical(kind_name: str, kind_cfg: dict) -> list[trimesh.Tri
             accent_color=accent_color,
             atoms_cfg=atoms_cfg,
             rng=rng,
+            accent_ring_y=accent_ring_y,
+            accent_ring_width=accent_ring_width,
+            accent_ring_color=accent_ring_color,
         ))
 
     return variants

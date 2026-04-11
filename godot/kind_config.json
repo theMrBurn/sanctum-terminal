@@ -234,7 +234,7 @@
       "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0}},
     "buttress":        {"class": "structural",
       "use_vertex_colors": true,
-      "color_base": [0.24, 0.21, 0.18], "color_shadow": [0.20, 0.18, 0.15], "color_accent": [0.28, 0.24, 0.21],
+      "color_base": [0.22, 0.25, 0.32], "color_shadow": [0.16, 0.19, 0.26], "color_accent": [0.30, 0.34, 0.42],
       "burial": {"min_frac": 0.25, "max_frac": 0.55, "min_above_ground": 2.5},
       "recipe": {
         "tier": 1, "family": "tapered_vertical",
@@ -243,7 +243,9 @@
         "atoms": {"pattern": "chain_5", "count": 5, "size": 0.13, "palette": "cream"},
         "family_params": {
           "taper_strength": 0.40, "flare_ratio": 1.8, "flare_frac": 0.35,
-          "noise_strength": 0.10, "facet_count": 9, "ring_count": 7
+          "noise_strength": 0.10, "facet_count": 9, "ring_count": 7,
+          "accent_ring_y": 0.714, "accent_ring_width": 0.06,
+          "accent_ring_color": [0.48, 0.52, 0.60]
         }
       }},
 
