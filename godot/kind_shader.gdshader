@@ -39,6 +39,15 @@ uniform float use_vertex_colors : hint_range(0.0, 1.0) = 0.0;
 uniform float taper_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float twist_amount : hint_range(0.0, 1.0) = 0.0;
 
+// -- Light sheet globals (set once, all materials see it) --------------------
+// Banner-style cylinder that drifts through the world. Everything inside
+// its radius gets a flat palette tint — the "bubble rolling by" from Sable.
+// Godot-side drift by default; brain can override via manifest.light_sheet.
+global uniform vec3 light_sheet_center;
+global uniform float light_sheet_radius;
+global uniform vec3 light_sheet_tint;
+global uniform float light_sheet_strength;
+
 varying vec3 world_pos;
 varying float local_y;
 varying vec4 vertex_col;  // smooth interpolation — authored region gradients are intentional
@@ -212,6 +221,25 @@ void fragment() {
 		// base color. The mix factor controls tint strength — 0.35 is
 		// subtle enough to read as "lit" without washing out the base palette.
 		col = mix(col, tinted, head_t * 0.35);
+	}
+
+	// -- Light sheet — banner-style palette tint cylinder --------------------
+	// A cylinder drifts through the world. Everything inside its radius
+	// becomes monochromatic in the sheet's tint color at the surface's own
+	// luminance. "Everything in that bubble is just a flat tone."
+	// The sheet IS the light. No Godot lights, no PBR, no shadow maps.
+	float sheet_dist = distance(world_pos.xz, light_sheet_center.xz);
+	float sheet_t = 1.0 - smoothstep(
+		light_sheet_radius - 2.0, light_sheet_radius, sheet_dist);
+
+	if (sheet_t > 0.01 && light_sheet_strength > 0.01) {
+		float s_lum = dot(col, vec3(0.299, 0.587, 0.114));
+		// Palette flip: darks push up two register steps, lights push down.
+		float s_mid = 0.30;
+		float shifted = mix(s_lum, s_mid, 0.45);
+		// Monochromatic in the sheet's tint at the shifted luminance.
+		vec3 sheet_col = light_sheet_tint * shifted;
+		col = mix(col, sheet_col, sheet_t * light_sheet_strength);
 	}
 
 	ALBEDO = col;

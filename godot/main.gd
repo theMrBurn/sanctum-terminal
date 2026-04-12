@@ -108,6 +108,21 @@ func _ready() -> void:
 	_setup_hud()
 	_aim_spawn_heading()  # Point camera at nearest natural landmark for spawn composition
 
+	# -- Light sheet globals --------------------------------------------------
+	# Register global shader uniforms so one update hits every material.
+	# The sheet is a banner-style cylinder that drifts through the world.
+	# Everything inside its radius gets a flat palette tint — Sable's
+	# "bubble rolling by" technique as a spatial proximity field.
+	RenderingServer.global_shader_parameter_add(
+		"light_sheet_center", RenderingServer.GLOBAL_VAR_TYPE_VEC3, Vector3.ZERO)
+	RenderingServer.global_shader_parameter_add(
+		"light_sheet_radius", RenderingServer.GLOBAL_VAR_TYPE_FLOAT, 18.0)
+	RenderingServer.global_shader_parameter_add(
+		"light_sheet_tint", RenderingServer.GLOBAL_VAR_TYPE_VEC3,
+		Vector3(0.95, 0.78, 0.55))  # warm amber
+	RenderingServer.global_shader_parameter_add(
+		"light_sheet_strength", RenderingServer.GLOBAL_VAR_TYPE_FLOAT, 0.40)
+
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 	# Connect to brain server
@@ -1191,6 +1206,12 @@ func _process(delta: float) -> void:
 		_check_expedition_proximity()
 		_update_expedition_visuals(delta)
 
+	# Light sheet drift — slow orbit offset from camera. The cylinder
+	# passes over entity clusters every ~80s, tinting them as it rolls by.
+	# Brain can override via manifest["light_sheet"]; otherwise Godot
+	# handles the drift locally.
+	_update_light_sheet(delta)
+
 
 func _send_camera() -> void:
 	if not connected:
@@ -1765,6 +1786,41 @@ func _save_tag(reason: String = "neutral") -> void:
 		var msg_str: String = JSON.stringify(msg_obj) + "\n"
 		tcp.put_data(msg_str.to_utf8_buffer())
 		pending_tag_intents[tag_count] = tag_payload
+
+
+# -- Light sheet state ----------------------------------------------------
+var light_sheet_phase: float = 0.0
+
+func _update_light_sheet(delta: float) -> void:
+	"""Drift the light sheet cylinder slowly around the player. Brain can
+	override via manifest['light_sheet']; otherwise Godot handles drift.
+	The sheet orbits at ~20m offset from camera, completing a full orbit
+	every ~80 seconds. Warm amber tint by default."""
+	# Check for brain override first
+	var brain_sheet: Dictionary = manifest.get("light_sheet", {})
+	if not brain_sheet.is_empty():
+		var p = brain_sheet.get("pos", [0.0, 0.0])
+		RenderingServer.global_shader_parameter_set(
+			"light_sheet_center", Vector3(float(p[0]), 0.0, float(p[1])))
+		if brain_sheet.has("radius"):
+			RenderingServer.global_shader_parameter_set(
+				"light_sheet_radius", float(brain_sheet["radius"]))
+		if brain_sheet.has("tint"):
+			var t = brain_sheet["tint"]
+			RenderingServer.global_shader_parameter_set(
+				"light_sheet_tint", Vector3(float(t[0]), float(t[1]), float(t[2])))
+		if brain_sheet.has("strength"):
+			RenderingServer.global_shader_parameter_set(
+				"light_sheet_strength", float(brain_sheet["strength"]))
+		return
+
+	# Local drift — slow orbit offset from camera
+	light_sheet_phase += delta * 0.08
+	var orbit_r := 20.0
+	var cx: float = camera.position.x + sin(light_sheet_phase) * orbit_r
+	var cz: float = camera.position.z + cos(light_sheet_phase * 0.7) * orbit_r
+	RenderingServer.global_shader_parameter_set(
+		"light_sheet_center", Vector3(cx, 0.0, cz))
 
 
 # -- Expedition wire handlers ---------------------------------------------
