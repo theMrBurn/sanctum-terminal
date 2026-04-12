@@ -523,13 +523,56 @@ class ExpeditionEngine:
             json.dump(payload, f, indent=2)
         return log_path
 
-    # -- snapshot (commit 6) -------------------------------------------------
+    # -- snapshot for manifest -----------------------------------------------
 
     def snapshot(self) -> dict:
-        raise NotImplementedError("snapshot lands in commit 6")
+        """Pure read. Produces the manifest['expedition'] dict that
+        Godot renders generically. Godot has no recipe-specific
+        knowledge; it draws exactly what this dict declares.
+
+        The `last_message` field carries any pending message key;
+        Godot toasts once per key change and brain calls
+        consume_message() after each manifest send so the same
+        key is not reported twice."""
+        return {
+            "id": self.class_id,
+            "biome": self.biome,
+            "state": self.state.value,
+            "objective_text": self.class_def.get("objective_text", ""),
+            "deposit_points": [
+                {
+                    "id": d.id,
+                    "kind": d.kind,
+                    "pos": list(d.pos),
+                    "current": d.current,
+                    "threshold": d.threshold,
+                    "satisfied": d.satisfied,
+                    "visual": dict(d.visual),
+                }
+                for d in self.deposit_points
+            ],
+            "exit_point": (
+                {
+                    "id": self.exit_point.id,
+                    "kind": self.exit_point.kind,
+                    "pos": list(self.exit_point.pos),
+                    "active": self.exit_point.active,
+                    "trigger_radius": self.exit_point.trigger_radius,
+                    "visual": dict(self.exit_point.visual),
+                }
+                if self.exit_point is not None else None
+            ),
+            "last_message": self.pending_message_key,
+            "last_message_text": (
+                self.resolved_messages.get(self.pending_message_key, "")
+                if self.pending_message_key is not None else ""
+            ),
+        }
 
     def consume_message(self) -> None:
-        raise NotImplementedError("snapshot lands in commit 6")
+        """Called by brain after each frame's manifest has shipped.
+        Clears pending_message_key so the same key isn't toasted twice."""
+        self.pending_message_key = None
 
     # -- internal helpers -----------------------------------------------------
 

@@ -651,3 +651,110 @@ class TestSessionLog:
         assert payload["started_at"] == 100.0
         assert payload["completed_at"] == 500.0
         assert payload["duration_s"] == 400.0
+
+
+# -- commit 6 — snapshot for manifest ----------------------------------------
+
+
+class TestSnapshotShape:
+    """Test 20 — snapshot has all keys Godot needs to render generically."""
+
+    REQUIRED_TOP_KEYS = frozenset([
+        "id", "biome", "state", "objective_text",
+        "deposit_points", "exit_point",
+        "last_message", "last_message_text",
+    ])
+
+    REQUIRED_DEPOSIT_KEYS = frozenset([
+        "id", "kind", "pos", "current", "threshold", "satisfied", "visual",
+    ])
+
+    REQUIRED_EXIT_KEYS = frozenset([
+        "id", "kind", "pos", "active", "trigger_radius", "visual",
+    ])
+
+    def test_snapshot_top_level_keys(self, engine):
+        snap = engine.snapshot()
+        assert self.REQUIRED_TOP_KEYS.issubset(snap.keys())
+
+    def test_snapshot_deposit_point_keys(self, engine):
+        snap = engine.snapshot()
+        assert len(snap["deposit_points"]) == 1
+        dp = snap["deposit_points"][0]
+        assert self.REQUIRED_DEPOSIT_KEYS.issubset(dp.keys())
+
+    def test_snapshot_exit_point_keys(self, engine):
+        snap = engine.snapshot()
+        assert snap["exit_point"] is not None
+        assert self.REQUIRED_EXIT_KEYS.issubset(snap["exit_point"].keys())
+
+    def test_snapshot_identity_fields(self, engine):
+        snap = engine.snapshot()
+        assert snap["id"] == "anomaly_hunt"
+        assert snap["biome"] == "cavern"
+        assert snap["state"] == "dormant"
+
+    def test_snapshot_carries_resolved_positions(self, engine):
+        snap = engine.snapshot()
+        assert snap["deposit_points"][0]["kind"] == "mega_column"
+        assert snap["deposit_points"][0]["pos"] == [0.0, 0.0, 0.0]
+        assert snap["exit_point"]["kind"] == "doorframe"
+        assert snap["exit_point"]["pos"] == [0.0, -14.0, 0.0]
+
+    def test_snapshot_reflects_state_transitions(self, engine, tmp_path):
+        assert engine.snapshot()["state"] == "dormant"
+        engine.on_session_start(t=0.0)
+        assert engine.snapshot()["state"] == "active"
+        for i in range(1, 4):
+            engine.on_tag_event(_make_tag(i), t=float(i))
+            engine.on_deposit_intent("axis_mundi", i, t=float(i + 10))
+        assert engine.snapshot()["state"] == "resolution"
+        assert engine.snapshot()["exit_point"]["active"] is True
+        engine.on_walk_through(t=100.0, sessions_dir=tmp_path)
+        assert engine.snapshot()["state"] == "complete"
+
+    def test_snapshot_deposit_progress_visible(self, engine):
+        engine.on_session_start(t=0.0)
+        engine.on_tag_event(_make_tag(1, "neutral"), t=1.0)
+        engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        dp = engine.snapshot()["deposit_points"][0]
+        assert dp["current"] == 1
+        assert dp["threshold"] == 3
+        assert dp["satisfied"] is False
+
+
+class TestSnapshotMessages:
+    """Test 21 — snapshot includes pending message; consume clears it."""
+
+    def test_pending_message_in_snapshot_after_start(self, engine):
+        engine.on_session_start(t=0.0)
+        snap = engine.snapshot()
+        assert snap["last_message"] == "spawn"
+        assert snap["last_message_text"] == \
+            "Something's off here. Mark what doesn't belong."
+
+    def test_biome_override_text_in_snapshot(self, engine):
+        engine.on_session_start(t=0.0)
+        # Manually clear the spawn message to test first_tag
+        engine.pending_message_key = None
+        engine.on_tag_event(_make_tag(1, "neutral"), t=1.0)
+        engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        snap = engine.snapshot()
+        assert snap["last_message"] == "first_tag"
+        assert snap["last_message_text"] == "The column listens."
+
+    def test_consume_message_clears_pending(self, engine):
+        engine.on_session_start(t=0.0)
+        assert engine.snapshot()["last_message"] == "spawn"
+        engine.consume_message()
+        snap = engine.snapshot()
+        assert snap["last_message"] is None
+        assert snap["last_message_text"] == ""
+
+    def test_snapshot_is_pure_read(self, engine):
+        """Calling snapshot() multiple times should not mutate state."""
+        engine.on_session_start(t=0.0)
+        snap1 = engine.snapshot()
+        snap2 = engine.snapshot()
+        snap3 = engine.snapshot()
+        assert snap1 == snap2 == snap3
