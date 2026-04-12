@@ -1314,6 +1314,8 @@ func _rebuild_entities() -> void:
 	var t_state: String = manifest.get("tension_state", "open")
 	if ent_count != last_entity_count or t_state != last_tension_state:
 		mote_dirty = true
+	# Creatures spawn independently — don't gate on mote_dirty
+	_spawn_creatures()
 	if mote_dirty:
 		_update_motes()
 		mote_dirty = false
@@ -1574,7 +1576,7 @@ func _spawn_creatures() -> void:
 		var offsets: Array = MoteArrangements.get_offsets(arrangement_name)
 		var mote_color: Color = cfg.get("mote_color", Color(0.5, 0.4, 0.3))
 		var mote_size: float = cfg.get("mote_size", 0.05) * 3.0  # DEBUG: 3x scale for visibility
-		var atom_nodes: Array[MeshInstance3D] = []
+		var atom_nodes: Array = []  # untyped — typed arrays can silently reject
 		print("CREATURE SPAWN: %s at (%s, %s) scale=%s atoms=%d mote_size=%s" % [
 			kind, str(ent.get("x", 0)), str(ent.get("y", 0)),
 			str(creature_scale), offsets.size(), str(mote_size)])

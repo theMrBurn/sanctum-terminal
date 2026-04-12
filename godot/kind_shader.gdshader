@@ -186,7 +186,10 @@ void fragment() {
 	// of walking distance (~1s at walk speed). Not a pop, not a per-pixel
 	// gradient. A slow tilt across the scene as the boundary moves.
 	float head_dist = distance(instance_origin, CAMERA_POSITION_WORLD);
-	float head_t = 1.0 - smoothstep(10.0, 14.0, head_dist);
+	// Extended wash: 6-22m range, long gentle tail. Tint peaks closer to
+	// the avatar's FOV center (6m = arm's reach) and fades out over 16m
+	// of walking distance — a slow atmospheric wash, not a bubble edge.
+	float head_t = 1.0 - smoothstep(6.0, 22.0, head_dist);
 
 	if (head_t > 0.01) {
 		float lum = dot(col, vec3(0.299, 0.587, 0.114));
