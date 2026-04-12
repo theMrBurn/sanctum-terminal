@@ -299,13 +299,33 @@ class ExpeditionEngine:
         )
 
     # -- lifecycle -------------------------------------------------------------
-    # (filled in by later commits)
 
     def on_session_start(self, t: float) -> None:
-        raise NotImplementedError("lifecycle lands in commit 3")
+        """Called once per Godot session. Fires the class's trigger if
+        it matches 'on: spawn'. Sets state=ACTIVE, queues spawn message.
+
+        Idempotent: calling again while already ACTIVE is a no-op
+        (the second spawn toast after a brain reconnect would be
+        confusing; the player already saw it)."""
+        if self.state != ExpeditionState.DORMANT:
+            return
+        trigger_on = self.class_def.get("trigger", {}).get("on", "spawn")
+        if trigger_on != "spawn":
+            raise NotImplementedError(
+                f"trigger 'on: {trigger_on}' lands in a later commit; "
+                f"v1 only implements 'on: spawn'")
+        self.state = ExpeditionState.ACTIVE
+        self.started_at = t
+        self._queue_message("spawn")
 
     def on_tag_event(self, tag: dict, t: float) -> None:
-        raise NotImplementedError("lifecycle lands in commit 3")
+        """Receive a tag event from Godot. Append to log unconditionally
+        — the tag_log is the source of truth for post-mortem regardless
+        of whether the tag ever deposits. Deposit happens separately
+        via on_deposit_intent when proximity is reported."""
+        if self.state == ExpeditionState.DORMANT:
+            return  # dropped on the floor before start
+        self.tag_log.append(dict(tag))
 
     def on_deposit_intent(
         self,
@@ -313,7 +333,86 @@ class ExpeditionEngine:
         tag_id: int,
         t: float,
     ) -> dict:
-        raise NotImplementedError("lifecycle lands in commit 3")
+        """Godot reports player is near `deposit_id` with tag `tag_id`.
+        Engine matches the tag against the point's accepts rule.
+
+        Returns:
+            {"accepted": bool, "reason": str, "deposit": <dpt snapshot>}
+
+        Idempotent: same tag_id deposited twice at the same point is a
+        no-op and returns accepted=False with reason='already_deposited'.
+        """
+        if self.state not in (
+            ExpeditionState.ACTIVE, ExpeditionState.RESOLUTION,
+        ):
+            return {
+                "accepted": False,
+                "reason": "wrong_state",
+                "deposit": None,
+            }
+
+        # Find the deposit point
+        dpt: DepositPointState | None = None
+        for point in self.deposit_points:
+            if point.id == deposit_id:
+                dpt = point
+                break
+        if dpt is None:
+            return {
+                "accepted": False,
+                "reason": "unknown_deposit",
+                "deposit": None,
+            }
+
+        # Already deposited?
+        if tag_id in dpt.deposited_tag_ids:
+            return {
+                "accepted": False,
+                "reason": "already_deposited",
+                "deposit": self._deposit_snapshot(dpt),
+            }
+
+        # Find the tag in the log
+        tag: dict | None = self._find_tag_by_id(tag_id)
+        if tag is None:
+            return {
+                "accepted": False,
+                "reason": "tag_not_in_log",
+                "deposit": self._deposit_snapshot(dpt),
+            }
+
+        # Match against accepts rule
+        if not self._tag_matches_accepts(tag, dpt.accepts):
+            return {
+                "accepted": False,
+                "reason": "rejected_by_accepts",
+                "deposit": self._deposit_snapshot(dpt),
+            }
+
+        # Satisfied? no more deposits once satisfied
+        if dpt.satisfied:
+            return {
+                "accepted": False,
+                "reason": "already_satisfied",
+                "deposit": self._deposit_snapshot(dpt),
+            }
+
+        # Accept.
+        dpt.current += 1
+        dpt.deposited_tag_ids.append(tag_id)
+
+        # Milestone + satisfaction checks land in commit 4.
+        self._emit_milestones_if_any(dpt)
+        self._check_satisfaction(dpt)
+        self._activate_exit_if_ready()
+
+        return {
+            "accepted": True,
+            "reason": "accepted",
+            "deposit": self._deposit_snapshot(dpt),
+        }
+
+    # -- placeholders for later commits --------------------------------------
 
     def on_walk_through(
         self,
@@ -337,3 +436,57 @@ class ExpeditionEngine:
         t: float,
     ) -> Path:
         raise NotImplementedError("log writer lands in commit 5")
+
+    # -- internal helpers -----------------------------------------------------
+
+    def _queue_message(self, key: str) -> None:
+        """Mark a message key as pending. Brain attaches it to the
+        snapshot on the next frame; Godot toasts once; brain calls
+        consume_message() to clear. Milestones that would duplicate
+        an already-emitted message are skipped."""
+        if key in self.messages_emitted:
+            return
+        self.pending_message_key = key
+        self.messages_emitted.append(key)
+
+    def _find_tag_by_id(self, tag_id: int) -> dict | None:
+        for t in self.tag_log:
+            if t.get("tag_id") == tag_id or t.get("tag") == tag_id:
+                return t
+        return None
+
+    def _tag_matches_accepts(
+        self,
+        tag: dict,
+        accepts: list[str],
+    ) -> bool:
+        """Tag is accepted if:
+          - the point accepts 'any' (wildcard), OR
+          - the tag's reason is in the accepts list."""
+        if "any" in accepts:
+            return True
+        reason = tag.get("tag_reason", "neutral")
+        return reason in accepts
+
+    def _deposit_snapshot(self, dpt: DepositPointState) -> dict:
+        return {
+            "id": dpt.id,
+            "kind": dpt.kind,
+            "pos": list(dpt.pos),
+            "current": dpt.current,
+            "threshold": dpt.threshold,
+            "satisfied": dpt.satisfied,
+        }
+
+    def _emit_milestones_if_any(self, dpt: DepositPointState) -> None:
+        """Commit 4 fills this in. Stub for now — lifecycle tests don't
+        assert milestone emission."""
+        pass
+
+    def _check_satisfaction(self, dpt: DepositPointState) -> None:
+        """Commit 4 fills this in. Stub for now."""
+        pass
+
+    def _activate_exit_if_ready(self) -> None:
+        """Commit 4 fills this in. Stub for now."""
+        pass

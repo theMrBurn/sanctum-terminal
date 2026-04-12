@@ -314,3 +314,142 @@ class TestFromClassIdLookup:
     def test_unknown_biome_raises(self):
         with pytest.raises(UnknownBiome):
             ExpeditionEngine.from_class_id("anomaly_hunt", "nope_not_a_biome")
+
+
+# -- commit 3 — lifecycle + tag events ---------------------------------------
+
+
+def _make_tag(tag_id: int, reason: str = "neutral", **extra) -> dict:
+    """Build a tag sidecar payload shaped like _save_tag produces."""
+    tag = {
+        "tag_id": tag_id,
+        "tag_reason": reason,
+        "camera": {"x": 1.0, "y": 2.0, "z": 2.5, "heading": 0.0, "pitch": 0.0},
+        "crosshair": [{"kind": "buttress", "x": 12.5, "y": -3.0}],
+    }
+    tag.update(extra)
+    return tag
+
+
+class TestSessionStart:
+    """Test 3 — on_session_start transitions DORMANT → ACTIVE."""
+
+    def test_session_start_activates(self, engine):
+        engine.on_session_start(t=100.0)
+        assert engine.state == ExpeditionState.ACTIVE
+        assert engine.started_at == 100.0
+
+    def test_session_start_is_idempotent(self, engine):
+        engine.on_session_start(t=100.0)
+        engine.on_session_start(t=999.0)  # should be ignored
+        assert engine.started_at == 100.0
+
+    def test_spawn_message_queued_after_start(self, engine):
+        engine.on_session_start(t=100.0)
+        assert engine.pending_message_key == "spawn"
+        assert "spawn" in engine.messages_emitted
+
+
+class TestTagEventLogging:
+    """Test 6 — on_tag_event appends to tag_log."""
+
+    def test_tag_event_appended_to_log(self, engine):
+        engine.on_session_start(t=0.0)
+        tag = _make_tag(1, "weird")
+        engine.on_tag_event(tag, t=1.0)
+        assert len(engine.tag_log) == 1
+        assert engine.tag_log[0]["tag_id"] == 1
+        assert engine.tag_log[0]["tag_reason"] == "weird"
+
+    def test_multiple_tags_preserve_order(self, engine):
+        engine.on_session_start(t=0.0)
+        for i in range(3):
+            engine.on_tag_event(_make_tag(i + 1, "neutral"), t=float(i))
+        assert [t["tag_id"] for t in engine.tag_log] == [1, 2, 3]
+
+    def test_tag_event_before_start_is_dropped(self, engine):
+        engine.on_tag_event(_make_tag(1), t=0.0)
+        assert engine.tag_log == []
+
+    def test_tag_log_stores_deep_copy(self, engine):
+        engine.on_session_start(t=0.0)
+        tag = _make_tag(1)
+        engine.on_tag_event(tag, t=1.0)
+        tag["tag_id"] = 999  # mutate caller's copy
+        assert engine.tag_log[0]["tag_id"] == 1  # log unaffected
+
+
+class TestDepositIntent:
+    """Tests 7-9 — deposit_intent accept/reject paths."""
+
+    def test_deposit_intent_increments_current(self, engine):
+        engine.on_session_start(t=0.0)
+        engine.on_tag_event(_make_tag(1, "weird"), t=1.0)
+        result = engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        assert result["accepted"] is True
+        assert engine.deposit_points[0].current == 1
+
+    def test_deposit_intent_idempotent_on_same_tag(self, engine):
+        engine.on_session_start(t=0.0)
+        engine.on_tag_event(_make_tag(1, "weird"), t=1.0)
+        engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        result = engine.on_deposit_intent("axis_mundi", 1, t=3.0)
+        assert result["accepted"] is False
+        assert result["reason"] == "already_deposited"
+        assert engine.deposit_points[0].current == 1
+
+    def test_deposit_intent_unknown_deposit_id(self, engine):
+        engine.on_session_start(t=0.0)
+        engine.on_tag_event(_make_tag(1), t=1.0)
+        result = engine.on_deposit_intent("nonexistent", 1, t=2.0)
+        assert result["accepted"] is False
+        assert result["reason"] == "unknown_deposit"
+
+    def test_deposit_intent_tag_not_in_log(self, engine):
+        engine.on_session_start(t=0.0)
+        # No tag_event fired; tag_id 42 has no log entry
+        result = engine.on_deposit_intent("axis_mundi", 42, t=2.0)
+        assert result["accepted"] is False
+        assert result["reason"] == "tag_not_in_log"
+
+    def test_deposit_intent_rejected_by_accepts_filter(
+        self, anomaly_hunt_class, cavern_binding,
+    ):
+        # Set accepts to something specific to test rejection
+        anomaly_hunt_class["deposit_points"][0]["accepts"] = ["weird"]
+        engine = ExpeditionEngine(
+            class_def=anomaly_hunt_class,
+            biome="cavern",
+            binding=cavern_binding)
+        engine.on_session_start(t=0.0)
+        engine.on_tag_event(_make_tag(1, "beautiful"), t=1.0)
+        result = engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        assert result["accepted"] is False
+        assert result["reason"] == "rejected_by_accepts"
+        assert engine.deposit_points[0].current == 0
+
+    def test_deposit_intent_accepts_matching_reason(
+        self, anomaly_hunt_class, cavern_binding,
+    ):
+        anomaly_hunt_class["deposit_points"][0]["accepts"] = ["weird"]
+        engine = ExpeditionEngine(
+            class_def=anomaly_hunt_class,
+            biome="cavern",
+            binding=cavern_binding)
+        engine.on_session_start(t=0.0)
+        engine.on_tag_event(_make_tag(1, "weird"), t=1.0)
+        result = engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        assert result["accepted"] is True
+
+    def test_any_accepts_takes_all_reasons(self, engine):
+        engine.on_session_start(t=0.0)
+        for i, reason in enumerate(
+            ["neutral", "weird", "dangerous", "beautiful", "interesting"],
+            start=1,
+        ):
+            engine.on_tag_event(_make_tag(i, reason), t=float(i))
+            # default threshold is 3; cap the first 3
+            result = engine.on_deposit_intent("axis_mundi", i, t=float(i + 10))
+            if i <= 3:
+                assert result["accepted"] is True, \
+                    f"tag {i} ({reason}) should have been accepted"
