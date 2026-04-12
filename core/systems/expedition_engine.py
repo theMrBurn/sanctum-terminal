@@ -479,14 +479,49 @@ class ExpeditionEngine:
         }
 
     def _emit_milestones_if_any(self, dpt: DepositPointState) -> None:
-        """Commit 4 fills this in. Stub for now — lifecycle tests don't
-        assert milestone emission."""
-        pass
+        """After each accepted deposit, decide whether to emit a
+        milestone message.
+
+        v1 rules (single deposit point):
+          - first accepted deposit anywhere → 'first_tag'
+          - total progress crosses 50% of total threshold → 'halfway'
+          - all deposits satisfied → 'satisfied'
+
+        Multi-deposit recipes (WITNESSES, PILGRIMAGE) will grow this
+        into per-point milestones in later commits.
+        """
+        # first_tag: any deposit on an engine that had zero progress
+        # before now. Emitted once per session.
+        if dpt.current == 1 and "first_tag" not in self.messages_emitted:
+            self._queue_message("first_tag")
+
+        # halfway: total progress crosses 50% of total threshold.
+        total_current = sum(d.current for d in self.deposit_points)
+        total_threshold = sum(d.threshold for d in self.deposit_points)
+        if total_threshold > 0:
+            pct = total_current / total_threshold
+            if pct >= 0.5 and "halfway" not in self.messages_emitted:
+                # Don't emit halfway if we're already at 100% — jump
+                # straight to 'satisfied' below.
+                if pct < 1.0:
+                    self._queue_message("halfway")
 
     def _check_satisfaction(self, dpt: DepositPointState) -> None:
-        """Commit 4 fills this in. Stub for now."""
-        pass
+        """Mark the deposit point satisfied if current >= threshold.
+        Cap current at threshold to keep snapshot clean."""
+        if dpt.current >= dpt.threshold:
+            dpt.current = dpt.threshold
+            dpt.satisfied = True
 
     def _activate_exit_if_ready(self) -> None:
-        """Commit 4 fills this in. Stub for now."""
-        pass
+        """If every deposit point is satisfied, activate the exit
+        point, transition to RESOLUTION, and emit the 'satisfied'
+        message."""
+        if not self.deposit_points:
+            return
+        if not all(d.satisfied for d in self.deposit_points):
+            return
+        if self.exit_point is not None and not self.exit_point.active:
+            self.exit_point.active = True
+            self.state = ExpeditionState.RESOLUTION
+            self._queue_message("satisfied")

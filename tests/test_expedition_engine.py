@@ -453,3 +453,102 @@ class TestDepositIntent:
             if i <= 3:
                 assert result["accepted"] is True, \
                     f"tag {i} ({reason}) should have been accepted"
+
+
+# -- commit 4 — milestones + satisfaction ------------------------------------
+
+
+def _deposit_n_tags(engine, n: int) -> None:
+    """Helper: run session start and deposit n tags at axis_mundi."""
+    engine.on_session_start(t=0.0)
+    # Clear the spawn message so milestone tests don't collide with it
+    engine.messages_emitted.clear()
+    engine.pending_message_key = None
+    for i in range(1, n + 1):
+        engine.on_tag_event(_make_tag(i, "neutral"), t=float(i))
+        engine.on_deposit_intent("axis_mundi", i, t=float(i + 10))
+
+
+class TestMilestones:
+    """Tests 10-11 — first_tag and halfway emit at the right moments."""
+
+    def test_first_tag_emits_on_first_accepted_deposit(self, engine):
+        engine.on_session_start(t=0.0)
+        # The spawn message was queued by session_start; clear it for
+        # this assertion so we're only observing first_tag emission.
+        engine.messages_emitted.clear()
+        engine.pending_message_key = None
+        engine.on_tag_event(_make_tag(1, "neutral"), t=1.0)
+        engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        assert "first_tag" in engine.messages_emitted
+
+    def test_first_tag_only_emits_once(self, engine):
+        _deposit_n_tags(engine, 2)
+        # messages_emitted will contain first_tag + (halfway or satisfied)
+        first_tag_count = engine.messages_emitted.count("first_tag")
+        assert first_tag_count == 1
+
+    def test_halfway_emits_at_fifty_percent(self, engine):
+        # threshold=3, so halfway should emit after deposit 2 (66%)
+        _deposit_n_tags(engine, 2)
+        assert "halfway" in engine.messages_emitted
+
+    def test_halfway_does_not_emit_before_fifty_percent(self, engine):
+        _deposit_n_tags(engine, 1)
+        # 1/3 = 33%, below halfway
+        assert "halfway" not in engine.messages_emitted
+
+
+class TestSatisfactionAndExitActivation:
+    """Tests 12-14 — threshold satisfies, all-satisfied activates exit."""
+
+    def test_threshold_satisfies_deposit(self, engine):
+        _deposit_n_tags(engine, 3)
+        dp = engine.deposit_points[0]
+        assert dp.current == 3
+        assert dp.satisfied is True
+
+    def test_current_capped_at_threshold(self, engine):
+        # Deposit more tags than threshold — current should cap
+        engine.on_session_start(t=0.0)
+        for i in range(1, 5):  # 4 tags; threshold is 3
+            engine.on_tag_event(_make_tag(i, "neutral"), t=float(i))
+            engine.on_deposit_intent("axis_mundi", i, t=float(i + 10))
+        dp = engine.deposit_points[0]
+        assert dp.current == 3, \
+            f"current should cap at threshold; got {dp.current}"
+        assert dp.satisfied is True
+
+    def test_satisfied_message_emits(self, engine):
+        _deposit_n_tags(engine, 3)
+        assert "satisfied" in engine.messages_emitted
+
+    def test_all_deposits_satisfied_activates_exit(self, engine):
+        _deposit_n_tags(engine, 3)
+        assert engine.exit_point is not None
+        assert engine.exit_point.active is True
+
+    def test_all_deposits_satisfied_transitions_to_resolution(self, engine):
+        _deposit_n_tags(engine, 3)
+        assert engine.state == ExpeditionState.RESOLUTION
+
+    def test_partial_deposit_does_not_activate_exit(self, engine):
+        _deposit_n_tags(engine, 2)
+        assert engine.exit_point is not None
+        assert engine.exit_point.active is False
+        assert engine.state == ExpeditionState.ACTIVE
+
+    def test_satisfied_does_not_reactivate_exit_on_further_deposits(
+        self, engine,
+    ):
+        # Same tag can't deposit twice; but verify the state machine
+        # doesn't double-fire satisfied message on subsequent calls.
+        _deposit_n_tags(engine, 3)
+        satisfied_count_before = engine.messages_emitted.count("satisfied")
+
+        # Try another deposit (should be rejected — already satisfied)
+        engine.on_tag_event(_make_tag(99, "weird"), t=100.0)
+        result = engine.on_deposit_intent("axis_mundi", 99, t=101.0)
+        assert result["accepted"] is False
+        # No new satisfied message
+        assert engine.messages_emitted.count("satisfied") == satisfied_count_before
