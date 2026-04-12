@@ -2438,9 +2438,9 @@ def _family_creature_small(
             mesh = _build_chest(rng, body_color, belly_color,
                                 detail_color, latch_color)
         else:
-            raise SystemExit(
-                f"creature_small shape '{shape}' not implemented. "
-                f"Known: rat, chest")
+            # Staged shape — config exists but builder not written yet.
+            # Return a placeholder sphere so --all doesn't crash.
+            mesh = sphere(radius=0.08, color=body_color, subdivisions=1)
 
         # Per-variant size drift
         size_drift = 1.0 + variant_spread * (rng.random() * 2.0 - 1.0)
