@@ -39,15 +39,6 @@ uniform float use_vertex_colors : hint_range(0.0, 1.0) = 0.0;
 uniform float taper_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float twist_amount : hint_range(0.0, 1.0) = 0.0;
 
-// -- Light sheet globals (set once, all materials see it) --------------------
-// Banner-style cylinder that drifts through the world. Everything inside
-// its radius gets a flat palette tint — the "bubble rolling by" from Sable.
-// Godot-side drift by default; brain can override via manifest.light_sheet.
-global uniform vec3 light_sheet_center;
-global uniform float light_sheet_radius;
-global uniform vec3 light_sheet_tint;
-global uniform float light_sheet_strength;
-
 varying vec3 world_pos;
 varying float local_y;
 varying vec4 vertex_col;  // smooth interpolation — authored region gradients are intentional
@@ -154,8 +145,6 @@ void fragment() {
 	}
 
 	// Per-object origin — used for banding hashes AND light distance.
-	// Light decisions are per-OBJECT (Sable-style): the entire object
-	// flips between lit and neutral at once. No half-tinted faces.
 	vec3 instance_origin = MODEL_MATRIX[3].xyz;
 
 	// Per-instance horizontal banding — three independent hashes drive band
@@ -190,67 +179,24 @@ void fragment() {
 		}
 	}
 
-	// -- Sable-style palette-shift lighting ----------------------------------
-	// Light doesn't add brightness — it shifts the palette. Everything inside
-	// a light radius becomes monochromatic in the light's tint color, at the
-	// surface's own luminance. Dark faces stay darker than light faces, but
-	// the hue becomes the light's hue. The geometry reads through the tint.
-	//
-	// "if the color naturally renders dark, the lit spot renders a lighter
-	// shade up two spots on the register" — the shift is value-relative:
-	// darks lighten, lights stay. Luminance structure is preserved.
-	//
-	// V1: headlamp only (follows camera). Pipe lights are a follow-up
-	// commit that passes positions as uniforms.
-
-	// Per-OBJECT distance — whole object tints at once, no half-and-half cuts
+	// -- Breathing headlamp — torch-style palette shift ----------------------
+	// Per-OBJECT distance (instance_origin, not world_pos) so the entire
+	// object flips between lit and neutral at once. No half-tinted faces.
+	// Radius oscillates on overlapping noise curves — objects near the
+	// boundary pop in/out of the tint zone. The flicker IS the firelight.
 	float head_dist = distance(instance_origin, CAMERA_POSITION_WORLD);
-	// Torch flicker — radius breathes on overlapping noise curves.
-	// Multiple sine products at different frequencies = irregular organic
-	// flicker. Objects near the boundary pop in and out of the tint zone.
-	// The flicker IS the firelight. No brightness animation needed.
 	float flicker_fast = sin(TIME * 7.3) * sin(TIME * 11.1) * sin(TIME * 3.7);
-	float flicker_breath = sin(TIME * 0.8) * 0.5 + 0.5;  // slow envelope
+	float flicker_breath = sin(TIME * 0.8) * 0.5 + 0.5;
 	float torch_radius = 12.0 + flicker_fast * flicker_breath * 1.8;
 	float head_t = 1.0 - step(torch_radius, head_dist);
 
 	if (head_t > 0.01) {
-		// Surface luminance — preserves the value structure of the geometry
 		float lum = dot(col, vec3(0.299, 0.587, 0.114));
-
-		// Palette shift: darks push up, lights push down, compressing the
-		// value range inside the bubble (flatter, Sable-like). Two "register
-		// steps" ≈ 25% shift toward mid-value.
-		float mid = 0.35;  // target mid-value (cavern ambient)
-		float shifted_lum = mix(lum, mid, 0.4);  // pull toward mid
-
-		// Tint: warm amber headlamp. Monochromatic in the light's hue.
+		float mid = 0.35;
+		float shifted_lum = mix(lum, mid, 0.4);
 		vec3 head_tint = vec3(0.95, 0.80, 0.60);
 		vec3 tinted = head_tint * shifted_lum;
-
-		// Mix: inside the bubble, surface becomes tinted version. Outside,
-		// base color. The mix factor controls tint strength — 0.35 is
-		// subtle enough to read as "lit" without washing out the base palette.
 		col = mix(col, tinted, head_t * 0.35);
-	}
-
-	// -- Light sheet — banner-style palette tint cylinder --------------------
-	// A cylinder drifts through the world. Everything inside its radius
-	// becomes monochromatic in the sheet's tint color at the surface's own
-	// luminance. "Everything in that bubble is just a flat tone."
-	// The sheet IS the light. No Godot lights, no PBR, no shadow maps.
-	float sheet_dist = distance(instance_origin.xz, light_sheet_center.xz);
-	// Hard edge — no gradient at the boundary. Flat in, neutral out.
-	float sheet_t = 1.0 - step(light_sheet_radius, sheet_dist);
-
-	if (sheet_t > 0.01 && light_sheet_strength > 0.01) {
-		float s_lum = dot(col, vec3(0.299, 0.587, 0.114));
-		// Palette flip: darks push up two register steps, lights push down.
-		float s_mid = 0.30;
-		float shifted = mix(s_lum, s_mid, 0.45);
-		// Monochromatic in the sheet's tint at the shifted luminance.
-		vec3 sheet_col = light_sheet_tint * shifted;
-		col = mix(col, sheet_col, sheet_t * light_sheet_strength);
 	}
 
 	ALBEDO = col;
