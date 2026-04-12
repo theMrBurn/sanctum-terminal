@@ -438,6 +438,8 @@ CAVERN_STAMPS = [
             {"kind": "rat_ice", "dx": 2.5, "dy": -1.0, "scale_mult": None, "hard": False},
             {"kind": "rat_fire", "dx": -2.0, "dy": -1.5, "scale_mult": None, "hard": False},
             {"kind": "treasure_chest", "dx": 0.0, "dy": -2.5, "scale_mult": None, "hard": True},
+            {"kind": "clay_pot", "dx": -3.0, "dy": 0.5, "scale_mult": None, "hard": False},
+            {"kind": "clay_pot", "dx": 3.0, "dy": -0.5, "scale_mult": None, "hard": False},
             {"kind": "bone_pile", "dx": 1.0, "dy": 2.0, "scale_mult": None, "hard": False},
             {"kind": "cave_gravel", "dx": -1.5, "dy": -0.5, "scale_mult": None, "hard": False},
         ],

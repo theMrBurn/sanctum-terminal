@@ -1514,12 +1514,31 @@ func _update_atmosphere() -> void:
 # -- Creatures (scurry/crawl behavior) -----------------------------------------
 
 const CREATURE_KINDS := {
-	"rat":             {"speed": 4.0, "flee_radius": 8.0, "size": 0.12, "use_real_mesh": true},
-	"rat_ice":         {"speed": 3.0, "flee_radius": 10.0, "size": 0.12, "use_real_mesh": true},
-	"rat_fire":        {"speed": 5.0, "flee_radius": 6.0, "size": 0.12, "use_real_mesh": true},
-	"treasure_chest":  {"speed": 0.0, "flee_radius": 0.0, "size": 0.20, "use_real_mesh": true},
-	"beetle":          {"speed": 2.0, "flee_radius": 5.0, "size": 0.05, "use_real_mesh": false},
-	"spider":          {"speed": 3.0, "flee_radius": 6.0, "size": 0.06, "use_real_mesh": false},
+	# Atom-cluster creatures — rendered as heptagonal mote arrangements.
+	# The arrangement IS the sprite. Each atom is a flat emissive billboard.
+	# The cluster reads as the creature from distance.
+	"rat":             {"speed": 4.0, "flee_radius": 8.0, "size": 0.12,
+						"mote_arrangement": "rat_15", "mote_color": Color(0.55, 0.42, 0.30),
+						"mote_size": 0.06, "destructible": false},
+	"rat_ice":         {"speed": 3.0, "flee_radius": 10.0, "size": 0.12,
+						"mote_arrangement": "rat_15", "mote_color": Color(0.45, 0.55, 0.75),
+						"mote_size": 0.06, "destructible": false},
+	"rat_fire":        {"speed": 5.0, "flee_radius": 6.0, "size": 0.12,
+						"mote_arrangement": "rat_15", "mote_color": Color(0.75, 0.35, 0.12),
+						"mote_size": 0.06, "destructible": false},
+	"treasure_chest":  {"speed": 0.0, "flee_radius": 0.0, "size": 0.20,
+						"mote_arrangement": "chest_8", "mote_color": Color(0.50, 0.35, 0.18),
+						"mote_size": 0.08, "destructible": false},
+	"clay_pot":        {"speed": 0.0, "flee_radius": 0.0, "size": 0.15,
+						"mote_arrangement": "pot_10", "mote_color": Color(0.60, 0.42, 0.25),
+						"mote_size": 0.05, "destructible": true,
+						"scatter_speed": 3.0, "scatter_gravity": 6.0},
+	"beetle":          {"speed": 2.0, "flee_radius": 5.0, "size": 0.05,
+						"mote_arrangement": "solo", "mote_color": Color(0.08, 0.06, 0.05),
+						"mote_size": 0.03, "destructible": false},
+	"spider":          {"speed": 3.0, "flee_radius": 6.0, "size": 0.06,
+						"mote_arrangement": "solo", "mote_color": Color(0.06, 0.05, 0.04),
+						"mote_size": 0.04, "destructible": false},
 }
 
 var creature_nodes: Array[Dictionary] = []  # {node, home_x, home_z, kind, fleeing}
@@ -1536,37 +1555,41 @@ func _spawn_creatures() -> void:
 		if not CREATURE_KINDS.has(kind):
 			continue
 		var cfg: Dictionary = CREATURE_KINDS[kind]
-		var mi := MeshInstance3D.new()
-		if cfg.get("use_real_mesh", false):
-			# Use the authored GLB mesh from gen_kind_mesh pipeline.
-			# Same mesh loading as _get_mesh_for_kind, same vertex colors,
-			# same ShaderMaterial with use_vertex_colors=true.
-			var real_mesh: Mesh = _get_mesh_for_kind(kind, 0)
-			mi.mesh = real_mesh
-			mi.material_override = _create_kind_material(kind)
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		else:
-			# Legacy placeholder sphere for kinds without real meshes
-			var smesh := SphereMesh.new()
-			smesh.radius = cfg["size"]
-			smesh.height = cfg["size"] * 1.5
-			smesh.radial_segments = 6
-			smesh.rings = 3
-			var cmat := StandardMaterial3D.new()
-			cmat.albedo_color = Color(0.10, 0.08, 0.07)
-			cmat.roughness = 0.9
-			smesh.material = cmat
-			mi.mesh = smesh
-		# Scale from KIND_PROPS
-		var sv: float = ent.get("sv", 1.0)
-		var bounds_key: String = kind if mesh_bounds.has(kind) else kind
-		var orig_scale: float = mesh_bounds.get(bounds_key, {}).get("scale", 1.0) * sv
-		mi.scale = Vector3(orig_scale, orig_scale, orig_scale)
-		mi.position = Vector3(ent.get("x", 0.0), cfg["size"] * 0.5, ent.get("y", 0.0))
-		mi.name = "Creature_%s" % kind
-		add_child(mi)
+
+		# Atom-cluster rendering: each creature is a parent Node3D holding
+		# N heptagonal mote atoms at arrangement offsets. The parent moves
+		# (flee/drift). The atoms ride with it. Destruction = atoms scatter.
+		var parent := Node3D.new()
+		parent.position = Vector3(ent.get("x", 0.0), 0.0, ent.get("y", 0.0))
+		parent.name = "Creature_%s_%d" % [kind, creature_nodes.size()]
+
+		var arrangement_name: String = cfg.get("mote_arrangement", "solo")
+		var offsets: Array = MoteArrangements.get_offsets(arrangement_name)
+		var mote_color: Color = cfg.get("mote_color", Color(0.5, 0.4, 0.3))
+		var mote_size: float = cfg.get("mote_size", 0.05)
+		var atom_nodes: Array[MeshInstance3D] = []
+
+		for offset in offsets:
+			var atom := MeshInstance3D.new()
+			atom.mesh = _build_heptagonal_mote_mesh(mote_size)
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = mote_color
+			mat.emission_enabled = true
+			mat.emission = mote_color
+			mat.emission_energy_multiplier = 1.5
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+			mat.no_depth_test = false
+			atom.set_surface_override_material(0, mat)
+			atom.position = offset
+			parent.add_child(atom)
+			atom_nodes.append(atom)
+
+		add_child(parent)
 		creature_nodes.append({
-			"node": mi,
+			"node": parent,
+			"atom_nodes": atom_nodes,
+			"atom_offsets": offsets.duplicate(),  # formation positions
 			"home_x": ent.get("x", 0.0),
 			"home_z": ent.get("y", 0.0),
 			"kind": kind,
@@ -1574,6 +1597,9 @@ func _spawn_creatures() -> void:
 			"flee_dir_x": 0.0,
 			"flee_dir_z": 0.0,
 			"flee_timer": 0.0,
+			# Destruction state
+			"state": "intact",  # intact | breaking | debris
+			"atom_velocities": [],  # populated on break
 		})
 
 
@@ -1582,27 +1608,92 @@ func _update_creatures(delta: float) -> void:
 		if not is_instance_valid(c["node"]):
 			continue
 		var cfg: Dictionary = CREATURE_KINDS[c["kind"]]
-		var node: MeshInstance3D = c["node"]
+		var node: Node3D = c["node"]
+
+		# -- Destruction state machine -----------------------------------------
+		if c["state"] == "breaking":
+			# Each atom flies away from center with gravity
+			var all_settled: bool = true
+			var atoms: Array = c.get("atom_nodes", [])
+			var vels: Array = c.get("atom_velocities", [])
+			var scatter_grav: float = cfg.get("scatter_gravity", 6.0)
+			for i in range(atoms.size()):
+				if i >= vels.size():
+					break
+				var atom: MeshInstance3D = atoms[i]
+				if not is_instance_valid(atom):
+					continue
+				var vel: Vector3 = vels[i]
+				# Apply gravity
+				vel.y -= scatter_grav * delta
+				vels[i] = vel
+				atom.position += vel * delta
+				# Settle when below ground
+				if atom.position.y <= 0.0:
+					atom.position.y = 0.0
+					vels[i] = Vector3.ZERO
+				else:
+					all_settled = false
+			if all_settled:
+				c["state"] = "debris"
+			continue
+
+		if c["state"] == "debris":
+			# Atoms on the ground — fade out slowly, then free
+			var atoms: Array = c.get("atom_nodes", [])
+			var all_gone: bool = true
+			for atom in atoms:
+				if not is_instance_valid(atom):
+					continue
+				var mat: StandardMaterial3D = atom.get_surface_override_material(0)
+				if mat:
+					mat.albedo_color.a -= delta * 0.3
+					if mat.albedo_color.a <= 0.0:
+						atom.queue_free()
+					else:
+						all_gone = false
+			if all_gone:
+				node.queue_free()
+			continue
+
+		# -- Intact behavior ---------------------------------------------------
 		var dx: float = node.position.x - camera.position.x
 		var dz: float = node.position.z - camera.position.z
 		var dist: float = sqrt(dx * dx + dz * dz)
 
+		# Destructible check: break on proximity (placeholder for cast/hit)
+		if cfg.get("destructible", false) and dist < 2.0 and c["state"] == "intact":
+			c["state"] = "breaking"
+			var atoms: Array = c.get("atom_nodes", [])
+			var vels: Array = []
+			var scatter_spd: float = cfg.get("scatter_speed", 3.0)
+			for atom in atoms:
+				if not is_instance_valid(atom):
+					vels.append(Vector3.ZERO)
+					continue
+				# Scatter direction: outward from entity center + upward
+				var dir := atom.position.normalized()
+				if dir.length() < 0.01:
+					dir = Vector3(randf() - 0.5, 0.5, randf() - 0.5).normalized()
+				dir.y = abs(dir.y) + 0.5  # bias upward
+				vels.append(dir * scatter_spd * (0.7 + randf() * 0.6))
+			c["atom_velocities"] = vels
+			_show_toast("*crack*")
+			continue
+
 		if c["fleeing"]:
-			# Dart away
 			c["flee_timer"] -= delta
 			node.position.x += c["flee_dir_x"] * cfg["speed"] * delta
 			node.position.z += c["flee_dir_z"] * cfg["speed"] * delta
 			if c["flee_timer"] <= 0.0:
 				c["fleeing"] = false
-		elif dist < cfg["flee_radius"]:
-			# Start fleeing — dart away from camera
+		elif dist < cfg["flee_radius"] and cfg["speed"] > 0.0:
 			c["fleeing"] = true
-			c["flee_timer"] = 1.5  # dart for 1.5 seconds
+			c["flee_timer"] = 1.5
 			var flee_len: float = max(dist, 0.1)
 			c["flee_dir_x"] = dx / flee_len
 			c["flee_dir_z"] = dz / flee_len
-		else:
-			# Idle — slowly drift back toward home
+		elif cfg["speed"] > 0.0:
 			var hx: float = c["home_x"] - node.position.x
 			var hz: float = c["home_z"] - node.position.z
 			node.position.x += hx * 0.3 * delta

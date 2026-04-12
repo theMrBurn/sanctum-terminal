@@ -60,6 +60,7 @@ KIND_PROPS = {
     "rat_ice":         {"scale": [1.5, 1.5, 1.5],   "color": [1.00, 1.00, 1.00], "emissive": 0.0},
     "rat_fire":        {"scale": [1.5, 1.5, 1.5],   "color": [1.00, 1.00, 1.00], "emissive": 0.0},
     "treasure_chest":  {"scale": [2.0, 2.0, 2.0],   "color": [1.00, 1.00, 1.00], "emissive": 0.0},
+    "clay_pot":        {"scale": [1.0, 1.0, 1.0],    "color": [0.60, 0.42, 0.25], "emissive": 0.0},
     "spider":          {"scale": [0.05, 0.05, 0.03],"color": [0.08, 0.07, 0.06], "emissive": 0.0},
     "ceiling_moss":    {"scale": [3.0, 3.0, 2.5],  "color": [0.35, 0.45, 0.18], "emissive": 0.9},
     "hanging_vine":    {"scale": [0.8, 0.8, 4.0],  "color": [0.10, 0.16, 0.07], "emissive": 0.0},

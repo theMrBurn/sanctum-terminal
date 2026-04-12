@@ -33,6 +33,12 @@ static func get_offsets(name: String) -> Array:
 			return _ground_hug_4()
 		"stream_vert_5":
 			return _stream_vert_5()
+		"rat_15":
+			return _rat_15()
+		"pot_10":
+			return _pot_10()
+		"chest_8":
+			return _chest_8()
 		_:
 			return _solo()  # safe fallback
 
@@ -112,4 +118,73 @@ static func _stream_vert_5() -> Array:
 		Vector3(-0.03, 0.00, 0.04),
 		Vector3(0.02, -0.40, -0.01),
 		Vector3(-0.02, -0.80, 0.03),
+	]
+
+
+# rat_15: creature silhouette from 15 atoms — body cluster, head,
+# ears, tail chain. Reads as "rat" from 5m. Each atom is a flat
+# heptagonal disc; the cluster suggests the shape. The rat is NOT
+# destructible — it flees. This arrangement is the intact formation.
+static func _rat_15() -> Array:
+	return [
+		# Body cluster — 6 atoms in a fat oval
+		Vector3( 0.00, 0.06, 0.00),   # body center
+		Vector3( 0.06, 0.06, 0.02),   # body front-top
+		Vector3(-0.06, 0.06, 0.02),   # body rear-top
+		Vector3( 0.05, 0.04, -0.03),  # body front-low
+		Vector3(-0.05, 0.04, -0.03),  # body rear-low
+		Vector3( 0.00, 0.08, 0.00),   # body top (spine)
+		# Head — 2 atoms
+		Vector3( 0.12, 0.07, 0.01),   # head center
+		Vector3( 0.15, 0.06, 0.00),   # snout
+		# Ears — 2 small atoms high
+		Vector3( 0.11, 0.10, 0.03),   # left ear
+		Vector3( 0.11, 0.10, -0.03),  # right ear
+		# Tail — 3 atoms trailing back
+		Vector3(-0.10, 0.05, 0.00),   # tail base
+		Vector3(-0.15, 0.04, 0.00),   # tail mid
+		Vector3(-0.19, 0.03, 0.00),   # tail tip
+		# Legs — 2 ground-level atoms (suggest 4 legs as pairs)
+		Vector3( 0.04, 0.01, 0.00),   # front legs
+		Vector3(-0.04, 0.01, 0.00),   # back legs
+	]
+
+
+# pot_10: clay pot / urn — round vessel shape. THE DESTRUCTIBLE TEST
+# FIXTURE. 10 atoms in a ring+cap arrangement. On break: ring atoms
+# scatter outward, cap atoms fly up, base atoms drop. Universal RPG
+# destructible. Simple enough to tune scatter physics on.
+static func _pot_10() -> Array:
+	return [
+		# Rim ring — 5 atoms in a circle at the top opening
+		Vector3( 0.08, 0.14, 0.00),
+		Vector3( 0.025, 0.14, 0.076),
+		Vector3(-0.065, 0.14, 0.047),
+		Vector3(-0.065, 0.14, -0.047),
+		Vector3( 0.025, 0.14, -0.076),
+		# Body ring — 4 atoms wider, at the belly
+		Vector3( 0.10, 0.07, 0.00),
+		Vector3( 0.00, 0.07, 0.10),
+		Vector3(-0.10, 0.07, 0.00),
+		Vector3( 0.00, 0.07, -0.10),
+		# Base — 1 atom at the bottom center
+		Vector3( 0.00, 0.02, 0.00),
+	]
+
+
+# chest_8: treasure chest — box shape with lid atoms that separate.
+# On break: lid atoms flip up, body atoms split sideways, latch drops.
+static func _chest_8() -> Array:
+	return [
+		# Body — 4 atoms in a rectangle
+		Vector3(-0.08, 0.04, -0.05),
+		Vector3( 0.08, 0.04, -0.05),
+		Vector3(-0.08, 0.04,  0.05),
+		Vector3( 0.08, 0.04,  0.05),
+		# Lid — 3 atoms on top
+		Vector3(-0.08, 0.10, 0.00),
+		Vector3( 0.00, 0.11, 0.00),
+		Vector3( 0.08, 0.10, 0.00),
+		# Latch — 1 bright atom on front
+		Vector3( 0.00, 0.07, 0.06),
 	]
