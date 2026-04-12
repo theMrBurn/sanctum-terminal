@@ -1030,15 +1030,46 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 	# Config-driven material from kind_config.json
 	var mat: Material = _create_kind_material(kind)
 
-	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	mmi.name = "Kind_%s_v%d" % [kind, variant]
-	mmi.material_override = mat
-	add_child(mmi)
-	kind_nodes["Kind_%s_v%d" % [kind, variant]] = mmi
+	# CRITICAL RENDERING SPLIT: MultiMesh with use_colors=true replaces
+	# the mesh's per-vertex COLOR_0 stream with per-instance color. Kinds
+	# with authored vertex colors (toadstool, boulder, buttress, etc.) lose
+	# their entire palette. There's no way around this in Godot 4's MultiMesh.
+	#
+	# Fix: vertex-color kinds render as individual MeshInstance3D nodes.
+	# The MultiMesh was still used above to compute all transforms (burial,
+	# per-axis scale, heading, etc.) — we just extract the transforms and
+	# create individual meshes instead of one MultiMeshInstance3D. This
+	# reuses 100% of the transform logic with zero duplication.
+	#
+	# Cost: ~25 extra draw calls (~6 buttress + 8 boulder + 6 monolith +
+	# 3 spore_pod + 1 toadstool + 1 doorframe) on top of ~55 existing.
+	# At 208fps / 7-14× headroom, trivially affordable.
+	var node_key: String = "Kind_%s_v%d" % [kind, variant]
+	var uses_vertex_colors: bool = bool(kind_params_for_mm.get("use_vertex_colors", false))
 
-	# Hull outlines removed — created ground seam artifacts. Per-material facet
-	# edges + rim light handle object definition. Outlines need proper solution later.
+	if uses_vertex_colors:
+		# Individual MeshInstance3D per entity — vertex colors flow through
+		# COLOR naturally without MultiMesh overriding them.
+		var parent := Node3D.new()
+		parent.name = node_key
+		for i in range(mm.instance_count):
+			var mi := MeshInstance3D.new()
+			mi.mesh = base_mesh
+			mi.transform = mm.get_instance_transform(i)
+			mi.material_override = mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			parent.add_child(mi)
+		add_child(parent)
+		kind_nodes[node_key] = parent
+	else:
+		# Standard MultiMesh path — facet-palette kinds render via instance
+		# color + 3-color shader. Efficient batching, no vertex colors needed.
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.name = node_key
+		mmi.material_override = mat
+		add_child(mmi)
+		kind_nodes[node_key] = mmi
 
 
 var toast_label: Label
