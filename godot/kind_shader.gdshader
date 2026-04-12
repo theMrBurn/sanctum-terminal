@@ -179,23 +179,16 @@ void fragment() {
 		}
 	}
 
-	// -- Breathing headlamp — torch-style palette shift ----------------------
-	// Per-OBJECT distance (instance_origin, not world_pos) so the entire
-	// object flips between lit and neutral at once. No half-tinted faces.
-	// Radius oscillates on overlapping noise curves — objects near the
-	// boundary pop in/out of the tint zone. The flicker IS the firelight.
+	// -- Headlamp — Sable palette shift around camera -----------------------
+	// Per-OBJECT distance so the entire object flips at once. Hard step,
+	// fixed radius, no flicker. Clean tint bubble.
 	float head_dist = distance(instance_origin, CAMERA_POSITION_WORLD);
-	float flicker_fast = sin(TIME * 7.3) * sin(TIME * 11.1) * sin(TIME * 3.7);
-	float flicker_breath = sin(TIME * 0.8) * 0.5 + 0.5;
-	float torch_radius = 12.0 + flicker_fast * flicker_breath * 1.8;
-	float head_t = 1.0 - step(torch_radius, head_dist);
+	float head_t = 1.0 - step(12.0, head_dist);
 
 	if (head_t > 0.01) {
 		float lum = dot(col, vec3(0.299, 0.587, 0.114));
-		float mid = 0.35;
-		float shifted_lum = mix(lum, mid, 0.4);
-		vec3 head_tint = vec3(0.95, 0.80, 0.60);
-		vec3 tinted = head_tint * shifted_lum;
+		float shifted_lum = mix(lum, 0.35, 0.4);
+		vec3 tinted = vec3(0.95, 0.80, 0.60) * shifted_lum;
 		col = mix(col, tinted, head_t * 0.35);
 	}
 
