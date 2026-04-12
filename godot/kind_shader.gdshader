@@ -179,11 +179,14 @@ void fragment() {
 		}
 	}
 
-	// -- Headlamp — Sable palette shift around camera -----------------------
-	// Per-OBJECT distance so the entire object flips at once. Hard step,
-	// fixed radius, no flicker. Clean tint bubble.
+	// -- Headlamp — Sable palette wash around camera -------------------------
+	// Per-OBJECT distance (instance_origin) so the entire object is ONE
+	// tint level per frame — no gradient across faces. The smoothstep
+	// transition means objects WASH between tinted and neutral over ~4m
+	// of walking distance (~1s at walk speed). Not a pop, not a per-pixel
+	// gradient. A slow tilt across the scene as the boundary moves.
 	float head_dist = distance(instance_origin, CAMERA_POSITION_WORLD);
-	float head_t = 1.0 - step(12.0, head_dist);
+	float head_t = 1.0 - smoothstep(10.0, 14.0, head_dist);
 
 	if (head_t > 0.01) {
 		float lum = dot(col, vec3(0.299, 0.587, 0.114));
