@@ -552,3 +552,102 @@ class TestSatisfactionAndExitActivation:
         assert result["accepted"] is False
         # No new satisfied message
         assert engine.messages_emitted.count("satisfied") == satisfied_count_before
+
+
+# -- commit 5 — walk-through + log writer ------------------------------------
+
+
+class TestWalkThrough:
+    """Tests 15-16 — walk-through completes the expedition."""
+
+    def test_walk_through_when_inactive_is_noop(self, engine, tmp_path):
+        engine.on_session_start(t=0.0)
+        # Exit hasn't activated yet
+        result = engine.on_walk_through(t=1.0, sessions_dir=tmp_path)
+        assert result["resolution"] == "exit_inactive"
+        assert result["quit_godot"] is False
+        assert engine.state == ExpeditionState.ACTIVE
+
+    def test_walk_through_completes_expedition(self, engine, tmp_path):
+        _deposit_n_tags(engine, 3)
+        assert engine.state == ExpeditionState.RESOLUTION
+        result = engine.on_walk_through(t=200.0, sessions_dir=tmp_path)
+        assert result["resolution"] == "complete"
+        assert result["quit_godot"] is True
+        assert engine.state == ExpeditionState.COMPLETE
+
+    def test_complete_message_emits_on_walk_through(self, engine, tmp_path):
+        _deposit_n_tags(engine, 3)
+        engine.on_walk_through(t=200.0, sessions_dir=tmp_path)
+        assert "complete" in engine.messages_emitted
+
+    def test_walk_through_sets_completed_at(self, engine, tmp_path):
+        _deposit_n_tags(engine, 3)
+        engine.on_walk_through(t=200.0, sessions_dir=tmp_path)
+        assert engine.completed_at == 200.0
+
+
+class TestSessionLog:
+    """Tests 17-19 — session log shape and content."""
+
+    def test_session_log_written_on_complete(self, engine, tmp_path):
+        _deposit_n_tags(engine, 3)
+        result = engine.on_walk_through(t=200.0, sessions_dir=tmp_path)
+        log_path = result["log_path"]
+        assert log_path is not None
+        from pathlib import Path
+        assert Path(log_path).exists()
+
+    def test_session_log_contains_full_tag_history(self, engine, tmp_path):
+        _deposit_n_tags(engine, 3)
+        result = engine.on_walk_through(t=200.0, sessions_dir=tmp_path)
+        from pathlib import Path
+        import json as _json
+        payload = _json.loads(Path(result["log_path"]).read_text())
+        assert len(payload["tag_log"]) == 3
+        assert [t["tag_id"] for t in payload["tag_log"]] == [1, 2, 3]
+
+    def test_session_log_records_metadata(self, engine, tmp_path):
+        _deposit_n_tags(engine, 3)
+        result = engine.on_walk_through(t=200.0, sessions_dir=tmp_path)
+        from pathlib import Path
+        import json as _json
+        payload = _json.loads(Path(result["log_path"]).read_text())
+        assert payload["class_id"] == "anomaly_hunt"
+        assert payload["biome"] == "cavern"
+        assert payload["final_state"] == "complete"
+        # 1 deposit point, satisfied
+        assert len(payload["deposit_points"]) == 1
+        dp = payload["deposit_points"][0]
+        assert dp["id"] == "axis_mundi"
+        assert dp["kind"] == "mega_column"
+        assert dp["satisfied"] is True
+        assert dp["deposited_tag_ids"] == [1, 2, 3]
+
+    def test_session_log_captures_message_trail(self, engine, tmp_path):
+        _deposit_n_tags(engine, 3)
+        result = engine.on_walk_through(t=200.0, sessions_dir=tmp_path)
+        from pathlib import Path
+        import json as _json
+        payload = _json.loads(Path(result["log_path"]).read_text())
+        # messages_emitted was cleared by _deposit_n_tags to isolate
+        # milestone testing, so we only see first_tag + satisfied +
+        # complete (not spawn).
+        assert "first_tag" in payload["messages_emitted"]
+        assert "satisfied" in payload["messages_emitted"]
+        assert "complete" in payload["messages_emitted"]
+
+    def test_session_log_records_duration(self, engine, tmp_path):
+        engine.on_session_start(t=100.0)
+        engine.messages_emitted.clear()
+        engine.pending_message_key = None
+        for i in range(1, 4):
+            engine.on_tag_event(_make_tag(i, "neutral"), t=float(i + 100))
+            engine.on_deposit_intent("axis_mundi", i, t=float(i + 110))
+        result = engine.on_walk_through(t=500.0, sessions_dir=tmp_path)
+        from pathlib import Path
+        import json as _json
+        payload = _json.loads(Path(result["log_path"]).read_text())
+        assert payload["started_at"] == 100.0
+        assert payload["completed_at"] == 500.0
+        assert payload["duration_s"] == 400.0

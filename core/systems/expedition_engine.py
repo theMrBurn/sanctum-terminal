@@ -412,30 +412,124 @@ class ExpeditionEngine:
             "deposit": self._deposit_snapshot(dpt),
         }
 
-    # -- placeholders for later commits --------------------------------------
+    # -- walk-through + session log ------------------------------------------
 
     def on_walk_through(
         self,
         t: float,
         sessions_dir: Path,
     ) -> dict:
-        raise NotImplementedError("walk-through lands in commit 5")
+        """Player walked through the active exit point. Finalize,
+        write the session log, return the resolution payload for
+        the brain to ack to Godot.
+
+        If the exit point is not active (player walked through the
+        arch before all deposits were satisfied), no-op with a
+        clear payload — the arch just doesn't do anything yet.
+        """
+        if self.exit_point is None:
+            return {
+                "resolution": "no_exit",
+                "quit_godot": False,
+                "log_path": None,
+            }
+        if not self.exit_point.active:
+            return self.on_walk_through_inactive(t)
+
+        # Finalize
+        self.state = ExpeditionState.COMPLETE
+        self.completed_at = t
+        self._queue_message("complete")
+
+        # Write log
+        on_complete = self.class_def.get("on_complete", {})
+        log_path: Path | None = None
+        if on_complete.get("write_session_log", False):
+            log_path = self.write_session_log(sessions_dir, t)
+
+        # Forbidden-for-v1 resolution actions: raise loudly if a
+        # future recipe set one without engine support.
+        for forbidden in ("write_scout_report", "write_journal_entry"):
+            if on_complete.get(forbidden, False):
+                raise NotImplementedError(
+                    f"on_complete.{forbidden} is declared by the recipe "
+                    f"but the engine does not implement it yet")
+
+        return {
+            "resolution": "complete",
+            "quit_godot": bool(on_complete.get("quit_godot", False)),
+            "log_path": str(log_path) if log_path is not None else None,
+        }
 
     def on_walk_through_inactive(self, t: float) -> dict:
-        raise NotImplementedError("walk-through lands in commit 5")
-
-    def snapshot(self) -> dict:
-        raise NotImplementedError("snapshot lands in commit 6")
-
-    def consume_message(self) -> None:
-        raise NotImplementedError("snapshot lands in commit 6")
+        """Exit is not yet active. No state change, no log write,
+        just a courtesy payload."""
+        return {
+            "resolution": "exit_inactive",
+            "quit_godot": False,
+            "log_path": None,
+        }
 
     def write_session_log(
         self,
         sessions_dir: Path,
         t: float,
     ) -> Path:
-        raise NotImplementedError("log writer lands in commit 5")
+        """Dump the full expedition record as JSON. This file is
+        what I read post-mortem to correlate tags, screenshots,
+        and perf telemetry."""
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d_%H%M%S", time.localtime(t))
+        log_path = sessions_dir / f"expedition_{ts}.json"
+
+        payload: dict = {
+            "class_id": self.class_id,
+            "biome": self.biome,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "duration_s": (
+                (self.completed_at or t) - (self.started_at or t)
+            ),
+            "final_state": self.state.value,
+            "resolved_messages": dict(self.resolved_messages),
+            "deposit_points": [
+                {
+                    "id": d.id,
+                    "kind": d.kind,
+                    "pos": list(d.pos),
+                    "accepts": list(d.accepts),
+                    "current": d.current,
+                    "threshold": d.threshold,
+                    "satisfied": d.satisfied,
+                    "deposited_tag_ids": list(d.deposited_tag_ids),
+                }
+                for d in self.deposit_points
+            ],
+            "exit_point": (
+                {
+                    "id": self.exit_point.id,
+                    "kind": self.exit_point.kind,
+                    "pos": list(self.exit_point.pos),
+                    "trigger_radius": self.exit_point.trigger_radius,
+                    "active": self.exit_point.active,
+                }
+                if self.exit_point is not None else None
+            ),
+            "tag_log": list(self.tag_log),
+            "messages_emitted": list(self.messages_emitted),
+        }
+
+        with log_path.open("w") as f:
+            json.dump(payload, f, indent=2)
+        return log_path
+
+    # -- snapshot (commit 6) -------------------------------------------------
+
+    def snapshot(self) -> dict:
+        raise NotImplementedError("snapshot lands in commit 6")
+
+    def consume_message(self) -> None:
+        raise NotImplementedError("snapshot lands in commit 6")
 
     # -- internal helpers -----------------------------------------------------
 
