@@ -1087,7 +1087,7 @@ func _show_toast(msg: String) -> void:
 
 func _setup_hud() -> void:
 	var overlay_cfg: Dictionary = kind_config.get("_global", {}).get("screenshot_overlay", {})
-	var font_size: int = overlay_cfg.get("font_size", 14)
+	var font_size: int = overlay_cfg.get("font_size", 24)
 	var color_arr: Array = overlay_cfg.get("color", [0.7, 0.65, 0.55, 1.0])
 	var text_color := Color(color_arr[0], color_arr[1], color_arr[2], color_arr[3] if color_arr.size() > 3 else 1.0)
 	hud_label = Label.new()
@@ -1575,9 +1575,9 @@ func _spawn_creatures() -> void:
 		var mote_color: Color = cfg.get("mote_color", Color(0.5, 0.4, 0.3))
 		var mote_size: float = cfg.get("mote_size", 0.05) * 3.0  # DEBUG: 3x scale for visibility
 		var atom_nodes: Array[MeshInstance3D] = []
-		print("CREATURE SPAWN: %s at (%s, %s) scale=%s atoms=%d" % [
+		print("CREATURE SPAWN: %s at (%s, %s) scale=%s atoms=%d mote_size=%s" % [
 			kind, str(ent.get("x", 0)), str(ent.get("y", 0)),
-			str(creature_scale), offsets.size()])
+			str(creature_scale), offsets.size(), str(mote_size)])
 
 		for offset in offsets:
 			var atom := MeshInstance3D.new()
@@ -1596,6 +1596,8 @@ func _spawn_creatures() -> void:
 			atom_nodes.append(atom)
 
 		add_child(parent)
+		print("  -> added %d atoms, parent at %s scale %s" % [
+			atom_nodes.size(), str(parent.position), str(parent.scale)])
 		creature_nodes.append({
 			"node": parent,
 			"atom_nodes": atom_nodes,
@@ -1611,6 +1613,9 @@ func _spawn_creatures() -> void:
 			"state": "intact",  # intact | breaking | debris
 			"atom_velocities": [],  # populated on break
 		})
+	if creature_nodes.size() > 0:
+		_show_toast("SPAWNED %d creatures" % creature_nodes.size())
+		print("=== TOTAL CREATURES SPAWNED: %d ===" % creature_nodes.size())
 
 
 func _update_creatures(delta: float) -> void:
