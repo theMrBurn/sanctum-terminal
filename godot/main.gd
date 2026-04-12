@@ -1560,7 +1560,9 @@ func _spawn_creatures() -> void:
 		# N heptagonal mote atoms at arrangement offsets. The parent moves
 		# (flee/drift). The atoms ride with it. Destruction = atoms scatter.
 		var parent := Node3D.new()
-		parent.position = Vector3(ent.get("x", 0.0), 0.0, ent.get("y", 0.0))
+		# Creatures hover at waist height (1.0m) so they read against the
+		# dark ground. These are ghost sprite atoms, not physical meshes.
+		parent.position = Vector3(ent.get("x", 0.0), 1.0, ent.get("y", 0.0))
 		parent.name = "Creature_%s_%d" % [kind, creature_nodes.size()]
 
 		# Scale from KIND_PROPS — makes the atom cluster visible at game distance.
