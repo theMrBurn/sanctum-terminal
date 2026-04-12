@@ -2748,6 +2748,10 @@ func _input(event: InputEvent) -> void:
 				if connected:
 					var msg := JSON.stringify({"cmd": "tension_advance"}) + "\n"
 					tcp.put_data(msg.to_utf8_buffer())
+			KEY_F5:  # teleport to hub spawn — re-experience the arrival
+				camera.position = Vector3(0.0, EYE_HEIGHT, -14.0)
+				camera.rotation_degrees = Vector3(-8.0, 180.0, 0.0)
+				_show_toast("Returned to spawn")
 
 
 func _unhandled_input(event: InputEvent) -> void:
