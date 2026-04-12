@@ -1519,19 +1519,19 @@ const CREATURE_KINDS := {
 	# The cluster reads as the creature from distance.
 	"rat":             {"speed": 4.0, "flee_radius": 8.0, "size": 0.12,
 						"mote_arrangement": "rat_15", "mote_color": Color(0.55, 0.42, 0.30),
-						"mote_size": 0.06, "destructible": false},
+						"mote_size": 0.15, "destructible": false},
 	"rat_ice":         {"speed": 3.0, "flee_radius": 10.0, "size": 0.12,
 						"mote_arrangement": "rat_15", "mote_color": Color(0.45, 0.55, 0.75),
-						"mote_size": 0.06, "destructible": false},
+						"mote_size": 0.15, "destructible": false},
 	"rat_fire":        {"speed": 5.0, "flee_radius": 6.0, "size": 0.12,
 						"mote_arrangement": "rat_15", "mote_color": Color(0.75, 0.35, 0.12),
-						"mote_size": 0.06, "destructible": false},
+						"mote_size": 0.15, "destructible": false},
 	"treasure_chest":  {"speed": 0.0, "flee_radius": 0.0, "size": 0.20,
 						"mote_arrangement": "chest_8", "mote_color": Color(0.50, 0.35, 0.18),
-						"mote_size": 0.08, "destructible": false},
+						"mote_size": 0.20, "destructible": false},
 	"clay_pot":        {"speed": 0.0, "flee_radius": 0.0, "size": 0.15,
 						"mote_arrangement": "pot_10", "mote_color": Color(0.60, 0.42, 0.25),
-						"mote_size": 0.05, "destructible": true,
+						"mote_size": 0.15, "destructible": true,
 						"scatter_speed": 3.0, "scatter_gravity": 6.0},
 	"beetle":          {"speed": 2.0, "flee_radius": 5.0, "size": 0.05,
 						"mote_arrangement": "solo", "mote_color": Color(0.08, 0.06, 0.05),
@@ -1562,6 +1562,11 @@ func _spawn_creatures() -> void:
 		var parent := Node3D.new()
 		parent.position = Vector3(ent.get("x", 0.0), 0.0, ent.get("y", 0.0))
 		parent.name = "Creature_%s_%d" % [kind, creature_nodes.size()]
+
+		# Scale from KIND_PROPS — makes the atom cluster visible at game distance.
+		# Without this the arrangements are ~0.3m across (fist-sized, invisible).
+		var creature_scale: float = ent.get("sx", 1.0)
+		parent.scale = Vector3(creature_scale, creature_scale, creature_scale)
 
 		var arrangement_name: String = cfg.get("mote_arrangement", "solo")
 		var offsets: Array = MoteArrangements.get_offsets(arrangement_name)
