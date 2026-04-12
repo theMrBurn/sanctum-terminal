@@ -562,7 +562,7 @@ class ExpeditionEngine:
                 }
                 if self.exit_point is not None else None
             ),
-            "last_message": self.pending_message_key,
+            "last_message": self.pending_message_key or "",
             "last_message_text": (
                 self.resolved_messages.get(self.pending_message_key, "")
                 if self.pending_message_key is not None else ""

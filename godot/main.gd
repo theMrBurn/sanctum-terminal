@@ -1751,10 +1751,13 @@ func _on_expedition_manifest_field(enc: Dictionary) -> void:
 
 	# Toast on message transitions. Brain clears last_message after
 	# each send via engine.consume_message(), so we only see a given
-	# key once.
-	var msg_key: String = enc.get("last_message", "")
+	# key once. Guard: JSON null → GDScript null, not String — must
+	# coerce before assigning to typed String var.
+	var msg_key_raw = enc.get("last_message")
+	var msg_key: String = msg_key_raw if msg_key_raw is String else ""
 	if msg_key != "" and msg_key != expedition_last_message:
-		var msg_text: String = enc.get("last_message_text", "")
+		var msg_text_raw = enc.get("last_message_text")
+		var msg_text: String = msg_text_raw if msg_text_raw is String else ""
 		if msg_text != "":
 			_show_toast(msg_text)
 		expedition_last_message = msg_key
@@ -1818,12 +1821,17 @@ func _check_expedition_proximity() -> void:
 	var cam_pos: Vector3 = camera.global_transform.origin
 
 	# Deposit points ——————————————————————————————————————
-	for d_raw in expedition_cache.get("deposit_points", []):
+	var dp_arr = expedition_cache.get("deposit_points")
+	if dp_arr == null or not (dp_arr is Array):
+		return
+	for d_raw in dp_arr:
+		if not (d_raw is Dictionary):
+			continue
 		var d: Dictionary = d_raw
 		if d.get("satisfied", false):
 			continue
-		var pos_arr: Array = d.get("pos", [0.0, 0.0, 0.0])
-		if pos_arr.size() < 2:
+		var pos_arr = d.get("pos")
+		if pos_arr == null or not (pos_arr is Array) or pos_arr.size() < 2:
 			continue
 		# Manifest positions are (x, y, z) where x/y are world plane
 		# and z is up. Godot is (x_plane, y_up, z_plane) so map

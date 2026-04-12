@@ -921,12 +921,7 @@ def run_server(biome_name, port=9877):
                 # recipe-specific knowledge — it reads
                 # manifest['expedition'] and draws generically.
                 #
-                # Diagnostic gate: set SANCTUM_EXPEDITION=0 to disable
-                # the manifest field (engine still runs brain-side, but
-                # Godot doesn't see it). Isolates expedition-side
-                # crashes from rendering crashes.
-                expedition_visible = os.environ.get("SANCTUM_EXPEDITION", "1") != "0"
-                if expedition is not None and expedition_visible:
+                if expedition is not None:
                     manifest["expedition"] = expedition.snapshot()
 
                 wake_ids = frozenset(

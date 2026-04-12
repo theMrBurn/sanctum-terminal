@@ -748,7 +748,7 @@ class TestSnapshotMessages:
         assert engine.snapshot()["last_message"] == "spawn"
         engine.consume_message()
         snap = engine.snapshot()
-        assert snap["last_message"] is None
+        assert snap["last_message"] == ""
         assert snap["last_message_text"] == ""
 
     def test_snapshot_is_pure_read(self, engine):
