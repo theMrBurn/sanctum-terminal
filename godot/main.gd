@@ -21,6 +21,8 @@ const CEILING_PLANE_Y_DEFAULT: float = 15.0
 var active_ceiling_y: float = CEILING_PLANE_Y_DEFAULT
 
 var camera: Camera3D
+var iso_camera: Camera3D
+var iso_mode: bool = false
 var env_node: WorldEnvironment
 var godot_env: Environment
 var manifest: Dictionary
@@ -387,6 +389,19 @@ func _setup_camera() -> void:
 	armor_glow.shadow_enabled = false
 	armor_glow.position = Vector3(0.0, -1.2, 0.0)  # waist height below camera
 	camera.add_child(armor_glow)
+
+	# Iso dev camera — isometric projection for variant inspection.
+	# Toggle via F6. Looks down at 45° from NW, ortho projection,
+	# covers a ~40m area. Same scene, different lens. Zero render changes.
+	iso_camera = Camera3D.new()
+	iso_camera.name = "IsoCamera"
+	iso_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	iso_camera.size = 40.0  # ortho view covers 40m vertically
+	iso_camera.far = 200.0
+	iso_camera.near = 0.1
+	# True isometric angle: atan(1/sqrt(2)) ≈ 35.264° down, 45° rotated
+	iso_camera.rotation_degrees = Vector3(-35.264, 45.0, 0.0)
+	add_child(iso_camera)
 
 
 func _aim_spawn_heading() -> void:
@@ -2752,6 +2767,16 @@ func _input(event: InputEvent) -> void:
 				camera.position = Vector3(0.0, EYE_HEIGHT, -14.0)
 				camera.rotation_degrees = Vector3(-8.0, 180.0, 0.0)
 				_show_toast("Returned to spawn")
+			KEY_F6:  # toggle iso dev camera
+				iso_mode = not iso_mode
+				if iso_mode:
+					# Position iso camera above the player camera
+					iso_camera.position = camera.position + Vector3(30.0, 40.0, 30.0)
+					iso_camera.current = true
+					_show_toast("ISO camera")
+				else:
+					camera.current = true
+					_show_toast("FP camera")
 
 
 func _unhandled_input(event: InputEvent) -> void:
