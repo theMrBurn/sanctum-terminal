@@ -2,6 +2,34 @@
 > Unreliable narrator. The live hash is the particle trail.
 
 ---
+SESSION ARC (2026-04-11 ~23:00 → 2026-04-12 ~00:30, ~1.5h active, ~53h cumulative arc):
+
+Pick up from 7ba9532 on feat/render-manifest. Sandbox — do NOT merge
+to main. SANCTUM_SESSION.md is allowed to drift — treat the manifest
+as an unreliable narrator. This hash is the particle trail.
+
+Twenty-five commits. Opened with the buttress hunt, closed with the
+expedition engine + vertex color pipeline fix + Sable-style lighting.
+
+THE WARM-TAN MYSTERY: solved. It was always the buttress. Godot 4
+MultiMesh replaces mesh vertex colors — no workaround. Vertex-color
+kinds now render as individual MeshInstance3D. sRGB→linear pow(2.2)
+in shader. Authored palettes reach pixels for the first time.
+
+EXPEDITION ENGINE: ANOMALY_HUNT class, biome-agnostic schema with
+symbolic anchors, full loop end-to-end (tag → deposit → portal →
+quit → session log). Two successful completions. 69/69 tests.
+
+SABLE LIGHT: per-object step(), warm amber tint at 12m. Proved the
+rules: never smoothstep, never per-fragment, never animate radius,
+one layer at a time. Torch flicker, light sheet, motes, cycling,
+banner tinting — all tried, all killed. The identity is "lit or not."
+
+NEXT: atmospheric layers one at a time from this clean baseline.
+Dust motes first (smallest, gust-synced). Then crystal sconces.
+Then palette tuning. Always one variable, always screenshot between.
+
+---
 SESSION ARC (2026-04-10 ~09:30 → 11:15, ~1.75h active, ~47h cumulative arc):
 
 The morning-after triage. Picked up from 7d926fc on feat/render-manifest
