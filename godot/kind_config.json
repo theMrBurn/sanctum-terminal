@@ -30,15 +30,15 @@
       "organic_soft": {
         "albedo": "res://stone_128.png",
         "normal": "res://world_grain_normal.png",
-        "grain_scale": 0.40,
-        "grain_strength": 0.50,
+        "grain_scale": 0.4,
+        "grain_strength": 0.5,
         "normal_strength": 1.2
       },
       "mineral_fine": {
         "albedo": "res://noise_64.png",
         "normal": "res://world_grain_normal.png",
-        "grain_scale": 0.10,
-        "grain_strength": 0.20,
+        "grain_scale": 0.1,
+        "grain_strength": 0.2,
         "normal_strength": 0.2
       }
     },
@@ -46,10 +46,14 @@
       "mode": 2,
       "thickness": 2.5,
       "edge_threshold": 0.015,
-      "line_color": [0.85, 0.80, 0.75],
-      "line_opacity": 0.90,
+      "line_color": [
+        0.85,
+        0.8,
+        0.75
+      ],
+      "line_opacity": 0.9,
       "gap_frequency": 12.0,
-      "gap_width": 0.30,
+      "gap_width": 0.3,
       "depth_weight": 1.2,
       "normal_weight": 1.5,
       "lum_weight": 0.3
@@ -60,14 +64,19 @@
       "bloom_intensity": 0.8,
       "bloom_threshold": 0.4,
       "ssao_intensity": 2.0,
-      "desaturation": 0.50,
+      "desaturation": 0.5,
       "contrast": 1.1
     },
     "screenshot_overlay": {
       "enabled": true,
       "font_size": 16,
       "position": "top_left",
-      "color": [1.0, 1.0, 1.0, 0.85],
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        0.85
+      ],
       "background": true,
       "separator": " | ",
       "fields": [
@@ -87,351 +96,1373 @@
   },
   "_class_defaults": {
     "geological": {
-      "color_base":   [0.30, 0.27, 0.23],
-      "color_shadow": [0.26, 0.23, 0.19],
-      "color_accent": [0.34, 0.30, 0.25],
+      "color_base": [
+        0.3,
+        0.27,
+        0.23
+      ],
+      "color_shadow": [
+        0.26,
+        0.23,
+        0.19
+      ],
+      "color_accent": [
+        0.34,
+        0.3,
+        0.25
+      ],
       "light_reactive": false,
       "band_strength": 0.18,
       "wind_strength": 0.0,
       "ghost_chance": 0.33,
       "use_vertex_colors": false,
-      "contact": {"radius": 3.0, "darkness": 0.4},
+      "contact": {
+        "radius": 3.0,
+        "darkness": 0.4
+      },
       "sink": -0.15,
       "scale_override": null
     },
     "structural": {
-      "color_base":   [0.25, 0.22, 0.19],
-      "color_shadow": [0.21, 0.18, 0.16],
-      "color_accent": [0.29, 0.25, 0.22],
+      "color_base": [
+        0.25,
+        0.22,
+        0.19
+      ],
+      "color_shadow": [
+        0.21,
+        0.18,
+        0.16
+      ],
+      "color_accent": [
+        0.29,
+        0.25,
+        0.22
+      ],
       "light_reactive": false,
       "band_strength": 0.22,
       "wind_strength": 0.0,
       "ghost_chance": 0.0,
       "use_vertex_colors": false,
       "taper_strength": 0.35,
-      "twist_amount": 0.20,
-      "contact": {"radius": 6.0, "darkness": 0.5},
+      "twist_amount": 0.2,
+      "contact": {
+        "radius": 6.0,
+        "darkness": 0.5
+      },
       "sink": -0.3,
-      "scale_override": {"x": 2.2, "y": 1.0, "z": 2.2}
+      "scale_override": {
+        "x": 2.2,
+        "y": 1.0,
+        "z": 2.2
+      }
     },
     "crystalline": {
-      "color_base":   [0.42, 0.44, 0.56],
-      "color_shadow": [0.32, 0.34, 0.44],
-      "color_accent": [0.52, 0.54, 0.66],
+      "color_base": [
+        0.42,
+        0.44,
+        0.56
+      ],
+      "color_shadow": [
+        0.32,
+        0.34,
+        0.44
+      ],
+      "color_accent": [
+        0.52,
+        0.54,
+        0.66
+      ],
       "light_reactive": true,
-      "band_strength": 0.10,
+      "band_strength": 0.1,
       "wind_strength": 0.0,
       "ghost_chance": 0.0,
       "use_vertex_colors": false,
-      "contact": {"radius": 4.0, "darkness": 0.3},
+      "contact": {
+        "radius": 4.0,
+        "darkness": 0.3
+      },
       "sink": -0.05,
       "scale_override": null
     },
     "organic_flora": {
-      "color_base":   [0.28, 0.26, 0.30],
-      "color_shadow": [0.22, 0.20, 0.25],
-      "color_accent": [0.34, 0.32, 0.36],
+      "color_base": [
+        0.28,
+        0.26,
+        0.3
+      ],
+      "color_shadow": [
+        0.22,
+        0.2,
+        0.25
+      ],
+      "color_accent": [
+        0.34,
+        0.32,
+        0.36
+      ],
       "light_reactive": false,
       "band_strength": 0.0,
       "wind_strength": 0.03,
       "ghost_chance": 0.0,
       "use_vertex_colors": false,
-      "contact": {"radius": 1.5, "darkness": 0.2},
+      "contact": {
+        "radius": 1.5,
+        "darkness": 0.2
+      },
       "sink": -0.05,
       "scale_override": null
     },
     "atmosphere": {
-      "color_base":   [0.24, 0.26, 0.20],
-      "color_shadow": [0.20, 0.22, 0.17],
-      "color_accent": [0.28, 0.30, 0.24],
+      "color_base": [
+        0.24,
+        0.26,
+        0.2
+      ],
+      "color_shadow": [
+        0.2,
+        0.22,
+        0.17
+      ],
+      "color_accent": [
+        0.28,
+        0.3,
+        0.24
+      ],
       "light_reactive": false,
       "band_strength": 0.0,
       "wind_strength": 0.05,
       "ghost_chance": 0.0,
       "use_vertex_colors": false,
-      "contact": {"radius": 0.0, "darkness": 0.0},
+      "contact": {
+        "radius": 0.0,
+        "darkness": 0.0
+      },
       "sink": 0.0,
       "scale_override": null
     },
     "life": {
-      "color_base":   [0.22, 0.19, 0.16],
-      "color_shadow": [0.18, 0.16, 0.14],
-      "color_accent": [0.26, 0.23, 0.20],
+      "color_base": [
+        0.22,
+        0.19,
+        0.16
+      ],
+      "color_shadow": [
+        0.18,
+        0.16,
+        0.14
+      ],
+      "color_accent": [
+        0.26,
+        0.23,
+        0.2
+      ],
       "light_reactive": false,
       "band_strength": 0.0,
       "wind_strength": 0.0,
       "ghost_chance": 0.0,
       "use_vertex_colors": false,
-      "contact": {"radius": 0.0, "darkness": 0.0},
+      "contact": {
+        "radius": 0.0,
+        "darkness": 0.0
+      },
       "sink": 0.0,
       "scale_override": null
     },
     "horizon": {
-      "color_base":   [0.18, 0.17, 0.16],
-      "color_shadow": [0.15, 0.15, 0.14],
-      "color_accent": [0.20, 0.19, 0.18],
+      "color_base": [
+        0.18,
+        0.17,
+        0.16
+      ],
+      "color_shadow": [
+        0.15,
+        0.15,
+        0.14
+      ],
+      "color_accent": [
+        0.2,
+        0.19,
+        0.18
+      ],
       "light_reactive": false,
       "band_strength": 0.0,
       "wind_strength": 0.0,
       "ghost_chance": 0.0,
       "use_vertex_colors": false,
-      "contact": {"radius": 0.0, "darkness": 0.0},
+      "contact": {
+        "radius": 0.0,
+        "darkness": 0.0
+      },
       "sink": 0.0,
       "scale_override": null
     }
   },
-
   "kinds": {
-    "boulder":         {"class": "geological",
+    "boulder": {
+      "class": "geological",
       "use_vertex_colors": true,
-      "color_base": [0.30, 0.26, 0.22], "color_shadow": [0.26, 0.22, 0.18], "color_accent": [0.34, 0.29, 0.24],
-      "burial": {"min_frac": 0.25, "max_frac": 0.65, "min_above_ground": 0.8},
+      "color_base": [
+        0.3,
+        0.26,
+        0.22
+      ],
+      "color_shadow": [
+        0.26,
+        0.22,
+        0.18
+      ],
+      "color_accent": [
+        0.34,
+        0.29,
+        0.24
+      ],
+      "burial": {
+        "min_frac": 0.25,
+        "max_frac": 0.65,
+        "min_above_ground": 0.8
+      },
       "recipe": {
-        "tier": 1, "family": "rock_lobed", "builder": "legacy",
-        "variant_count": 4, "bounds": [1.21, 1.18, 0.78], "variant_spread": 0.10,
-        "apron": null,
-        "atoms": null,
-        "family_params": {"lobe_count": 3, "noise_strength": 0.35, "moss_grade_upper": true}
-      }},
-    "stalagmite":      {"class": "geological",
-      "color_base": [0.33, 0.28, 0.23], "color_shadow": [0.29, 0.24, 0.19], "color_accent": [0.37, 0.32, 0.26],
-      "taper_strength": 0.30, "twist_amount": 0.15,
-      "burial": {"min_frac": 0.10, "max_frac": 0.20, "min_above_ground": 0.6}},
-    "rubble":          {"class": "geological",
-      "use_vertex_colors": true,
-      "color_base": [0.37, 0.33, 0.28], "color_shadow": [0.33, 0.29, 0.24], "color_accent": [0.41, 0.37, 0.31],
-      "burial": {"min_frac": 0.30, "max_frac": 0.55, "min_above_ground": 0.3},
-      "recipe": {
-        "tier": 2, "family": "rock_lobed",
-        "variant_count": 4, "bounds": [1.0, 1.0, 0.5], "variant_spread": 0.35,
+        "tier": 1,
+        "family": "rock_lobed",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          1.21,
+          1.18,
+          0.78
+        ],
+        "variant_spread": 0.1,
         "apron": null,
         "atoms": null,
         "family_params": {
-          "lobe_count": 4, "spread_radius": 1.0, "flatness": 0.65,
-          "noise_strength": 0.22, "elongation": 1.0
+          "lobe_count": 3,
+          "noise_strength": 0.35,
+          "moss_grade_upper": true
         }
-      }},
-    "cave_gravel":     {"class": "geological",
+      }
+    },
+    "stalagmite": {
+      "class": "geological",
+      "color_base": [
+        0.33,
+        0.28,
+        0.23
+      ],
+      "color_shadow": [
+        0.29,
+        0.24,
+        0.19
+      ],
+      "color_accent": [
+        0.37,
+        0.32,
+        0.26
+      ],
+      "taper_strength": 0.3,
+      "twist_amount": 0.15,
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.2,
+        "min_above_ground": 0.6
+      }
+    },
+    "rubble": {
+      "class": "geological",
       "use_vertex_colors": true,
-      "color_base": [0.39, 0.36, 0.31], "color_shadow": [0.35, 0.32, 0.27], "color_accent": [0.43, 0.40, 0.35],
+      "color_base": [
+        0.37,
+        0.33,
+        0.28
+      ],
+      "color_shadow": [
+        0.33,
+        0.29,
+        0.24
+      ],
+      "color_accent": [
+        0.41,
+        0.37,
+        0.31
+      ],
+      "burial": {
+        "min_frac": 0.3,
+        "max_frac": 0.55,
+        "min_above_ground": 0.3
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "rock_lobed",
+        "variant_count": 4,
+        "bounds": [
+          1.0,
+          1.0,
+          0.5
+        ],
+        "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "lobe_count": 4,
+          "spread_radius": 1.0,
+          "flatness": 0.65,
+          "noise_strength": 0.22,
+          "elongation": 1.0
+        }
+      }
+    },
+    "cave_gravel": {
+      "class": "geological",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.39,
+        0.36,
+        0.31
+      ],
+      "color_shadow": [
+        0.35,
+        0.32,
+        0.27
+      ],
+      "color_accent": [
+        0.43,
+        0.4,
+        0.35
+      ],
       "sink": -0.02,
       "recipe": {
-        "tier": 2, "family": "rock_lobed",
-        "variant_count": 4, "bounds": [0.24, 0.24, 0.08], "variant_spread": 0.40,
+        "tier": 2,
+        "family": "rock_lobed",
+        "variant_count": 4,
+        "bounds": [
+          0.24,
+          0.24,
+          0.08
+        ],
+        "variant_spread": 0.4,
         "apron": null,
         "atoms": null,
         "family_params": {
-          "lobe_count": 2, "spread_radius": 0.6, "flatness": 0.5,
-          "noise_strength": 0.18, "elongation": 1.0
+          "lobe_count": 2,
+          "spread_radius": 0.6,
+          "flatness": 0.5,
+          "noise_strength": 0.18,
+          "elongation": 1.0
         }
-      }},
-
-    "mega_column":     {"class": "structural",
-      "color_base": [0.22, 0.19, 0.17], "color_shadow": [0.18, 0.16, 0.14], "color_accent": [0.26, 0.23, 0.20],
-      "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0}},
-    "column":          {"class": "structural",
-      "color_base": [0.26, 0.23, 0.20], "color_shadow": [0.22, 0.19, 0.17], "color_accent": [0.30, 0.26, 0.23],
-      "burial": {"min_frac": 0.30, "max_frac": 0.50, "min_above_ground": 4.0}},
-    "buttress":        {"class": "structural",
+      }
+    },
+    "mega_column": {
+      "class": "structural",
+      "color_base": [
+        0.22,
+        0.19,
+        0.17
+      ],
+      "color_shadow": [
+        0.18,
+        0.16,
+        0.14
+      ],
+      "color_accent": [
+        0.26,
+        0.23,
+        0.2
+      ],
+      "burial": {
+        "min_frac": 0.3,
+        "max_frac": 0.5,
+        "min_above_ground": 4.0
+      }
+    },
+    "column": {
+      "class": "structural",
+      "color_base": [
+        0.26,
+        0.23,
+        0.2
+      ],
+      "color_shadow": [
+        0.22,
+        0.19,
+        0.17
+      ],
+      "color_accent": [
+        0.3,
+        0.26,
+        0.23
+      ],
+      "burial": {
+        "min_frac": 0.3,
+        "max_frac": 0.5,
+        "min_above_ground": 4.0
+      }
+    },
+    "buttress": {
+      "class": "structural",
       "use_vertex_colors": true,
-      "color_base": [0.22, 0.25, 0.32], "color_shadow": [0.16, 0.19, 0.26], "color_accent": [0.30, 0.34, 0.42],
-      "burial": {"min_frac": 0.25, "max_frac": 0.55, "min_above_ground": 2.5},
+      "color_base": [
+        0.22,
+        0.25,
+        0.32
+      ],
+      "color_shadow": [
+        0.16,
+        0.19,
+        0.26
+      ],
+      "color_accent": [
+        0.3,
+        0.34,
+        0.42
+      ],
+      "burial": {
+        "min_frac": 0.25,
+        "max_frac": 0.55,
+        "min_above_ground": 2.5
+      },
       "recipe": {
-        "tier": 1, "family": "tapered_vertical",
-        "variant_count": 4, "bounds": [2.5, 2.5, 6.0], "variant_spread": 0.25,
+        "tier": 1,
+        "family": "tapered_vertical",
+        "variant_count": 4,
+        "bounds": [
+          2.5,
+          2.5,
+          6.0
+        ],
+        "variant_spread": 0.25,
         "apron": null,
-        "atoms": {"pattern": "chain_5", "count": 5, "size": 0.13, "palette": "cream"},
-        "family_params": {
-          "taper_strength": 0.40, "flare_ratio": 1.8, "flare_frac": 0.35,
-          "noise_strength": 0.10, "facet_count": 9, "ring_count": 7,
-          "accent_ring_y": 0.714, "accent_ring_width": 0.06,
-          "accent_ring_color": [0.48, 0.52, 0.60]
-        }
-      }},
-
-    "crystal_cluster": {"class": "crystalline", "light_reactive": true,
-      "use_vertex_colors": true,
-      "color_base": [0.20, 0.22, 0.34], "color_shadow": [0.14, 0.16, 0.26], "color_accent": [0.28, 0.30, 0.42],
-      "burial": {"min_frac": 0.10, "max_frac": 0.25},
-      "recipe": {
-        "tier": 1, "family": "crystal_spike",
-        "variant_count": 4, "bounds": [4.8, 3.5, 5.0], "variant_spread": 0.20,
-        "apron": null,
-        "atoms": {"pattern": "lattice_7", "count": 3, "size": 0.10, "palette": "cream"},
-        "family_params": {
-          "main_spires": 3, "satellite_spires": 4,
-          "spire_facets": 6, "spire_rings": 5,
-          "noise_strength": 0.03, "lean_angle_deg": 15.0
+        "atoms": {
+          "pattern": "chain_5",
+          "count": 5,
+          "size": 0.13,
+          "palette": "cream"
         },
-        "camouflage": {"fungal_pair_target": "crystal_cap", "rule": "shape_not_color"}
-      }},
-    "filament":        {"class": "crystalline", "light_reactive": true,
-      "color_base": [0.48, 0.46, 0.56], "color_shadow": [0.38, 0.36, 0.44], "color_accent": [0.55, 0.53, 0.64],
-      "burial": {"min_frac": 0.05, "max_frac": 0.15}},
-    "exit_lure":       {"class": "crystalline", "light_reactive": true,
-      "color_base": [0.50, 0.48, 0.44], "color_shadow": [0.40, 0.38, 0.34], "color_accent": [0.58, 0.56, 0.52]},
-
-    "giant_fungus":    {"class": "organic_flora",
-      "use_vertex_colors": true,
-      "color_base": [0.22, 0.20, 0.22], "color_shadow": [0.17, 0.16, 0.18], "color_accent": [0.26, 0.24, 0.27],
-      "color_cap": [0.50, 0.20, 0.60],
-      "burial": {"min_frac": 0.10, "max_frac": 0.25},
-      "recipe": {
-        "tier": 1, "family": "flora_composed",
-        "variant_count": 4, "bounds": [2.5, 2.5, 4.5], "variant_spread": 0.25,
-        "apron": null,
-        "atoms": {"pattern": "cap_ring_7", "count": 7, "size": 0.18, "palette": "cream"},
         "family_params": {
-          "stem_height_frac": 0.65, "stem_radius_frac": 0.35,
-          "cap_radius_frac": 0.75, "cap_height_frac": 0.40,
-          "stem_taper": 0.15, "stem_flare": 1.4, "noise_strength": 0.06
+          "taper_strength": 0.4,
+          "flare_ratio": 1.8,
+          "flare_frac": 0.35,
+          "noise_strength": 0.1,
+          "facet_count": 9,
+          "ring_count": 7,
+          "accent_ring_y": 0.714,
+          "accent_ring_width": 0.06,
+          "accent_ring_color": [
+            0.48,
+            0.52,
+            0.6
+          ]
         }
-      }},
-    "toadstool":       {"class": "organic_flora",
+      }
+    },
+    "crystal_cluster": {
+      "class": "crystalline",
+      "light_reactive": true,
+      "use_vertex_colors": true,
+      "color_base": [
+        0.2,
+        0.22,
+        0.34
+      ],
+      "color_shadow": [
+        0.14,
+        0.16,
+        0.26
+      ],
+      "color_accent": [
+        0.28,
+        0.3,
+        0.42
+      ],
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.25
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "crystal_spike",
+        "variant_count": 4,
+        "bounds": [
+          4.8,
+          3.5,
+          5.0
+        ],
+        "variant_spread": 0.2,
+        "apron": null,
+        "atoms": {
+          "pattern": "lattice_7",
+          "count": 3,
+          "size": 0.1,
+          "palette": "cream"
+        },
+        "family_params": {
+          "main_spires": 3,
+          "satellite_spires": 4,
+          "spire_facets": 6,
+          "spire_rings": 5,
+          "noise_strength": 0.03,
+          "lean_angle_deg": 15.0
+        },
+        "camouflage": {
+          "fungal_pair_target": "crystal_cap",
+          "rule": "shape_not_color"
+        }
+      }
+    },
+    "filament": {
+      "class": "crystalline",
+      "light_reactive": true,
+      "color_base": [
+        0.48,
+        0.46,
+        0.56
+      ],
+      "color_shadow": [
+        0.38,
+        0.36,
+        0.44
+      ],
+      "color_accent": [
+        0.55,
+        0.53,
+        0.64
+      ],
+      "burial": {
+        "min_frac": 0.05,
+        "max_frac": 0.15
+      }
+    },
+    "exit_lure": {
+      "class": "crystalline",
+      "light_reactive": true,
+      "color_base": [
+        0.5,
+        0.48,
+        0.44
+      ],
+      "color_shadow": [
+        0.4,
+        0.38,
+        0.34
+      ],
+      "color_accent": [
+        0.58,
+        0.56,
+        0.52
+      ]
+    },
+    "giant_fungus": {
+      "class": "organic_flora",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.22,
+        0.2,
+        0.22
+      ],
+      "color_shadow": [
+        0.17,
+        0.16,
+        0.18
+      ],
+      "color_accent": [
+        0.26,
+        0.24,
+        0.27
+      ],
+      "color_cap": [
+        0.5,
+        0.2,
+        0.6
+      ],
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.25
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "flora_composed",
+        "variant_count": 4,
+        "bounds": [
+          2.5,
+          2.5,
+          4.5
+        ],
+        "variant_spread": 0.25,
+        "apron": null,
+        "atoms": {
+          "pattern": "cap_ring_7",
+          "count": 7,
+          "size": 0.18,
+          "palette": "cream"
+        },
+        "family_params": {
+          "stem_height_frac": 0.65,
+          "stem_radius_frac": 0.35,
+          "cap_radius_frac": 0.75,
+          "cap_height_frac": 0.4,
+          "stem_taper": 0.15,
+          "stem_flare": 1.4,
+          "noise_strength": 0.06
+        }
+      }
+    },
+    "toadstool": {
+      "class": "organic_flora",
       "use_vertex_colors": true,
       "wind_strength": 0.02,
-      "burial": {"min_frac": 0.05, "max_frac": 0.15, "min_above_ground": 4.0},
+      "burial": {
+        "min_frac": 0.05,
+        "max_frac": 0.15,
+        "min_above_ground": 4.0
+      },
       "recipe": {
-        "tier": 1, "family": "flora_composed", "builder": "legacy",
-        "variant_count": 4, "bounds": [2.16, 2.16, 2.20], "variant_spread": 0.15,
+        "tier": 1,
+        "family": "flora_composed",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          2.16,
+          2.16,
+          2.2
+        ],
+        "variant_spread": 0.15,
         "apron": null,
-        "atoms": {"pattern": "cap_scatter", "count": 7, "size": 0.15, "palette": "cream"},
-        "family_params": {"cap_height_frac": 0.5, "stem_taper": 0.3, "has_ring": true, "has_gill_shadow": true}
-      }},
-    "spore_pod":       {"class": "organic_flora",
+        "atoms": {
+          "pattern": "cap_scatter",
+          "count": 7,
+          "size": 0.15,
+          "palette": "cream"
+        },
+        "family_params": {
+          "cap_height_frac": 0.5,
+          "stem_taper": 0.3,
+          "has_ring": true,
+          "has_gill_shadow": true
+        }
+      }
+    },
+    "spore_pod": {
+      "class": "organic_flora",
       "use_vertex_colors": true,
       "wind_strength": 0.0,
-      "burial": {"min_frac": 0.10, "max_frac": 0.25, "min_above_ground": 0.5},
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.25,
+        "min_above_ground": 0.5
+      },
       "recipe": {
-        "tier": 1, "family": "puffball_cluster", "builder": "legacy",
-        "variant_count": 4, "bounds": [1.22, 1.11, 0.33], "variant_spread": 0.30,
+        "tier": 1,
+        "family": "puffball_cluster",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          1.22,
+          1.11,
+          0.33
+        ],
+        "variant_spread": 0.3,
         "apron": null,
-        "atoms": {"pattern": "cream_warts", "count": 7, "size": 0.08, "palette": "cream"},
-        "family_params": {"puffball_count": 3, "scale_spread": 2.5, "body_z_gradient": true},
-        "camouflage": {"grammar_host": "boulder", "rule": "shape_not_color"}
-      }},
-    "doorframe":       {"class": "structural",
+        "atoms": {
+          "pattern": "cream_warts",
+          "count": 7,
+          "size": 0.08,
+          "palette": "cream"
+        },
+        "family_params": {
+          "puffball_count": 3,
+          "scale_spread": 2.5,
+          "body_z_gradient": true
+        },
+        "camouflage": {
+          "grammar_host": "boulder",
+          "rule": "shape_not_color"
+        }
+      }
+    },
+    "doorframe": {
+      "class": "structural",
       "use_vertex_colors": true,
       "band_strength": 0.0,
       "taper_strength": 0.0,
       "twist_amount": 0.0,
       "scale_override": null,
-      "burial": {"min_frac": 0.05, "max_frac": 0.15, "min_above_ground": 2.5},
+      "burial": {
+        "min_frac": 0.05,
+        "max_frac": 0.15,
+        "min_above_ground": 2.5
+      },
       "recipe": {
-        "tier": 1, "family": "posts_and_lintel", "builder": "legacy",
-        "variant_count": 4, "bounds": [3.9, 1.01, 4.0], "variant_spread": 0.25,
+        "tier": 1,
+        "family": "posts_and_lintel",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          3.9,
+          1.01,
+          4.0
+        ],
+        "variant_spread": 0.25,
         "apron": null,
-        "atoms": {"pattern": "lintel_runes", "count": 7, "size": 0.15, "palette": "cream"},
-        "family_params": {"post_count": 2, "has_lintel": true, "plinth_height_frac": 0.1}
-      }},
-    "monolith":        {"class": "structural",
+        "atoms": {
+          "pattern": "lintel_runes",
+          "count": 7,
+          "size": 0.15,
+          "palette": "cream"
+        },
+        "family_params": {
+          "post_count": 2,
+          "has_lintel": true,
+          "plinth_height_frac": 0.1
+        }
+      }
+    },
+    "monolith": {
+      "class": "structural",
       "use_vertex_colors": true,
       "band_strength": 0.0,
       "taper_strength": 0.0,
       "twist_amount": 0.0,
       "scale_override": null,
-      "burial": {"min_frac": 0.10, "max_frac": 0.25, "min_above_ground": 3.0},
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.25,
+        "min_above_ground": 3.0
+      },
       "recipe": {
-        "tier": 1, "family": "tapered_obelisk", "builder": "legacy",
-        "variant_count": 4, "bounds": [1.4, 0.7, 4.05], "variant_spread": 0.25,
+        "tier": 1,
+        "family": "tapered_obelisk",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          1.4,
+          0.7,
+          4.05
+        ],
+        "variant_spread": 0.25,
         "apron": null,
-        "atoms": {"pattern": "body_glyphs", "count": 7, "size": 0.12, "palette": "cream"},
-        "family_params": {"taper_strength": 0.2, "has_cap": false}
-      }},
-    "moss_patch":      {"class": "organic_flora",
+        "atoms": {
+          "pattern": "body_glyphs",
+          "count": 7,
+          "size": 0.12,
+          "palette": "cream"
+        },
+        "family_params": {
+          "taper_strength": 0.2,
+          "has_cap": false
+        }
+      }
+    },
+    "moss_patch": {
+      "class": "organic_flora",
       "use_vertex_colors": true,
-      "color_base": [0.18, 0.34, 0.22], "color_shadow": [0.14, 0.28, 0.17], "color_accent": [0.22, 0.40, 0.26],
-      "light_reactive": true, "sink": -0.03,
-      "burial": {"min_frac": 0.15, "max_frac": 0.30},
+      "color_base": [
+        0.18,
+        0.34,
+        0.22
+      ],
+      "color_shadow": [
+        0.14,
+        0.28,
+        0.17
+      ],
+      "color_accent": [
+        0.22,
+        0.4,
+        0.26
+      ],
+      "light_reactive": true,
+      "sink": -0.03,
+      "burial": {
+        "min_frac": 0.15,
+        "max_frac": 0.3
+      },
       "recipe": {
-        "tier": 2, "family": "scatter_tissue",
-        "variant_count": 4, "bounds": [2.0, 2.0, 0.12], "variant_spread": 0.30,
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          2.0,
+          2.0,
+          0.12
+        ],
+        "variant_spread": 0.3,
         "apron": null,
         "atoms": null,
         "family_params": {
-          "cross_count": 22, "cross_planes": 2,
-          "cross_width_frac": 0.025, "dome_flatness": 0.95, "lean_jitter_deg": 30.0
+          "cross_count": 22,
+          "cross_planes": 2,
+          "cross_width_frac": 0.025,
+          "dome_flatness": 0.95,
+          "lean_jitter_deg": 30.0
         }
-      }},
-    "grass_tuft":      {"class": "organic_flora",
+      }
+    },
+    "grass_tuft": {
+      "class": "organic_flora",
       "use_vertex_colors": true,
-      "color_base": [0.24, 0.30, 0.22], "color_shadow": [0.19, 0.24, 0.17], "color_accent": [0.28, 0.35, 0.26],
+      "color_base": [
+        0.24,
+        0.3,
+        0.22
+      ],
+      "color_shadow": [
+        0.19,
+        0.24,
+        0.17
+      ],
+      "color_accent": [
+        0.28,
+        0.35,
+        0.26
+      ],
       "wind_strength": 0.05,
       "recipe": {
-        "tier": 2, "family": "scatter_tissue",
-        "variant_count": 4, "bounds": [1.2, 1.2, 0.35], "variant_spread": 0.30,
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          1.2,
+          1.2,
+          0.35
+        ],
+        "variant_spread": 0.3,
         "apron": null,
         "atoms": null,
         "family_params": {
-          "cross_count": 18, "cross_planes": 2,
-          "cross_width_frac": 0.015, "dome_flatness": 0.5, "lean_jitter_deg": 12.0
+          "cross_count": 18,
+          "cross_planes": 2,
+          "cross_width_frac": 0.015,
+          "dome_flatness": 0.5,
+          "lean_jitter_deg": 12.0
         }
-      }},
-    "dead_log":        {"class": "organic_flora",
-      "color_base": [0.24, 0.20, 0.22], "color_shadow": [0.20, 0.16, 0.18], "color_accent": [0.28, 0.24, 0.26],
-      "burial": {"min_frac": 0.15, "max_frac": 0.35}},
-    "leaf_pile":       {"class": "organic_flora",
+      }
+    },
+    "dead_log": {
+      "class": "organic_flora",
+      "color_base": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "color_shadow": [
+        0.2,
+        0.16,
+        0.18
+      ],
+      "color_accent": [
+        0.28,
+        0.24,
+        0.26
+      ],
+      "burial": {
+        "min_frac": 0.15,
+        "max_frac": 0.35
+      }
+    },
+    "leaf_pile": {
+      "class": "organic_flora",
       "use_vertex_colors": true,
-      "color_base": [0.34, 0.28, 0.24], "color_shadow": [0.28, 0.22, 0.19], "color_accent": [0.40, 0.34, 0.30],
+      "color_base": [
+        0.34,
+        0.28,
+        0.24
+      ],
+      "color_shadow": [
+        0.28,
+        0.22,
+        0.19
+      ],
+      "color_accent": [
+        0.4,
+        0.34,
+        0.3
+      ],
       "sink": -0.02,
       "recipe": {
-        "tier": 2, "family": "scatter_tissue",
-        "variant_count": 4, "bounds": [0.8, 0.8, 0.15], "variant_spread": 0.35,
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          0.8,
+          0.8,
+          0.15
+        ],
+        "variant_spread": 0.35,
         "apron": null,
         "atoms": null,
         "family_params": {
-          "cross_count": 14, "cross_planes": 2,
-          "cross_width_frac": 0.04, "dome_flatness": 0.90, "lean_jitter_deg": 45.0
+          "cross_count": 14,
+          "cross_planes": 2,
+          "cross_width_frac": 0.04,
+          "dome_flatness": 0.9,
+          "lean_jitter_deg": 45.0
         }
-      }},
-    "twig_scatter":    {"class": "organic_flora",
+      }
+    },
+    "twig_scatter": {
+      "class": "organic_flora",
       "use_vertex_colors": true,
-      "color_base": [0.30, 0.26, 0.28], "color_shadow": [0.24, 0.20, 0.22], "color_accent": [0.36, 0.32, 0.34],
+      "color_base": [
+        0.3,
+        0.26,
+        0.28
+      ],
+      "color_shadow": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "color_accent": [
+        0.36,
+        0.32,
+        0.34
+      ],
       "sink": -0.01,
       "recipe": {
-        "tier": 2, "family": "scatter_tissue",
-        "variant_count": 4, "bounds": [1.5, 1.5, 0.12], "variant_spread": 0.35,
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          1.5,
+          1.5,
+          0.12
+        ],
+        "variant_spread": 0.35,
         "apron": null,
         "atoms": null,
         "family_params": {
-          "cross_count": 10, "cross_planes": 2,
-          "cross_width_frac": 0.03, "dome_flatness": 0.95, "lean_jitter_deg": 60.0
+          "cross_count": 10,
+          "cross_planes": 2,
+          "cross_width_frac": 0.03,
+          "dome_flatness": 0.95,
+          "lean_jitter_deg": 60.0
         }
-      }},
-    "bone_pile":       {"class": "organic_flora",
+      }
+    },
+    "bone_pile": {
+      "class": "organic_flora",
       "use_vertex_colors": true,
-      "color_base": [0.42, 0.40, 0.44], "color_shadow": [0.36, 0.34, 0.38], "color_accent": [0.48, 0.46, 0.50],
-      "burial": {"min_frac": 0.20, "max_frac": 0.45, "min_above_ground": 0.5},
+      "color_base": [
+        0.42,
+        0.4,
+        0.44
+      ],
+      "color_shadow": [
+        0.36,
+        0.34,
+        0.38
+      ],
+      "color_accent": [
+        0.48,
+        0.46,
+        0.5
+      ],
+      "burial": {
+        "min_frac": 0.2,
+        "max_frac": 0.45,
+        "min_above_ground": 0.5
+      },
       "recipe": {
-        "tier": 2, "family": "rock_lobed",
-        "variant_count": 4, "bounds": [1.0, 1.0, 0.32], "variant_spread": 0.35,
+        "tier": 2,
+        "family": "rock_lobed",
+        "variant_count": 4,
+        "bounds": [
+          1.0,
+          1.0,
+          0.32
+        ],
+        "variant_spread": 0.35,
         "apron": null,
         "atoms": null,
         "family_params": {
-          "lobe_count": 3, "spread_radius": 0.9, "flatness": 0.4,
-          "noise_strength": 0.12, "elongation": 1.8
+          "lobe_count": 3,
+          "spread_radius": 0.9,
+          "flatness": 0.4,
+          "noise_strength": 0.12,
+          "elongation": 1.8
         }
-      }},
-
-    "ceiling_moss":    {"class": "atmosphere",
-      "color_base": [0.26, 0.30, 0.22], "color_shadow": [0.20, 0.25, 0.17], "color_accent": [0.30, 0.36, 0.26],
-      "light_reactive": true},
-    "hanging_vine":    {"class": "atmosphere",
-      "color_base": [0.22, 0.28, 0.26], "color_shadow": [0.17, 0.22, 0.20], "color_accent": [0.26, 0.34, 0.32]},
-
-    "firefly":         {"class": "life", "light_reactive": true,
-      "color_base": [0.52, 0.48, 0.35], "color_shadow": [0.48, 0.44, 0.31], "color_accent": [0.56, 0.52, 0.39]},
-    "leaf":            {"class": "life",
-      "color_base": [0.38, 0.36, 0.27], "color_shadow": [0.34, 0.32, 0.23], "color_accent": [0.42, 0.40, 0.31]},
-    "beetle":          {"class": "life",
-      "color_base": [0.20, 0.17, 0.15], "color_shadow": [0.17, 0.15, 0.13], "color_accent": [0.24, 0.21, 0.19]},
-    "rat":             {"class": "life",
-      "color_base": [0.22, 0.19, 0.16], "color_shadow": [0.18, 0.16, 0.14], "color_accent": [0.26, 0.23, 0.20]},
-    "spider":          {"class": "life",
-      "color_base": [0.19, 0.17, 0.15], "color_shadow": [0.16, 0.15, 0.13], "color_accent": [0.23, 0.21, 0.19]},
-
-    "horizon_form":    {"class": "horizon"},
-    "horizon_mid":     {"class": "horizon"},
-    "horizon_near":    {"class": "horizon"}
+      }
+    },
+    "ceiling_moss": {
+      "class": "atmosphere",
+      "color_base": [
+        0.26,
+        0.3,
+        0.22
+      ],
+      "color_shadow": [
+        0.2,
+        0.25,
+        0.17
+      ],
+      "color_accent": [
+        0.3,
+        0.36,
+        0.26
+      ],
+      "light_reactive": true
+    },
+    "hanging_vine": {
+      "class": "atmosphere",
+      "color_base": [
+        0.22,
+        0.28,
+        0.26
+      ],
+      "color_shadow": [
+        0.17,
+        0.22,
+        0.2
+      ],
+      "color_accent": [
+        0.26,
+        0.34,
+        0.32
+      ]
+    },
+    "firefly": {
+      "class": "life",
+      "light_reactive": true,
+      "color_base": [
+        0.52,
+        0.48,
+        0.35
+      ],
+      "color_shadow": [
+        0.48,
+        0.44,
+        0.31
+      ],
+      "color_accent": [
+        0.56,
+        0.52,
+        0.39
+      ]
+    },
+    "leaf": {
+      "class": "life",
+      "color_base": [
+        0.38,
+        0.36,
+        0.27
+      ],
+      "color_shadow": [
+        0.34,
+        0.32,
+        0.23
+      ],
+      "color_accent": [
+        0.42,
+        0.4,
+        0.31
+      ]
+    },
+    "beetle": {
+      "class": "life",
+      "color_base": [
+        0.2,
+        0.17,
+        0.15
+      ],
+      "color_shadow": [
+        0.17,
+        0.15,
+        0.13
+      ],
+      "color_accent": [
+        0.24,
+        0.21,
+        0.19
+      ]
+    },
+    "rat": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.37,
+        0.31,
+        0.25
+      ],
+      "color_shadow": [
+        0.28,
+        0.22,
+        0.18
+      ],
+      "color_accent": [
+        0.47,
+        0.39,
+        0.34
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.19,
+          0.1,
+          0.08
+        ],
+        "variant_spread": 0.15,
+        "family_params": {
+          "shape": "rat",
+          "ear_color": [
+            0.55,
+            0.39,
+            0.37
+          ],
+          "tail_color": [
+            0.51,
+            0.39,
+            0.35
+          ],
+          "eye_color": [
+            0.08,
+            0.06,
+            0.05
+          ]
+        }
+      }
+    },
+    "spider": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.19,
+        0.17,
+        0.15
+      ],
+      "color_shadow": [
+        0.12,
+        0.1,
+        0.09
+      ],
+      "color_accent": [
+        0.28,
+        0.25,
+        0.22
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.12,
+          0.12,
+          0.05
+        ],
+        "variant_spread": 0.2,
+        "family_params": {
+          "shape": "spider"
+        }
+      }
+    },
+    "horizon_form": {
+      "class": "horizon"
+    },
+    "horizon_mid": {
+      "class": "horizon"
+    },
+    "horizon_near": {
+      "class": "horizon"
+    },
+    "rat_ice": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.55,
+        0.65,
+        0.8
+      ],
+      "color_shadow": [
+        0.4,
+        0.5,
+        0.68
+      ],
+      "color_accent": [
+        0.7,
+        0.78,
+        0.9
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.19,
+          0.1,
+          0.08
+        ],
+        "variant_spread": 0.15,
+        "family_params": {
+          "shape": "rat",
+          "ear_color": [
+            0.65,
+            0.7,
+            0.85
+          ],
+          "tail_color": [
+            0.58,
+            0.65,
+            0.8
+          ],
+          "eye_color": [
+            0.15,
+            0.2,
+            0.35
+          ]
+        }
+      }
+    },
+    "rat_fire": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.7,
+        0.28,
+        0.1
+      ],
+      "color_shadow": [
+        0.5,
+        0.18,
+        0.06
+      ],
+      "color_accent": [
+        0.85,
+        0.4,
+        0.15
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.19,
+          0.1,
+          0.08
+        ],
+        "variant_spread": 0.15,
+        "family_params": {
+          "shape": "rat",
+          "ear_color": [
+            0.8,
+            0.35,
+            0.15
+          ],
+          "tail_color": [
+            0.75,
+            0.3,
+            0.12
+          ],
+          "eye_color": [
+            0.9,
+            0.5,
+            0.1
+          ]
+        }
+      }
+    },
+    "treasure_chest": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.33,
+        0.24,
+        0.14
+      ],
+      "color_shadow": [
+        0.22,
+        0.16,
+        0.1
+      ],
+      "color_accent": [
+        0.41,
+        0.29,
+        0.18
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.23,
+          0.15,
+          0.16
+        ],
+        "variant_spread": 0.1,
+        "family_params": {
+          "shape": "chest",
+          "latch_color": [
+            0.67,
+            0.59,
+            0.31
+          ]
+        }
+      }
+    },
+    "bat": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.15,
+        0.13,
+        0.12
+      ],
+      "color_shadow": [
+        0.1,
+        0.08,
+        0.07
+      ],
+      "color_accent": [
+        0.22,
+        0.19,
+        0.17
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.2,
+          0.3,
+          0.06
+        ],
+        "variant_spread": 0.2,
+        "family_params": {
+          "shape": "bat"
+        }
+      }
+    },
+    "slime": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.25,
+        0.5,
+        0.2
+      ],
+      "color_shadow": [
+        0.15,
+        0.35,
+        0.12
+      ],
+      "color_accent": [
+        0.35,
+        0.6,
+        0.28
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.15,
+          0.15,
+          0.1
+        ],
+        "variant_spread": 0.25,
+        "family_params": {
+          "shape": "slime"
+        }
+      }
+    }
   }
 }

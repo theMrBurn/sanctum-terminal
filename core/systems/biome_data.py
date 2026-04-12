@@ -427,6 +427,21 @@ OUTDOOR_ROOM_BEACONS = [
 # The rest stay as single-anchor rolls (preserving existing scatter baseline).
 
 CAVERN_STAMPS = [
+    # Creature den — ghost sprite primitive test: rats + chest
+    {
+        "name": "creature_den",
+        "footprint": 5.0,
+        "members": [
+            {"kind": "rat", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
+            {"kind": "rat", "dx": 1.5, "dy": 0.8, "scale_mult": None, "hard": False},
+            {"kind": "rat", "dx": -1.2, "dy": 1.0, "scale_mult": None, "hard": False},
+            {"kind": "rat_ice", "dx": 2.5, "dy": -1.0, "scale_mult": None, "hard": False},
+            {"kind": "rat_fire", "dx": -2.0, "dy": -1.5, "scale_mult": None, "hard": False},
+            {"kind": "treasure_chest", "dx": 0.0, "dy": -2.5, "scale_mult": None, "hard": True},
+            {"kind": "bone_pile", "dx": 1.0, "dy": 2.0, "scale_mult": None, "hard": False},
+            {"kind": "cave_gravel", "dx": -1.5, "dy": -0.5, "scale_mult": None, "hard": False},
+        ],
+    },
     # Crystal grotto — emissive focal point, the "room with a light"
     {
         "name": "crystal_grotto",

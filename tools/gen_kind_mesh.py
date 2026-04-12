@@ -2265,6 +2265,192 @@ def update_bounds_file(kind_name: str, bounds: dict) -> None:
 # sweep: proven kinds never touch the new codepath.
 
 
+# -----------------------------------------------------------------------------
+# Family: creature_small — rats, spiders, bats, slimes, beetles at scale
+# -----------------------------------------------------------------------------
+#
+# Ghost sprite primitives for interactive creatures. Same compose()
+# pipeline as everything else — spheres, cylinders, hemispheres into
+# a recognizable silhouette at 5-15 polygon scale. Vertex-colored.
+# kind_config drives palette variants: rat, rat_ice, rat_fire etc.
+# are the same mesh shape with different color_base/shadow/accent.
+#
+# Silhouettes need to read at 3-8m distance in the flat-shaded
+# renderer. That means: exaggerated proportions (big head, thin
+# tail), strong value contrast between body regions, and enough
+# poly count for the shape to be unambiguous but not enough to
+# look detailed.
+
+
+# -- Creature palette constants -----------------------------------------------
+RAT_BODY: RGBA     = (95, 80, 65, 255)      # warm brown-grey
+RAT_BELLY: RGBA    = (120, 105, 88, 255)     # lighter underside
+RAT_EAR: RGBA      = (140, 100, 95, 255)     # pinkish inner ear
+RAT_TAIL: RGBA     = (130, 100, 90, 255)     # pinkish-brown
+RAT_EYE: RGBA      = (20, 15, 12, 255)       # near-black bead
+
+CHEST_BODY: RGBA   = (85, 60, 35, 255)       # dark wood
+CHEST_LID: RGBA    = (105, 75, 45, 255)      # lighter wood lid
+CHEST_BAND: RGBA   = (50, 45, 40, 255)       # iron band
+CHEST_LATCH: RGBA  = (170, 150, 80, 255)     # brass latch
+
+
+def _build_rat(rng: np.random.Generator, body_color: RGBA,
+               belly_color: RGBA, ear_color: RGBA,
+               tail_color: RGBA, eye_color: RGBA) -> trimesh.Trimesh:
+    """One rat from primitives. Exaggerated proportions for silhouette
+    readability: oversized head, round body, thin whip tail, tiny legs.
+    ~120 tris — reads as 'rat' from 5m in flat shading."""
+    # Body — flattened sphere, slightly elongated along X
+    body = sphere(radius=0.07, color=body_color, subdivisions=1, squash=0.75)
+    body.vertices[:, 0] *= 1.3  # elongate along X (body axis)
+
+    # Head — smaller sphere, pushed forward
+    head = sphere(radius=0.045, color=body_color, subdivisions=1)
+    head.apply_translation([0.09, 0.0, 0.015])
+
+    # Snout — tiny elongated sphere
+    snout = sphere(radius=0.02, color=belly_color, subdivisions=0)
+    snout.vertices[:, 0] *= 1.4
+    snout.apply_translation([0.13, 0.0, 0.01])
+
+    # Ears — two small hemispheres, tilted outward
+    ear_l = hemisphere(radius=0.02, height=0.015, color=ear_color,
+                       meridian_sections=6, parallel_rings=2)
+    ear_l.apply_translation([0.08, 0.025, 0.055])
+    ear_r = hemisphere(radius=0.02, height=0.015, color=ear_color,
+                       meridian_sections=6, parallel_rings=2)
+    ear_r.apply_translation([0.08, -0.025, 0.055])
+
+    # Eyes — tiny dark spheres
+    eye_l = sphere(radius=0.008, color=eye_color, subdivisions=0)
+    eye_l.apply_translation([0.11, 0.02, 0.03])
+    eye_r = sphere(radius=0.008, color=eye_color, subdivisions=0)
+    eye_r.apply_translation([0.11, -0.02, 0.03])
+
+    # Tail — thin tapered cylinder extending backward
+    tail = capped_cylinder(radius_bottom=0.008, radius_top=0.003,
+                           height=0.16, color=tail_color, sections=5)
+    # Rotate tail to extend along -X (backward from body)
+    rot = trimesh.transformations.rotation_matrix(
+        np.radians(90), [0, 1, 0])
+    tail.apply_transform(rot)
+    tail.apply_translation([-0.08, 0.0, 0.02])
+    # Slight droop
+    for v in tail.vertices:
+        if v[0] < -0.05:
+            v[2] -= abs(v[0] + 0.05) * 0.3
+
+    # Legs — 4 tiny cylinders
+    legs = []
+    leg_positions = [
+        (0.04, 0.035, -0.02), (0.04, -0.035, -0.02),   # front
+        (-0.04, 0.035, -0.02), (-0.04, -0.035, -0.02),  # back
+    ]
+    for lx, ly, lz in leg_positions:
+        leg = capped_cylinder(radius_bottom=0.008, radius_top=0.006,
+                              height=0.035, color=body_color, sections=4)
+        leg.apply_translation([lx, ly, lz])
+        legs.append(leg)
+
+    # Belly lightening — vertices on the underside get the lighter color
+    parts = compose([body, head, snout, ear_l, ear_r, eye_l, eye_r,
+                     tail] + legs)
+
+    # Slight per-variant rotation so rats don't all face the same way
+    yaw = rng.random() * np.pi * 2
+    rot_yaw = trimesh.transformations.rotation_matrix(yaw, [0, 0, 1])
+    parts.apply_transform(rot_yaw)
+
+    return parts
+
+
+def _build_chest(rng: np.random.Generator, body_color: RGBA,
+                 lid_color: RGBA, band_color: RGBA,
+                 latch_color: RGBA) -> trimesh.Trimesh:
+    """Treasure chest from primitives. Box body + angled lid + iron
+    bands + brass latch. ~60 tris. Reads as 'chest' from 5m."""
+    # Body — rectangular box
+    body = slab(width=0.22, depth=0.14, height=0.12, color=body_color)
+    body.apply_translation([0.0, 0.0, 0.06])
+
+    # Lid — slightly wider box, tilted slightly open
+    lid = slab(width=0.23, depth=0.15, height=0.05, color=lid_color)
+    lid.apply_translation([0.0, 0.0, 0.145])
+    # Slight open angle
+    lid_rot = trimesh.transformations.rotation_matrix(
+        np.radians(rng.uniform(5, 15)), [1, 0, 0])
+    lid_center = [0.0, -0.07, 0.12]
+    lid.apply_translation([-c for c in lid_center])
+    lid.apply_transform(lid_rot)
+    lid.apply_translation(lid_center)
+
+    # Iron bands — thin dark slabs across the front
+    band1 = slab(width=0.24, depth=0.005, height=0.02, color=band_color)
+    band1.apply_translation([0.0, 0.071, 0.04])
+    band2 = slab(width=0.24, depth=0.005, height=0.02, color=band_color)
+    band2.apply_translation([0.0, 0.071, 0.09])
+
+    # Latch — small bright quad on front
+    latch = slab(width=0.03, depth=0.008, height=0.02, color=latch_color)
+    latch.apply_translation([0.0, 0.072, 0.065])
+
+    return compose([body, lid, band1, band2, latch])
+
+
+def _family_creature_small(
+    kind_name: str,
+    kind_cfg: dict,
+) -> list[trimesh.Trimesh]:
+    """Small creature / prop family — rats, chests, spiders, bats.
+    Each creature type is a sub-builder keyed by `family_params.shape`.
+    Palette comes from kind_cfg color_base/shadow/accent; the builder
+    maps them to body regions."""
+    recipe = kind_cfg["recipe"]
+    fp = recipe.get("family_params", {})
+    shape = fp.get("shape", "rat")
+    variant_count = int(recipe.get("variant_count", 4))
+    variant_spread = float(recipe.get("variant_spread", 0.15))
+
+    base_rgb01 = kind_cfg.get("color_base", [0.37, 0.31, 0.25])
+    shadow_rgb01 = kind_cfg.get("color_shadow", [0.28, 0.22, 0.18])
+    accent_rgb01 = kind_cfg.get("color_accent", [0.47, 0.39, 0.34])
+
+    body_color = _rgb01_to_rgba_u8(base_rgb01)
+    belly_color = _rgb01_to_rgba_u8(accent_rgb01)
+    detail_color = _rgb01_to_rgba_u8(shadow_rgb01)
+
+    # Shape-specific extra colors
+    ear_color = _rgb01_to_rgba_u8(fp.get("ear_color", [0.55, 0.39, 0.37]))
+    tail_color = _rgb01_to_rgba_u8(fp.get("tail_color", [0.51, 0.39, 0.35]))
+    eye_color = _rgb01_to_rgba_u8(fp.get("eye_color", [0.08, 0.06, 0.05]))
+    latch_color = _rgb01_to_rgba_u8(fp.get("latch_color", [0.67, 0.59, 0.31]))
+
+    variants = []
+    for v_idx in range(variant_count):
+        seed = (zlib.crc32(f"{kind_name}-{v_idx}".encode()) & 0xFFFFFFFF)
+        rng = np.random.default_rng(seed)
+
+        if shape == "rat":
+            mesh = _build_rat(rng, body_color, belly_color,
+                              ear_color, tail_color, eye_color)
+        elif shape == "chest":
+            mesh = _build_chest(rng, body_color, belly_color,
+                                detail_color, latch_color)
+        else:
+            raise SystemExit(
+                f"creature_small shape '{shape}' not implemented. "
+                f"Known: rat, chest")
+
+        # Per-variant size drift
+        size_drift = 1.0 + variant_spread * (rng.random() * 2.0 - 1.0)
+        mesh.vertices *= size_drift
+
+        variants.append(mesh)
+
+    return variants
+
+
 LEGACY_BUILDERS = {
     "toadstool": toadstool_variants,
     "spore_pod": spore_pod_variants,
@@ -2282,6 +2468,7 @@ FAMILY_BUILDERS: dict[str, callable] = {
     "crystal_spike":    _family_crystal_spike,
     "flora_composed":   _family_flora_composed,
     "scatter_tissue":   _family_scatter_tissue,
+    "creature_small":   _family_creature_small,
 }
 
 

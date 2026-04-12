@@ -1514,9 +1514,12 @@ func _update_atmosphere() -> void:
 # -- Creatures (scurry/crawl behavior) -----------------------------------------
 
 const CREATURE_KINDS := {
-	"rat": {"speed": 4.0, "flee_radius": 8.0, "color": Color(0.12, 0.09, 0.07), "size": 0.12},
-	"beetle": {"speed": 2.0, "flee_radius": 5.0, "color": Color(0.08, 0.06, 0.05), "size": 0.05},
-	"spider": {"speed": 3.0, "flee_radius": 6.0, "color": Color(0.06, 0.05, 0.04), "size": 0.06},
+	"rat":             {"speed": 4.0, "flee_radius": 8.0, "size": 0.12, "use_real_mesh": true},
+	"rat_ice":         {"speed": 3.0, "flee_radius": 10.0, "size": 0.12, "use_real_mesh": true},
+	"rat_fire":        {"speed": 5.0, "flee_radius": 6.0, "size": 0.12, "use_real_mesh": true},
+	"treasure_chest":  {"speed": 0.0, "flee_radius": 0.0, "size": 0.20, "use_real_mesh": true},
+	"beetle":          {"speed": 2.0, "flee_radius": 5.0, "size": 0.05, "use_real_mesh": false},
+	"spider":          {"speed": 3.0, "flee_radius": 6.0, "size": 0.06, "use_real_mesh": false},
 }
 
 var creature_nodes: Array[Dictionary] = []  # {node, home_x, home_z, kind, fleeing}
@@ -1533,18 +1536,32 @@ func _spawn_creatures() -> void:
 		if not CREATURE_KINDS.has(kind):
 			continue
 		var cfg: Dictionary = CREATURE_KINDS[kind]
-		# Simple dark sphere for the creature
-		var mesh := SphereMesh.new()
-		mesh.radius = cfg["size"]
-		mesh.height = cfg["size"] * 1.5
-		mesh.radial_segments = 6
-		mesh.rings = 3
-		var cmat := StandardMaterial3D.new()
-		cmat.albedo_color = cfg["color"]
-		cmat.roughness = 0.9
-		mesh.material = cmat
 		var mi := MeshInstance3D.new()
-		mi.mesh = mesh
+		if cfg.get("use_real_mesh", false):
+			# Use the authored GLB mesh from gen_kind_mesh pipeline.
+			# Same mesh loading as _get_mesh_for_kind, same vertex colors,
+			# same ShaderMaterial with use_vertex_colors=true.
+			var real_mesh: Mesh = _get_mesh_for_kind(kind, 0)
+			mi.mesh = real_mesh
+			mi.material_override = _create_kind_material(kind)
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		else:
+			# Legacy placeholder sphere for kinds without real meshes
+			var smesh := SphereMesh.new()
+			smesh.radius = cfg["size"]
+			smesh.height = cfg["size"] * 1.5
+			smesh.radial_segments = 6
+			smesh.rings = 3
+			var cmat := StandardMaterial3D.new()
+			cmat.albedo_color = Color(0.10, 0.08, 0.07)
+			cmat.roughness = 0.9
+			smesh.material = cmat
+			mi.mesh = smesh
+		# Scale from KIND_PROPS
+		var sv: float = ent.get("sv", 1.0)
+		var bounds_key: String = kind if mesh_bounds.has(kind) else kind
+		var orig_scale: float = mesh_bounds.get(bounds_key, {}).get("scale", 1.0) * sv
+		mi.scale = Vector3(orig_scale, orig_scale, orig_scale)
 		mi.position = Vector3(ent.get("x", 0.0), cfg["size"] * 0.5, ent.get("y", 0.0))
 		mi.name = "Creature_%s" % kind
 		add_child(mi)
