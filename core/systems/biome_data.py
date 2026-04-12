@@ -428,9 +428,11 @@ OUTDOOR_ROOM_BEACONS = [
 
 CAVERN_STAMPS = [
     # Creature den — ghost sprite primitive test: rats + chest
+    # Weight 4 = ~30% of slots, same as mega stamps. Guaranteed sighting.
     {
         "name": "creature_den",
         "footprint": 5.0,
+        "weight": 4,
         "members": [
             {"kind": "rat", "dx": 0.0, "dy": 0.0, "scale_mult": None, "hard": False},
             {"kind": "rat", "dx": 1.5, "dy": 0.8, "scale_mult": None, "hard": False},
@@ -833,6 +835,16 @@ ORIGIN_HUB = {
         # NW corner
         {"kind": "stalagmite",  "dx": -9.0, "dy":  7.5, "scale_mult": 0.85, "hard": True},
         {"kind": "stalagmite",  "dx": -7.5, "dy":  9.0, "scale_mult": 0.90, "hard": True},
+
+        # --- CREATURES — atom-cluster ghost sprites at the hub ----------
+        # Guaranteed visible at spawn. Rats near the bone pile (SW),
+        # clay pot near the toadstool grove (NE), chest near the axis.
+        {"kind": "rat",          "dx": -4.0, "dy": -3.5, "scale_mult": None, "hard": False},
+        {"kind": "rat",          "dx": -5.5, "dy": -3.0, "scale_mult": None, "hard": False},
+        {"kind": "rat_ice",      "dx": -3.0, "dy": -6.0, "scale_mult": None, "hard": False},
+        {"kind": "clay_pot",     "dx":  6.0, "dy":  3.5, "scale_mult": None, "hard": False},
+        {"kind": "clay_pot",     "dx":  4.0, "dy":  8.0, "scale_mult": None, "hard": False},
+        {"kind": "treasure_chest","dx":  2.5, "dy":  1.0, "scale_mult": None, "hard": False},
     ],
 }
 
