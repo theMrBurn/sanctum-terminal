@@ -41,7 +41,7 @@ uniform float twist_amount : hint_range(0.0, 1.0) = 0.0;
 
 varying vec3 world_pos;
 varying float local_y;
-varying flat vec4 vertex_col;  // flat = no interpolation across faces (Sable look)
+varying vec4 vertex_col;  // smooth interpolation — authored region gradients are intentional
 
 void vertex() {
 	// Capture the mesh's baked vertex color for designed kinds.
@@ -175,6 +175,43 @@ void fragment() {
 			float fade_t = smoothstep(20.0, 45.0, cam_dist);
 			col *= mix(1.0, 0.55, fade_t);
 		}
+	}
+
+	// -- Sable-style palette-shift lighting ----------------------------------
+	// Light doesn't add brightness — it shifts the palette. Everything inside
+	// a light radius becomes monochromatic in the light's tint color, at the
+	// surface's own luminance. Dark faces stay darker than light faces, but
+	// the hue becomes the light's hue. The geometry reads through the tint.
+	//
+	// "if the color naturally renders dark, the lit spot renders a lighter
+	// shade up two spots on the register" — the shift is value-relative:
+	// darks lighten, lights stay. Luminance structure is preserved.
+	//
+	// V1: headlamp only (follows camera). Pipe lights are a follow-up
+	// commit that passes positions as uniforms.
+
+	float head_dist = distance(world_pos, CAMERA_POSITION_WORLD);
+	// Steep falloff — reads as a hard bubble, not a gradient. 8-14m range.
+	float head_t = 1.0 - smoothstep(8.0, 14.0, head_dist);
+
+	if (head_t > 0.01) {
+		// Surface luminance — preserves the value structure of the geometry
+		float lum = dot(col, vec3(0.299, 0.587, 0.114));
+
+		// Palette shift: darks push up, lights push down, compressing the
+		// value range inside the bubble (flatter, Sable-like). Two "register
+		// steps" ≈ 25% shift toward mid-value.
+		float mid = 0.35;  // target mid-value (cavern ambient)
+		float shifted_lum = mix(lum, mid, 0.4);  // pull toward mid
+
+		// Tint: warm amber headlamp. Monochromatic in the light's hue.
+		vec3 head_tint = vec3(0.95, 0.80, 0.60);
+		vec3 tinted = head_tint * shifted_lum;
+
+		// Mix: inside the bubble, surface becomes tinted version. Outside,
+		// base color. The mix factor controls tint strength — 0.35 is
+		// subtle enough to read as "lit" without washing out the base palette.
+		col = mix(col, tinted, head_t * 0.35);
 	}
 
 	ALBEDO = col;
