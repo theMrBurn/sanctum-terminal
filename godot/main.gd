@@ -1155,6 +1155,13 @@ func _process(delta: float) -> void:
 		elif status == StreamPeerTCP.STATUS_CONNECTING:
 			pass  # waiting
 
+	# Expedition proximity — runs every frame while expedition is
+	# active or in resolution. Cheap (N=1 deposit + 1 exit for v1)
+	# so no budget needed. Fires TCP intents when the player walks
+	# into a deposit or exit radius.
+	_check_expedition_proximity()
+	_update_expedition_visuals(delta)
+
 
 func _send_camera() -> void:
 	if not connected:
@@ -1783,6 +1790,173 @@ func _on_expedition_resolution(data: Dictionary) -> void:
 	elif resolution == "exit_inactive":
 		# Player walked through before exit activated — no-op.
 		pass
+
+
+# -- Expedition proximity + visuals --------------------------------------
+
+# Visual nodes for expedition markers. Keyed by "<kind>:<id>" so we can
+# update/remove them when the snapshot changes. Each entry is a Node3D
+# with a heptagonal mote MeshInstance3D child — we reuse the tag marker
+# primitive to keep the visual language consistent (design_heptagonal_mote).
+var expedition_markers: Dictionary = {}
+# Track walk-through dispatch so we only send once per activation.
+var walk_through_sent: bool = false
+
+
+func _check_expedition_proximity() -> void:
+	"""Dispatch tag-intents when the camera enters a deposit point's
+	radius, and a walk_through when it enters an active exit point's
+	radius. Runs every frame; v1 has one deposit + one exit so cost
+	is negligible."""
+	if not expedition_active or expedition_cache.is_empty():
+		return
+	if not connected:
+		return
+
+	var cam_pos: Vector3 = camera.global_transform.origin
+
+	# Deposit points ——————————————————————————————————————
+	for d_raw: Variant in expedition_cache.get("deposit_points", []):
+		var d: Dictionary = d_raw as Dictionary
+		if d.get("satisfied", false):
+			continue
+		var pos_arr: Array = d.get("pos", [0.0, 0.0, 0.0])
+		if pos_arr.size() < 2:
+			continue
+		# Manifest positions are (x, y, z) where x/y are world plane
+		# and z is up. Godot is (x_plane, y_up, z_plane) so map
+		# manifest x→Godot x, manifest y→Godot z, manifest z→Godot y.
+		var dep_pos := Vector3(
+			float(pos_arr[0]),
+			cam_pos.y,
+			float(pos_arr[1]))
+		var dist: float = cam_pos.distance_to(dep_pos)
+		if dist < EXPEDITION_DEPOSIT_RADIUS:
+			# Attempt to deposit any still-pending tag at this point.
+			var deposit_id: String = d.get("id", "")
+			for tag_id in pending_tag_intents.keys().duplicate():
+				var intent_msg := {
+					"cmd": "deposit_intent",
+					"deposit_id": deposit_id,
+					"tag_id": tag_id,
+				}
+				var s: String = JSON.stringify(intent_msg) + "\n"
+				tcp.put_data(s.to_utf8_buffer())
+				# Optimistically clear — brain's idempotence guard
+				# catches any false-positive clears on reject.
+				pending_tag_intents.erase(tag_id)
+
+	# Exit point ——————————————————————————————————————————
+	var exit: Dictionary = expedition_cache.get("exit_point", {})
+	if not exit.is_empty() and exit.get("active", false) and not walk_through_sent:
+		var epos_arr: Array = exit.get("pos", [0.0, 0.0, 0.0])
+		if epos_arr.size() >= 2:
+			var exit_pos := Vector3(
+				float(epos_arr[0]),
+				cam_pos.y,
+				float(epos_arr[1]))
+			var radius: float = float(exit.get("trigger_radius", 2.0))
+			if cam_pos.distance_to(exit_pos) < radius:
+				walk_through_sent = true
+				var msg := {"cmd": "walk_through"}
+				var s: String = JSON.stringify(msg) + "\n"
+				tcp.put_data(s.to_utf8_buffer())
+
+
+func _update_expedition_visuals(_delta: float) -> void:
+	"""Maintain per-deposit + exit marker Node3Ds from the snapshot.
+	Uses standalone heptagonal motes (the same test fixture as tag
+	markers) so we don't fight the existing light pipe auto-drift
+	loop. v1 honors emission_boost via marker brightness; pipe_lock
+	is accepted by the schema and ignored by Godot.
+	"""
+	if expedition_cache.is_empty():
+		# Tear down any leftover markers
+		for key in expedition_markers.keys():
+			expedition_markers[key].queue_free()
+		expedition_markers.clear()
+		return
+
+	var seen: Dictionary = {}
+
+	# Deposit markers — one mote per point
+	for d_raw: Variant in expedition_cache.get("deposit_points", []):
+		var d: Dictionary = d_raw as Dictionary
+		var key: String = "deposit:" + d.get("id", "?")
+		seen[key] = true
+		var pos_arr: Array = d.get("pos", [0.0, 0.0, 0.0])
+		if pos_arr.size() < 2:
+			continue
+		# Suspend mote above entity head — axis_mundi lives at ground
+		# level in the manifest; raise the mote to hover where the
+		# player will see it at walking height.
+		var pos := Vector3(
+			float(pos_arr[0]),
+			4.0,
+			float(pos_arr[1]))
+		var visual: Dictionary = d.get("visual", {})
+		var base_boost: float = 1.0
+		if d.get("satisfied", false):
+			base_boost = float(visual.get("emission_boost", 2.0))
+		_ensure_expedition_marker(key, pos, base_boost)
+
+	# Exit marker
+	var exit: Dictionary = expedition_cache.get("exit_point", {})
+	if not exit.is_empty():
+		var key: String = "exit:" + exit.get("id", "?")
+		seen[key] = true
+		var epos_arr: Array = exit.get("pos", [0.0, 0.0, 0.0])
+		if epos_arr.size() >= 2:
+			var pos := Vector3(
+				float(epos_arr[0]),
+				5.0,
+				float(epos_arr[1]))
+			var visual: Dictionary = exit.get("visual", {})
+			var base_boost: float = 0.3
+			if exit.get("active", false):
+				base_boost = float(visual.get("emission_boost", 1.5))
+			_ensure_expedition_marker(key, pos, base_boost)
+
+	# Tear down any markers no longer in the snapshot
+	for key in expedition_markers.keys().duplicate():
+		if not seen.has(key):
+			expedition_markers[key].queue_free()
+			expedition_markers.erase(key)
+
+
+func _ensure_expedition_marker(
+	key: String, pos: Vector3, emission_boost: float,
+) -> void:
+	"""Create or update a heptagonal mote marker at pos with the
+	given emission multiplier. Reuses _build_heptagonal_mote_mesh —
+	same primitive as tag markers, consistent visual language."""
+	var node: Node3D
+	if expedition_markers.has(key):
+		node = expedition_markers[key]
+	else:
+		node = Node3D.new()
+		node.name = "ExpeditionMarker_" + key.replace(":", "_")
+		var mesh := MeshInstance3D.new()
+		mesh.mesh = _build_heptagonal_mote_mesh(0.30)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.98, 0.86, 0.35)
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.85, 0.35)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		mat.no_depth_test = false
+		mesh.set_surface_override_material(0, mat)
+		node.add_child(mesh)
+		add_child(node)
+		expedition_markers[key] = node
+
+	node.position = pos
+	# Update emission energy based on boost (dormant=0.3, satisfied≈2.0)
+	var mesh_child: MeshInstance3D = node.get_child(0) as MeshInstance3D
+	if mesh_child:
+		var mat: StandardMaterial3D = mesh_child.get_surface_override_material(0)
+		if mat:
+			mat.emission_energy_multiplier = clampf(emission_boost, 0.2, 4.0)
 
 
 func _build_overlay_line(cfg: Dictionary,
