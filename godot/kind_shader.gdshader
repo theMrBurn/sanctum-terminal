@@ -41,7 +41,7 @@ uniform float twist_amount : hint_range(0.0, 1.0) = 0.0;
 
 varying vec3 world_pos;
 varying float local_y;
-varying vec4 vertex_col;  // baked per-vertex color from GLB (COLOR stream)
+varying flat vec4 vertex_col;  // flat = no interpolation across faces (Sable look)
 
 void vertex() {
 	// Capture the mesh's baked vertex color for designed kinds.
