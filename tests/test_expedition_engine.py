@@ -34,6 +34,7 @@ from core.systems.expedition_data import (
     EXPEDITION_CLASSES,
     BIOME_EXPEDITIONS,
     ANOMALY_HUNT,
+    CAST_TRIAL,
     CAVERN_BINDING,
 )
 
@@ -758,3 +759,88 @@ class TestSnapshotMessages:
         snap2 = engine.snapshot()
         snap3 = engine.snapshot()
         assert snap1 == snap2 == snap3
+
+
+# -- CAST_TRIAL — element-gated deposits ------------------------------------
+
+
+def _make_cast(tag_id: int, element: str, **extra) -> dict:
+    """Build a cast event payload."""
+    cast = {
+        "tag_id": tag_id,
+        "element": element,
+        "delivery": "straight",
+        "camera": {"x": 1.0, "y": 2.0, "z": 2.5},
+        "crosshair": [{"kind": "buttress", "x": 12.5, "y": -3.0}],
+    }
+    cast.update(extra)
+    return cast
+
+
+@pytest.fixture
+def cast_engine(cavern_binding) -> ExpeditionEngine:
+    return ExpeditionEngine(
+        class_def=copy.deepcopy(CAST_TRIAL),
+        biome="cavern",
+        binding=cavern_binding,
+    )
+
+
+class TestCastTrialRecipe:
+    """CAST_TRIAL loads and resolves against cavern binding."""
+
+    def test_cast_trial_loads(self, cast_engine):
+        assert cast_engine.class_id == "cast_trial"
+        assert cast_engine.deposit_points[0].kind == "mega_column"
+
+    def test_cast_trial_accepts_elements(self, cast_engine):
+        assert cast_engine.deposit_points[0].accepts == [
+            "fire", "ice", "electric", "light"]
+
+    def test_from_class_id_cast_trial(self):
+        engine = ExpeditionEngine.from_class_id("cast_trial", "cavern")
+        assert engine.class_id == "cast_trial"
+
+    def test_input_verb_field(self, cast_engine):
+        assert cast_engine.class_def.get("input_verb") == "cast"
+
+
+class TestCastElementMatching:
+    """Cast events match deposits by element, not tag_reason."""
+
+    def test_fire_cast_accepted_by_element_filter(self, cast_engine):
+        cast_engine.on_session_start(t=0.0)
+        cast_engine.on_tag_event(_make_cast(1, "fire"), t=1.0)
+        result = cast_engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        assert result["accepted"] is True
+
+    def test_ice_cast_accepted(self, cast_engine):
+        cast_engine.on_session_start(t=0.0)
+        cast_engine.on_tag_event(_make_cast(1, "ice"), t=1.0)
+        result = cast_engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        assert result["accepted"] is True
+
+    def test_wrong_element_rejected(self, cast_engine):
+        cast_engine.on_session_start(t=0.0)
+        cast_engine.on_tag_event(_make_cast(1, "water"), t=1.0)
+        result = cast_engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        assert result["accepted"] is False
+        assert result["reason"] == "rejected_by_accepts"
+
+    def test_tag_reason_fallback_rejected_by_element_filter(self, cast_engine):
+        """A plain tag event with tag_reason but no element should be
+        rejected by a deposit that accepts elements."""
+        cast_engine.on_session_start(t=0.0)
+        plain_tag = _make_tag(1, "neutral")  # has tag_reason, no element
+        cast_engine.on_tag_event(plain_tag, t=1.0)
+        result = cast_engine.on_deposit_intent("axis_mundi", 1, t=2.0)
+        assert result["accepted"] is False
+
+    def test_cast_deposits_satisfy_threshold(self, cast_engine, tmp_path):
+        cast_engine.on_session_start(t=0.0)
+        for i, elem in enumerate(["fire", "ice", "electric"], start=1):
+            cast_engine.on_tag_event(_make_cast(i, elem), t=float(i))
+            cast_engine.on_deposit_intent("axis_mundi", i, t=float(i + 10))
+        assert cast_engine.deposit_points[0].satisfied is True
+        assert cast_engine.exit_point.active is True
+        assert cast_engine.state == ExpeditionState.RESOLUTION

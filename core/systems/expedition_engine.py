@@ -597,13 +597,18 @@ class ExpeditionEngine:
         tag: dict,
         accepts: list[str],
     ) -> bool:
-        """Tag is accepted if:
+        """Event is accepted if:
           - the point accepts 'any' (wildcard), OR
-          - the tag's reason is in the accepts list."""
+          - the event's category is in the accepts list.
+        Category lookup order: element (cast events) → tag_reason
+        (tag events) → 'neutral' (default). This lets the same
+        deposit matching logic work for tags, casts, and future
+        contact events without changing the engine."""
         if "any" in accepts:
             return True
-        reason = tag.get("tag_reason", "neutral")
-        return reason in accepts
+        # Cast events carry 'element', tag events carry 'tag_reason'
+        category = tag.get("element", tag.get("tag_reason", "neutral"))
+        return category in accepts
 
     def _deposit_snapshot(self, dpt: DepositPointState) -> dict:
         return {

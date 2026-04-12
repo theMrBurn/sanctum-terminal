@@ -87,12 +87,58 @@ ANOMALY_HUNT: dict = {
 }
 
 
+CAST_TRIAL: dict = {
+    "id": "cast_trial",
+    "trigger": {"on": "spawn"},
+    "input_verb": "cast",  # engine accepts cast_event instead of tag_event
+    "objective_text": "Something here responds to force. Cast to confirm.",
+
+    "deposit_points": [
+        {
+            "id": "axis_mundi",
+            "select_by": "axis_mundi",
+            "accepts": ["fire", "ice", "electric", "light"],
+            "threshold": 3,
+            "satisfied_visual": {
+                "emission_boost": 2.0,
+                "pipe_lock": "warm",
+            },
+        },
+    ],
+
+    "exit_point": {
+        "id": "exit_arch",
+        "select_by": "exit_arch",
+        "trigger_radius": 2.0,
+        "active_visual": {
+            "emission_boost": 1.5,
+            "pipe_lock": "cool",
+        },
+    },
+
+    "messages": {
+        "spawn":     "Something here responds to force. Cast to confirm.",
+        "first_tag": "Impact registered.",
+        "halfway":   "Keep casting. The column remembers.",
+        "satisfied": "The way out is open.",
+        "complete":  "You step through.",
+    },
+
+    "on_complete": {
+        "write_session_log": True,
+        "quit_godot": True,
+    },
+}
+
+
 EXPEDITION_CLASSES: dict[str, dict] = {
     "anomaly_hunt": ANOMALY_HUNT,
+    "cast_trial":   CAST_TRIAL,
     # future classes drop in here as pure data:
     # "pilgrimage":      PILGRIMAGE,
     # "scout_dispatch":  SCOUT_DISPATCH,
     # "witnesses":       WITNESSES,
+    # "contact_trial":   CONTACT_TRIAL,
 }
 
 
@@ -116,13 +162,14 @@ CAVERN_BINDING: dict = {
         # "nw_witness": {"kind": "monolith", "pos": [-12.0,  12.0]},
     },
 
-    "active_classes": ["anomaly_hunt"],
+    "active_classes": ["anomaly_hunt", "cast_trial"],
 
     "message_overrides": {
         "anomaly_hunt": {
-            # Cavern-specific flavor for the first-tag moment; other
-            # keys fall through to class defaults above.
             "first_tag": "The column listens.",
+        },
+        "cast_trial": {
+            "first_tag": "The column absorbs the cast.",
         },
     },
 }
