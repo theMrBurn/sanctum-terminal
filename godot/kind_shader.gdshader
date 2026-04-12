@@ -200,8 +200,8 @@ void fragment() {
 	// commit that passes positions as uniforms.
 
 	float head_dist = distance(world_pos, CAMERA_POSITION_WORLD);
-	// Steep falloff — reads as a hard bubble, not a gradient. 8-14m range.
-	float head_t = 1.0 - smoothstep(8.0, 14.0, head_dist);
+	// Hard edge — inside or outside, no gradient. Sable doesn't blend.
+	float head_t = 1.0 - step(12.0, head_dist);
 
 	if (head_t > 0.01) {
 		// Surface luminance — preserves the value structure of the geometry
@@ -229,8 +229,8 @@ void fragment() {
 	// luminance. "Everything in that bubble is just a flat tone."
 	// The sheet IS the light. No Godot lights, no PBR, no shadow maps.
 	float sheet_dist = distance(world_pos.xz, light_sheet_center.xz);
-	float sheet_t = 1.0 - smoothstep(
-		light_sheet_radius - 2.0, light_sheet_radius, sheet_dist);
+	// Hard edge — no gradient at the boundary. Flat in, neutral out.
+	float sheet_t = 1.0 - step(light_sheet_radius, sheet_dist);
 
 	if (sheet_t > 0.01 && light_sheet_strength > 0.01) {
 		float s_lum = dot(col, vec3(0.299, 0.587, 0.114));
