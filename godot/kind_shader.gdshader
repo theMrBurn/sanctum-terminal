@@ -121,7 +121,13 @@ void fragment() {
 	// banding and shadow selection still work for them.
 	vec3 col;
 	if (use_vertex_colors > 0.5) {
-		col = vertex_col.rgb;
+		// sRGB → linear correction. gen_kind_mesh.py stores per-vertex
+		// colors as sRGB byte values, but glTF spec says vertex colors
+		// are linear. Godot interprets them as linear and applies gamma
+		// at display, double-brightening the palette. This pow(2.2)
+		// converts the sRGB-in-disguise values to actual linear so the
+		// display pipeline produces the intended perceptual colors.
+		col = pow(vertex_col.rgb, vec3(2.2));
 	} else {
 		// 3-color selection — hard snap, not gradient.
 		// Each facet is ONE color. The hard edge between planes IS the shape.
