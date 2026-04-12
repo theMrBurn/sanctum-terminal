@@ -44,6 +44,14 @@ from core.systems.biome_data import MACRO_STAMP_CAVERN_CHAMBER
 from core.systems.tile_exchange import TileExchange
 from core.systems.bucket_world import get_visible as bucket_get_visible
 from core.systems.stamp_world import get_visible as stamp_get_visible
+from core.systems.expedition_engine import ExpeditionEngine
+from pathlib import Path
+
+# Where expedition session logs land. Ignored by git (.gitignore
+# addition lands alongside commit 10). Each completed expedition
+# writes sessions/expedition_<timestamp>.json which is the post-
+# mortem artifact for visual triage.
+SESSIONS_DIR: Path = Path(__file__).parent / "sessions"
 
 # Entity delivery mode — A/B/C testing.
 #   default: TileExchange (cached tiles, scored, gated, shells)
@@ -698,6 +706,14 @@ class BrainWorld:
 def run_server(biome_name, port=9877):
     world = BrainWorld(biome_name)
 
+    # Expedition engine — authored encounter/session loop that rides
+    # on top of the manifest. Lazily built per client connection so
+    # each brain→Godot session gets a fresh state machine. v1 ships
+    # anomaly_hunt for cavern; outdoor binding is stubbed empty and
+    # will raise at construction until the outdoor hub lands, which
+    # is the correct fail-fast behavior.
+    expedition: ExpeditionEngine | None = None
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", port))
@@ -729,6 +745,21 @@ def run_server(biome_name, port=9877):
                     buf = b""
                     last_wake_ids = set()
                     print(f"  Godot connected from {addr}", flush=True)
+
+                    # Fresh expedition engine per session. Failure to
+                    # instantiate (e.g. biome has no anchor bindings
+                    # declared yet) is non-fatal — the brain just
+                    # runs without an expedition this session and
+                    # Godot sees an absent manifest['expedition'].
+                    try:
+                        expedition = ExpeditionEngine.from_class_id(
+                            "anomaly_hunt", biome_name)
+                        expedition.on_session_start(time.time())
+                        print(f"  Expedition: anomaly_hunt (biome={biome_name})",
+                              flush=True)
+                    except Exception as exc:
+                        expedition = None
+                        print(f"  Expedition disabled: {exc}", flush=True)
                 except BlockingIOError:
                     time.sleep(0.016)
                     continue
@@ -740,6 +771,7 @@ def run_server(biome_name, port=9877):
                     print("  Godot disconnected", flush=True)
                     client.close()
                     client = None
+                    expedition = None
                     continue
                 buf += data
             except BlockingIOError:
@@ -748,6 +780,7 @@ def run_server(biome_name, port=9877):
                 print("  Godot disconnected (reset)", flush=True)
                 client.close()
                 client = None
+                expedition = None
                 continue
 
             # Process complete lines — drain all, but only act on the
@@ -790,6 +823,59 @@ def run_server(biome_name, port=9877):
                     last_wake_ids = set()
                     continue
 
+                # ---- Expedition commands -------------------------------
+                # These ride on the same wire as the other cmd handlers
+                # above; no new socket, no new protocol. The payload
+                # shapes match what expedition_engine expects.
+
+                if msg.get("cmd") == "tag_event":
+                    if expedition is not None:
+                        tag = msg.get("tag", {})
+                        expedition.on_tag_event(tag, time.time())
+                        # Force manifest resend so snapshot's updated
+                        # last_message reaches Godot immediately.
+                        last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "deposit_intent":
+                    if expedition is not None:
+                        result = expedition.on_deposit_intent(
+                            msg.get("deposit_id", ""),
+                            int(msg.get("tag_id", -1)),
+                            time.time())
+                        # Ack includes the deposit delta so Godot can
+                        # update locally without waiting for the next
+                        # manifest if needed.
+                        try:
+                            ack = json.dumps({
+                                "deposit_result": result,
+                            }) + "\n"
+                            client.sendall(ack.encode("utf-8"))
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        last_wake_ids = set()  # force manifest refresh
+                    continue
+
+                if msg.get("cmd") == "walk_through":
+                    if expedition is not None:
+                        result = expedition.on_walk_through(
+                            time.time(), SESSIONS_DIR)
+                        if result.get("resolution") == "complete":
+                            # The post-mortem trigger line I watch for
+                            # in `make brain-cavern` console output.
+                            tag_count = len(expedition.tag_log)
+                            log_path = result.get("log_path", "<none>")
+                            print(
+                                f">>> EXPEDITION COMPLETE: {tag_count} tags, "
+                                f"{log_path}", flush=True)
+                        try:
+                            ack = json.dumps(result) + "\n"
+                            client.sendall(ack.encode("utf-8"))
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        last_wake_ids = set()  # force final manifest
+                    continue
+
                 # Camera update — stash, only process the latest after drain
                 latest_cam_msg = msg
 
@@ -829,10 +915,27 @@ def run_server(biome_name, port=9877):
                 manifest = world.get_manifest(
                     cam_x, cam_y, cam_z, heading, pitch, dt)
 
+                # Attach expedition snapshot to manifest. This is the
+                # render-manifest doctrine: brain owns state, manifest
+                # carries it, Godot paints what it sees. Godot has no
+                # recipe-specific knowledge — it reads
+                # manifest['expedition'] and draws generically.
+                if expedition is not None:
+                    manifest["expedition"] = expedition.snapshot()
+
                 wake_ids = frozenset(
                     (e.get("kind",""), round(e.get("x",0),1), round(e.get("y",0),1))
                     for e in manifest["entities"])
-                if wake_ids == last_wake_ids:
+                # If expedition has a pending message, force a full
+                # resend so Godot gets the toast without waiting for
+                # the wake set to change. Also clear the pending
+                # message key after the send so the next frame's
+                # snapshot has last_message=None and we don't toast
+                # twice for the same key.
+                has_pending_message = (
+                    expedition is not None
+                    and expedition.pending_message_key is not None)
+                if wake_ids == last_wake_ids and not has_pending_message:
                     response = json.dumps({"unchanged": True}) + "\n"
                 else:
                     last_wake_ids = wake_ids
@@ -844,7 +947,14 @@ def run_server(biome_name, port=9877):
                     print("  Godot disconnected (write)", flush=True)
                     client.close()
                     client = None
+                    expedition = None
                     break
+
+                # After the full manifest has shipped, clear the
+                # expedition's pending message so it's not re-toasted
+                # on the next frame.
+                if expedition is not None and has_pending_message:
+                    expedition.consume_message()
 
     except KeyboardInterrupt:
         print("\nShutting down...", flush=True)
