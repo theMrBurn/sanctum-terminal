@@ -1714,7 +1714,11 @@ func _save_tag(reason: String = "neutral") -> void:
 	if jfile:
 		jfile.store_string(JSON.stringify(telemetry, "  "))
 		jfile.close()
-	_show_toast("TAG #%d [%s] saved" % [tag_count, reason.to_upper()])
+	if expedition_active:
+		_show_toast("TAG #%d [%s] — return to the column when ready" % [
+			tag_count, reason.to_upper()])
+	else:
+		_show_toast("TAG #%d [%s] saved" % [tag_count, reason.to_upper()])
 	# Drop 3D marker at tag position
 	_drop_tag_marker(tag_count, camera.position)
 
