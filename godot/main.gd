@@ -78,7 +78,7 @@ var expedition_last_message: String = ""
 var pending_tag_intents: Dictionary = {}
 # Deposit proximity radius — how close the player must get to a deposit
 # point before Godot auto-sends a deposit_intent for each pending tag.
-const EXPEDITION_DEPOSIT_RADIUS := 3.0
+const EXPEDITION_DEPOSIT_RADIUS := 15.0  # covers the hub interior (~30m across)
 
 
 func _ready() -> void:
