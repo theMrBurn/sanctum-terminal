@@ -1155,12 +1155,10 @@ func _process(delta: float) -> void:
 		elif status == StreamPeerTCP.STATUS_CONNECTING:
 			pass  # waiting
 
-	# Expedition proximity — runs every frame while expedition is
-	# active or in resolution. Cheap (N=1 deposit + 1 exit for v1)
-	# so no budget needed. Fires TCP intents when the player walks
-	# into a deposit or exit radius.
-	_check_expedition_proximity()
-	_update_expedition_visuals(delta)
+	# Expedition proximity + visuals — only after first manifest arrived
+	if connected and expedition_active:
+		_check_expedition_proximity()
+		_update_expedition_visuals(delta)
 
 
 func _send_camera() -> void:
@@ -1820,8 +1818,8 @@ func _check_expedition_proximity() -> void:
 	var cam_pos: Vector3 = camera.global_transform.origin
 
 	# Deposit points ——————————————————————————————————————
-	for d_raw: Variant in expedition_cache.get("deposit_points", []):
-		var d: Dictionary = d_raw as Dictionary
+	for d_raw in expedition_cache.get("deposit_points", []):
+		var d: Dictionary = d_raw
 		if d.get("satisfied", false):
 			continue
 		var pos_arr: Array = d.get("pos", [0.0, 0.0, 0.0])
@@ -1868,24 +1866,20 @@ func _check_expedition_proximity() -> void:
 
 
 func _update_expedition_visuals(_delta: float) -> void:
-	"""Maintain per-deposit + exit marker Node3Ds from the snapshot.
-	Uses standalone heptagonal motes (the same test fixture as tag
-	markers) so we don't fight the existing light pipe auto-drift
-	loop. v1 honors emission_boost via marker brightness; pipe_lock
-	is accepted by the schema and ignored by Godot.
-	"""
-	if expedition_cache.is_empty():
-		# Tear down any leftover markers
-		for key in expedition_markers.keys():
-			expedition_markers[key].queue_free()
-		expedition_markers.clear()
+	"""Maintain per-deposit + exit marker Node3Ds from the snapshot."""
+	if expedition_cache.is_empty() or not expedition_active:
+		# Tear down any leftover markers when expedition ends or cache empty
+		if not expedition_markers.is_empty():
+			for key in expedition_markers.keys():
+				expedition_markers[key].queue_free()
+			expedition_markers.clear()
 		return
 
 	var seen: Dictionary = {}
 
 	# Deposit markers — one mote per point
-	for d_raw: Variant in expedition_cache.get("deposit_points", []):
-		var d: Dictionary = d_raw as Dictionary
+	for d_raw in expedition_cache.get("deposit_points", []):
+		var d: Dictionary = d_raw
 		var key: String = "deposit:" + d.get("id", "?")
 		seen[key] = true
 		var pos_arr: Array = d.get("pos", [0.0, 0.0, 0.0])
