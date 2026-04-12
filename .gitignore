@@ -57,3 +57,9 @@ godot/meshes/pre_repair_backup/
 
 # ── Claude Code session data ─────────────────────────────────────────────────
 .claude/
+
+# ── Expedition session logs — generated per Godot run, not source ────────────
+# Each completed expedition writes sessions/expedition_<timestamp>.json.
+# These are the post-mortem artifacts for visual triage — kept locally,
+# correlated with godot/tags/ screenshots, not committed.
+sessions/
