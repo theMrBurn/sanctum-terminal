@@ -65,6 +65,21 @@ var stone_density_origin: Vector2 = Vector2.ZERO
 # HUD
 var hud_label: Label
 
+# -- Expedition state (read from manifest['expedition']) ---------------------
+# The render-manifest doctrine: brain owns truth, manifest carries it,
+# we paint what we see. We do NOT maintain our own expedition state —
+# this cache is just the latest snapshot the brain sent us, plus a tiny
+# bit of local bookkeeping for tag dispatch and toast dedup.
+var expedition_cache: Dictionary = {}
+var expedition_active: bool = false
+var expedition_last_message: String = ""
+# Tag sidecars awaiting deposit. Keyed by tag_id. Cleared when a deposit
+# intent is accepted, or when the expedition completes.
+var pending_tag_intents: Dictionary = {}
+# Deposit proximity radius — how close the player must get to a deposit
+# point before Godot auto-sends a deposit_intent for each pending tag.
+const EXPEDITION_DEPOSIT_RADIUS := 3.0
+
 
 func _ready() -> void:
 	_load_kind_config()
@@ -783,7 +798,15 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_colors = true
+	# CRITICAL: when use_colors is true, MultiMesh routes per-instance color
+	# into the shader's COLOR built-in, *replacing* the mesh's COLOR_0 stream.
+	# Kinds with use_vertex_colors: true in kind_config want their authored
+	# mesh vertex colors to drive rendering, so we must DISABLE use_colors
+	# for them. The trade-off is loss of per-instance color jitter on those
+	# kinds — acceptable because variant_count handles meaningful variation
+	# and the authored palette is the whole point.
+	var kind_params_for_mm: Dictionary = _get_kind_params(kind)
+	mm.use_colors = not bool(kind_params_for_mm.get("use_vertex_colors", false))
 	mm.use_custom_data = true  # Phase 2 — per-instance layer membership
 	mm.mesh = base_mesh
 	mm.instance_count = ents.size()
@@ -1166,6 +1189,16 @@ func _process_responses() -> void:
 		if data.get("unchanged", false):
 			continue
 
+		# Deposit intent / walk-through ack — these arrive out of band
+		# (not a manifest) so handle them before the full-manifest
+		# branch. They carry their own top-level keys.
+		if data.has("deposit_result"):
+			_on_deposit_result(data["deposit_result"])
+			continue
+		if data.has("resolution"):
+			_on_expedition_resolution(data)
+			continue
+
 		# Full manifest update — brain sent new data, rebuild entities.
 		# The brain handles dirty detection via "unchanged" flag above.
 		# If we got here, the scene HAS changed — always rebuild.
@@ -1173,6 +1206,7 @@ func _process_responses() -> void:
 		_rebuild_entities()
 		_update_atmosphere()
 		_update_hud()
+		_on_expedition_manifest_field(data.get("expedition", {}))
 
 
 func _rebuild_entities() -> void:
@@ -1551,7 +1585,7 @@ func _drop_tag_marker(num: int, pos: Vector3) -> void:
 	add_child(marker)
 	tag_markers.append(marker)
 
-func _save_tag() -> void:
+func _save_tag(reason: String = "neutral") -> void:
 	tag_count += 1
 	var img: Image = get_viewport().get_texture().get_image()
 	var cx: float = snapped(camera.position.x, 0.1)
@@ -1559,8 +1593,8 @@ func _save_tag() -> void:
 	var ch: float = snapped(camera.rotation_degrees.y, 0.1)
 	var tension_st: String = manifest.get("tension_state", "?")
 	var vis: int = manifest.get("entities", []).size()
-	var fname: String = "sanctum_tag_%02d_x%s_y%s_h%s_%s_%dvis.png" % [
-		tag_count, str(cx), str(cy), str(ch), tension_st, vis]
+	var fname: String = "sanctum_tag_%02d_x%s_y%s_h%s_%s_%s_%dvis.png" % [
+		tag_count, str(cx), str(cy), str(ch), tension_st, reason, vis]
 
 	# Save to absolute path — res:// is read-only at runtime
 	var tag_dir: String = "/Users/themrburn/git/sanctum-terminal/godot/tags"
@@ -1582,6 +1616,62 @@ func _save_tag() -> void:
 		if ent_t.has("spectrum_state"):
 			emissive_with_spectrum += 1
 
+	# Crosshair identification — find the entity nearest to camera forward.
+	# Pure math (no physics raycast) so it works for every kind, including
+	# those without collision shapes. Scores by angular alignment + visible
+	# silhouette size, NOT raw distance — early version was distance-biased
+	# and over-picked tiny floor scatter (cave_gravel) over the actual
+	# subject of the screenshot. Returns the top 5 so the user / claude can
+	# disambiguate when scoring is ambiguous.
+	var fwd_v: Vector3 = -camera.global_transform.basis.z
+	var cam_pos_v: Vector3 = camera.global_transform.origin
+	var crosshair_candidates: Array = []
+	for ent_xh: Dictionary in manifest.get("entities", []):
+		var ent_pos := Vector3(
+			ent_xh.get("x", 0.0),
+			ent_xh.get("z", 0.0),  # manifest z → Godot y (up)
+			ent_xh.get("y", 0.0)   # manifest y → Godot z (forward)
+		)
+		var to_ent: Vector3 = ent_pos - cam_pos_v
+		var dist_xh: float = to_ent.length()
+		if dist_xh < 0.3 or dist_xh > 40.0:
+			continue
+		var fwd_cos: float = to_ent.normalized().dot(fwd_v)
+		if fwd_cos < 0.5:  # outside ~60° cone
+			continue
+		# Approximate visible silhouette: max axis of the rendered scale
+		# divided by distance gives angular size. Bigger and centered =
+		# clearly the subject. Tiny scatter at the same distance loses.
+		var sx_xh: float = float(ent_xh.get("sx", 1.0))
+		var sy_xh: float = float(ent_xh.get("sy", 1.0))
+		var sz_xh: float = float(ent_xh.get("sz", 1.0))
+		var max_axis: float = max(sx_xh, max(sy_xh, sz_xh))
+		var angular_size: float = max_axis / dist_xh
+		# Score (LOWER wins):
+		#   - heavy penalty for angle off-center (×100, was ×30)
+		#   - reward for angular size (negative term — bigger silhouette
+		#     subtracts from score, so big-and-centered crushes tiny-and-close)
+		#   - mild distance term so a far-but-huge thing doesn't auto-win
+		var score: float = (1.0 - fwd_cos) * 100.0 - angular_size * 20.0 + dist_xh * 0.3
+		crosshair_candidates.append({
+			"kind": ent_xh.get("kind", "?"),
+			"x": snapped(ent_xh.get("x", 0.0), 0.01),
+			"y": snapped(ent_xh.get("y", 0.0), 0.01),
+			"z": snapped(ent_xh.get("z", 0.0), 0.01),
+			"distance": snapped(dist_xh, 0.01),
+			"fwd_cos": snapped(fwd_cos, 0.001),
+			"angular_size": snapped(angular_size, 0.001),
+			"sx": ent_xh.get("sx", 1.0),
+			"sy": ent_xh.get("sy", 1.0),
+			"sz": ent_xh.get("sz", 1.0),
+			"r": ent_xh.get("r", 0.0),
+			"g": ent_xh.get("g", 0.0),
+			"b": ent_xh.get("b", 0.0),
+			"_score": snapped(score, 0.01),
+		})
+	crosshair_candidates.sort_custom(func(a, b): return a["_score"] < b["_score"])
+	var crosshair_top: Array = crosshair_candidates.slice(0, 5)
+
 	var telemetry := {
 		"tag": tag_count,
 		"camera": {
@@ -1592,6 +1682,8 @@ func _save_tag() -> void:
 			"pitch": snapped(camera.rotation_degrees.x, 0.1),
 			"fov": camera.fov,
 		},
+		"tag_reason": reason,
+		"crosshair": crosshair_top,
 		"tension_state": manifest.get("tension_state", ""),
 		"tension_budget": manifest.get("tension_budget", 0.0),
 		"tension_envelope": manifest.get("tension_envelope", {}),  # includes dissociating, dwell_time, pressure
@@ -1615,9 +1707,82 @@ func _save_tag() -> void:
 	if jfile:
 		jfile.store_string(JSON.stringify(telemetry, "  "))
 		jfile.close()
-	_show_toast("TAG #%d saved" % tag_count)
+	_show_toast("TAG #%d [%s] saved" % [tag_count, reason.to_upper()])
 	# Drop 3D marker at tag position
 	_drop_tag_marker(tag_count, camera.position)
+
+	# Expedition wire: send the full sidecar to brain so the engine
+	# can score it and (on proximity) deposit it. The disk-saved PNG
+	# + JSON remain the post-mortem artifacts; this is the in-game
+	# loop's input channel.
+	if connected:
+		var tag_payload: Dictionary = telemetry.duplicate(true)
+		tag_payload["tag_id"] = tag_count
+		var msg_obj := {
+			"cmd": "tag_event",
+			"tag": tag_payload,
+		}
+		var msg_str: String = JSON.stringify(msg_obj) + "\n"
+		tcp.put_data(msg_str.to_utf8_buffer())
+		pending_tag_intents[tag_count] = tag_payload
+
+
+# -- Expedition wire handlers ---------------------------------------------
+
+func _on_expedition_manifest_field(enc: Dictionary) -> void:
+	"""Called every frame after a manifest update. Caches the snapshot
+	for proximity checks and fires a toast on last_message transitions."""
+	if enc.is_empty():
+		expedition_active = false
+		expedition_cache = {}
+		return
+	expedition_cache = enc
+	var state: String = enc.get("state", "dormant")
+	expedition_active = (state == "active" or state == "resolution")
+
+	# Toast on message transitions. Brain clears last_message after
+	# each send via engine.consume_message(), so we only see a given
+	# key once.
+	var msg_key: String = enc.get("last_message", "")
+	if msg_key != "" and msg_key != expedition_last_message:
+		var msg_text: String = enc.get("last_message_text", "")
+		if msg_text != "":
+			_show_toast(msg_text)
+		expedition_last_message = msg_key
+
+
+func _on_deposit_result(result: Dictionary) -> void:
+	"""Brain acked a deposit_intent. On accept, clear the local
+	pending tag so we don't re-send. On reject, keep it pending —
+	it might match a different deposit point later."""
+	if result.get("accepted", false):
+		var dep: Dictionary = result.get("deposit", {})
+		# We don't know which tag_id was deposited from the ack alone,
+		# so we clear whichever pending tags are eligible by snapshot
+		# comparison with the updated deposit_points (handled on next
+		# manifest frame). For v1 we just let the brain's idempotence
+		# guard catch duplicates — nothing to do here beyond toasting.
+		var did: String = dep.get("id", "?")
+		print("Expedition: deposit accepted at %s (%d/%d)" % [
+			did, int(dep.get("current", 0)), int(dep.get("threshold", 0))
+		])
+
+
+func _on_expedition_resolution(data: Dictionary) -> void:
+	"""Brain acked a walk_through. If resolution=complete and
+	quit_godot=true, exit cleanly after a brief dwell so the last
+	toast is readable."""
+	var resolution: String = data.get("resolution", "")
+	if resolution == "complete":
+		var log_path: String = data.get("log_path", "")
+		print("Expedition complete. Session log: %s" % log_path)
+		if data.get("quit_godot", false):
+			_show_toast("Session complete.")
+			await get_tree().create_timer(0.6).timeout
+			get_tree().quit()
+	elif resolution == "exit_inactive":
+		# Player walked through before exit activated — no-op.
+		pass
 
 
 func _build_overlay_line(cfg: Dictionary,
@@ -2335,7 +2500,22 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
 			KEY_T, KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_BACKSLASH:  # telemetry tag
-				_save_tag()
+				# Modifier-keyed semantic categories. Plain T = neutral
+				# (legacy / unannotated). Modifiers tell the brain WHY:
+				#   Shift+T  → interesting   (deliberate positive)
+				#   Alt+T    → beautiful     (aesthetic)
+				#   Ctrl+T   → dangerous     (warning)
+				#   Cmd+T    → weird         (anomaly)
+				var reason := "neutral"
+				if event.shift_pressed:
+					reason = "interesting"
+				elif event.alt_pressed:
+					reason = "beautiful"
+				elif event.ctrl_pressed:
+					reason = "dangerous"
+				elif event.meta_pressed:
+					reason = "weird"
+				_save_tag(reason)
 			KEY_L:  # cycle light state
 				if connected:
 					var msg := JSON.stringify({"cmd": "light_cycle"}) + "\n"
