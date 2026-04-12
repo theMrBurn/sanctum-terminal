@@ -534,7 +534,18 @@ func _finalize_spawn_scene() -> void:
 
 		var mat := StandardMaterial3D.new()
 		var tint: Array = bl.get("tint", [0.05, 0.05, 0.08])
-		mat.albedo_color = Color(tint[0], tint[1], tint[2], bl.get("opacity", 0.1))
+		# Depth-layered tint: near banners warm, far banners cool.
+		# Aerial perspective as a palette trick, not fog math. Far columns
+		# read blue-grey, near ones read warm amber, and the boundary is
+		# the banner ring itself.
+		var banner_dist: float = bl.get("distance", 20.0)
+		var max_dist: float = 49.0  # outermost banner
+		var warmth: float = 1.0 - clampf(banner_dist / max_dist, 0.0, 1.0)
+		var warm_shift := Color(0.04 * warmth, 0.02 * warmth, -0.02 * warmth)
+		var depth_r: float = clampf(tint[0] + warm_shift.r, 0.0, 1.0)
+		var depth_g: float = clampf(tint[1] + warm_shift.g, 0.0, 1.0)
+		var depth_b: float = clampf(tint[2] + warm_shift.b, 0.0, 1.0)
+		mat.albedo_color = Color(depth_r, depth_g, depth_b, bl.get("opacity", 0.1))
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.cull_mode = BaseMaterial3D.CULL_FRONT  # render inside face only
@@ -1212,6 +1223,10 @@ func _process(delta: float) -> void:
 	# handles the drift locally.
 	_update_light_sheet(delta)
 
+	# Dust motes — tiny heptagonal atoms drifting on predetermined loops,
+	# synced with the grass gust wave. Barely visible, atmospheric.
+	_update_dust_motes(delta)
+
 
 func _send_camera() -> void:
 	if not connected:
@@ -1791,6 +1806,96 @@ func _save_tag(reason: String = "neutral") -> void:
 # -- Light sheet state ----------------------------------------------------
 var light_sheet_phase: float = 0.0
 
+# -- Dust motes — tiny heptagonal atoms on predetermined loops ------------
+# Same gust wave as the grass wind shader. Between gusts: slow elliptical
+# drift (dust in still air). During gusts: brief acceleration downwind.
+# Motes recycle when they drift too far from camera.
+var dust_motes: Array[Dictionary] = []  # {node, base_pos, loop_phase, loop_radius}
+const DUST_MOTE_COUNT := 24
+const DUST_MOTE_RANGE := 30.0   # max distance from camera before recycling
+const DUST_MOTE_SPAWN := 20.0   # spawn within this radius of camera
+var dust_motes_spawned: bool = false
+
+func _spawn_dust_motes() -> void:
+	"""Scatter tiny heptagonal mote atoms around the camera. Each mote
+	drifts on an elliptical loop and responds to the gust wave."""
+	for i in range(DUST_MOTE_COUNT):
+		var node := MeshInstance3D.new()
+		var size: float = 0.02 + randf() * 0.03  # 0.02-0.05m — barely visible
+		node.mesh = _build_heptagonal_mote_mesh(size)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.85, 0.75, 0.55, 0.6)
+		mat.emission_enabled = true
+		mat.emission = Color(0.9, 0.80, 0.55)
+		mat.emission_energy_multiplier = 0.8
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.no_depth_test = false
+		node.set_surface_override_material(0, mat)
+		# Random position around camera
+		var offset := Vector3(
+			(randf() - 0.5) * DUST_MOTE_SPAWN * 2.0,
+			0.4 + randf() * 2.5,  # 0.4-2.9m above ground
+			(randf() - 0.5) * DUST_MOTE_SPAWN * 2.0)
+		node.position = camera.position + offset
+		node.name = "DustMote_%d" % i
+		add_child(node)
+		dust_motes.append({
+			"node": node,
+			"base_pos": node.position,
+			"loop_phase": randf() * TAU,
+			"loop_radius": 0.15 + randf() * 0.25,  # 0.15-0.40m drift loop
+			"loop_speed": 0.08 + randf() * 0.12,    # 0.08-0.20 rad/s (30-80s orbit)
+			"height_phase": randf() * TAU,
+		})
+	dust_motes_spawned = true
+
+
+func _update_dust_motes(delta: float) -> void:
+	"""Move each mote on its elliptical loop + gust wave. Recycle when
+	too far from camera. Same wave function as the grass wind shader."""
+	if not dust_motes_spawned:
+		_spawn_dust_motes()
+		return
+	var cam_pos: Vector3 = camera.position
+	# Gust wave — same constants as the grass shader so motes and grass
+	# respond to the same gust at the same time.
+	var wind_dir := Vector2(0.7071, 0.7071)
+	var omega: float = 0.42
+	var k: float = 0.14
+	for mote: Dictionary in dust_motes:
+		var node: MeshInstance3D = mote["node"]
+		var base: Vector3 = mote["base_pos"]
+		# Slow elliptical drift — predetermined loop
+		mote["loop_phase"] += delta * mote["loop_speed"]
+		var lp: float = mote["loop_phase"]
+		var lr: float = mote["loop_radius"]
+		var loop_offset := Vector3(
+			cos(lp) * lr,
+			sin(lp * 0.7 + mote["height_phase"]) * lr * 0.3,
+			sin(lp) * lr)
+		# Gust wave — same spatial hash as the grass shader
+		var pos_along: float = base.x * wind_dir.x + base.z * wind_dir.y
+		var gust_raw: float = sin(Time.get_ticks_msec() * 0.001 * omega - pos_along * k)
+		var gust: float = pow(max(gust_raw, 0.0), 8.0)
+		# Gust pushes the mote downwind + slightly up
+		var gust_offset := Vector3(
+			wind_dir.x * gust * 1.5,
+			gust * 0.3,
+			wind_dir.y * gust * 1.5)
+		node.position = base + loop_offset + gust_offset
+		# Recycle: teleport motes that drifted too far
+		var dist_to_cam: float = node.position.distance_to(cam_pos)
+		if dist_to_cam > DUST_MOTE_RANGE:
+			var new_offset := Vector3(
+				(randf() - 0.5) * DUST_MOTE_SPAWN,
+				0.4 + randf() * 2.5,
+				(randf() - 0.5) * DUST_MOTE_SPAWN)
+			mote["base_pos"] = cam_pos + new_offset
+			node.position = mote["base_pos"]
+
+
 func _update_light_sheet(delta: float) -> void:
 	"""Drift the light sheet cylinder slowly around the player. Brain can
 	override via manifest['light_sheet']; otherwise Godot handles drift.
@@ -1821,6 +1926,14 @@ func _update_light_sheet(delta: float) -> void:
 	var cz: float = camera.position.z + cos(light_sheet_phase * 0.7) * orbit_r
 	RenderingServer.global_shader_parameter_set(
 		"light_sheet_center", Vector3(cx, 0.0, cz))
+
+	# Palette cycling — tint rotates through hues over ~4 minutes.
+	# Low saturation so it's atmospheric, not psychedelic. Cavern mood
+	# shifts continuously: amber → rose → sage → teal → amber.
+	var hue: float = fmod(light_sheet_phase * 0.15, 1.0)
+	var sheet_color: Color = Color.from_hsv(hue, 0.25, 0.88)
+	RenderingServer.global_shader_parameter_set(
+		"light_sheet_tint", Vector3(sheet_color.r, sheet_color.g, sheet_color.b))
 
 
 # -- Expedition wire handlers ---------------------------------------------

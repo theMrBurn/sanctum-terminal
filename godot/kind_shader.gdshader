@@ -200,8 +200,14 @@ void fragment() {
 	// commit that passes positions as uniforms.
 
 	float head_dist = distance(world_pos, CAMERA_POSITION_WORLD);
-	// Hard edge — inside or outside, no gradient. Sable doesn't blend.
-	float head_t = 1.0 - step(12.0, head_dist);
+	// Torch flicker — radius breathes on overlapping noise curves.
+	// Multiple sine products at different frequencies = irregular organic
+	// flicker. Objects near the boundary pop in and out of the tint zone.
+	// The flicker IS the firelight. No brightness animation needed.
+	float flicker_fast = sin(TIME * 7.3) * sin(TIME * 11.1) * sin(TIME * 3.7);
+	float flicker_breath = sin(TIME * 0.8) * 0.5 + 0.5;  // slow envelope
+	float torch_radius = 12.0 + flicker_fast * flicker_breath * 1.8;
+	float head_t = 1.0 - step(torch_radius, head_dist);
 
 	if (head_t > 0.01) {
 		// Surface luminance — preserves the value structure of the geometry
