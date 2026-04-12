@@ -153,12 +153,16 @@ void fragment() {
 		}
 	}
 
+	// Per-object origin — used for banding hashes AND light distance.
+	// Light decisions are per-OBJECT (Sable-style): the entire object
+	// flips between lit and neutral at once. No half-tinted faces.
+	vec3 instance_origin = MODEL_MATRIX[3].xyz;
+
 	// Per-instance horizontal banding — three independent hashes drive band
 	// count, phase, and width so no two instances share a layout. The world
 	// reads as individually-stratified objects, not a grid.
 	// Skipped when use_vertex_colors is set — banding is rock stratification
 	// and would paint horizontal dark stripes across a toadstool cap.
-	vec3 instance_origin = MODEL_MATRIX[3].xyz;
 	if (use_vertex_colors < 0.5 && band_strength > 0.001) {
 		float h1 = fract(sin(dot(instance_origin.xz, vec2(12.9898, 78.233))) * 43758.5453);
 		float h2 = fract(sin(dot(instance_origin.xz, vec2(31.7777, 19.3791))) * 28765.1234);
@@ -199,7 +203,8 @@ void fragment() {
 	// V1: headlamp only (follows camera). Pipe lights are a follow-up
 	// commit that passes positions as uniforms.
 
-	float head_dist = distance(world_pos, CAMERA_POSITION_WORLD);
+	// Per-OBJECT distance — whole object tints at once, no half-and-half cuts
+	float head_dist = distance(instance_origin, CAMERA_POSITION_WORLD);
 	// Torch flicker — radius breathes on overlapping noise curves.
 	// Multiple sine products at different frequencies = irregular organic
 	// flicker. Objects near the boundary pop in and out of the tint zone.
@@ -234,7 +239,7 @@ void fragment() {
 	// becomes monochromatic in the sheet's tint color at the surface's own
 	// luminance. "Everything in that bubble is just a flat tone."
 	// The sheet IS the light. No Godot lights, no PBR, no shadow maps.
-	float sheet_dist = distance(world_pos.xz, light_sheet_center.xz);
+	float sheet_dist = distance(instance_origin.xz, light_sheet_center.xz);
 	// Hard edge — no gradient at the boundary. Flat in, neutral out.
 	float sheet_t = 1.0 - step(light_sheet_radius, sheet_dist);
 
