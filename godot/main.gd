@@ -1575,18 +1575,21 @@ func _spawn_creatures() -> void:
 		var mote_color: Color = cfg.get("mote_color", Color(0.5, 0.4, 0.3))
 		var mote_size: float = cfg.get("mote_size", 0.05)
 		var atom_nodes: Array[MeshInstance3D] = []
+		print("CREATURE SPAWN: %s at (%s, %s) scale=%s atoms=%d" % [
+			kind, str(ent.get("x", 0)), str(ent.get("y", 0)),
+			str(creature_scale), offsets.size()])
 
 		for offset in offsets:
 			var atom := MeshInstance3D.new()
 			atom.mesh = _build_heptagonal_mote_mesh(mote_size)
 			var mat := StandardMaterial3D.new()
-			mat.albedo_color = mote_color
+			mat.albedo_color = Color(1.0, 1.0, 1.0)  # DEBUG: bright white
 			mat.emission_enabled = true
-			mat.emission = mote_color
-			mat.emission_energy_multiplier = 1.5
+			mat.emission = Color(1.0, 1.0, 0.5)  # DEBUG: bright yellow glow
+			mat.emission_energy_multiplier = 5.0  # DEBUG: max brightness
 			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 			mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-			mat.no_depth_test = false
+			mat.no_depth_test = true  # DEBUG: render on top of everything
 			atom.set_surface_override_material(0, mat)
 			atom.position = offset
 			parent.add_child(atom)
