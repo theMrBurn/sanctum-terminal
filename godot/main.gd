@@ -1672,7 +1672,7 @@ func _update_creatures(delta: float) -> void:
 					vels.append(Vector3.ZERO)
 					continue
 				# Scatter direction: outward from entity center + upward
-				var dir := atom.position.normalized()
+				var dir: Vector3 = atom.position.normalized()
 				if dir.length() < 0.01:
 					dir = Vector3(randf() - 0.5, 0.5, randf() - 0.5).normalized()
 				dir.y = abs(dir.y) + 0.5  # bias upward
