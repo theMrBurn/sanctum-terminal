@@ -30,6 +30,44 @@ Dust motes first (smallest, gust-synced). Then crystal sconces.
 Then palette tuning. Always one variable, always screenshot between.
 
 ---
+SESSION ADDENDUM (2026-04-12 ~00:30 → ~03:00, ~2.5h, creature
+primitives + Sable light tuning + atom-cluster architecture):
+
+Extended the session into creature ghost sprite primitives and
+the atom-cluster architecture. Key additions:
+
+CAST_TRIAL expedition class — second recipe with element-gated
+deposits (fire/ice/electric/light). Engine generalized: accepts
+filters work on both tag_reason and element. 78/78 tests.
+
+CREATURE_SMALL family builder — build_rat (340 tris, composed
+from spheres/hemispheres/cylinders) + build_chest (60 tris).
+Three palette variants: rat, rat_ice, rat_fire. Staged configs
+for spider, bat, slime (placeholder sphere meshes).
+
+ATOM-CLUSTER ARCHITECTURE — creatures rebuilt as mote arrangements
+(15 heptagonal atoms for rat, 10 for pot, 8 for chest) instead of
+smooth geometry. The construction IS the destruction: scatter the
+atoms = destroy the creature. Clay pot = destructible test fixture
+with scatter physics + gravity + fade.
+
+SABLE LIGHT TUNING — smoothstep on per-OBJECT distance (6-22m
+range). Extended wash, no pop, no per-surface gradient. Tint peaks
+at avatar FOV center.
+
+BLOCKED: _spawn_creatures silently errors in Godot. Brain delivers
+creature entities (confirmed via tags). Godot never completes the
+spawn function. Next session: check Godot debugger for the error.
+
+H = teleport to hub spawn (working). F-keys don't work on Mac.
+HUD font bumped 14→24.
+
+HEAD: 7b5675b. Design docs: atom skin destruction + elemental
+reaction table + skin definition helper all pinned as memories.
+Read design_thoughts.txt at session start — FPS/ISO dual camera
++ Xenogears insight + vector composite skin are the next trajectory.
+
+---
 SESSION ARC (2026-04-10 ~09:30 → 11:15, ~1.75h active, ~47h cumulative arc):
 
 The morning-after triage. Picked up from 7d926fc on feat/render-manifest
