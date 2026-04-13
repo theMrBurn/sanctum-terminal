@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dfl5dhuqt3yoq"
-path="res://.godot/imported/boulder_v2.glb-41c5fdfd8c914ec660ff01f0e708c0d4.scn"
+uid="uid://ddffq6c2d5d5m"
+path="res://.godot/imported/rat_fire_v1.glb-57a70ec900edda3d88983dd18b024458.scn"
 
 [deps]
 
-source_file="res://meshes/boulder_v2.glb"
-dest_files=["res://.godot/imported/boulder_v2.glb-41c5fdfd8c914ec660ff01f0e708c0d4.scn"]
+source_file="res://meshes/rat_fire_v1.glb"
+dest_files=["res://.godot/imported/rat_fire_v1.glb-57a70ec900edda3d88983dd18b024458.scn"]
 
 [params]
 

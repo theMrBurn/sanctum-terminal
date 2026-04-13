@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dfl5dhuqt3yoq"
-path="res://.godot/imported/boulder_v2.glb-41c5fdfd8c914ec660ff01f0e708c0d4.scn"
+uid="uid://b8og2aqwrulg4"
+path="res://.godot/imported/slime_v0.glb-22aaa987fb2e12f9d74e53af0a609214.scn"
 
 [deps]
 
-source_file="res://meshes/boulder_v2.glb"
-dest_files=["res://.godot/imported/boulder_v2.glb-41c5fdfd8c914ec660ff01f0e708c0d4.scn"]
+source_file="res://meshes/slime_v0.glb"
+dest_files=["res://.godot/imported/slime_v0.glb-22aaa987fb2e12f9d74e53af0a609214.scn"]
 
 [params]
 

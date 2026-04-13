@@ -1258,6 +1258,13 @@ func _process_responses() -> void:
 		_update_atmosphere()
 		_update_hud()
 		_on_expedition_manifest_field(data.get("expedition", {}))
+		# Elemental reactions — brain emits reaction_events when a cast
+		# lands near an entity whose kind_config.elemental_reactions maps
+		# the element to a pattern. Godot paints the visual; brain never
+		# renders. One-shot per event — not persistent state.
+		var reaction_events: Array = data.get("reaction_events", [])
+		for r: Dictionary in reaction_events:
+			_apply_reaction_event(r)
 
 
 func _rebuild_entities() -> void:
@@ -1270,6 +1277,11 @@ func _rebuild_entities() -> void:
 		var kind: String = ent.get("kind", "unknown")
 		# Creatures always skip MultiMesh — handled by _spawn_creatures.
 		if CREATURE_KINDS.has(kind):
+			continue
+		# Shadow-lab fixtures skip MultiMesh — handled by _spawn_shadow_orbs.
+		# Each fixture gets an individual Node3D so its Decal child can
+		# animate/vary per entity.
+		if SHADOW_ORB_KINDS.has(kind):
 			continue
 		var render_mode: String = ent.get("render_mode", "geometry")
 
@@ -1324,6 +1336,9 @@ func _rebuild_entities() -> void:
 		mote_dirty = true
 	# Creatures spawn independently — don't gate on mote_dirty.
 	_spawn_creatures()
+	# Shadow-lab fixtures (decal_projector sandbox). Same diff-by-id pattern
+	# as creatures so the lab doesn't flicker on each manifest tick.
+	_spawn_shadow_orbs()
 	if mote_dirty:
 		_update_motes()
 		mote_dirty = false
@@ -1498,6 +1513,11 @@ func _update_atmosphere() -> void:
 	# Distant fog band tracks manifest color
 	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
 	godot_env.fog_density = 0.8 / max(fog_far, 1.0)
+	# Test: disable fog entirely to confirm per-fragment fog attenuation
+	# is what kills surface flatness. Sable-style refs have NO atmospheric
+	# gradient — distant geometry just hard-cuts to sky. Flip back true
+	# after comparison.
+	godot_env.fog_enabled = false
 
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
@@ -1576,6 +1596,12 @@ const CREATURE_DEBRIS_FREE_PARENT: bool = false
 # in kind_config it silently won't be in CREATURE_KINDS — add it there.
 var CREATURE_KINDS: Dictionary = {}
 
+# Shadow-lab fixtures: kinds whose render path is "orb + decal_projector".
+# Skipped by the MultiMesh path so their individual Decal children can
+# animate/vary per entity. Derived dynamically in _load_shadow_orb_kinds.
+var SHADOW_ORB_KINDS: Dictionary = {}
+var shadow_orb_nodes: Array[Dictionary] = []  # {node, id, kind}
+
 
 func _load_creature_kinds() -> void:
 	# Walk kind_config.kinds and harvest any kind with class=life AND a
@@ -1595,6 +1621,254 @@ func _load_creature_kinds() -> void:
 			entry["mote_color"] = Color(float(mc[0]), float(mc[1]), float(mc[2]))
 		CREATURE_KINDS[kname] = entry
 	print("Creature kinds: %d loaded from kind_config" % CREATURE_KINDS.size())
+	_load_shadow_orb_kinds()
+
+
+func _load_shadow_orb_kinds() -> void:
+	# Any kind with a decal_projector block becomes a shadow-lab fixture,
+	# routed to _spawn_shadow_orbs instead of MultiMesh. Keeps the primitive
+	# reusable — any future kind can opt in just by adding the block.
+	SHADOW_ORB_KINDS.clear()
+	var cfg_kinds: Dictionary = kind_config.get("kinds", {})
+	for kname: String in cfg_kinds:
+		var k: Dictionary = cfg_kinds[kname]
+		if k.has("decal_projector"):
+			SHADOW_ORB_KINDS[kname] = k["decal_projector"]
+	print("Shadow-orb kinds: %d loaded from kind_config" % SHADOW_ORB_KINDS.size())
+
+
+# --- Shadow-orb sandbox ------------------------------------------------------
+# decal_projector is the composition primitive: a source point + one or more
+# silhouette decals projected along a config vector onto the nearest surface.
+# This entry-point spawns the orb (visible source), attaches Decal children
+# per layer, and applies the multiplier (prism fan). Kept simple on purpose —
+# the point of the sandbox is to see the effect, then iterate knobs from
+# config alone without touching this function.
+const SHADOW_ORB_BASE_RADIUS: float = 0.2   # Visual sphere radius. Scaled by ent.sv.
+
+
+func _shadow_orb_id(kind: String, x: float, y: float) -> String:
+	return "shadow_orb|%s|%.2f|%.2f" % [kind, x, y]
+
+
+func _attach_decal_projector(host: Node3D, cfg: Dictionary) -> Array:
+	# Universal: attach decal layers to any Node3D. Shadow orbs, creatures,
+	# anything with a decal_projector block in kind_config.
+	# Returns the Decal nodes created so callers can animate or track them.
+	var decals: Array = []
+	var layers: Array = cfg.get("layers", [])
+	var proj: Dictionary = cfg.get("projection", {})
+	var mult: Dictionary = cfg.get("multiplier", {})
+	var max_dist: float = float(proj.get("max_distance", 6.0))
+	var fan_count: int = int(mult.get("fan", 1))
+	var spread_deg: float = float(mult.get("spread_deg", 0.0))
+
+	for layer: Dictionary in layers:
+		var tint_arr: Array = layer.get("tint", [0.02, 0.02, 0.03])
+		var tint := Color(float(tint_arr[0]), float(tint_arr[1]),
+			float(tint_arr[2]))
+		var decal_size: float = float(layer.get("size", 1.6))
+		for i in range(fan_count):
+			var decal := Decal.new()
+			decal.texture_albedo = _get_decal_texture(tint)
+			decal.size = Vector3(decal_size, max_dist, decal_size)
+			decal.position = Vector3(0.0, -max_dist * 0.5, 0.0)
+			if fan_count > 1 and spread_deg != 0.0:
+				var tilt_deg: float = spread_deg * 0.5
+				var yaw_deg: float = 360.0 * float(i) / float(fan_count)
+				decal.rotate_object_local(Vector3.UP, deg_to_rad(yaw_deg))
+				decal.rotate_object_local(Vector3.RIGHT,
+					deg_to_rad(tilt_deg))
+			decal.albedo_mix = 1.0
+			decal.emission_energy = 0.0
+			host.add_child(decal)
+			decals.append(decal)
+	return decals
+
+
+# --- Reaction pulse fallbacks ------------------------------------------------
+# Pattern body lives in kind_config._global.reaction_patterns (config-as-code).
+# These constants are defaults used when the pattern doesn't specify. Move
+# to per-pattern config when a new pattern needs different values.
+const REACTION_PULSE_RADIUS_M: float = 0.25   # spawn sphere radius
+const REACTION_PULSE_HEIGHT_M: float = 1.5    # waist-height offset from floor
+const REACTION_PULSE_SCALE_PEAK: float = 4.0  # tween scale multiplier at end
+const REACTION_PULSE_PEAK_ENERGY_DEFAULT: float = 3.0
+const REACTION_PULSE_DURATION_DEFAULT: float = 1.0
+
+
+func _apply_reaction_event(r: Dictionary) -> void:
+	# Spawn a short-lived emissive sphere at the reaction target. Visual
+	# only — brain already decided which entity reacts and which pattern
+	# applies. Pattern body lives in kind_config._global.reaction_patterns,
+	# so adding a new reaction is pure config.
+	var pattern_id: String = r.get("pattern", "")
+	var patterns: Dictionary = kind_config.get("_global", {}) \
+		.get("reaction_patterns", {})
+	var pattern: Dictionary = patterns.get(pattern_id, {})
+	if pattern.is_empty():
+		return
+	var tint_arr: Array = pattern.get("color_tint", [1.0, 1.0, 1.0])
+	var tint := Color(float(tint_arr[0]), float(tint_arr[1]),
+		float(tint_arr[2]))
+	var peak_energy: float = float(pattern.get("peak_energy",
+		REACTION_PULSE_PEAK_ENERGY_DEFAULT))
+	var duration: float = float(pattern.get("duration",
+		REACTION_PULSE_DURATION_DEFAULT))
+	var spawn_radius: float = float(pattern.get("spawn_radius",
+		REACTION_PULSE_RADIUS_M))
+	var height_offset: float = float(pattern.get("height_offset",
+		REACTION_PULSE_HEIGHT_M))
+	var scale_peak: float = float(pattern.get("scale_peak",
+		REACTION_PULSE_SCALE_PEAK))
+	# Brain coords: x,y are world XZ. Raise to waist so the pulse reads at
+	# eye-level regardless of entity scale; per-pattern height_offset
+	# overrides for ceiling/ground-hugging reactions.
+	var pos := Vector3(float(r.get("x", 0.0)), height_offset,
+		float(r.get("y", 0.0)))
+
+	var pulse := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = spawn_radius
+	sphere.height = spawn_radius * 2.0
+	pulse.mesh = sphere
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = tint
+	mat.emission_enabled = true
+	mat.emission = tint
+	mat.emission_energy_multiplier = peak_energy
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	pulse.set_surface_override_material(0, mat)
+	pulse.position = pos
+	add_child(pulse)
+
+	# Tween: grow + fade over duration.
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(pulse, "scale", Vector3.ONE * scale_peak, duration)
+	tw.tween_property(mat, "albedo_color:a", 0.0, duration)
+	tw.tween_property(mat, "emission_energy_multiplier", 0.0, duration)
+	tw.chain().tween_callback(pulse.queue_free)
+
+	print("REACTION: kind=%s element=%s pattern=%s at (%s,%s)" % [
+		r.get("kind", ""), r.get("element", ""), pattern_id,
+		str(r.get("x", 0)), str(r.get("y", 0))])
+
+
+func _hide_mesh_children(node: Node) -> void:
+	# Recursively hide MeshInstance3D descendants. Used when a kind's
+	# decal_projector carries hide_source=true — the source geometry is
+	# replaced entirely by its projected silhouette.
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			(child as MeshInstance3D).visible = false
+		if child.get_child_count() > 0:
+			_hide_mesh_children(child)
+
+
+func _spawn_shadow_orbs() -> void:
+	# Diff by stable id like _spawn_creatures so the lab doesn't flicker.
+	var manifest_ids: Dictionary = {}  # id -> ent dict
+	for ent: Dictionary in manifest.get("entities", []):
+		var k: String = ent.get("kind", "")
+		if not SHADOW_ORB_KINDS.has(k):
+			continue
+		var sid: String = _shadow_orb_id(k, ent.get("x", 0.0), ent.get("y", 0.0))
+		manifest_ids[sid] = ent
+
+	# Free shadow orbs no longer in manifest
+	var kept: Array[Dictionary] = []
+	for s: Dictionary in shadow_orb_nodes:
+		if manifest_ids.has(s.get("id", "")):
+			kept.append(s)
+			manifest_ids.erase(s["id"])
+		else:
+			if is_instance_valid(s["node"]):
+				s["node"].queue_free()
+	shadow_orb_nodes = kept
+
+	# Spawn new ones
+	for sid: String in manifest_ids:
+		var ent: Dictionary = manifest_ids[sid]
+		var kind: String = ent.get("kind", "")
+		var cfg: Dictionary = SHADOW_ORB_KINDS[kind]
+		var altitude: float = float(cfg.get("altitude", 2.0))
+
+		var parent := Node3D.new()
+		parent.name = "ShadowOrb_%s_%d" % [kind, shadow_orb_nodes.size()]
+		parent.position = Vector3(
+			float(ent.get("x", 0.0)),
+			float(ent.get("z", 0.0)) + altitude,
+			float(ent.get("y", 0.0)))
+
+		# Visible source sphere (emissive white by default, ent color tint)
+		var sphere_inst := MeshInstance3D.new()
+		var sphere := SphereMesh.new()
+		var sv: float = float(ent.get("sv", 1.0))
+		sphere.radius = SHADOW_ORB_BASE_RADIUS * sv
+		sphere.height = SHADOW_ORB_BASE_RADIUS * 2.0 * sv
+		sphere_inst.mesh = sphere
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(
+			float(ent.get("r", 1.0)),
+			float(ent.get("g", 1.0)),
+			float(ent.get("b", 1.0)))
+		mat.emission_enabled = true
+		mat.emission = mat.albedo_color
+		mat.emission_energy_multiplier = 2.0
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sphere_inst.set_surface_override_material(0, mat)
+		parent.add_child(sphere_inst)
+
+		# Attach decal layer(s) per config via the universal helper.
+		_attach_decal_projector(parent, cfg)
+
+		add_child(parent)
+		# Capture base position + drift params so _update_shadow_orbs can
+		# animate the parent each frame. Drift = [amp_x, amp_z, period_sec];
+		# zero period disables motion for that orb.
+		var anim: Dictionary = cfg.get("animation", {})
+		var drift: Array = anim.get("drift", [0.0, 0.0, 0.0])
+		var phase_offset: float = fposmod(float(ent.get("x", 0.0)) * 0.17
+			+ float(ent.get("y", 0.0)) * 0.23, TAU)
+		shadow_orb_nodes.append({
+			"node": parent,
+			"id": sid,
+			"kind": kind,
+			"base_pos": parent.position,
+			"drift_amp_x": float(drift[0]) if drift.size() > 0 else 0.0,
+			"drift_amp_z": float(drift[1]) if drift.size() > 1 else 0.0,
+			"drift_period": float(drift[2]) if drift.size() > 2 else 0.0,
+			"phase_offset": phase_offset,
+		})
+		print("SHADOW_ORB SPAWN: %s at (%s, %s) alt=%s drift=%s" % [
+			kind, str(ent.get("x", 0)), str(ent.get("y", 0)),
+			str(altitude), str(drift)])
+
+
+func _update_shadow_orbs(delta: float) -> void:
+	# Horizontal elliptical drift: x = base + amp_x*sin(2πt/period + phase),
+	# z = base + amp_z*cos(...). Decals are children of the parent Node3D,
+	# so they track the source for free — this IS the in-motion test.
+	if shadow_orb_nodes.is_empty():
+		return
+	var t: float = Time.get_ticks_msec() / 1000.0
+	for s: Dictionary in shadow_orb_nodes:
+		var period: float = s.get("drift_period", 0.0)
+		if period <= 0.0:
+			continue
+		if not is_instance_valid(s["node"]):
+			continue
+		var angle: float = (t / period) * TAU + s["phase_offset"]
+		var base_pos: Vector3 = s["base_pos"]
+		var amp_x: float = s["drift_amp_x"]
+		var amp_z: float = s["drift_amp_z"]
+		s["node"].position = Vector3(
+			base_pos.x + amp_x * sin(angle),
+			base_pos.y,
+			base_pos.z + amp_z * cos(angle))
+
 
 var creature_nodes: Array[Dictionary] = []  # {node, home_x, home_z, kind, fleeing}
 
@@ -1642,12 +1916,19 @@ func _spawn_creatures() -> void:
 		# (flee/drift). The atoms ride with it. Destruction = atoms scatter.
 		var parent := Node3D.new()
 		# Hover offset depends on visual: GLB has ground-relative geometry
-		# (sit at z), orbs are floating markers (lift to waist).
+		# (sit at z), orbs are floating markers (lift to waist). Flight
+		# kinds start mid-cruise so they don't pop from floor on first
+		# tick (altitude clamp would otherwise snap y=0 → alt_min).
 		var ground_z: float = ent.get("z", 0.0)
 		var hover: float = CREATURE_GLB_HOVER_M if CREATURE_USE_GLB_PATH else CREATURE_ORB_HOVER_M
+		var spawn_y: float = ground_z + hover
+		if cfg.get("behavior_mode", "ground") == "flight":
+			var alt_lo: float = float(cfg.get("cruise_alt_min", 5.0))
+			var alt_hi: float = float(cfg.get("cruise_alt_max", 11.0))
+			spawn_y = lerpf(alt_lo, alt_hi, randf())
 		parent.position = Vector3(
 			ent.get("x", 0.0),
-			ground_z + hover,
+			spawn_y,
 			ent.get("y", 0.0))
 		parent.name = "Creature_%s_%d" % [kind, creature_nodes.size()]
 
@@ -1686,6 +1967,11 @@ func _spawn_creatures() -> void:
 			inst.scale = Vector3.ONE * (orig_scale * world_mult)
 			parent.add_child(inst)
 			atom_nodes.append(inst)
+			# Flight kinds get procedural wing children for stop-motion
+			# flap. Wings live in world meters so their flap rotation is
+			# independent of the body GLB's world_scale_mult.
+			if cfg.get("behavior_mode", "ground") == "flight":
+				_attach_bat_wings(parent, cfg)
 			print("CREATURE SPAWN: %s glb at (%s, %s) world_scale=%s" % [
 				kind, str(ent.get("x", 0)), str(ent.get("y", 0)),
 				str(orig_scale * world_mult)])
@@ -1714,6 +2000,18 @@ func _spawn_creatures() -> void:
 				atom.position = offset
 				parent.add_child(atom)
 				atom_nodes.append(atom)
+
+		# Shadow-is-entity doctrine: if this kind's kind_config carries a
+		# decal_projector block, attach projected silhouettes. When
+		# hide_source=true the source geometry disappears entirely — the
+		# shadow IS the creature. Orthogonal to everything above; any kind
+		# (creature, shadow_orb, future) can opt in via config alone.
+		var kind_full_cfg: Dictionary = kind_config.get("kinds", {}).get(kind, {})
+		if kind_full_cfg.has("decal_projector"):
+			var dp_cfg: Dictionary = kind_full_cfg["decal_projector"]
+			if bool(dp_cfg.get("hide_source", false)):
+				_hide_mesh_children(parent)
+			_attach_decal_projector(parent, dp_cfg)
 
 		add_child(parent)
 		print("  -> added %d atoms, parent at %s scale %s" % [
@@ -1744,6 +2042,15 @@ func _update_creatures(delta: float) -> void:
 			continue
 		var cfg: Dictionary = CREATURE_KINDS[c["kind"]]
 		var node: Node3D = c["node"]
+
+		# -- Flight branch (bats, future: birds) --------------------------------
+		# behavior_mode: "flight" swaps the ground-based flee/home state
+		# machine for a soft-steering waypoint cruiser that leads the
+		# player. Flight creatures skip collision push-out (cruising above
+		# scenery) and own their Y-axis bobbing.
+		if cfg.get("behavior_mode", "ground") == "flight":
+			_update_flight_creature(c, cfg, node, delta)
+			continue
 
 		# -- Destruction state machine -----------------------------------------
 		if c["state"] == "breaking":
@@ -1824,10 +2131,13 @@ func _update_creatures(delta: float) -> void:
 			_show_toast("*crack*")
 			continue
 
+		var k_params: Dictionary = _get_kind_params(c["kind"])
+		var coll_r: float = float(k_params.get("physics", {}).get("collision_radius", 0.3))
 		if c["fleeing"]:
 			c["flee_timer"] -= delta
 			node.position.x += c["flee_dir_x"] * cfg["speed"] * delta
 			node.position.z += c["flee_dir_z"] * cfg["speed"] * delta
+			node.position = _push_out_of_collision(node.position, coll_r)
 			if c["flee_timer"] <= 0.0:
 				c["fleeing"] = false
 		elif dist < cfg["flee_radius"] and cfg["speed"] > 0.0:
@@ -1841,6 +2151,179 @@ func _update_creatures(delta: float) -> void:
 			var hz: float = c["home_z"] - node.position.z
 			node.position.x += hx * 0.3 * delta
 			node.position.z += hz * 0.3 * delta
+			node.position = _push_out_of_collision(node.position, coll_r)
+
+
+# Discrete flap poses — three frames (wings down / level / up).
+# The classic sprite-flip trick: hold each pose for ~1/(flap_hz × 3)
+# seconds, then snap to the next. Wings never tween — the snap IS
+# the visual. L and R hold the same pose, but we offset their phase
+# slightly so the silhouette has asymmetry mid-cycle.
+const BAT_WING_POSES: Array[float] = [
+	-0.55,  # down (radians ≈ -31°)
+	 0.0,   # level
+	 0.55,  # up
+]
+
+func _attach_bat_wings(parent: Node3D, cfg: Dictionary) -> void:
+	# Build two wing children — flat triangle quads extending in ±Y from
+	# the body. World-meter dimensions from kind_config so iteration is
+	# config-driven (no rebake to resize wings).
+	var span: float = float(cfg.get("wing_span", 0.8))
+	var chord: float = float(cfg.get("wing_chord", 0.25))
+	var sweep: float = float(cfg.get("wing_sweep", -0.15))
+	var color_arr = cfg.get("mote_color", [0.18, 0.16, 0.14])
+	var col := Color(float(color_arr[0]), float(color_arr[1]), float(color_arr[2]))
+
+	for side in [1, -1]:  # +Y = left wing, -Y = right wing
+		var pivot := Node3D.new()
+		pivot.name = "bat_wing_" + ("L" if side == 1 else "R")
+		var inst := MeshInstance3D.new()
+		var mesh := ArrayMesh.new()
+		var arr := []
+		arr.resize(Mesh.ARRAY_MAX)
+		# Quad verts: shoulder_front, shoulder_back, wingtip, mid_trail
+		var verts := PackedVector3Array([
+			Vector3( chord * 0.5, 0.0, 0.0),                     # shoulder front
+			Vector3(-chord * 0.5, 0.0, 0.0),                     # shoulder back
+			Vector3(sweep,             0.0, side * span),        # wingtip
+			Vector3(sweep - chord * 0.4, 0.0, side * span * 0.55), # mid trailing
+		])
+		var indices: PackedInt32Array
+		if side == 1:
+			indices = PackedInt32Array([0, 2, 1,  1, 2, 3])
+		else:
+			indices = PackedInt32Array([0, 1, 2,  1, 3, 2])  # flip winding for mirror
+		arr[Mesh.ARRAY_VERTEX] = verts
+		arr[Mesh.ARRAY_INDEX] = indices
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		inst.mesh = mesh
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = col
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # wings visible from below AND above
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		inst.set_surface_override_material(0, mat)
+		pivot.add_child(inst)
+		parent.add_child(pivot)
+
+
+func _update_flight_creature(c: Dictionary, cfg: Dictionary, node: Node3D, delta: float) -> void:
+	# Guide-creature loop: pick a target point ahead of the player, steer
+	# toward it with soft velocity blending, bob vertically, bank into
+	# turns. Player never "catches" the bat — when proximity closes, the
+	# waypoint is regenerated further ahead so the bat keeps leading.
+	#
+	# State fields lazily initialized on first tick so spawn doesn't need
+	# to know about flight:
+	#   vel (Vector3)    current velocity
+	#   target (Vector3) current waypoint in world space
+	#   bob_phase (float) time accumulator for y-bob
+	if not c.has("vel"):
+		c["vel"] = Vector3.ZERO
+		c["target"] = camera.position
+		c["bob_phase"] = randf() * TAU  # desync flock
+		c["flap_phase"] = randf() * 3.0  # 0..3, integer part = pose index
+		c["flap_pose_l"] = -1
+		c["flap_pose_r"] = -1
+	var vel: Vector3 = c["vel"]
+	var target: Vector3 = c["target"]
+	var bob_phase: float = c["bob_phase"]
+
+	var speed: float = float(cfg.get("speed", 3.5))
+	var alt_min: float = float(cfg.get("cruise_alt_min", 5.0))
+	var alt_max: float = float(cfg.get("cruise_alt_max", 11.0))
+	var waypoint_dist: float = float(cfg.get("waypoint_distance", 18.0))
+	var waypoint_wobble: float = float(cfg.get("waypoint_wobble", 6.0))
+	var steer: float = float(cfg.get("steer_strength", 1.6))
+	var bank_k: float = float(cfg.get("bank_strength", 0.8))
+	var bob_amp: float = float(cfg.get("bob_amplitude", 0.4))
+	var bob_hz: float = float(cfg.get("bob_hz", 1.3))
+
+	# Regenerate target when reached or when player has drifted far from it.
+	# The bat leads the player — target is ahead of player's facing direction.
+	var to_target: Vector3 = target - node.position
+	var dist_to_target: float = to_target.length()
+	var player_to_target: float = camera.position.distance_to(target)
+	if dist_to_target < 3.0 or player_to_target > waypoint_dist * 2.0:
+		var fwd: Vector3 = -camera.global_transform.basis.z
+		fwd.y = 0.0
+		if fwd.length_squared() < 0.01:
+			fwd = Vector3.FORWARD
+		fwd = fwd.normalized()
+		# Wobble perpendicular to heading so the flight path meanders.
+		var perp: Vector3 = Vector3(-fwd.z, 0.0, fwd.x)
+		var wobble: float = (randf() - 0.5) * 2.0 * waypoint_wobble
+		var cruise_alt: float = lerpf(alt_min, alt_max, randf())
+		target = camera.position + fwd * waypoint_dist + perp * wobble
+		target.y = cruise_alt
+		c["target"] = target
+		to_target = target - node.position
+
+	# Soft steer: blend velocity toward desired direction rather than snap.
+	if to_target.length() > 0.01:
+		var desired: Vector3 = to_target.normalized() * speed
+		vel = vel.lerp(desired, clampf(steer * delta, 0.0, 1.0))
+
+	# Vertical bob — ambient life sign, separate from steered Y.
+	bob_phase += bob_hz * TAU * delta
+	var bob_offset: float = sin(bob_phase) * bob_amp * delta
+	c["bob_phase"] = bob_phase
+
+	node.position += vel * delta
+	node.position.y += bob_offset
+
+	# Clamp altitude to cruise band — prevents drift into floor/ceiling.
+	node.position.y = clampf(node.position.y, alt_min, alt_max)
+
+	# Visual bank: roll the GLB child based on lateral velocity relative
+	# to facing. Positive vel.x = banking right → +z roll.
+	var atoms: Array = c.get("atom_nodes", [])
+	if atoms.size() > 0 and is_instance_valid(atoms[0]):
+		var visual: Node3D = atoms[0]
+		# Face direction of travel (yaw only, pitch stays level).
+		var face_vec: Vector3 = Vector3(vel.x, 0.0, vel.z)
+		if face_vec.length_squared() > 0.01:
+			var yaw: float = atan2(face_vec.x, face_vec.z)
+			var roll: float = clampf(-vel.x * bank_k * 0.08, -0.6, 0.6)
+			visual.rotation = Vector3(0.0, yaw, roll)
+
+	# Wing flap — advance phase, snap each wing to its discrete pose.
+	# Right wing trails left by one frame so the silhouette has
+	# asymmetry mid-cycle (the OG sprite-flip trick).
+	var flap_hz: float = float(cfg.get("flap_hz", 9.0))
+	var flap_phase: float = c.get("flap_phase", 0.0)
+	flap_phase += flap_hz * BAT_WING_POSES.size() * delta
+	c["flap_phase"] = fmod(flap_phase, float(BAT_WING_POSES.size()))
+	var pose_l: int = int(c["flap_phase"]) % BAT_WING_POSES.size()
+	var pose_r: int = (pose_l + 2) % BAT_WING_POSES.size()  # trails by one (≡ +2 in mod-3)
+	if pose_l != c.get("flap_pose_l", -1) or pose_r != c.get("flap_pose_r", -1):
+		c["flap_pose_l"] = pose_l
+		c["flap_pose_r"] = pose_r
+		var wing_l: Node3D = node.get_node_or_null("bat_wing_L")
+		var wing_r: Node3D = node.get_node_or_null("bat_wing_R")
+		if wing_l != null:
+			wing_l.rotation.x = BAT_WING_POSES[pose_l]
+		if wing_r != null:
+			wing_r.rotation.x = -BAT_WING_POSES[pose_r]  # mirror axis
+
+	c["vel"] = vel
+
+
+func _push_out_of_collision(pos: Vector3, radius: float) -> Vector3:
+	# Mirrors the player's push-out in _physics_process. Iterates scenery
+	# collision_objects and ejects pos along the separating axis if the
+	# creature overlaps a solid. XZ only — y is driven by hover/terrain.
+	for coll: Dictionary in collision_objects:
+		var cdx: float = pos.x - coll["x"]
+		var cdz: float = pos.z - coll["z"]
+		var dist_sq: float = cdx * cdx + cdz * cdz
+		var min_dist: float = coll["r"] + radius
+		if dist_sq < min_dist * min_dist and dist_sq > 0.001:
+			var cdist: float = sqrt(dist_sq)
+			var push: float = min_dist - cdist
+			pos.x += (cdx / cdist) * push
+			pos.z += (cdz / cdist) * push
+	return pos
 
 
 # -- Telemetry tags ------------------------------------------------------------
@@ -2023,6 +2506,39 @@ func _save_tag(reason: String = "neutral") -> void:
 		var msg_str: String = JSON.stringify(msg_obj) + "\n"
 		tcp.put_data(msg_str.to_utf8_buffer())
 		pending_tag_intents[tag_count] = tag_payload
+
+
+# -- Cast input ------------------------------------------------------------
+# CAST_TRIAL expedition class expects cast_event with element + origin +
+# direction. Element drives accepts matching (same _tag_matches_accepts
+# path as tag_reason). Proximity-to-deposit still flows through the
+# existing deposit_intent channel — casts share tag_log.
+var cast_count: int = 0
+
+func _send_cast_event(element: String) -> void:
+	if not connected:
+		return
+	cast_count += 1
+	var fwd: Vector3 = -camera.global_transform.basis.z
+	var cast_payload: Dictionary = {
+		# Use tag_id so _find_tag_by_id resolves it uniformly with tags.
+		# Cast ids are namespaced by a negative sign to avoid collision
+		# with real tag_ids (which start at 1 and count up).
+		"tag_id": -cast_count,
+		"element": element,
+		"origin": [camera.position.x, camera.position.y, camera.position.z],
+		"direction": [fwd.x, fwd.y, fwd.z],
+	}
+	var msg_obj: Dictionary = {
+		"cmd": "cast_event",
+		"cast": cast_payload,
+	}
+	var msg_str: String = JSON.stringify(msg_obj) + "\n"
+	tcp.put_data(msg_str.to_utf8_buffer())
+	# Casts ride the same proximity → deposit_intent loop as tags. Shared
+	# pending_tag_intents dict — negative keys keep namespaces separate.
+	pending_tag_intents[-cast_count] = cast_payload
+	_show_toast("CAST #%d [%s]" % [cast_count, element.to_upper()])
 
 
 # -- Atmospheric layer state (future: light sheet, dust motes) ------------
@@ -3007,7 +3523,25 @@ func _input(event: InputEvent) -> void:
 				camera.position = Vector3(0.0, EYE_HEIGHT, -14.0)
 				camera.rotation_degrees = Vector3(-8.0, 180.0, 0.0)
 				_show_toast("Returned to spawn")
+			KEY_J:  # Jump to encounter_test slot (slot (0,2), world (0,32))
+				camera.position = Vector3(0.0, EYE_HEIGHT, 32.0)
+				camera.rotation_degrees = Vector3(0.0, 0.0, 0.0)
+				_show_toast("Encounter test pocket")
+			KEY_K:  # Jump to shadow_lab slot (slot (-2,0), world (-32,0))
+				# Stand ~6m east of the orb looking west so the fixture
+				# sits centered in frame with floor visible below it.
+				camera.position = Vector3(-26.0, EYE_HEIGHT, 0.0)
+				camera.rotation_degrees = Vector3(-5.0, -90.0, 0.0)
+				_show_toast("Shadow lab")
 			# KEY_I reserved for future iso camera (needs SubViewport)
+			KEY_1:
+				_send_cast_event("fire")
+			KEY_2:
+				_send_cast_event("ice")
+			KEY_3:
+				_send_cast_event("electric")
+			KEY_4:
+				_send_cast_event("light")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -3052,6 +3586,8 @@ func _physics_process(delta: float) -> void:
 
 	# Creatures react to camera (flee, scatter on shatter, debris settle).
 	_update_creatures(delta)
+	# Shadow-lab orbs drift per config animation.drift.
+	_update_shadow_orbs(delta)
 
 	# Follow-camera planes track the player on their parallel axes.
 	# Floor/ceiling: track X/Z, keep Y at configured offset.

@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dfl5dhuqt3yoq"
-path="res://.godot/imported/boulder_v2.glb-41c5fdfd8c914ec660ff01f0e708c0d4.scn"
+uid="uid://b5m3sugt2hkki"
+path="res://.godot/imported/treasure_chest_v3.glb-5b17e55c47adde7e88bba876be1262cb.scn"
 
 [deps]
 
-source_file="res://meshes/boulder_v2.glb"
-dest_files=["res://.godot/imported/boulder_v2.glb-41c5fdfd8c914ec660ff01f0e708c0d4.scn"]
+source_file="res://meshes/treasure_chest_v3.glb"
+dest_files=["res://.godot/imported/treasure_chest_v3.glb-5b17e55c47adde7e88bba876be1262cb.scn"]
 
 [params]
 

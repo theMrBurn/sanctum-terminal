@@ -30,6 +30,8 @@ from core.systems.biome_data import (
     CAVERN_STAMPS,
     OUTDOOR_STAMPS,
     ORIGIN_HUB,
+    ENCOUNTER_TEST,
+    SHADOW_LAB,
     PLAYER_COLLISION_RADII,
 )
 from core.systems.bucket_world import KIND_PROPS
@@ -48,6 +50,12 @@ _HUB_ADJACENT_SLOTS = {(gx, gy)
                        for gx in (-1, 0, 1)
                        for gy in (-1, 0, 1)
                        if (gx, gy) != _HUB_ORIGIN_SLOT}
+# Encounter test slot — second authored anchor, north of hub. Reserved
+# so the procedural pool doesn't overwrite it. Slot world center: (0, 32).
+_ENCOUNTER_TEST_SLOT = (0, 2)
+# Shadow lab slot — third authored anchor, west of hub. Sandbox for the
+# decal_projector primitive. Slot world center: (-32, 0).
+_SHADOW_LAB_SLOT = (-2, 0)
 
 
 # Slot grid — each cell holds one stamp. 16m matches the visible radius
@@ -147,19 +155,17 @@ def _weighted_pick(stamps: list, rng: random.Random) -> Dict:
     return stamps[-1]   # numerical safety
 
 
-def _instantiate_hub(world_cx: float, world_cy: float,
-                     seed: int) -> List[Dict]:
-    """Emit ORIGIN_HUB members at the given world position.
+def _instantiate_authored(stamp: Dict, world_cx: float, world_cy: float,
+                          seed: int, salt: int) -> List[Dict]:
+    """Emit any authored stamp's members at a given world position.
 
-    Unlike procedural stamps, the hub is NOT placed at a slot center —
-    it's placed at world (0, 0), regardless of which slot the origin
-    falls in. The hub does not rotate (its arches are cardinal) and
-    members skip per-instance scatter. This is the only hand-authored
-    scene in the game, and it owns its coordinate frame.
+    Shared path for ORIGIN_HUB and ENCOUNTER_TEST — authored anchors
+    skip weighted selection and tissue scatter, own their coordinate
+    frame, and apply per-member scale_mult literally.
     """
-    rng = random.Random(seed ^ 0xBADC0DE)
+    rng = random.Random(seed ^ salt)
     roster: list[Dict] = []
-    for member in ORIGIN_HUB["members"]:
+    for member in stamp["members"]:
         kind = member["kind"]
         x = world_cx + member.get("dx", 0.0)
         y = world_cy + member.get("dy", 0.0)
@@ -168,6 +174,13 @@ def _instantiate_hub(world_cx: float, world_cy: float,
         if ent is not None:
             roster.append(ent)
     return roster
+
+
+def _instantiate_hub(world_cx: float, world_cy: float,
+                     seed: int) -> List[Dict]:
+    """Emit ORIGIN_HUB members at the given world position."""
+    return _instantiate_authored(ORIGIN_HUB, world_cx, world_cy,
+                                 seed, 0xBADC0DE)
 
 
 def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
@@ -185,6 +198,24 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     # stays clean.
     if biome_name == "cavern" and (gx, gy) == _HUB_ORIGIN_SLOT:
         return _instantiate_hub(0.0, 0.0, seed)
+
+    # Encounter test slot — second authored anchor for iteration on
+    # creatures/encounters without touching the hub. World-center at
+    # (gx * SLOT_SIZE, gy * SLOT_SIZE).
+    if biome_name == "cavern" and (gx, gy) == _ENCOUNTER_TEST_SLOT:
+        cx = gx * SLOT_SIZE
+        cy = gy * SLOT_SIZE
+        return _instantiate_authored(ENCOUNTER_TEST, cx, cy,
+                                     seed, 0xB47C0DE)
+
+    # Shadow lab slot — decal_projector sandbox. Same pattern as
+    # ENCOUNTER_TEST but west of hub so the two fixtures stay visually
+    # independent when screenshotting.
+    if biome_name == "cavern" and (gx, gy) == _SHADOW_LAB_SLOT:
+        cx = gx * SLOT_SIZE
+        cy = gy * SLOT_SIZE
+        return _instantiate_authored(SHADOW_LAB, cx, cy,
+                                     seed, 0x5ADC0DE)
 
     stamps = _stamps_for(biome_name)
     if not stamps:

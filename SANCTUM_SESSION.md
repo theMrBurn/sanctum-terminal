@@ -2,6 +2,169 @@
 > Unreliable narrator. The live hash is the particle trail.
 
 ---
+SESSION ARC (2026-04-13 ~11:15 → 2026-04-13 ~13:00, ~1.75h active):
+
+Pick up from a511834 on feat/render-manifest. Sandbox — do NOT merge.
+
+DECAL_PROJECTOR primitive → shadow_lab anchor (K) at slot (-2, 0). Config
+schema in kind_config.json carries layers[], projection (vector/max_distance),
+multiplier (fan/spread_deg/jitter), animation (drift/rotate/pulse). Universal
+`_attach_decal_projector(host, cfg)` helper attaches Decal children to any
+Node3D. Shadow orbs + creatures consume the same primitive. Drift animation
+proven (horizontal ellipse, decals track parent). Prism fan ring mechanic
+wired (tilt+yaw around vertical), tight at spread_deg=60 — tuning deferred.
+
+BATS-AS-DECAL → doctrine proven. bat kind_config gets `decal_projector` with
+`hide_source: true`. On spawn, all MeshInstance3D descendants hidden via
+`_hide_mesh_children` recursive sweep; decal(s) attached via helper. Flock
+at encounter_test reads as ~6 soft circles drifting on the floor under
+invisible cruisers. Shadow-IS-entity moved from pin to proof.
+
+ELEMENTAL REACTIONS wire → cast → config lookup → manifest event → Godot
+pulse. `_global.reaction_patterns` library (fire/ice/electric/light tints,
+durations, energies). Per-kind `elemental_reactions` block on
+crystal_cluster (all 4), mega_column (electric/light), giant_fungus
+(fire/light), bat (ice/light). Brain `pending_casts` queue resolved against
+manifest.entities within CAST_REACTION_RADIUS_M=8m. Godot `_apply_reaction_event`
+spawns unshaded emissive sphere, tweens scale + alpha over pattern duration.
+Stateless by design — state/variety/chains deferred until encounters demand
+them.
+
+FOG DISABLED (main.gd:_update_atmosphere) to chase Sable's flat-color look.
+Killed per-fragment atmospheric attenuation that painted gradients across
+large surfaces. Verdict: better, still not Sable (darkness hides flatness
+more than per-fragment math).
+
+FALSE START: pushed giant_fungus onto facet-palette (use_vertex_colors:false
++ widened color_shadow/accent + band_strength bump). Broke the organic
+register — fungi read as quarried stone. Reverted + pinned
+`feedback_flora_vertex_colors.md`: flora stays on vertex-color path.
+
+Cleaning pass before commit: hardcoded literals extracted to named consts
+(REACTION_PULSE_* in main.gd, CAST_REACTION_RADIUS_M hoisted to module-level
+in brain_server.py), pattern-level overrides for spawn_radius/height_offset/
+scale_peak plumbed through _apply_reaction_event so adding new visual
+shapes is pure config.
+
+NEXT: iso dev camera on a fresh branch cut from this commit. Iso compresses
+every future visual audit into one-screen comparison.
+
+---
+SESSION ARC (2026-04-12 ~20:00 → 2026-04-12 ~23:30, ~3.5h active):
+
+Pick up from a511834 on feat/render-manifest. Sandbox — do NOT merge.
+
+Phase 5.5 collision → cast input → drape kinds → bat flight →
+shadow-IS-the-entity headline pin.
+
+PHASE 5.5 — CREATURE COLLISION: rats now bounce off scenery. New
+`_push_out_of_collision(pos, radius)` helper mirrors the player's XZ
+push-out, applied after flee-move and home-return in `_update_creatures`.
+Radius sourced from `kind_config.physics.collision_radius`. Memory
+note that pots were "embedded in surface" was stale — GLBs are
+authored BASE-origin, no lift needed. Re-confirmed with
+project_creature_collision_pending.md (now resolved).
+
+CAST INPUT END-TO-END: 4 input actions (1/2/3/4 → fire/ice/electric/
+light). `_send_cast_event(element)` mirrors `_send_tag_event`, payload
+`{cmd: "cast_event", cast: {tag_id (negative), element, origin, direction}}`.
+Brain `expedition_engine.on_cast_event(cast, t)` appends to tag_log;
+`_tag_matches_accepts` already checks `element` first so casts flow
+through the same deposit_intent path as tags. New `EXPEDITION_CLASS`
+env var picks the class (default anomaly_hunt; set cast_trial to test).
+
+DRAPE KINDS off legacy GLB onto recipe path. `_family_scatter_tissue`
+extended with `layout: "drape"` param (single line — inverts strand
+Z so the mesh hangs downward from y=0; ceiling-anchored entities
+drape below their origin without Godot-side z math). Three kinds
+landed: dead_log via rock_lobed elongation=6 flatness=0.3 (3-4m
+prone logs), hanging_vine + ceiling_moss via scatter_tissue drape.
+
+COLLISION AUDIT: 7 obstacles had radii smaller than visuals. Bumped
+mega_column 5→8 (asymmetric upright variant scales sx_col up to
+base_s × 0.85), column 4→5.5, crystal_cluster 1→2.2, dead_log
+0.8→2.0, giant_fungus 1.2→1.4. horizon_form/mid/near → 0
+(atmospheric, shouldn't collide). Test contract updated.
+
+BAT KIND + FLIGHT: first creature with `behavior_mode: "flight"`.
+New dispatch branch in `_update_creatures` → `_update_flight_creature`.
+Soft-steer toward waypoint placed ~18m ahead of player heading,
+vertical bob, altitude clamp to 5-11m cruise band, GLB visual banks
+into turns. Spawn lifts flight kinds to random cruise altitude so
+they don't pop from floor. Flight skips `_push_out_of_collision`
+(cruising above clutter). Player can't catch them — waypoint
+regenerates ahead when proximity closes.
+
+DEBUG GAUNTLET (4 silent failures, each uncovered the next):
+1. Bat had no `render` block in kind_config → `KIND_PROPS` filtered
+   it silently → brain shipped zero bats → encounter slot was empty.
+2. Bat fell through `_family_creature_small` else-branch to placeholder
+   sphere → "fat rats floating around like bubbles" (user, approvingly).
+   Pinned as `feedback_floating_bubbles.md`: silhouette + drift > anatomy.
+3. Bat geometry baked but wings were sub-meshes inside the GLB →
+   couldn't animate per-frame. Removed wings from `_build_bat`,
+   rebaked body-only.
+4. Wings now Godot-native: procedural quads as `bat_wing_L/R` child
+   Node3Ds. World-meter dimensions from kind_config.
+
+STOP-MOTION FLAP — the OG sprite-flip trick. Three discrete poses
+(`BAT_WING_POSES = [-31°, 0°, +31°]`). Phase advances at `flap_hz × 3`
+per second. Right wing trails left by one pose so the silhouette is
+asymmetric mid-cycle. Pure snap, never tween. Per-bat phase offset
+on spawn so the flock isn't unison. flap_hz 9 → ~27 pose changes/sec
+(fast bat-flap; user can dial down).
+
+ENCOUNTER_TEST — second authored anchor at slot (0, 2), world center
+(0, 32). 4 corner mega_columns, center crystal+firefly, 6 bats.
+Refactored hub instantiation into shared `_instantiate_authored()`
+helper. KEY_J teleports there.
+
+THE HEADLINE PIN — SHADOW IS THE ENTITY (`design_shadow_is_entity.md`):
+
+User saw the bat-bodies-as-bubbles, asked about using them to occlude
+light sources for projected shadow effects. The conversation cascaded
+into a phase-shifting design inversion:
+
+  Conventional rendering: object exists → light hits it → shadow follows.
+  This inverts: object exists for behavior/collision/manifest only. The
+  renderer NEVER draws the geometry in the player's FOV. A projected
+  silhouette decal — anchored to the nearest surface — IS what the
+  player sees.
+
+The prism multiplier seals it. One entity emits N silhouette decals
+fanned by angle from a virtual light vector → flock of 5 bats from
+1 entity, free. Free swarms. Spiders skitter as one entity throwing
+six leg-decals around itself. Grass tufts pinwheel as a rotating fan
+of grass-blade silhouettes from a single root. The phrasing "filter
+that through a prism to create multiple bats from a single source" is
+the user's — and it IS the architecture.
+
+Why it's load-bearing:
+- Plato's Cave at the engine level. Player only sees shadows. Locks
+  the secret-endgame doctrine into the rendering substrate.
+- Bypasses Metal's broken per-pixel shading. Decals are the lighting;
+  this extends decals to BE the entity layer too.
+- Cheaper than mesh rendering at distance — silhouettes don't need
+  LOD, don't need shadow-receivers, don't need per-pixel anything.
+- Free destructibility — peel a silhouette off, the entity disappears
+  without geometry mutation. Pairs natively with atom-skin destruction.
+
+User's lighting lean: let surfaces do the work, avoid beams entirely.
+Decision happens after feeling the silhouette register live next session.
+Bat is the test fixture (cheapest case, already abstract). If bats
+read as "creatures cast as shadows" → generalize to rats, spiders,
+even grass.
+
+NEXT SESSION: prototype the bat-as-decal projection. Hide bat GLB,
+attach Decal child with bat-silhouette texture, project onto nearest
+surface using existing OmniLight registry. See project_next_session.md
+for the build path in order.
+
+Magic-show wins along the way: feedback_floating_bubbles.md (silhouette
++ drift > anatomy), the OG sprite-flip flap loop, the encounter_test
+slot as a clean iteration fixture for future creature work.
+
+---
 SESSION ARC (2026-04-12 ~13:00 → 2026-04-12 ~18:45, ~5.75h active):
 
 Creature visibility hunt → orb pipeline → GLB swap → kind_config refactor.

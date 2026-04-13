@@ -67,6 +67,58 @@
       "desaturation": 0.5,
       "contrast": 1.1
     },
+    "reaction_patterns": {
+      "emission_pulse": {
+        "type": "emission_pulse",
+        "duration": 1.2,
+        "peak_energy": 4.0,
+        "color_tint": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "fire_pulse": {
+        "type": "emission_pulse",
+        "duration": 1.4,
+        "peak_energy": 5.0,
+        "color_tint": [
+          1.0,
+          0.45,
+          0.2
+        ]
+      },
+      "ice_pulse": {
+        "type": "emission_pulse",
+        "duration": 1.6,
+        "peak_energy": 3.5,
+        "color_tint": [
+          0.55,
+          0.8,
+          1.0
+        ]
+      },
+      "electric_pulse": {
+        "type": "emission_pulse",
+        "duration": 0.7,
+        "peak_energy": 6.5,
+        "color_tint": [
+          0.8,
+          0.85,
+          1.0
+        ]
+      },
+      "reveal_glow": {
+        "type": "emission_pulse",
+        "duration": 2.4,
+        "peak_energy": 2.2,
+        "color_tint": [
+          1.0,
+          0.95,
+          0.7
+        ]
+      }
+    },
     "screenshot_overlay": {
       "enabled": true,
       "font_size": 16,
@@ -511,6 +563,10 @@
     },
     "mega_column": {
       "class": "structural",
+      "elemental_reactions": {
+        "electric": "electric_pulse",
+        "light": "reveal_glow"
+      },
       "color_base": [
         0.22,
         0.19,
@@ -532,7 +588,7 @@
         "min_above_ground": 4.0
       },
       "physics": {
-        "collision_radius": 5.0
+        "collision_radius": 8.0
       },
       "render": {
         "scale": [
@@ -571,7 +627,7 @@
         "min_above_ground": 4.0
       },
       "physics": {
-        "collision_radius": 4.0
+        "collision_radius": 5.5
       },
       "render": {
         "scale": [
@@ -664,6 +720,12 @@
       "class": "crystalline",
       "light_reactive": true,
       "use_vertex_colors": true,
+      "elemental_reactions": {
+        "fire": "fire_pulse",
+        "ice": "ice_pulse",
+        "electric": "electric_pulse",
+        "light": "reveal_glow"
+      },
       "color_base": [
         0.2,
         0.22,
@@ -714,7 +776,7 @@
         }
       },
       "physics": {
-        "collision_radius": 1.0
+        "collision_radius": 2.2
       },
       "render": {
         "scale": [
@@ -801,6 +863,10 @@
     "giant_fungus": {
       "class": "organic_flora",
       "use_vertex_colors": true,
+      "elemental_reactions": {
+        "fire": "fire_pulse",
+        "light": "reveal_glow"
+      },
       "color_base": [
         0.22,
         0.2,
@@ -853,7 +919,7 @@
         }
       },
       "physics": {
-        "collision_radius": 1.2
+        "collision_radius": 1.4
       },
       "render": {
         "scale": [
@@ -1200,7 +1266,7 @@
         "max_frac": 0.35
       },
       "physics": {
-        "collision_radius": 0.8
+        "collision_radius": 2.0
       },
       "render": {
         "scale": [
@@ -1214,6 +1280,24 @@
           0.12
         ],
         "emissive": 0.0
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "rock_lobed",
+        "variant_count": 4,
+        "bounds": [
+          3.75,
+          0.625,
+          0.75
+        ],
+        "variant_spread": 0.25,
+        "family_params": {
+          "lobe_count": 3,
+          "spread_radius": 0.4,
+          "flatness": 0.3,
+          "noise_strength": 0.12,
+          "elongation": 6.0
+        }
       }
     },
     "leaf_pile": {
@@ -1412,6 +1496,25 @@
           0.18
         ],
         "emissive": 0.9
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          3.0,
+          3.0,
+          2.5
+        ],
+        "variant_spread": 0.3,
+        "family_params": {
+          "cross_count": 18,
+          "cross_planes": 2,
+          "cross_width_frac": 0.06,
+          "dome_flatness": 0.3,
+          "lean_jitter_deg": 18.0,
+          "layout": "drape"
+        }
       }
     },
     "hanging_vine": {
@@ -1443,6 +1546,25 @@
           0.07
         ],
         "emissive": 0.0
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          0.8,
+          0.8,
+          4.0
+        ],
+        "variant_spread": 0.35,
+        "family_params": {
+          "cross_count": 3,
+          "cross_planes": 2,
+          "cross_width_frac": 0.1,
+          "dome_flatness": 0.1,
+          "lean_jitter_deg": 6.0,
+          "layout": "drape"
+        }
       }
     },
     "firefly": {
@@ -1689,7 +1811,7 @@
     "horizon_form": {
       "class": "horizon",
       "physics": {
-        "collision_radius": 3.0
+        "collision_radius": 0.0
       },
       "render": {
         "scale": [
@@ -1708,7 +1830,7 @@
     "horizon_mid": {
       "class": "horizon",
       "physics": {
-        "collision_radius": 2.0
+        "collision_radius": 0.0
       },
       "render": {
         "scale": [
@@ -1727,7 +1849,7 @@
     "horizon_near": {
       "class": "horizon",
       "physics": {
-        "collision_radius": 1.0
+        "collision_radius": 0.0
       },
       "render": {
         "scale": [
@@ -2031,6 +2153,11 @@
     "bat": {
       "class": "life",
       "use_vertex_colors": true,
+      "world_scale_mult": 7.0,
+      "elemental_reactions": {
+        "ice": "ice_pulse",
+        "light": "reveal_glow"
+      },
       "color_base": [
         0.15,
         0.13,
@@ -2046,6 +2173,39 @@
         0.19,
         0.17
       ],
+      "physics": {
+        "collision_radius": 0.4
+      },
+      "render": {
+        "scale": [0.4, 0.2, 0.4],
+        "color": [0.15, 0.13, 0.12],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "behavior_mode": "flight",
+        "speed": 3.5,
+        "flee_radius": 0.0,
+        "destructible": false,
+        "cruise_alt_min": 5.0,
+        "cruise_alt_max": 11.0,
+        "waypoint_distance": 18.0,
+        "waypoint_wobble": 6.0,
+        "steer_strength": 1.6,
+        "bank_strength": 0.8,
+        "bob_amplitude": 0.4,
+        "bob_hz": 1.3,
+        "wing_span": 0.8,
+        "wing_chord": 0.25,
+        "wing_sweep": -0.15,
+        "flap_hz": 9.0,
+        "mote_arrangement": "solo",
+        "mote_color": [
+          0.3,
+          0.26,
+          0.24
+        ],
+        "mote_size": 0.18
+      },
       "recipe": {
         "tier": 3,
         "family": "creature_small",
@@ -2058,6 +2218,34 @@
         "variant_spread": 0.2,
         "family_params": {
           "shape": "bat"
+        }
+      },
+      "decal_projector": {
+        "hide_source": true,
+        "layers": [
+          {
+            "texture": "soft_circle",
+            "tint": [
+              0.015,
+              0.015,
+              0.025
+            ],
+            "size": 1.4,
+            "softness": 0.6
+          }
+        ],
+        "projection": {
+          "vector": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "max_distance": 20.0
+        },
+        "multiplier": {
+          "fan": 1,
+          "spread_deg": 0.0,
+          "jitter": 0.0
         }
       }
     },
@@ -2091,6 +2279,60 @@
         "variant_spread": 0.25,
         "family_params": {
           "shape": "slime"
+        }
+      }
+    },
+    "shadow_orb": {
+      "class": "debug",
+      "description": "Shadow lab fixture — floating orb + decal_projector. Not used by gameplay; iterated at shadow_lab anchor (slot (-2, 0)).",
+      "render": {
+        "scale": [
+          0.4,
+          0.4,
+          0.4
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 1.0
+      },
+      "decal_projector": {
+        "altitude": 2.0,
+        "layers": [
+          {
+            "texture": "soft_circle",
+            "tint": [
+              0.02,
+              0.02,
+              0.03
+            ],
+            "size": 1.6,
+            "softness": 0.7
+          }
+        ],
+        "projection": {
+          "vector": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "max_distance": 6.0
+        },
+        "multiplier": {
+          "fan": 7,
+          "spread_deg": 60.0,
+          "jitter": 0.0
+        },
+        "animation": {
+          "rotate_hz": 0.0,
+          "pulse_hz": 0.0,
+          "drift": [
+            2.5,
+            2.5,
+            6.0
+          ]
         }
       }
     }

@@ -1704,6 +1704,10 @@ def _family_scatter_tissue(kind_name: str, kind_cfg: dict) -> list[trimesh.Trime
         cross_width_frac   float   quad width / bounds width
         dome_flatness      float   0..1, how much edges are shorter
         lean_jitter_deg    float   random per-cross Z-rotation
+        layout             str     "dome" (default, ground-up) or "drape"
+                                   ("ceiling-down" — strands hang z<=0 so
+                                   a ceiling-anchored entity drapes below
+                                   its origin without Godot-side z math)
     """
     recipe = kind_cfg["recipe"]
     fp = recipe.get("family_params", {})
@@ -1719,6 +1723,10 @@ def _family_scatter_tissue(kind_name: str, kind_cfg: dict) -> list[trimesh.Trime
     cross_width_frac = float(fp.get("cross_width_frac", 0.08))
     dome_flatness    = float(fp.get("dome_flatness", 0.5))
     lean_jitter_deg  = float(fp.get("lean_jitter_deg", 0.0))
+    # drape flips strand vertical extent so attachment is at z=0 and the
+    # strand extends downward — Godot places the entity at the ceiling
+    # plane and the mesh hangs below without any node-side offset.
+    drape_sign = -1.0 if fp.get("layout", "dome") == "drape" else 1.0
 
     base_color   = _rgb01_to_rgba_u8(kind_cfg.get("color_base",   [0.24, 0.26, 0.20]))
     shadow_color = _rgb01_to_rgba_u8(kind_cfg.get("color_shadow", [0.20, 0.22, 0.17]))
@@ -1758,14 +1766,15 @@ def _family_scatter_tissue(kind_name: str, kind_cfg: dict) -> list[trimesh.Trime
                 # Build a vertical quad in the plane defined by (cos_a, sin_a)
                 # rotated around Z. Optionally lean the top forward by `lean`.
                 lean_offset = math.sin(lean) * h_local * 0.4
+                top_z = h_local * drape_sign
                 v0 = [-half_w * cos_a, -half_w * sin_a, 0.0]
                 v1 = [ half_w * cos_a,  half_w * sin_a, 0.0]
                 v2 = [ half_w * cos_a + lean_offset * -sin_a,
                        half_w * sin_a + lean_offset * cos_a,
-                       h_local]
+                       top_z]
                 v3 = [-half_w * cos_a + lean_offset * -sin_a,
                       -half_w * sin_a + lean_offset * cos_a,
-                      h_local]
+                      top_z]
                 verts = np.array([v0, v1, v2, v3])
                 verts[:, 0] += cx
                 verts[:, 1] += cy
@@ -2365,6 +2374,48 @@ def _build_rat(rng: np.random.Generator, body_color: RGBA,
     return parts
 
 
+def _build_bat(rng: np.random.Generator, body_color: RGBA,
+               belly_color: RGBA, wing_color: RGBA,
+               eye_color: RGBA) -> trimesh.Trimesh:
+    """Bat BODY only — wings are attached as separate Godot child
+    nodes so they can stop-motion flap on a discrete timer (the old
+    sprite-cycle trick). Body is small, flattened, snub-headed.
+    ~50 tris. Wing mesh + flap animation lives in main.gd."""
+    # Body — small flattened sphere
+    body = sphere(radius=0.045, color=body_color, subdivisions=1, squash=0.55)
+    body.vertices[:, 0] *= 1.4  # elongate along X (head-to-tail axis)
+
+    # Head — fused close to body, snub
+    head = sphere(radius=0.035, color=body_color, subdivisions=1)
+    head.apply_translation([0.06, 0.0, 0.005])
+
+    # Snout — tiny pointy
+    snout = sphere(radius=0.014, color=belly_color, subdivisions=0)
+    snout.vertices[:, 0] *= 1.5
+    snout.apply_translation([0.085, 0.0, 0.0])
+
+    # Eyes — small, set wide
+    eye_l = sphere(radius=0.006, color=eye_color, subdivisions=0)
+    eye_l.apply_translation([0.075, 0.018, 0.018])
+    eye_r = sphere(radius=0.006, color=eye_color, subdivisions=0)
+    eye_r.apply_translation([0.075, -0.018, 0.018])
+
+    # Tiny ear nubs on the head
+    ear_l = sphere(radius=0.012, color=wing_color, subdivisions=0)
+    ear_l.apply_translation([0.055, 0.018, 0.04])
+    ear_r = sphere(radius=0.012, color=wing_color, subdivisions=0)
+    ear_r.apply_translation([0.055, -0.018, 0.04])
+
+    parts = compose([body, head, snout, eye_l, eye_r, ear_l, ear_r])
+
+    # Slight per-variant yaw so the flock doesn't read identical
+    yaw = (rng.random() - 0.5) * 0.4
+    rot_yaw = trimesh.transformations.rotation_matrix(yaw, [0, 0, 1])
+    parts.apply_transform(rot_yaw)
+
+    return parts
+
+
 def _build_chest(rng: np.random.Generator, body_color: RGBA,
                  lid_color: RGBA, band_color: RGBA,
                  latch_color: RGBA) -> trimesh.Trimesh:
@@ -2473,6 +2524,11 @@ def _family_creature_small(
                                 detail_color, latch_color)
         elif shape == "pot":
             mesh = _build_pot(rng, body_color, belly_color, detail_color)
+        elif shape == "bat":
+            # Wing membrane uses the kind's shadow color for that
+            # leathery dark contrast against the lighter body.
+            mesh = _build_bat(rng, body_color, belly_color,
+                              detail_color, eye_color)
         else:
             # Staged shape — config exists but builder not written yet.
             # Return a placeholder sphere so --all doesn't crash.

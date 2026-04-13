@@ -60,6 +60,12 @@ SESSIONS_DIR: Path = Path(__file__).parent / "sessions"
 BUCKET_MODE = os.environ.get("SANCTUM_BUCKET", "").strip() in ("1", "true", "yes")
 STAMP_MODE = os.environ.get("SANCTUM_STAMP", "").strip() in ("1", "true", "yes")
 
+# How close an entity must be to a cast's origin (meters, XZ) to trigger an
+# elemental_reaction. Tuned wider than deposit proximity so aimed casts feel
+# generous at encounter_test / shadow_lab fixtures. When encounters get
+# surgical, migrate this to per-element or per-pattern config.
+CAST_REACTION_RADIUS_M: float = 8.0
+
 
 # -- Kind properties --------------------------------
 # Phase 5: KIND_PROPS derived from kind_config.json. Single source of truth.
@@ -721,6 +727,11 @@ def run_server(biome_name, port=9877):
     client = None
     buf = b""
     last_wake_ids = set()
+    # Elemental reactions — queued casts resolved against the next manifest.
+    # Each cast_event is appended here by the cmd handler; the manifest-build
+    # step computes reactions (scan entities near cast origin, look up per-
+    # kind elemental_reactions, attach to manifest["reaction_events"]).
+    pending_casts: list[dict] = []
 
     # Dissociation detector — tension triggered by absence of input
     prev_cam = (0.0, 0.0, 0.0, 0.0)  # x, y, heading, pitch
@@ -744,11 +755,17 @@ def run_server(biome_name, port=9877):
                     # declared yet) is non-fatal — the brain just
                     # runs without an expedition this session and
                     # Godot sees an absent manifest['expedition'].
+                    # EXPEDITION_CLASS env var picks the class. Default
+                    # anomaly_hunt; set to "cast_trial" to exercise the
+                    # CAST_TRIAL loop (press 1/2/3/4 in Godot to cast
+                    # fire/ice/electric/light at the axis_mundi).
+                    exp_class_id: str = os.environ.get(
+                        "EXPEDITION_CLASS", "anomaly_hunt")
                     try:
                         expedition = ExpeditionEngine.from_class_id(
-                            "anomaly_hunt", biome_name)
+                            exp_class_id, biome_name)
                         expedition.on_session_start(time.time())
-                        print(f"  Expedition: anomaly_hunt (biome={biome_name})",
+                        print(f"  Expedition: {exp_class_id} (biome={biome_name})",
                               flush=True)
                     except Exception as exc:
                         expedition = None
@@ -828,6 +845,18 @@ def run_server(biome_name, port=9877):
                         # Force manifest resend so snapshot's updated
                         # last_message reaches Godot immediately.
                         last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "cast_event":
+                    cast = msg.get("cast", {})
+                    if expedition is not None:
+                        expedition.on_cast_event(cast, time.time())
+                    # Queue for elemental-reaction resolution in the next
+                    # manifest build. Kept orthogonal to expedition: the
+                    # engine cares about tag_log deposits; elementals care
+                    # about spatial proximity to entities.
+                    pending_casts.append(dict(cast))
+                    last_wake_ids = set()
                     continue
 
                 if msg.get("cmd") == "deposit_intent":
@@ -916,6 +945,52 @@ def run_server(biome_name, port=9877):
                 #
                 if expedition is not None:
                     manifest["expedition"] = expedition.snapshot()
+
+                # Resolve any queued casts into reaction_events for this
+                # manifest. Single pass: for each pending cast, find the
+                # nearest entity within CAST_REACTION_RADIUS_M whose kind
+                # config carries elemental_reactions[element]; emit a
+                # reaction_event keyed by (kind, x, y) so Godot can map
+                # back to the spawned node. Godot handles the visual.
+                if pending_casts:
+                    reaction_events: list[dict] = []
+                    ents = manifest.get("entities", [])
+                    for cast in pending_casts:
+                        origin = cast.get("origin", [0.0, 0.0, 0.0])
+                        element = cast.get("element", "")
+                        # Godot origin is (x, altitude, z). Brain entities
+                        # are (x, y=depth, z=altitude). Match on XZ plane:
+                        # entity.x ↔ origin[0], entity.y ↔ origin[2].
+                        ox = float(origin[0]) if len(origin) > 0 else 0.0
+                        oz = float(origin[2]) if len(origin) > 2 else 0.0
+                        best = None
+                        best_d2 = (CAST_REACTION_RADIUS_M
+                                   * CAST_REACTION_RADIUS_M)
+                        for e in ents:
+                            ek = e.get("kind", "")
+                            kcfg = _kc.kind(ek)
+                            er = kcfg.get("elemental_reactions") or {}
+                            if element not in er:
+                                continue
+                            ex = float(e.get("x", 0.0))
+                            ey = float(e.get("y", 0.0))
+                            d2 = (ex - ox) ** 2 + (ey - oz) ** 2
+                            if d2 < best_d2:
+                                best_d2 = d2
+                                best = (e, er[element])
+                        if best is not None:
+                            e, pattern_id = best
+                            reaction_events.append({
+                                "kind": e.get("kind", ""),
+                                "x": float(e.get("x", 0.0)),
+                                "y": float(e.get("y", 0.0)),
+                                "pattern": pattern_id,
+                                "element": element,
+                                "t": time.time(),
+                            })
+                    if reaction_events:
+                        manifest["reaction_events"] = reaction_events
+                    pending_casts.clear()
 
                 wake_ids = frozenset(
                     (e.get("kind",""), round(e.get("x",0),1), round(e.get("y",0),1))

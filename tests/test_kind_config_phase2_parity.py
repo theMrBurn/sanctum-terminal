@@ -17,17 +17,19 @@ from core.systems import kind_config
 # walkable space.
 EXPECTED_COLLISION_RADII = {
     "boulder":          2.5,
-    "column":           4.0,
-    "mega_column":      5.0,
+    "column":           5.5,
+    "mega_column":      8.0,
     "buttress":         3.0,
     "stalagmite":       1.2,
-    "giant_fungus":     1.2,
-    "crystal_cluster":  1.0,
-    "dead_log":         0.8,
+    "giant_fungus":     1.4,
+    "crystal_cluster":  2.2,
+    "dead_log":         2.0,
     "bone_pile":        0.4,
-    "horizon_form":     3.0,
-    "horizon_mid":      2.0,
-    "horizon_near":     1.0,
+    # horizon_* are distance-atmospheric; collision disabled so rats and
+    # the player don't bounce off invisible silhouette shells.
+    "horizon_form":     0.0,
+    "horizon_mid":      0.0,
+    "horizon_near":     0.0,
     "rat":              0.6,
     "rat_ice":          0.6,
     "rat_fire":         0.6,

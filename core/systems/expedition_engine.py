@@ -327,6 +327,17 @@ class ExpeditionEngine:
             return  # dropped on the floor before start
         self.tag_log.append(dict(tag))
 
+    def on_cast_event(self, cast: dict, t: float) -> None:
+        """Receive a cast event from Godot (CAST_TRIAL input_verb).
+        Shares the tag_log — casts carry `element` which
+        `_tag_matches_accepts` already checks before tag_reason, so
+        cast entries flow through the same deposit_intent path as
+        tags. `tag_id` is re-used as the log identity key so
+        _find_tag_by_id resolves the same way."""
+        if self.state == ExpeditionState.DORMANT:
+            return
+        self.tag_log.append(dict(cast))
+
     def on_deposit_intent(
         self,
         deposit_id: str,

@@ -849,6 +849,52 @@ ORIGIN_HUB = {
 }
 
 
+# Second authored anchor — a clear cavern pocket reserved for encounter
+# iteration. Minimal ground clutter so bat flight paths read clean,
+# four mega_columns as vertical markers to fly between, no tissue/
+# scatter/tension props. Reached by walking through the N arch from
+# the hub. Occupies slot (0, 2) — 60m north of origin.
+ENCOUNTER_TEST = {
+    "name": "encounter_test",
+    "footprint": 30.0,
+    "members": [
+        # --- FOUR CARDINAL COLUMNS (ceiling markers, bat flight posts) ---
+        {"kind": "mega_column", "dx":  10.0, "dy":  10.0, "scale_mult": 0.75, "hard": True},
+        {"kind": "mega_column", "dx": -10.0, "dy":  10.0, "scale_mult": 0.75, "hard": True},
+        {"kind": "mega_column", "dx":  10.0, "dy": -10.0, "scale_mult": 0.75, "hard": True},
+        {"kind": "mega_column", "dx": -10.0, "dy": -10.0, "scale_mult": 0.75, "hard": True},
+
+        # --- CENTER BEACON (visual anchor for navigation) ---
+        {"kind": "crystal_cluster", "dx":  0.0, "dy":  0.0, "scale_mult": 0.8, "hard": True},
+        {"kind": "firefly",    "dx":  0.0, "dy":  0.0, "scale_mult": None, "hard": False},
+
+        # --- BAT FLOCK (~6 bats — enough to read as activity, sparse
+        # enough to follow individuals) ---
+        {"kind": "bat", "dx":  0.0, "dy":  0.0, "scale_mult": None, "hard": False},
+        {"kind": "bat", "dx":  4.0, "dy":  2.0, "scale_mult": None, "hard": False},
+        {"kind": "bat", "dx": -4.0, "dy":  3.0, "scale_mult": None, "hard": False},
+        {"kind": "bat", "dx":  2.0, "dy": -4.0, "scale_mult": None, "hard": False},
+        {"kind": "bat", "dx": -3.0, "dy": -2.0, "scale_mult": None, "hard": False},
+        {"kind": "bat", "dx":  5.0, "dy":  0.0, "scale_mult": None, "hard": False},
+    ],
+}
+
+
+# Shadow lab — third authored anchor. Exists purely to iterate the
+# decal_projector primitive. Single orb at center = simplest possible
+# fixture. Grid variations come in step 6 (task #6) once the single-spot
+# case reads. Occupies slot (-2, 0) — 32m west of origin. Reserved in
+# stamp_world.py so procedural selection doesn't overwrite it.
+SHADOW_LAB = {
+    "name": "shadow_lab",
+    "footprint": 30.0,
+    "members": [
+        {"kind": "shadow_orb", "dx": 0.0, "dy": 0.0,
+         "scale_mult": None, "hard": False},
+    ],
+}
+
+
 OUTDOOR_STAMPS = [
     # Fern clearing — open circle, green mound, dappled light feeling
     {
@@ -1617,6 +1663,7 @@ KIND_RENDER_CLASS = {
     "treasure_chest":  "life",
     "spider":          "life",
     "leaf":            "life",
+    "bat":             "life",
 }
 
 
