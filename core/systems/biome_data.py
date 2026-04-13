@@ -1454,6 +1454,12 @@ BIOME_PLANES = {
                 "grain_strength": 0.0,
                 "normal_strength": 0.0,
                 "roughness": 0.85,  # CLEAN ROOM — matte, no reflections
+                # Large-scale tonal patches so iso view reads the floor as
+                # a place, not a uniform wash. Grid size ≫ mark radius
+                # produces rare blotches instead of stippled texture.
+                "mark_grid_size": 7.0,
+                "mark_chance": 0.35,
+                "mark_strength": 0.22,
             },
             "size": 2000.0,
             "follow_camera": True,
@@ -1791,6 +1797,13 @@ BIOME_REGISTRY = {
         "banner_layers": CAVERN_BANNER_LAYERS,
         "macro_stamps": [MACRO_STAMP_CAVERN_CHAMBER, MACRO_STAMP_CAVERN_CORRIDOR],
         "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
+        # Playable envelope — soft pushback once the player strays past
+        # `playable_radius` meters from origin. Walls are cosmetic, so
+        # this keeps the cavern feeling enclosed even if they clip past
+        # an obstacle. softness=2.0 = 2 m/s drift per meter of overshoot;
+        # reads as a current pulling you back, not a wall.
+        "playable_radius": 55.0,
+        "playable_softness": 2.0,
         "exchange": {
             "delivery_budget": 350,
             "compression_threshold": 500,
@@ -1835,6 +1848,8 @@ BIOME_REGISTRY = {
         "banner_layers": OUTDOOR_BANNER_LAYERS,
         "macro_stamps": [MACRO_STAMP_OUTDOOR_CLEARING],
         "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
+        "playable_radius": 80.0,     # outdoor is wider — more open feel
+        "playable_softness": 1.5,
         "exchange": {
             "delivery_budget": 400,
             "compression_threshold": 600,

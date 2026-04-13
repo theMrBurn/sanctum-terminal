@@ -665,6 +665,10 @@ class BrainWorld:
             "planes": self.planes,
             "banner_layers": BIOME_REGISTRY.get(self.biome_name, {}).get("banner_layers", []),
             "biome": self.biome_name,
+            "playable_envelope": {
+                "radius": BIOME_REGISTRY.get(self.biome_name, {}).get("playable_radius", 0.0),
+                "softness": BIOME_REGISTRY.get(self.biome_name, {}).get("playable_softness", 1.0),
+            },
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),
             "tension_envelope": {

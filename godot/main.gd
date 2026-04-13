@@ -390,9 +390,110 @@ func _setup_camera() -> void:
 	armor_glow.position = Vector3(0.0, -1.2, 0.0)  # waist height below camera
 	camera.add_child(armor_glow)
 
-	# Iso dev camera — DEFERRED. Adding a second Camera3D to the scene
-	# caused input conflicts + visual noise. Needs proper SubViewport
-	# isolation or a separate scene. Will revisit when needed.
+	# iso camera setup deferred to _finalize_spawn_scene so the first-person
+	# camera is already in the scene tree and explicitly current when iso
+	# is added. Otherwise Godot auto-activates whichever camera is added
+	# first and both cameras can end up rendering into the same viewport.
+
+
+# --- Player avatar (iso-only) ------------------------------------------------
+# Tall dark silhouette placed at the first-person camera's XZ. Visible only
+# when the iso dev camera is active, so first-person POV stays clean per
+# design_first_person.md. Currently a capsule primitive — placeholder for
+# a future monk GLB. Kept as a cloak-column shape (narrow + tall) so even
+# from iso the "facing" direction is ambiguous, matching our Plato's-Cave
+# doctrine: the avatar is a silhouette first, detail never.
+const AVATAR_HEIGHT_M: float = 3.5
+const AVATAR_RADIUS_M: float = 0.9
+# Pale bone — contrasts cavern browns so the avatar reads from iso zoom-out
+# as a clear landmark, not a dark blob lost in darker ground.
+const AVATAR_COLOR := Color(0.85, 0.80, 0.65)
+
+var player_avatar: Node3D
+
+
+func _setup_player_avatar() -> void:
+	var avatar := MeshInstance3D.new()
+	avatar.name = "PlayerAvatar"
+	var mesh := CapsuleMesh.new()
+	mesh.radius = AVATAR_RADIUS_M
+	mesh.height = AVATAR_HEIGHT_M
+	avatar.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = AVATAR_COLOR
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	avatar.set_surface_override_material(0, mat)
+	avatar.visible = false   # hidden until iso camera is active
+	player_avatar = avatar
+	add_child(avatar)
+
+
+func _update_player_avatar() -> void:
+	# Sit the capsule's BASE on the floor by raising its center to
+	# height/2. Follows the first-person camera's XZ; Y is fixed at the
+	# floor + avatar halfway so motion doesn't bob vertically.
+	if not is_instance_valid(player_avatar):
+		return
+	player_avatar.position = Vector3(
+		camera.position.x,
+		AVATAR_HEIGHT_M * 0.5,
+		camera.position.z)
+
+
+# --- Iso dev camera ----------------------------------------------------------
+# Dev tool, not gameplay — KEY_I toggles between first-person and top-down
+# orthographic 3/4 view for silhouette evaluation + composition audits.
+# Two Camera3Ds in the same scene; whichever has current=true renders.
+# Iso camera follows the first-person camera's XZ each frame so the view
+# stays centered on the player's current position regardless of teleports.
+const ISO_HEIGHT_M: float = 20.0       # world-units above floor
+const ISO_DISTANCE_M: float = 18.0     # pull-back along iso yaw axis
+const ISO_PITCH_DEG: float = -55.0     # classic dev-cam downward tilt
+const ISO_YAW_DEG: float = 45.0        # 45° rotate (iso-style)
+const ISO_ORTHO_SIZE_M: float = 34.0   # visible world-meters (vertical)
+
+var iso_camera: Camera3D
+var iso_active: bool = false
+
+
+func _setup_iso_camera() -> void:
+	iso_camera = Camera3D.new()
+	iso_camera.name = "IsoDevCamera"
+	iso_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	iso_camera.size = ISO_ORTHO_SIZE_M
+	iso_camera.near = 0.1
+	iso_camera.far = 600.0
+	iso_camera.rotation_degrees = Vector3(ISO_PITCH_DEG, ISO_YAW_DEG, 0.0)
+	iso_camera.current = false
+	add_child(iso_camera)
+
+
+func _update_iso_camera_position() -> void:
+	# Offset iso camera along its yaw axis by ISO_DISTANCE_M so the
+	# first-person camera sits near the center of the iso viewport.
+	var yaw_rad: float = deg_to_rad(ISO_YAW_DEG)
+	var ox: float = -sin(yaw_rad) * ISO_DISTANCE_M
+	var oz: float = cos(yaw_rad) * ISO_DISTANCE_M
+	iso_camera.position = Vector3(
+		camera.position.x + ox,
+		ISO_HEIGHT_M,
+		camera.position.z + oz)
+
+
+func _toggle_iso_camera() -> void:
+	iso_active = not iso_active
+	if iso_active:
+		_update_iso_camera_position()
+		_update_player_avatar()
+		iso_camera.current = true
+		if is_instance_valid(player_avatar):
+			player_avatar.visible = true
+		_show_toast("ISO dev camera")
+	else:
+		camera.current = true
+		if is_instance_valid(player_avatar):
+			player_avatar.visible = false
+		_show_toast("First-person")
 
 
 func _aim_spawn_heading() -> void:
@@ -483,6 +584,9 @@ func _finalize_spawn_scene() -> void:
 	camera.far = fog_data.get("far", 55.0) * 2.5  # extended for skeleton silhouettes
 	camera.fov = 62.0  # wider peripheral — catches ceiling features + passive pull cues
 	add_child(camera)
+	camera.current = true   # explicit — iso camera added next mustn't take over
+	_setup_iso_camera()
+	_setup_player_avatar()
 
 	# Initialize light pipes — 3 fixed OmniLights, created once, live forever.
 	# Each pipe covers a color family. Positions lerp to nearest matching emissive.
@@ -684,6 +788,18 @@ func _create_plane_material(m: Dictionary, plane_kind: String = "") -> Material:
 			float(m.get("normal_strength", surface_entry.get("normal_strength", 1.3))))
 		mat.set_shader_parameter("roughness_val",
 			float(m.get("roughness", 0.95)))
+		# Optional config overrides for the sparse-mark system. Ground
+		# planes set these to bigger values so iso view reads tonal
+		# patches; near-ceiling/walls can keep defaults or opt in.
+		if m.has("mark_grid_size"):
+			mat.set_shader_parameter("mark_grid_size",
+				float(m["mark_grid_size"]))
+		if m.has("mark_chance"):
+			mat.set_shader_parameter("mark_chance",
+				float(m["mark_chance"]))
+		if m.has("mark_strength"):
+			mat.set_shader_parameter("mark_strength",
+				float(m["mark_strength"]))
 		# Plane kind routing — three states: floor (Voronoi), ceiling
 		# (smooth, no Voronoi), wall (vertical projection + darken). Both
 		# floor and ceiling are non-vertical, so a third bool isolates floor.
@@ -3533,7 +3649,8 @@ func _input(event: InputEvent) -> void:
 				camera.position = Vector3(-26.0, EYE_HEIGHT, 0.0)
 				camera.rotation_degrees = Vector3(-5.0, -90.0, 0.0)
 				_show_toast("Shadow lab")
-			# KEY_I reserved for future iso camera (needs SubViewport)
+			KEY_I:  # Toggle iso dev camera (ortho 3/4 top-down)
+				_toggle_iso_camera()
 			KEY_1:
 				_send_cast_event("fire")
 			KEY_2:
@@ -3577,6 +3694,29 @@ func _physics_process(delta: float) -> void:
 			new_pos.x += (dx / dist) * push
 			new_pos.z += (dz / dist) * push
 
+	# Playable envelope — soft pushback + hard clamp. Keeps the cavern
+	# feeling enclosed even if the player clips past an obstacle, since
+	# wall planes are cosmetic. See core/systems/playable_envelope.py for
+	# the tested primitive; this mirrors it in Godot physics.
+	var envelope: Dictionary = manifest.get("playable_envelope", {})
+	var env_radius: float = float(envelope.get("radius", 0.0))
+	if env_radius > 0.0:
+		var env_softness: float = float(envelope.get("softness", 1.0))
+		var dist_from_origin: float = sqrt(new_pos.x * new_pos.x
+			+ new_pos.z * new_pos.z)
+		if dist_from_origin > env_radius:
+			var overshoot: float = dist_from_origin - env_radius
+			var pushback_mag: float = overshoot * env_softness * delta
+			var inv_d: float = 1.0 / dist_from_origin
+			new_pos.x -= new_pos.x * inv_d * pushback_mag
+			new_pos.z -= new_pos.z * inv_d * pushback_mag
+			var dist_after: float = sqrt(new_pos.x * new_pos.x
+				+ new_pos.z * new_pos.z)
+			if dist_after > env_radius:
+				var clamp_scale: float = env_radius / dist_after
+				new_pos.x *= clamp_scale
+				new_pos.z *= clamp_scale
+
 	# Terrain elevation — brain sends terrain_z, camera follows the rolling field.
 	# Smooth lerp prevents jarring pops when height changes between frames.
 	var terrain_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
@@ -3588,6 +3728,10 @@ func _physics_process(delta: float) -> void:
 	_update_creatures(delta)
 	# Shadow-lab orbs drift per config animation.drift.
 	_update_shadow_orbs(delta)
+	# Iso dev camera tracks player XZ when active. Cheap no-op otherwise.
+	if iso_active:
+		_update_iso_camera_position()
+		_update_player_avatar()
 
 	# Follow-camera planes track the player on their parallel axes.
 	# Floor/ceiling: track X/Z, keep Y at configured offset.
