@@ -61,37 +61,11 @@ BUCKET_MODE = os.environ.get("SANCTUM_BUCKET", "").strip() in ("1", "true", "yes
 STAMP_MODE = os.environ.get("SANCTUM_STAMP", "").strip() in ("1", "true", "yes")
 
 
-# -- Kind properties (same as godot_export.py) --------------------------------
-
-KIND_PROPS = {
-    "mega_column":     {"scale": [3.0, 3.0, 12.0], "color": [0.28, 0.22, 0.16], "emissive": 0.0},
-    "column":          {"scale": [2.25, 2.25, 10.0], "color": [0.30, 0.25, 0.18], "emissive": 0.0},
-    "buttress":        {"scale": [2.5, 2.5, 6.0],  "color": [0.26, 0.21, 0.16], "emissive": 0.0},
-    "boulder":         {"scale": [5.0, 4.4, 3.1],  "color": [0.25, 0.42, 0.16], "emissive": 0.0},
-    "stalagmite":      {"scale": [1.0, 1.0, 3.75], "color": [0.28, 0.24, 0.18], "emissive": 0.0},
-    "crystal_cluster": {"scale": [2.8, 2.2, 3.5],  "color": [0.50, 0.55, 0.80], "emissive": 1.0},
-    "giant_fungus":    {"scale": [2.5, 2.5, 4.4],  "color": [0.30, 0.50, 0.25], "emissive": 0.8},
-    "dead_log":        {"scale": [3.75, 1.0, 0.75],"color": [0.19, 0.27, 0.12], "emissive": 0.0},
-    "moss_patch":      {"scale": [1.5, 1.5, 0.15], "color": [0.22, 0.45, 0.15], "emissive": 0.9},
-    "bone_pile":       {"scale": [0.6, 0.6, 0.3],  "color": [0.14, 0.13, 0.11], "emissive": 0.0},
-    "grass_tuft":      {"scale": [0.3, 0.3, 0.25], "color": [0.18, 0.33, 0.11], "emissive": 0.0},
-    "rubble":          {"scale": [1.0, 1.0, 0.5],  "color": [0.28, 0.24, 0.19], "emissive": 0.0},
-    "leaf_pile":       {"scale": [0.5, 0.5, 0.1],  "color": [0.30, 0.23, 0.12], "emissive": 0.0},
-    "twig_scatter":    {"scale": [0.6, 0.4, 0.05], "color": [0.25, 0.21, 0.14], "emissive": 0.0},
-    "cave_gravel":     {"scale": [0.2, 0.2, 0.05], "color": [0.24, 0.22, 0.16], "emissive": 0.0},
-    "firefly":         {"scale": [0.06, 0.06, 0.06],"color": [0.95, 0.75, 0.30], "emissive": 1.0},
-    "leaf":            {"scale": [0.08, 0.06, 0.01],"color": [0.22, 0.30, 0.10], "emissive": 0.0},
-    "beetle":          {"scale": [0.04, 0.03, 0.02],"color": [0.10, 0.08, 0.06], "emissive": 0.0},
-    "rat":             {"scale": [0.12, 0.06, 0.06],"color": [0.14, 0.11, 0.08], "emissive": 0.0},
-    "spider":          {"scale": [0.05, 0.05, 0.03],"color": [0.08, 0.07, 0.06], "emissive": 0.0},
-    "ceiling_moss":    {"scale": [3.0, 3.0, 2.5],  "color": [0.35, 0.45, 0.18], "emissive": 0.9},
-    "hanging_vine":    {"scale": [0.8, 0.8, 4.0],  "color": [0.10, 0.16, 0.07], "emissive": 0.0},
-    "filament":        {"scale": [0.25, 0.25, 3.5], "color": [0.30, 0.40, 0.55], "emissive": 1.0},
-    "horizon_form":    {"scale": [6.0, 4.0, 10.0], "color": [0.08, 0.10, 0.05], "emissive": 0.0},
-    "horizon_mid":     {"scale": [4.0, 3.0, 7.0],  "color": [0.10, 0.12, 0.06], "emissive": 0.0},
-    "horizon_near":    {"scale": [3.0, 2.0, 5.0],  "color": [0.12, 0.14, 0.08], "emissive": 0.0},
-    "exit_lure":       {"scale": [1.0, 1.0, 2.0],  "color": [0.60, 0.45, 0.20], "emissive": 1.0},
-}
+# -- Kind properties --------------------------------
+# Phase 5: KIND_PROPS derived from kind_config.json. Single source of truth.
+# In STAMP_MODE this dict is unused (stamp_world reads bucket_world.KIND_PROPS).
+# Kept as a shim for any non-STAMP path that imports brain_server.KIND_PROPS.
+from core.systems.bucket_world import KIND_PROPS  # noqa: E402  re-export
 
 # Per-kind behavior type and decay stage (from kind_config.json)
 KIND_BEHAVIOR = {
@@ -102,7 +76,26 @@ KIND_DECAY = {
     "dead_log": 0.3, "leaf_pile": 0.5, "bone_pile": 0.6,
 }
 
-COLLISION_RADII = {k: v for k, v in HARD_OBJECTS.items()}
+# Phase 2: collision radii primary source is kind_config.json (physics
+# block). HARD_OBJECTS in biome_data is now the FALLBACK for any kind
+# missing the field. Phase 5 deletes HARD_OBJECTS entirely.
+#
+# Render-shell class (KIND_RENDER_CLASS) is NOT migrated this phase —
+# it's a separate taxonomy from kind_config's semantic 'class' field
+# (which keys shader/material selection: geological, organic_flora,
+# crystalline). Render-shell membership is biome-rendering concern,
+# stays in biome_data for now.
+from core.systems import kind_config as _kc
+
+def _collision_radius_for(kind: str) -> float:
+    """Primary: kind_config physics.collision_radius. Fallback: HARD_OBJECTS."""
+    cfg_kind = _kc.kind(kind)
+    cfg_radius = cfg_kind.get("physics", {}).get("collision_radius")
+    if cfg_radius is not None:
+        return float(cfg_radius)
+    return float(HARD_OBJECTS.get(kind, 0.0))
+
+COLLISION_RADII = {k: _collision_radius_for(k) for k in _kc.all_kinds().keys() | HARD_OBJECTS.keys()}
 
 
 # -- Multi-tile world ---------------------------------------------------------

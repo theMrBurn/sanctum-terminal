@@ -2,6 +2,46 @@
 > Unreliable narrator. The live hash is the particle trail.
 
 ---
+SESSION ARC (2026-04-12 ~13:00 → 2026-04-12 ~18:45, ~5.75h active):
+
+Creature visibility hunt → orb pipeline → GLB swap → kind_config refactor.
+
+THE INVISIBLE-CREATURE SAGA: brain shipped rats/pots/chests for hours,
+Godot rendered nothing. Cause was layered: scale collapsed by
+inherited ent.sx (0.12 for rats), then by hardcoded y=1.0 lifting
+atoms below ground at remote tiles, then by `set_surface_override_material`
++ `no_depth_test` breaking billboard mode on Metal, then by GLB renders
+ignoring `ent.sx` entirely (using `bounds.scale × sv` instead). Each
+fix uncovered the next. Six rounds of "this should work — see screens."
+
+ORB → GLB SWAP: orb pipeline always owns BEHAVIOR (parent Node3D,
+flee/scatter state machine). Visual primitive is a swappable child:
+`CREATURE_USE_GLB_PATH = true` loads per-kind GLB scaled by
+`bounds × kind_config.world_scale_mult`. Pinned in
+design_creature_render_arch.md. Cost a session to discover.
+
+KIND_CONFIG REFACTOR (5 phases, all shippable independently):
+1. Move `godot/kind_config.json` → `config/kind_config.json` + symlink
+   + brain reader (`core/systems/kind_config.py`)
+2. Migrate `physics.collision_radius` from `biome_data.HARD_OBJECTS`
+3. Migrate `render.scale/color/emissive` from KIND_PROPS (×2 dupes)
+4. Migrate `behavior` block from `main.gd CREATURE_KINDS`
+5. Delete literal duplicates → derived shims; `HARD_OBJECTS` and
+   both `KIND_PROPS` now derive from kind_config
+
+Single source of truth achieved. 1557 tests passing (3 pre-existing
+unrelated failures). Schema + reader + 4 migration scripts +
+5 new tests pinned in design_kind_config_single_source.md.
+
+DEFERRED to Phase 5.5 (project_creature_collision_pending.md):
+- Rats clip walls (movement loop has no collision check)
+- Pots embedded in floor (GLB origin at center, not base)
+
+Magic-show wins along the way: red orb fixture
+(design_red_orb_fixture.md), config-as-code feedback loop
+(feedback_no_hardcoded_tunables.md).
+
+---
 SESSION ARC (2026-04-11 ~23:00 → 2026-04-12 ~00:30, ~1.5h active, ~53h cumulative arc):
 
 Pick up from 7ba9532 on feat/render-manifest. Sandbox — do NOT merge

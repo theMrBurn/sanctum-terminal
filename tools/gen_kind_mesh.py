@@ -2398,6 +2398,40 @@ def _build_chest(rng: np.random.Generator, body_color: RGBA,
     return compose([body, lid, band1, band2, latch])
 
 
+def _build_pot(rng: np.random.Generator, body_color: RGBA,
+               rim_color: RGBA, base_color: RGBA) -> trimesh.Trimesh:
+    """Clay pot from primitives. Tapered cylinder body + thicker rim ring
+    + base ring + slight per-variant lean. ~80 tris. Reads as 'pot' from 5m
+    (tapered round vessel silhouette, distinct from chest/box shapes)."""
+    # Body — tapered cylinder, narrower at top than belly
+    body = capped_cylinder(radius_bottom=0.07, radius_top=0.06,
+                           height=0.16, color=body_color, sections=8)
+    body.apply_translation([0.0, 0.0, 0.08])
+
+    # Belly — wider mid-section to give the pot a round profile
+    belly = capped_cylinder(radius_bottom=0.06, radius_top=0.085,
+                            height=0.06, color=body_color, sections=8)
+    belly.apply_translation([0.0, 0.0, 0.06])
+
+    # Rim — thicker ring at the opening (tapered cylinder, very short)
+    rim = capped_cylinder(radius_bottom=0.065, radius_top=0.075,
+                          height=0.025, color=rim_color, sections=8)
+    rim.apply_translation([0.0, 0.0, 0.155])
+
+    # Base — flat disc at the bottom for stability
+    base = capped_cylinder(radius_bottom=0.07, radius_top=0.06,
+                           height=0.018, color=base_color, sections=8)
+    base.apply_translation([0.0, 0.0, 0.0])
+
+    composed = compose([base, belly, body, rim])
+
+    # Slight per-variant lean — pots are imperfect, hand-shaped
+    lean = rng.uniform(-0.08, 0.08)
+    rot = trimesh.transformations.rotation_matrix(lean, [1, 0, 0])
+    composed.apply_transform(rot)
+    return composed
+
+
 def _family_creature_small(
     kind_name: str,
     kind_cfg: dict,
@@ -2437,6 +2471,8 @@ def _family_creature_small(
         elif shape == "chest":
             mesh = _build_chest(rng, body_color, belly_color,
                                 detail_color, latch_color)
+        elif shape == "pot":
+            mesh = _build_pot(rng, body_color, belly_color, detail_color)
         else:
             # Staged shape — config exists but builder not written yet.
             # Return a placeholder sphere so --all doesn't crash.

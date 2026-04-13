@@ -125,6 +125,8 @@ func _load_kind_config() -> void:
 			kind_config = jp.data
 		file.close()
 	print("Kind config: %d kinds loaded" % kind_config.get("kinds", {}).size())
+	# Phase 4: derive CREATURE_KINDS from kind_config behavior blocks.
+	_load_creature_kinds()
 
 
 func _get_kind_params(kind: String) -> Dictionary:
@@ -704,8 +706,9 @@ func _spawn_entities() -> void:
 
 	for ent: Dictionary in manifest.get("entities", []):
 		var kind: String = ent.get("kind", "unknown")
-		# Creature kinds get their own MeshInstance3D via _spawn_creatures().
-		# Exclude from MultiMesh to prevent ghost duplicates at spawn point.
+		# Creatures always skip MultiMesh — they need per-instance transform
+		# updates for flee/scatter behavior. Visual is _spawn_creatures' GLB
+		# child or atom fallback (CREATURE_USE_GLB_PATH switches inside).
 		if CREATURE_KINDS.has(kind):
 			continue
 		if not by_kind.has(kind):
@@ -826,7 +829,12 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 		var effective_y_height: float = 1.0  # tracks visible Y extent for burial cap
 		var inversion_y_offset: float = 0.0   # compensate for 180° rotation on inverted kinds
 		if has_real_mesh:
-			var base_s: float = orig_scale * sv
+			# kind_config world_scale_mult lets a kind override the bounds-derived
+			# world size without regenerating the GLB. Use for creatures which
+			# need to render much bigger than their authored ~0.2m primitive size
+			# (rat 4× → waist height; pot/chest 13× → eye level).
+			var world_mult: float = float(kind_params_for_mm.get("world_scale_mult", 1.0))
+			var base_s: float = orig_scale * sv * world_mult
 			var p_hash: float = abs(sin(ent.get("x", 0.0) * 3.17 + ent.get("y", 0.0) * 7.31))
 			var p_hash2: float = abs(sin(ent.get("x", 0.0) * 11.9 + ent.get("y", 0.0) * 5.47))
 			# Columns use stalagmite mesh via MESH_ALIAS (shared shape language).
@@ -1260,7 +1268,7 @@ func _rebuild_entities() -> void:
 	var silhouette_ents: Array = []  # render_mode silhouette/hint → banner projection
 	for ent: Dictionary in manifest.get("entities", []):
 		var kind: String = ent.get("kind", "unknown")
-		# Creature kinds handled by _spawn_creatures() — skip MultiMesh
+		# Creatures always skip MultiMesh — handled by _spawn_creatures.
 		if CREATURE_KINDS.has(kind):
 			continue
 		var render_mode: String = ent.get("render_mode", "geometry")
@@ -1314,7 +1322,7 @@ func _rebuild_entities() -> void:
 	var t_state: String = manifest.get("tension_state", "open")
 	if ent_count != last_entity_count or t_state != last_tension_state:
 		mote_dirty = true
-	# Creatures spawn independently — don't gate on mote_dirty
+	# Creatures spawn independently — don't gate on mote_dirty.
 	_spawn_creatures()
 	if mote_dirty:
 		_update_motes()
@@ -1515,92 +1523,203 @@ func _update_atmosphere() -> void:
 
 # -- Creatures (scurry/crawl behavior) -----------------------------------------
 
-const CREATURE_KINDS := {
-	# Atom-cluster creatures — rendered as heptagonal mote arrangements.
-	# The arrangement IS the sprite. Each atom is a flat emissive billboard.
-	# The cluster reads as the creature from distance.
-	"rat":             {"speed": 4.0, "flee_radius": 8.0, "size": 0.12,
-						"mote_arrangement": "rat_15", "mote_color": Color(0.55, 0.42, 0.30),
-						"mote_size": 0.15, "destructible": false},
-	"rat_ice":         {"speed": 3.0, "flee_radius": 10.0, "size": 0.12,
-						"mote_arrangement": "rat_15", "mote_color": Color(0.45, 0.55, 0.75),
-						"mote_size": 0.15, "destructible": false},
-	"rat_fire":        {"speed": 5.0, "flee_radius": 6.0, "size": 0.12,
-						"mote_arrangement": "rat_15", "mote_color": Color(0.75, 0.35, 0.12),
-						"mote_size": 0.15, "destructible": false},
-	"treasure_chest":  {"speed": 0.0, "flee_radius": 0.0, "size": 0.20,
-						"mote_arrangement": "chest_8", "mote_color": Color(0.50, 0.35, 0.18),
-						"mote_size": 0.20, "destructible": false},
-	"clay_pot":        {"speed": 0.0, "flee_radius": 0.0, "size": 0.15,
-						"mote_arrangement": "pot_10", "mote_color": Color(0.60, 0.42, 0.25),
-						"mote_size": 0.15, "destructible": true,
-						"scatter_speed": 3.0, "scatter_gravity": 6.0},
-	"beetle":          {"speed": 2.0, "flee_radius": 5.0, "size": 0.05,
-						"mote_arrangement": "solo", "mote_color": Color(0.08, 0.06, 0.05),
-						"mote_size": 0.03, "destructible": false},
-	"spider":          {"speed": 3.0, "flee_radius": 6.0, "size": 0.06,
-						"mote_arrangement": "solo", "mote_color": Color(0.06, 0.05, 0.04),
-						"mote_size": 0.04, "destructible": false},
-}
+# Baseline scope for creature visibility. Magic-show trick: render every
+# creature as ONE fat emissive heptagon at a known size. Reads as "thing
+# here" from any distance. Backwards compatible — CREATURE_KINDS still
+# holds per-kind arrangement/mote_size; the baseline overrides them at
+# spawn when CREATURE_BASELINE_DEBUG is true. Flip false to restore
+# meta-pixel arrangements.
+# Render path toggle. The orb pipeline (_spawn_creatures + _update_creatures)
+# always runs — it owns BEHAVIOR (flee, scatter, debris). Per-creature visual
+# is swappable:
+#   true  = each creature loads the per-kind GLB as its child (proper voxel
+#           rat/pot/chest visuals, behavior intact)
+#   false = atom-orb visual fallback (debug fixture, single-color spheres)
+# MultiMesh path is bypassed either way — creatures need per-instance
+# transform updates that MultiMesh can't deliver per frame.
+const CREATURE_USE_GLB_PATH: bool = true
+const CREATURE_BASELINE_DEBUG: bool = false  # off: use real per-kind arrangements
+const CREATURE_BASELINE_ARRANGEMENT: String = "solo"
+const CREATURE_BASELINE_MOTE_SIZE: float = 0.5  # ~50cm orb — cat-sized creature
+# mote_arrangements.gd offsets were authored for ~5cm motes. With orbs at
+# 50cm we need to spread them apart so atoms read as a CLUSTER not a blob.
+# 8.0 = roughly proportional. Drop for tighter clumps, raise for spread shatter.
+const CREATURE_ARRANGEMENT_SCALE: float = 8.0
+# Vertical clearance above the entity's ground z. ORB visuals need lift
+# because the spheres are waist-height MARKERS (no ground geometry of
+# their own). GLB visuals have ground-relative geometry built in, so they
+# sit at z=0 — hover of 0 puts feet on the floor.
+const CREATURE_ORB_HOVER_M: float = 1.2  # orbs float at waist for visibility
+const CREATURE_GLB_HOVER_M: float = 0.0  # GLB seated on ground at entity z
+# Legacy alias — used by the test bounds. Renamed in main.gd usage to
+# the per-path constant. Keep until test is updated to assert both.
+const CREATURE_BASELINE_HOVER_M: float = 1.2
+# Emission multiplier — 3.0 = ambient register (creature reads as creature,
+# not as beacon). Raise to 8.0 for unmissable tension/encounter mode.
+const CREATURE_BASELINE_EMISSION: float = 3.0
+# no_depth_test false = atoms occlude correctly behind walls. Flip true
+# only when debugging visibility (magic-show fallback).
+const CREATURE_BASELINE_NO_DEPTH: bool = false
+# Proximity (meters) at which destructible creatures shatter. 2.0 = player
+# bumps into them. Drop to 0.5 for "must touch" feel, raise for area effect.
+const CREATURE_DESTRUCT_RADIUS_M: float = 2.0
+# Alpha fade rate for debris atoms after shatter. 0.3 = ~3sec fade.
+# Set 0.0 to keep debris on the ground permanently (path-memory scars).
+# Set 1.0 to clear quickly.
+const CREATURE_DEBRIS_FADE_RATE: float = 0.0
+# When debris fully fades, free the parent? false = keep tombstone (scarred
+# ground stays). true = clean up. Pairs with CREATURE_DEBRIS_FADE_RATE.
+const CREATURE_DEBRIS_FREE_PARENT: bool = false
+
+# Phase 5: CREATURE_KINDS derives entirely from kind_config.json behavior
+# blocks. Single source of truth. If a creature is missing a behavior block
+# in kind_config it silently won't be in CREATURE_KINDS — add it there.
+var CREATURE_KINDS: Dictionary = {}
+
+
+func _load_creature_kinds() -> void:
+	# Walk kind_config.kinds and harvest any kind with class=life AND a
+	# behavior block. Convert mote_color array -> Godot Color for ergonomics.
+	CREATURE_KINDS.clear()
+	var cfg_kinds: Dictionary = kind_config.get("kinds", {})
+	for kname: String in cfg_kinds:
+		var k: Dictionary = cfg_kinds[kname]
+		if k.get("class", "") != "life":
+			continue
+		var b: Dictionary = k.get("behavior", {})
+		if b.is_empty():
+			continue
+		var entry: Dictionary = b.duplicate()
+		var mc = entry.get("mote_color")
+		if mc is Array and mc.size() >= 3:
+			entry["mote_color"] = Color(float(mc[0]), float(mc[1]), float(mc[2]))
+		CREATURE_KINDS[kname] = entry
+	print("Creature kinds: %d loaded from kind_config" % CREATURE_KINDS.size())
 
 var creature_nodes: Array[Dictionary] = []  # {node, home_x, home_z, kind, fleeing}
 
-func _spawn_creatures() -> void:
-	# Remove old
-	for c: Dictionary in creature_nodes:
-		if is_instance_valid(c["node"]):
-			c["node"].queue_free()
-	creature_nodes.clear()
+func _creature_id(kind: String, x: float, y: float) -> String:
+	# Identity = kind + home position. Brain ships the same creature with
+	# the same anchor coords across manifest updates, so this is stable.
+	# Two creatures of the same kind at the same home will collapse into
+	# one (intentional — they ARE the same anchor stamp instance).
+	return "%s|%.2f|%.2f" % [kind, x, y]
 
+
+func _spawn_creatures() -> void:
+	# Diff manifest creatures against existing nodes by stable id. Keep
+	# matching ones (preserves flee/scatter state across manifest updates).
+	# Spawn only new ids, free only departed ids. Without this every step
+	# the player takes triggers a manifest tick that resets all creatures
+	# back to home with no behavior state.
+	var manifest_ids: Dictionary = {}  # id -> ent dict
 	for ent: Dictionary in manifest.get("entities", []):
-		var kind: String = ent.get("kind", "")
-		if not CREATURE_KINDS.has(kind):
+		var kind_check: String = ent.get("kind", "")
+		if not CREATURE_KINDS.has(kind_check):
 			continue
+		var cid: String = _creature_id(kind_check, ent.get("x", 0.0), ent.get("y", 0.0))
+		manifest_ids[cid] = ent
+
+	# Free creatures no longer in manifest
+	var kept: Array[Dictionary] = []
+	for c: Dictionary in creature_nodes:
+		if manifest_ids.has(c.get("id", "")):
+			kept.append(c)
+			manifest_ids.erase(c["id"])  # mark as already-present
+		else:
+			if is_instance_valid(c["node"]):
+				c["node"].queue_free()
+	creature_nodes = kept
+
+	# Spawn new creatures (only those left in manifest_ids after the keep pass)
+	for cid: String in manifest_ids:
+		var ent: Dictionary = manifest_ids[cid]
+		var kind: String = ent.get("kind", "")
 		var cfg: Dictionary = CREATURE_KINDS[kind]
 
 		# Atom-cluster rendering: each creature is a parent Node3D holding
 		# N heptagonal mote atoms at arrangement offsets. The parent moves
 		# (flee/drift). The atoms ride with it. Destruction = atoms scatter.
 		var parent := Node3D.new()
-		# Creatures hover at waist height (1.0m) so they read against the
-		# dark ground. These are ghost sprite atoms, not physical meshes.
-		parent.position = Vector3(ent.get("x", 0.0), 1.0, ent.get("y", 0.0))
+		# Hover offset depends on visual: GLB has ground-relative geometry
+		# (sit at z), orbs are floating markers (lift to waist).
+		var ground_z: float = ent.get("z", 0.0)
+		var hover: float = CREATURE_GLB_HOVER_M if CREATURE_USE_GLB_PATH else CREATURE_ORB_HOVER_M
+		parent.position = Vector3(
+			ent.get("x", 0.0),
+			ground_z + hover,
+			ent.get("y", 0.0))
 		parent.name = "Creature_%s_%d" % [kind, creature_nodes.size()]
 
-		# Scale from KIND_PROPS — makes the atom cluster visible at game distance.
-		# Without this the arrangements are ~0.3m across (fist-sized, invisible).
-		var creature_scale: float = ent.get("sx", 1.0)
-		parent.scale = Vector3(creature_scale, creature_scale, creature_scale)
+		# Atom clusters size themselves via mote_size + arrangement offsets.
+		# Don't inherit ent.sx — bucket_world ships 0.12 for creatures, which
+		# collapses the cluster to ~4cm wide (invisible). The arrangement IS
+		# the scale.
+		var creature_scale: float = 1.0
+		parent.scale = Vector3.ONE
 
 		var arrangement_name: String = cfg.get("mote_arrangement", "solo")
-		var offsets: Array = MoteArrangements.get_offsets(arrangement_name)
 		var mote_color: Color = cfg.get("mote_color", Color(0.5, 0.4, 0.3))
-		var mote_size: float = cfg.get("mote_size", 0.05) * 3.0  # DEBUG: 3x scale for visibility
+		var mote_size: float = cfg.get("mote_size", 0.05)
+		if CREATURE_BASELINE_DEBUG:
+			# Magic-show baseline: collapse to one fat heptagon per creature
+			# so we have a known visible reference. Tune mote_size up/down,
+			# THEN re-enable arrangements once baseline reads cleanly.
+			arrangement_name = CREATURE_BASELINE_ARRANGEMENT
+			mote_size = CREATURE_BASELINE_MOTE_SIZE
 		var atom_nodes: Array = []  # untyped — typed arrays can silently reject
-		print("CREATURE SPAWN: %s at (%s, %s) scale=%s atoms=%d mote_size=%s" % [
-			kind, str(ent.get("x", 0)), str(ent.get("y", 0)),
-			str(creature_scale), offsets.size(), str(mote_size)])
+		var offsets: Array = []  # populated by orb path; empty for GLB path
 
-		for offset in offsets:
-			var atom := MeshInstance3D.new()
-			atom.mesh = _build_heptagonal_mote_mesh(mote_size)
-			var mat := StandardMaterial3D.new()
-			mat.albedo_color = Color(1.0, 1.0, 1.0)  # DEBUG: bright white
-			mat.emission_enabled = true
-			mat.emission = Color(1.0, 1.0, 0.5)  # DEBUG: bright yellow glow
-			mat.emission_energy_multiplier = 5.0  # DEBUG: max brightness
-			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-			mat.no_depth_test = true  # DEBUG: render on top of everything
-			atom.set_surface_override_material(0, mat)
-			atom.position = offset
-			parent.add_child(atom)
-			atom_nodes.append(atom)
+		if CREATURE_USE_GLB_PATH:
+			# GLB visual: load per-kind voxel mesh, scale by world_scale_mult
+			# from kind_config. Single MeshInstance3D as the parent's visual
+			# child. Behavior (flee, scatter on shatter) operates on parent
+			# Node3D; the GLB rides along.
+			var variant: int = abs(int(ent.get("x", 0.0) * 31.0 + ent.get("y", 0.0) * 17.0)) % NUM_VARIANTS
+			var glb_mesh: Mesh = _get_mesh_for_kind(kind, variant)
+			var inst := MeshInstance3D.new()
+			inst.mesh = glb_mesh
+			var k_params: Dictionary = _get_kind_params(kind)
+			var world_mult: float = float(k_params.get("world_scale_mult", 1.0))
+			var bounds: Dictionary = mesh_bounds.get(kind, {})
+			var orig_scale: float = bounds.get("scale", 1.0)
+			inst.scale = Vector3.ONE * (orig_scale * world_mult)
+			parent.add_child(inst)
+			atom_nodes.append(inst)
+			print("CREATURE SPAWN: %s glb at (%s, %s) world_scale=%s" % [
+				kind, str(ent.get("x", 0)), str(ent.get("y", 0)),
+				str(orig_scale * world_mult)])
+		else:
+			# Atom-orb fallback: pre-GLB debug visual.
+			var raw_offsets: Array = MoteArrangements.get_offsets(arrangement_name)
+			for o in raw_offsets:
+				offsets.append((o as Vector3) * CREATURE_ARRANGEMENT_SCALE)
+			print("CREATURE SPAWN: %s atoms at (%s, %s) atoms=%d mote_size=%s" % [
+				kind, str(ent.get("x", 0)), str(ent.get("y", 0)),
+				offsets.size(), str(mote_size)])
+			for offset in offsets:
+				var atom := MeshInstance3D.new()
+				var sphere := SphereMesh.new()
+				sphere.radius = mote_size
+				sphere.height = mote_size * 2.0
+				atom.mesh = sphere
+				var mat := StandardMaterial3D.new()
+				mat.albedo_color = mote_color
+				mat.emission_enabled = true
+				mat.emission = mote_color
+				mat.emission_energy_multiplier = CREATURE_BASELINE_EMISSION
+				mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				mat.no_depth_test = CREATURE_BASELINE_NO_DEPTH
+				atom.set_surface_override_material(0, mat)
+				atom.position = offset
+				parent.add_child(atom)
+				atom_nodes.append(atom)
 
 		add_child(parent)
 		print("  -> added %d atoms, parent at %s scale %s" % [
 			atom_nodes.size(), str(parent.position), str(parent.scale)])
 		creature_nodes.append({
+			"id": cid,  # stable across manifest updates — dedupe key
 			"node": parent,
 			"atom_nodes": atom_nodes,
 			"atom_offsets": offsets.duplicate(),  # formation positions
@@ -1616,8 +1735,7 @@ func _spawn_creatures() -> void:
 			"atom_velocities": [],  # populated on break
 		})
 	if creature_nodes.size() > 0:
-		_show_toast("SPAWNED %d creatures" % creature_nodes.size())
-		print("=== TOTAL CREATURES SPAWNED: %d ===" % creature_nodes.size())
+		_show_toast("CREATURES: %d active" % creature_nodes.size())
 
 
 func _update_creatures(delta: float) -> void:
@@ -1645,9 +1763,12 @@ func _update_creatures(delta: float) -> void:
 				vel.y -= scatter_grav * delta
 				vels[i] = vel
 				atom.position += vel * delta
-				# Settle when below ground
-				if atom.position.y <= 0.0:
-					atom.position.y = 0.0
+				# Settle when atom reaches actual world ground.
+				# Atom positions are LOCAL to parent (which floats at hover
+				# height), so ground in local coords is -hover.
+				var ground_local_y: float = -CREATURE_BASELINE_HOVER_M
+				if atom.position.y <= ground_local_y:
+					atom.position.y = ground_local_y
 					vels[i] = Vector3.ZERO
 				else:
 					all_settled = false
@@ -1656,7 +1777,9 @@ func _update_creatures(delta: float) -> void:
 			continue
 
 		if c["state"] == "debris":
-			# Atoms on the ground — fade out slowly, then free
+			# Atoms on the ground. Fade rate 0 = scars persist (path-memory).
+			if CREATURE_DEBRIS_FADE_RATE <= 0.0:
+				continue  # leave debris on ground forever
 			var atoms: Array = c.get("atom_nodes", [])
 			var all_gone: bool = true
 			for atom in atoms:
@@ -1664,12 +1787,12 @@ func _update_creatures(delta: float) -> void:
 					continue
 				var mat: StandardMaterial3D = atom.get_surface_override_material(0)
 				if mat:
-					mat.albedo_color.a -= delta * 0.3
+					mat.albedo_color.a -= delta * CREATURE_DEBRIS_FADE_RATE
 					if mat.albedo_color.a <= 0.0:
 						atom.queue_free()
 					else:
 						all_gone = false
-			if all_gone:
+			if all_gone and CREATURE_DEBRIS_FREE_PARENT:
 				node.queue_free()
 			continue
 
@@ -1677,9 +1800,12 @@ func _update_creatures(delta: float) -> void:
 		var dx: float = node.position.x - camera.position.x
 		var dz: float = node.position.z - camera.position.z
 		var dist: float = sqrt(dx * dx + dz * dz)
+		if Engine.get_process_frames() % 60 == 0:
+			print("CREATURE %s dist=%.1f flee_radius=%.1f speed=%.1f fleeing=%s" % [
+				c["kind"], dist, cfg.get("flee_radius", 0.0), cfg.get("speed", 0.0), str(c["fleeing"])])
 
 		# Destructible check: break on proximity (placeholder for cast/hit)
-		if cfg.get("destructible", false) and dist < 2.0 and c["state"] == "intact":
+		if cfg.get("destructible", false) and dist < CREATURE_DESTRUCT_RADIUS_M and c["state"] == "intact":
 			c["state"] = "breaking"
 			var atoms: Array = c.get("atom_nodes", [])
 			var vels: Array = []
@@ -2924,7 +3050,7 @@ func _physics_process(delta: float) -> void:
 	new_pos.y = lerpf(camera.position.y, target_y, 7.0 * delta)
 	camera.position = new_pos
 
-	# Creatures react to camera
+	# Creatures react to camera (flee, scatter on shatter, debris settle).
 	_update_creatures(delta)
 
 	# Follow-camera planes track the player on their parallel axes.

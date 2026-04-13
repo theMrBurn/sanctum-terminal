@@ -73,20 +73,20 @@ BIOME_OUTDOOR_FOREST = [
 # walking-margin bubbles around themselves (other anchors respect these
 # radii, preserving walkable paths in dense stamps). This is the GENERATION
 # radius, not the physics radius.
-HARD_OBJECTS = {
-    "boulder":          2.5,
-    "column":           4.0,   # walking margin
-    "mega_column":      5.0,   # walking margin
-    "buttress":         3.0,   # walking margin
-    "stalagmite":       1.2,
-    "giant_fungus":     1.2,
-    "crystal_cluster":  1.0,
-    "dead_log":         0.8,
-    "bone_pile":        0.4,
-    "horizon_form":     3.0,
-    "horizon_mid":      2.0,
-    "horizon_near":     1.0,
-}
+# Phase 5: HARD_OBJECTS is now derived from kind_config physics.collision_radius.
+# Used by world_gen for clearance/spacing during stamp composition. The shim
+# pattern matches KIND_PROPS — kind_config is the single source, this is a
+# read-only view kept for backwards-compat with importers.
+def _build_hard_objects() -> dict:
+    from core.systems import kind_config as _kc
+    out = {}
+    for name, kcfg in _kc.all_kinds().items():
+        r = kcfg.get("physics", {}).get("collision_radius")
+        if r is not None and r > 0:
+            out[name] = float(r)
+    return out
+
+HARD_OBJECTS = _build_hard_objects()
 
 # PLAYER_COLLISION_RADII is used for PHYSICS — the radius at which the
 # player's _physics_process push-out engages. These are a brain-side
@@ -1611,6 +1611,10 @@ KIND_RENDER_CLASS = {
     # life — creatures, close range only
     "beetle":          "life",
     "rat":             "life",
+    "rat_ice":         "life",
+    "rat_fire":        "life",
+    "clay_pot":        "life",
+    "treasure_chest":  "life",
     "spider":          "life",
     "leaf":            "life",
 }
