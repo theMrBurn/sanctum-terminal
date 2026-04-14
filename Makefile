@@ -72,6 +72,19 @@ cavern:
 viewer:
 	PYTHONPATH=. ./.venv/bin/python template_viewer.py
 
+# Headless ASCII sanctum — the game at its bedrock. No Godot.
+# `terminal` opens a new macOS Terminal window so the game runs in its
+# own space, leaving your current shell free. `terminal-inline` runs it
+# in the current shell (useful for piping input in tests / CI).
+# Controls: wasd move, t tag, q quit.
+terminal:
+	@osascript \
+	  -e 'tell application "Terminal" to activate' \
+	  -e "tell application \"Terminal\" to do script \"cd '$$PWD' && make terminal-inline\""
+
+terminal-inline:
+	PYTHONPATH=. ./.venv/bin/python sanctum_terminal.py
+
 # ── Godot Bridge ──────────────────────────────────────────────────────────────
 godot-export:
 	PYTHONPATH=. ./.venv/bin/python godot_export.py outdoor

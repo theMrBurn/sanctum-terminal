@@ -408,7 +408,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "o"
     },
     "stalagmite": {
       "class": "geological",
@@ -449,7 +450,8 @@
           0.18
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "^"
     },
     "rubble": {
       "class": "geological",
@@ -506,7 +508,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": ","
     },
     "cave_gravel": {
       "class": "geological",
@@ -559,7 +562,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "."
     },
     "mega_column": {
       "class": "structural",
@@ -602,7 +606,8 @@
           0.16
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "#"
     },
     "column": {
       "class": "structural",
@@ -641,7 +646,8 @@
           0.18
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "|"
     },
     "buttress": {
       "class": "structural",
@@ -714,7 +720,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "M"
     },
     "crystal_cluster": {
       "class": "crystalline",
@@ -790,7 +797,8 @@
           0.8
         ],
         "emissive": 1.0
-      }
+      },
+      "ascii": "*"
     },
     "filament": {
       "class": "crystalline",
@@ -826,7 +834,8 @@
           0.55
         ],
         "emissive": 1.0
-      }
+      },
+      "ascii": ":"
     },
     "exit_lure": {
       "class": "crystalline",
@@ -858,7 +867,8 @@
           0.2
         ],
         "emissive": 1.0
-      }
+      },
+      "ascii": "$"
     },
     "giant_fungus": {
       "class": "organic_flora",
@@ -933,7 +943,8 @@
           0.25
         ],
         "emissive": 0.8
-      }
+      },
+      "ascii": "&"
     },
     "toadstool": {
       "class": "organic_flora",
@@ -981,7 +992,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "t"
     },
     "spore_pod": {
       "class": "organic_flora",
@@ -1032,7 +1044,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "%"
     },
     "doorframe": {
       "class": "structural",
@@ -1082,7 +1095,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "n"
     },
     "monolith": {
       "class": "structural",
@@ -1131,7 +1145,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "I"
     },
     "moss_patch": {
       "class": "organic_flora",
@@ -1189,7 +1204,8 @@
           0.15
         ],
         "emissive": 0.9
-      }
+      },
+      "ascii": "~"
     },
     "grass_tuft": {
       "class": "organic_flora",
@@ -1242,7 +1258,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "\""
     },
     "dead_log": {
       "class": "organic_flora",
@@ -1298,7 +1315,8 @@
           "noise_strength": 0.12,
           "elongation": 6.0
         }
-      }
+      },
+      "ascii": "="
     },
     "leaf_pile": {
       "class": "organic_flora",
@@ -1351,7 +1369,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "_"
     },
     "twig_scatter": {
       "class": "organic_flora",
@@ -1404,7 +1423,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": ";"
     },
     "bone_pile": {
       "class": "organic_flora",
@@ -1464,7 +1484,8 @@
           1.0
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "x"
     },
     "ceiling_moss": {
       "class": "atmosphere",
@@ -1515,7 +1536,8 @@
           "lean_jitter_deg": 18.0,
           "layout": "drape"
         }
-      }
+      },
+      "ascii": "~"
     },
     "hanging_vine": {
       "class": "atmosphere",
@@ -1565,7 +1587,8 @@
           "lean_jitter_deg": 6.0,
           "layout": "drape"
         }
-      }
+      },
+      "ascii": "v"
     },
     "firefly": {
       "class": "life",
@@ -1597,7 +1620,8 @@
           0.3
         ],
         "emissive": 1.0
-      }
+      },
+      "ascii": "'"
     },
     "leaf": {
       "class": "life",
@@ -1628,7 +1652,8 @@
           0.1
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": "'"
     },
     "beetle": {
       "class": "life",
@@ -1671,6 +1696,26 @@
           0.05
         ],
         "mote_size": 0.03
+      },
+      "ascii": "b",
+      "combat_profile": {
+        "hp": 6,
+        "max_hp": 6,
+        "str_": 6,
+        "dex": 8,
+        "wil": 5,
+        "speed": 8,
+        "defense": 15,
+        "element_mods": {
+          "electric": 1.5,
+          "physical": 0.75
+        },
+        "default_attack": "beetle_mandibles",
+        "tier": "solo",
+        "pack_size_min": 1,
+        "pack_size_max": 2,
+        "pack_radius_m": 4.0,
+        "xp_reward": 3
       }
     },
     "rat": {
@@ -1748,6 +1793,26 @@
           0.3
         ],
         "mote_size": 0.15
+      },
+      "ascii": "r",
+      "combat_profile": {
+        "hp": 3,
+        "max_hp": 3,
+        "str_": 4,
+        "dex": 12,
+        "wil": 4,
+        "speed": 14,
+        "defense": 10,
+        "element_mods": {
+          "fire": 1.3,
+          "ice": 0.9
+        },
+        "default_attack": "rat_bite",
+        "tier": "pack",
+        "pack_size_min": 2,
+        "pack_size_max": 4,
+        "pack_radius_m": 4.0,
+        "xp_reward": 1
       }
     },
     "spider": {
@@ -1806,6 +1871,25 @@
           0.04
         ],
         "mote_size": 0.04
+      },
+      "ascii": "s",
+      "combat_profile": {
+        "hp": 4,
+        "max_hp": 4,
+        "str_": 5,
+        "dex": 14,
+        "wil": 5,
+        "speed": 11,
+        "defense": 12,
+        "element_mods": {
+          "fire": 1.5
+        },
+        "default_attack": "spider_venom",
+        "tier": "solo",
+        "pack_size_min": 1,
+        "pack_size_max": 1,
+        "pack_radius_m": 0.0,
+        "xp_reward": 3
       }
     },
     "horizon_form": {
@@ -1825,7 +1909,8 @@
           0.05
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": " "
     },
     "horizon_mid": {
       "class": "horizon",
@@ -1844,7 +1929,8 @@
           0.06
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": " "
     },
     "horizon_near": {
       "class": "horizon",
@@ -1863,7 +1949,8 @@
           0.08
         ],
         "emissive": 0.0
-      }
+      },
+      "ascii": " "
     },
     "rat_ice": {
       "class": "life",
@@ -1940,6 +2027,26 @@
           0.75
         ],
         "mote_size": 0.15
+      },
+      "ascii": "R",
+      "combat_profile": {
+        "hp": 5,
+        "max_hp": 5,
+        "str_": 6,
+        "dex": 11,
+        "wil": 6,
+        "speed": 12,
+        "defense": 12,
+        "element_mods": {
+          "ice": 0.25,
+          "fire": 1.5
+        },
+        "default_attack": "rat_ice_bite",
+        "tier": "pack",
+        "pack_size_min": 1,
+        "pack_size_max": 2,
+        "pack_radius_m": 5.0,
+        "xp_reward": 2
       }
     },
     "rat_fire": {
@@ -2017,6 +2124,26 @@
           0.12
         ],
         "mote_size": 0.15
+      },
+      "ascii": "R",
+      "combat_profile": {
+        "hp": 5,
+        "max_hp": 5,
+        "str_": 6,
+        "dex": 11,
+        "wil": 6,
+        "speed": 12,
+        "defense": 12,
+        "element_mods": {
+          "fire": 0.25,
+          "ice": 1.5
+        },
+        "default_attack": "rat_fire_bite",
+        "tier": "pack",
+        "pack_size_min": 1,
+        "pack_size_max": 2,
+        "pack_radius_m": 5.0,
+        "xp_reward": 2
       }
     },
     "clay_pot": {
@@ -2081,7 +2208,8 @@
           0.25
         ],
         "mote_size": 0.15
-      }
+      },
+      "ascii": "u"
     },
     "treasure_chest": {
       "class": "life",
@@ -2148,7 +2276,8 @@
           0.18
         ],
         "mote_size": 0.2
-      }
+      },
+      "ascii": "T"
     },
     "bat": {
       "class": "life",
@@ -2177,8 +2306,16 @@
         "collision_radius": 0.4
       },
       "render": {
-        "scale": [0.4, 0.2, 0.4],
-        "color": [0.15, 0.13, 0.12],
+        "scale": [
+          0.4,
+          0.2,
+          0.4
+        ],
+        "color": [
+          0.15,
+          0.13,
+          0.12
+        ],
         "emissive": 0.0
       },
       "behavior": {
@@ -2247,6 +2384,23 @@
           "spread_deg": 0.0,
           "jitter": 0.0
         }
+      },
+      "ascii": "B",
+      "combat_profile": {
+        "hp": 2,
+        "max_hp": 2,
+        "str_": 3,
+        "dex": 18,
+        "wil": 6,
+        "speed": 20,
+        "defense": 14,
+        "element_mods": {},
+        "default_attack": "bat_nip",
+        "tier": "pack",
+        "pack_size_min": 3,
+        "pack_size_max": 6,
+        "pack_radius_m": 8.0,
+        "xp_reward": 1
       }
     },
     "slime": {
@@ -2280,11 +2434,31 @@
         "family_params": {
           "shape": "slime"
         }
+      },
+      "ascii": "S",
+      "combat_profile": {
+        "hp": 3,
+        "max_hp": 3,
+        "str_": 3,
+        "dex": 6,
+        "wil": 4,
+        "speed": 6,
+        "defense": 8,
+        "element_mods": {
+          "fire": 1.5,
+          "ice": 0.5
+        },
+        "default_attack": "slime_splash",
+        "tier": "pack",
+        "pack_size_min": 2,
+        "pack_size_max": 5,
+        "pack_radius_m": 3.5,
+        "xp_reward": 1
       }
     },
     "shadow_orb": {
       "class": "debug",
-      "description": "Shadow lab fixture — floating orb + decal_projector. Not used by gameplay; iterated at shadow_lab anchor (slot (-2, 0)).",
+      "description": "Shadow lab fixture \u2014 floating orb + decal_projector. Not used by gameplay; iterated at shadow_lab anchor (slot (-2, 0)).",
       "render": {
         "scale": [
           0.4,
@@ -2334,7 +2508,8 @@
             6.0
           ]
         }
-      }
+      },
+      "ascii": "O"
     }
   }
 }
