@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cv3vect0rvw1"]
+
+[ext_resource type="Script" path="res://vector_viewer.gd" id="1_vvwr"]
+
+[node name="VectorViewer" type="Node3D"]
+script = ExtResource("1_vvwr")
