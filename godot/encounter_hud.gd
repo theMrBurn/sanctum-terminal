@@ -1,5 +1,7 @@
 extends Node
 class_name EncounterHUD
+
+const TypedText = preload("res://ui/typed_text.gd")
 # Encounter HUD — shared UI module for the Tartarus-style encounter system.
 # Self-contained: builds its own CanvasLayer, renders the 4-panel layout
 # (orb / monk / log / commands), manages roaming-orb rendering, handles
@@ -57,7 +59,7 @@ var log_panel: Panel = null
 var log_text_lbl: Label = null
 var command_panel: Panel = null
 var command_labels: Array = []
-var ceremony_label: Label = null
+var ceremony_label: TypedText = null
 var vignette_rect: ColorRect = null
 var crosshair_label: Label = null
 
@@ -222,12 +224,20 @@ func _build_hud() -> void:
 	_rebuild_command_labels(FALLBACK_COMMANDS)
 
 	# Ceremony text (center, large, fades in/out)
-	ceremony_label = Label.new()
-	ceremony_label.add_theme_font_size_override("font_size", 60)
-	ceremony_label.add_theme_color_override("font_color", PAL_ACCENT)
+	# Ceremony text uses the TypedText component (ported from godot-essentials,
+	# see project_plugin_pile memory). BBCode-aware typewriter with per-
+	# punctuation pacing — ceremony lines get DQ-style dramatic beats on
+	# periods/commas automatically.
+	ceremony_label = TypedText.new()
+	ceremony_label.manual_start = true   # we drive reset_with() from _show_ceremony
+	ceremony_label.content = ""
+	ceremony_label.bbcode_enabled = true
+	ceremony_label.fit_content = true
+	ceremony_label.scroll_active = false
+	ceremony_label.add_theme_font_size_override("normal_font_size", 60)
+	ceremony_label.add_theme_color_override("default_color", PAL_ACCENT)
 	ceremony_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	ceremony_label.add_theme_constant_override("outline_size", 12)
-	ceremony_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ceremony_label.anchor_left = 0.1
 	ceremony_label.anchor_right = 0.9
 	ceremony_label.anchor_top = 0.35
@@ -664,9 +674,11 @@ func _confirm() -> void:
 func _show_ceremony(text: String) -> void:
 	if ceremony_label == null:
 		return
-	ceremony_label.text = text
+	# Wrap in BBCode [center] so RichTextLabel centers per-line the way
+	# the old Label's horizontal_alignment did. Preserves multi-line breaks.
 	ceremony_label.modulate = Color(1, 1, 1, 0)
 	ceremony_label.visible = true
+	ceremony_label.reset_with("[center]" + text + "[/center]", true)
 	ceremony_t_remaining = 3.5
 	var tw := create_tween()
 	tw.tween_property(ceremony_label, "modulate:a", 1.0, 1.0)
