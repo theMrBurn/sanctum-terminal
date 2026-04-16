@@ -10,6 +10,20 @@ const EYE_HEIGHT := 2.5
 const SERVER_HOST := "127.0.0.1"
 const SERVER_PORT := 9877
 
+# FarCry/Skyrim-style FPS extensions — additive layer over the base camera
+# controller. See godot/player/fps_player.gd for the standalone prototype
+# this mirrors. Tuning knobs kept adjacent for easy in-place tweaking.
+const SPRINT_MULTIPLIER: float         = 1.6
+const JUMP_VELOCITY: float             = 5.0
+const GRAVITY: float                   = 14.0
+const CROUCH_HEIGHT_OFFSET: float      = 0.55
+const LEAN_DISTANCE: float             = 0.35
+const LEAN_TILT_DEG: float             = 8.0
+const GAMEPAD_LOOK_SENS: float         = 2.5   # radians/sec at full deflection
+const CAMERA_LERP_SMOOTHNESS: float    = 10.0
+const PITCH_MIN := -80.0 * PI / 180.0
+const PITCH_MAX :=  80.0 * PI / 180.0
+
 const MoteMaterials = preload("res://mote_materials.gd")
 const MoteArrangements = preload("res://mote_arrangements.gd")
 
@@ -25,6 +39,12 @@ var env_node: WorldEnvironment
 var godot_env: Environment
 var manifest: Dictionary
 var mouse_captured := true
+
+# FPS state — populated by physics process + gamepad polling.
+var vertical_velocity: float = 0.0         # for jump arc + gravity
+var cam_base_local_y: float = 0.0          # neutral local-Y for crouch lerp
+var cam_base_local_x: float = 0.0          # neutral local-X for lean offset
+var lean_state: float = 0.0                # -1 (L), 0 (none), 1 (R)
 
 # Collision
 var collision_objects: Array[Dictionary] = []
@@ -3779,20 +3799,30 @@ func _physics_process(delta: float) -> void:
 	if encounter_hud and encounter_hud.encounter_active:
 		return
 
-	var dir := Vector3.ZERO
-	if Input.is_action_pressed("move_forward"):
-		dir -= camera.global_transform.basis.z
-	if Input.is_action_pressed("move_back"):
-		dir += camera.global_transform.basis.z
-	if Input.is_action_pressed("move_left"):
-		dir -= camera.global_transform.basis.x
-	if Input.is_action_pressed("move_right"):
-		dir += camera.global_transform.basis.x
+	# Gamepad right-stick look — analog, deadzone applied by InputMap.
+	# Additive to mouse look (both work simultaneously).
+	var look_vec := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	if look_vec.length_squared() > 0.0001:
+		camera.rotation.y -= look_vec.x * GAMEPAD_LOOK_SENS * delta
+		camera.rotation.x -= look_vec.y * GAMEPAD_LOOK_SENS * delta
+		camera.rotation.x = clampf(camera.rotation.x, PITCH_MIN, PITCH_MAX)
+
+	# Horizontal input with sprint modifier.
+	var input_vec := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var dir := (camera.global_transform.basis.x * input_vec.x
+		+ camera.global_transform.basis.z * input_vec.y)
 	dir.y = 0.0
 	if dir.length_squared() > 0.001:
 		dir = dir.normalized()
 
-	var new_pos: Vector3 = camera.position + dir * MOVE_SPEED * delta
+	var speed := MOVE_SPEED
+	var crouching := Input.is_action_pressed("crouch")
+	if crouching:
+		speed = MOVE_SPEED * 0.55
+	elif Input.is_action_pressed("sprint"):
+		speed = MOVE_SPEED * SPRINT_MULTIPLIER
+
+	var new_pos: Vector3 = camera.position + dir * speed * delta
 
 	for coll: Dictionary in collision_objects:
 		var dx: float = new_pos.x - coll["x"]
@@ -3830,10 +3860,40 @@ func _physics_process(delta: float) -> void:
 
 	# Terrain elevation — brain sends terrain_z, camera follows the rolling field.
 	# Smooth lerp prevents jarring pops when height changes between frames.
+	# Crouch offset + jump arc layer on top of the terrain eye-height baseline.
 	var terrain_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
-	var target_y: float = EYE_HEIGHT + terrain_z
-	new_pos.y = lerpf(camera.position.y, target_y, 7.0 * delta)
+	var crouch_offset: float = CROUCH_HEIGHT_OFFSET if crouching else 0.0
+	var terrain_ground_y: float = EYE_HEIGHT + terrain_z - crouch_offset
+
+	# Jump + gravity. Ground reference = terrain-driven eye height.
+	# Treat "on floor" as camera within 0.05m of the terrain ground level.
+	var on_floor: bool = (camera.position.y <= terrain_ground_y + 0.05) and vertical_velocity <= 0.0
+	if Input.is_action_just_pressed("jump") and on_floor and not crouching:
+		vertical_velocity = JUMP_VELOCITY
+		on_floor = false
+	if not on_floor:
+		vertical_velocity -= GRAVITY * delta
+	var candidate_y: float = camera.position.y + vertical_velocity * delta
+	if candidate_y <= terrain_ground_y:
+		candidate_y = terrain_ground_y
+		vertical_velocity = 0.0
+	# When grounded and no jump in progress, smooth-follow the terrain so
+	# crouch lerp + rolling terrain don't fight each other.
+	if vertical_velocity == 0.0:
+		candidate_y = lerpf(camera.position.y, terrain_ground_y, 7.0 * delta)
+	new_pos.y = candidate_y
 	camera.position = new_pos
+
+	# Lean — body yaw stays put; camera tilts + offsets via rotation.z and
+	# a local-space X shift. Accumulated via rotation axis so it composes
+	# cleanly with pitch/yaw set by mouse + gamepad look.
+	var target_lean: float = 0.0
+	if Input.is_action_pressed("lean_left"):
+		target_lean = -1.0
+	elif Input.is_action_pressed("lean_right"):
+		target_lean = 1.0
+	lean_state = lerpf(lean_state, target_lean, CAMERA_LERP_SMOOTHNESS * delta)
+	camera.rotation.z = -lean_state * deg_to_rad(LEAN_TILT_DEG)
 
 	# Creatures react to camera (flee, scatter on shatter, debris settle).
 	_update_creatures(delta)
