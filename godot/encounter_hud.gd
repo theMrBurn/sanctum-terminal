@@ -435,22 +435,30 @@ func on_action_ack(result_raw) -> void:
 	pass
 
 
-func handle_key(key: int) -> bool:
-	# Returns true if the key was consumed by the HUD (host should skip it).
+func handle_input(event: InputEvent) -> bool:
+	# Action-based routing so keyboard + gamepad drive the HUD uniformly.
+	# Returns true if the event was consumed (host should not process further).
 	if not encounter_active:
 		return false
-	if key == KEY_UP:
+	if event.is_action_pressed("menu_nav_up"):
 		_move_cursor(-COMMAND_COLS); return true
-	if key == KEY_DOWN:
+	if event.is_action_pressed("menu_nav_down"):
 		_move_cursor(COMMAND_COLS); return true
-	if key == KEY_LEFT:
+	if event.is_action_pressed("menu_nav_left"):
 		_move_cursor_h(-1); return true
-	if key == KEY_RIGHT:
+	if event.is_action_pressed("menu_nav_right"):
 		_move_cursor_h(1); return true
-	if key == KEY_ENTER or key == KEY_KP_ENTER or key == KEY_SPACE:
+	if event.is_action_pressed("menu_confirm"):
 		_confirm(); return true
-	if key == KEY_P:
+	if event.is_action_pressed("portal"):
 		portal_requested.emit(); return true
+	return false
+
+
+# Deprecated: kept as a no-op alias for any legacy caller. New hosts should
+# call handle_input(event) with the raw InputEvent so action-based detection
+# works for both keyboard and gamepad.
+func handle_key(_key: int) -> bool:
 	return false
 
 

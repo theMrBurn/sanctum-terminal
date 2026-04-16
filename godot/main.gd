@@ -3689,11 +3689,12 @@ func _input(event: InputEvent) -> void:
 		else:
 			get_tree().quit()
 
-	# Encounter HUD gets first shot at encounter-relevant keys (arrows,
-	# Enter/Space, P) — only consumes when an encounter is active.
-	if event is InputEventKey and event.pressed and not event.echo:
-		if encounter_hud and encounter_hud.handle_key(event.physical_keycode):
-			return
+	# Encounter HUD gets first shot at encounter-relevant input. Handles
+	# kb + gamepad via action-based detection (menu_nav_*, menu_confirm,
+	# portal). Only consumes when an encounter is active.
+	if encounter_hud and encounter_hud.has_method("handle_input") \
+			and encounter_hud.handle_input(event):
+		return
 
 	# Key bindings — use physical_keycode for layout-independent matching
 	if event is InputEventKey and event.pressed and not event.echo:
