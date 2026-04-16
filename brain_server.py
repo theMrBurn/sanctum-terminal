@@ -45,6 +45,8 @@ from core.systems.tile_exchange import TileExchange
 from core.systems.bucket_world import get_visible as bucket_get_visible
 from core.systems.stamp_world import get_visible as stamp_get_visible
 from core.systems.expedition_engine import ExpeditionEngine
+from core.systems.encounter_session import EncounterSession
+from core.systems.roaming_pool import RoamingPool
 from pathlib import Path
 
 # Where expedition session logs land. Ignored by git (.gitignore
@@ -65,6 +67,42 @@ STAMP_MODE = os.environ.get("SANCTUM_STAMP", "").strip() in ("1", "true", "yes")
 # generous at encounter_test / shadow_lab fixtures. When encounters get
 # surgical, migrate this to per-element or per-pattern config.
 CAST_REACTION_RADIUS_M: float = 8.0
+
+# Tartarus-style advantage-on-contact.
+# Player's facing vector × orb-position vector: if player is lined up on the
+# orb's back hemisphere, first_strike. Mirror for ambush.
+CONTACT_FACING_DOT_THRESHOLD: float = 0.5    # ~60-degree cone
+
+
+def _compute_contact_advantage(cam_x: float, cam_y: float,
+                               player_rot_y_rad: float,
+                               orb_x: float, orb_y: float,
+                               orb_heading_rad: float) -> str:
+    """Return 'first_strike' | 'ambush' | 'neutral' at the moment of contact.
+
+    Brain XY convention: Godot's (x, z) = brain's (x, y). Camera forward
+    vector in brain coords = (-sin(rot_y), -cos(rot_y)). Orb heading is
+    already brain-native radians (see RoamingAgent.heading).
+    """
+    pfx = -math.sin(player_rot_y_rad)
+    pfy = -math.cos(player_rot_y_rad)
+    ofx = math.cos(orb_heading_rad)
+    ofy = math.sin(orb_heading_rad)
+    dx = orb_x - cam_x
+    dy = orb_y - cam_y
+    length = math.sqrt(dx * dx + dy * dy)
+    if length < 0.01:
+        return "neutral"
+    ux, uy = dx / length, dy / length
+
+    player_facing_orb = (pfx * ux + pfy * uy) > CONTACT_FACING_DOT_THRESHOLD
+    orb_facing_player = (ofx * (-ux) + ofy * (-uy)) > CONTACT_FACING_DOT_THRESHOLD
+
+    if player_facing_orb and not orb_facing_player:
+        return "first_strike"
+    if orb_facing_player and not player_facing_orb:
+        return "ambush"
+    return "neutral"
 
 
 # -- Kind properties --------------------------------
@@ -716,6 +754,8 @@ def run_server(biome_name, port=9877):
     # will raise at construction until the outdoor hub lands, which
     # is the correct fail-fast behavior.
     expedition: ExpeditionEngine | None = None
+    encounter: EncounterSession | None = None
+    roaming: RoamingPool | None = None
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -774,6 +814,22 @@ def run_server(biome_name, port=9877):
                     except Exception as exc:
                         expedition = None
                         print(f"  Expedition disabled: {exc}", flush=True)
+
+                    # Fresh encounter session per connection — UAT-1
+                    # Watcher tiles pre-placed near hub, HP/depth/saves
+                    # authoritative brain-side. Godot renders snapshot.
+                    encounter = EncounterSession(seed=42)
+                    print("  Encounter session: UAT-1 Watcher ready",
+                          flush=True)
+
+                    # Roaming pool — Tartarus-mode encounters. Watchers
+                    # wander the cavern; camera contact fires a session.
+                    roaming = RoamingPool(
+                        actor_id="watcher", biome=biome_name,
+                        target_count=3, seed=42)
+                    # Seed spawn happens on first camera update so orbs
+                    # appear around the player, not at the world origin.
+                    print("  Roaming pool: watcher x3", flush=True)
                 except BlockingIOError:
                     time.sleep(0.016)
                     continue
@@ -786,6 +842,8 @@ def run_server(biome_name, port=9877):
                     client.close()
                     client = None
                     expedition = None
+                    encounter = None
+                    roaming = None
                     continue
                 buf += data
             except BlockingIOError:
@@ -882,6 +940,49 @@ def run_server(biome_name, port=9877):
                         last_wake_ids = set()  # force manifest refresh
                     continue
 
+                # ---- Encounter commands (UAT-1) ------------------------
+                # Godot detects tile crossings via manifest['encounter']
+                # ['tiles']; resolution happens brain-side. See
+                # core/systems/encounter_session.py.
+
+                if msg.get("cmd") == "encounter_action":
+                    if encounter is not None:
+                        action = msg.get("action", "")
+                        try:
+                            result = encounter.on_action(action)
+                            ack = json.dumps({"encounter_action": result}) + "\n"
+                            client.sendall(ack.encode("utf-8"))
+                        except (ValueError, RuntimeError) as exc:
+                            ack = json.dumps({"encounter_error": str(exc)}) + "\n"
+                            client.sendall(ack.encode("utf-8"))
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "encounter_portal":
+                    if encounter is not None:
+                        result = encounter.on_portal()
+                        try:
+                            ack = json.dumps({"encounter_portal": result}) + "\n"
+                            client.sendall(ack.encode("utf-8"))
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "encounter_hub_arrival":
+                    if encounter is not None:
+                        result = encounter.on_hub_arrival()
+                        try:
+                            ack = json.dumps(
+                                {"encounter_consolidate": result}) + "\n"
+                            client.sendall(ack.encode("utf-8"))
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        last_wake_ids = set()
+                    continue
+
                 if msg.get("cmd") == "walk_through":
                     if expedition is not None:
                         result = expedition.on_walk_through(
@@ -949,6 +1050,51 @@ def run_server(biome_name, port=9877):
                 #
                 if expedition is not None:
                     manifest["expedition"] = expedition.snapshot()
+
+                # Decrement encounter cooldown — without this, once the
+                # engine sets _cooldown_remaining, it stays > 0 forever and
+                # all subsequent contacts are silently blocked.
+                if encounter is not None:
+                    encounter.engine.tick_cooldown(dt)
+
+                # Roaming pool — Tartarus mode. Orbs drift around the
+                # player; on contact, the encounter session begins with
+                # the agent's actor_id, and the agent is consumed.
+                if roaming is not None:
+                    if not roaming.agents:
+                        roaming.ensure_population(center=(cam_x, cam_y))
+                    roaming.tick(dt, player_pos=(cam_x, cam_y))
+
+                    # Contact detection only fires when no encounter active.
+                    if (encounter is not None
+                            and encounter.engine.active_encounter is None
+                            and not encounter.engine.on_cooldown):
+                        agent = roaming.detect_contact(cam_x, cam_y)
+                        if agent is not None:
+                            # Compute Tartarus-style advantage from headings.
+                            advantage = _compute_contact_advantage(
+                                cam_x, cam_y,
+                                math.radians(heading),
+                                agent.x, agent.y, agent.heading)
+                            result = encounter.on_orb_contact(
+                                actor_id=agent.actor_id,
+                                advantage=advantage,
+                                orb_id=agent.id,
+                                hp_bonus=agent.hp_bonus)
+                            if result.get("triggered"):
+                                roaming.consume(agent.id)
+                                last_wake_ids = set()
+                            elif result.get("reason") == "silence":
+                                # Silence path still consumes — Frieren
+                                # model: the world moves on.
+                                roaming.consume(agent.id)
+
+                    manifest.setdefault("entities", []).extend(
+                        roaming.snapshot())
+
+                # Encounter session snapshot (HUD/orb/log data).
+                if encounter is not None:
+                    manifest["encounter"] = encounter.snapshot()
 
                 # Resolve any queued casts into reaction_events for this
                 # manifest. Single pass: for each pending cast, find the

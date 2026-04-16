@@ -36,6 +36,7 @@ var mesh_bounds: Dictionary = {}
 # Live connection
 var tcp: StreamPeerTCP
 var connected := false
+var encounter_hud: Node = null
 var buf: String = ""
 var update_timer: float = 0.0
 const UPDATE_INTERVAL := 0.1  # send camera 10x/sec
@@ -110,8 +111,38 @@ func _ready() -> void:
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
+	# Encounter HUD — Tartarus-mode encounter overlay, ported from
+	# vector_viewer. Stamps the validated primitive into make brain-cavern.
+	encounter_hud = preload("res://encounter_hud.gd").new()
+	add_child(encounter_hud)
+	encounter_hud.setup(camera)
+	encounter_hud.action_chosen.connect(_on_encounter_action_chosen)
+	encounter_hud.portal_requested.connect(_on_encounter_portal)
+	encounter_hud.hub_arrival_needed.connect(_on_encounter_hub_arrival)
+
 	# Connect to brain server
 	_connect_to_brain()
+
+
+func _on_encounter_action_chosen(name: String) -> void:
+	if not connected or tcp == null:
+		return
+	var s := JSON.stringify({"cmd": "encounter_action", "action": name}) + "\n"
+	tcp.put_data(s.to_utf8_buffer())
+
+
+func _on_encounter_portal() -> void:
+	if not connected or tcp == null:
+		return
+	var s := JSON.stringify({"cmd": "encounter_portal"}) + "\n"
+	tcp.put_data(s.to_utf8_buffer())
+
+
+func _on_encounter_hub_arrival() -> void:
+	if not connected or tcp == null:
+		return
+	var s := JSON.stringify({"cmd": "encounter_hub_arrival"}) + "\n"
+	tcp.put_data(s.to_utf8_buffer())
 
 
 var kind_config: Dictionary = {}
@@ -427,17 +458,45 @@ func _setup_player_avatar() -> void:
 	player_avatar = avatar
 	add_child(avatar)
 
+	# Forward arrow — small bright cone in front of the avatar along its
+	# local -Z (Godot's default forward). Capsule is rotationally symmetric,
+	# so without this arrow the player has no way to tell which direction
+	# they're facing in iso view. Pointer = this arrow, not the crosshair.
+	var arrow := MeshInstance3D.new()
+	arrow.name = "FacingArrow"
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 0.28
+	cone.height = 0.7
+	arrow.mesh = cone
+	var arrow_mat := StandardMaterial3D.new()
+	arrow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	arrow_mat.albedo_color = Color(1.0, 0.85, 0.4)
+	arrow_mat.emission_enabled = true
+	arrow_mat.emission = Color(1.0, 0.85, 0.4)
+	arrow_mat.emission_energy_multiplier = 1.8
+	arrow.set_surface_override_material(0, arrow_mat)
+	# Parent under the avatar so it inherits rotation. Cylinder default is
+	# along Y; rotate 90° around X so it lies flat pointing toward -Z.
+	arrow.rotation.x = -PI / 2.0
+	# Push forward 1.3m along avatar's local -Z, down to ground level.
+	arrow.position = Vector3(0, -AVATAR_HEIGHT_M * 0.5 + 0.1, -1.3)
+	avatar.add_child(arrow)
+
 
 func _update_player_avatar() -> void:
 	# Sit the capsule's BASE on the floor by raising its center to
 	# height/2. Follows the first-person camera's XZ; Y is fixed at the
 	# floor + avatar halfway so motion doesn't bob vertically.
+	# Rotation follows the FP camera yaw so in iso view the player can
+	# see which way they're pointing (the crosshair + avatar facing agree).
 	if not is_instance_valid(player_avatar):
 		return
 	player_avatar.position = Vector3(
 		camera.position.x,
 		AVATAR_HEIGHT_M * 0.5,
 		camera.position.z)
+	player_avatar.rotation.y = camera.rotation.y
 
 
 # --- Iso dev camera ----------------------------------------------------------
@@ -488,11 +547,17 @@ func _toggle_iso_camera() -> void:
 		iso_camera.current = true
 		if is_instance_valid(player_avatar):
 			player_avatar.visible = true
+		# Hide center crosshair — doesn't mean "facing" in iso view.
+		# The avatar's forward arrow carries direction.
+		if encounter_hud:
+			encounter_hud.set_crosshair_visible(false)
 		_show_toast("ISO dev camera")
 	else:
 		camera.current = true
 		if is_instance_valid(player_avatar):
 			player_avatar.visible = false
+		if encounter_hud:
+			encounter_hud.set_crosshair_visible(true)
 		_show_toast("First-person")
 
 
@@ -822,6 +887,9 @@ func _spawn_entities() -> void:
 
 	for ent: Dictionary in manifest.get("entities", []):
 		var kind: String = ent.get("kind", "unknown")
+		# Roaming orbs owned by encounter_hud — skip main's render path.
+		if kind == "orb":
+			continue
 		# Creatures always skip MultiMesh — they need per-instance transform
 		# updates for flee/scatter behavior. Visual is _spawn_creatures' GLB
 		# child or atom fallback (CREATURE_USE_GLB_PATH switches inside).
@@ -1366,6 +1434,19 @@ func _process_responses() -> void:
 			_on_expedition_resolution(data)
 			continue
 
+		# Encounter acks — single-key payloads from brain, routed to HUD.
+		if data.has("encounter_action"):
+			if encounter_hud:
+				encounter_hud.on_action_ack(data["encounter_action"])
+			continue
+		if data.has("encounter_portal"):
+			continue
+		if data.has("encounter_consolidate"):
+			continue
+		if data.has("encounter_error"):
+			print("encounter_error: ", data["encounter_error"])
+			continue
+
 		# Full manifest update — brain sent new data, rebuild entities.
 		# The brain handles dirty detection via "unchanged" flag above.
 		# If we got here, the scene HAS changed — always rebuild.
@@ -1373,6 +1454,10 @@ func _process_responses() -> void:
 		_rebuild_entities()
 		_update_atmosphere()
 		_update_hud()
+		# Forward encounter snapshot + orb entities to the HUD module.
+		if encounter_hud:
+			encounter_hud.update_snapshot(manifest.get("encounter", {}))
+			encounter_hud.sync_orb_entities(manifest.get("entities", []))
 		_on_expedition_manifest_field(data.get("expedition", {}))
 		# Elemental reactions — brain emits reaction_events when a cast
 		# lands near an entity whose kind_config.elemental_reactions maps
@@ -1391,6 +1476,9 @@ func _rebuild_entities() -> void:
 	var silhouette_ents: Array = []  # render_mode silhouette/hint → banner projection
 	for ent: Dictionary in manifest.get("entities", []):
 		var kind: String = ent.get("kind", "unknown")
+		# Roaming orbs owned by encounter_hud — skip main's render path.
+		if kind == "orb":
+			continue
 		# Creatures always skip MultiMesh — handled by _spawn_creatures.
 		if CREATURE_KINDS.has(kind):
 			continue
@@ -3601,6 +3689,12 @@ func _input(event: InputEvent) -> void:
 		else:
 			get_tree().quit()
 
+	# Encounter HUD gets first shot at encounter-relevant keys (arrows,
+	# Enter/Space, P) — only consumes when an encounter is active.
+	if event is InputEventKey and event.pressed and not event.echo:
+		if encounter_hud and encounter_hud.handle_key(event.physical_keycode):
+			return
+
 	# Key bindings — use physical_keycode for layout-independent matching
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
@@ -3668,6 +3762,22 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# HUD upkeep — typewriter, ceremony fade, vignette fade, camera shake.
+	if encounter_hud:
+		encounter_hud.tick(delta)
+		# Hub arrival triggers consolidation; brain wipes staged XP into depth.
+		var staged: float = 0.0
+		var enc = manifest.get("encounter", null) if manifest else null
+		if enc is Dictionary:
+			var prog = enc.get("progression", null)
+			if prog is Dictionary:
+				staged = float(prog.get("staged_xp", 0.0))
+		encounter_hud.check_hub_arrival(camera.position.x, camera.position.z, staged)
+
+	# Movement frozen during an encounter.
+	if encounter_hud and encounter_hud.encounter_active:
+		return
+
 	var dir := Vector3.ZERO
 	if Input.is_action_pressed("move_forward"):
 		dir -= camera.global_transform.basis.z

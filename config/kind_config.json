@@ -2456,6 +2456,19 @@
         "xp_reward": 1
       }
     },
+    "orb": {
+      "class": "encounter",
+      "description": "Roaming encounter agent. Rendered as an unshaded emissive sphere in the world; on camera contact begins an EncounterSession with the actor_id carried on the entity. Spawned by core/systems/roaming_pool.py, not by the stamp density table.",
+      "render": {
+        "scale": [0.6, 0.6, 0.6],
+        "color": [1.0, 0.08, 0.08],
+        "emissive": 2.5
+      },
+      "physics": {
+        "collision_radius": 1.5
+      },
+      "ascii": "O"
+    },
     "shadow_orb": {
       "class": "debug",
       "description": "Shadow lab fixture \u2014 floating orb + decal_projector. Not used by gameplay; iterated at shadow_lab anchor (slot (-2, 0)).",

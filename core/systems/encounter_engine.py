@@ -8,12 +8,16 @@ Only resonant encounters teach. Silence is load-bearing.
 Level = age (declared, immutable). Depth = what that level means.
 Two level-45 Monks with different fingerprints are different people.
 
-Verbs: THINK / ACT / MOVE / DEFEND / TOOLS
+Actions (the 7-branch action tree): THINK / ACT / MOVE / DEFEND / TOOLS / CRAFT / OBSERVE
 Manual resolution is default -- player chooses, engine executes.
-Headless/auto mode uses dominant_verb() for ScenarioRunner.
+Headless/auto mode uses dominant_action() for ScenarioRunner.
 
 XP stages at resolution. Consolidates at rest / name day / milestone.
 3 abilities max: CORE + EQUIPPED + FLOW (Frieren model).
+
+Naming: "action" is the canonical term for the 7-branch tree. Older
+callers still reference "verb"; VERBS / dominant_verb / _PROFILE_VERB_AFFINITY
+are kept as aliases for back-compat and will migrate when touched.
 """
 
 from __future__ import annotations
@@ -23,7 +27,8 @@ from typing import Optional
 
 # -- Constants -----------------------------------------------------------------
 
-VERBS = {"THINK", "ACT", "MOVE", "DEFEND", "TOOLS", "CRAFT", "OBSERVE"}
+ACTIONS = {"THINK", "ACT", "MOVE", "DEFEND", "TOOLS", "CRAFT", "OBSERVE"}
+VERBS = ACTIONS   # alias — legacy callers
 
 # Resonance threshold -- below this, encounter leaves no trace
 # 0.45 = ~25% pass rate. Less frequent, more meaningful. Frieren model.
@@ -38,10 +43,10 @@ XP_BASE = 1.0
 # Depth shift per XP unit on consolidation
 DEPTH_PER_XP = 0.01
 
-# Ghost profile -> verb affinity mapping
-# All 10 profiles from ghost_profiles.json mapped to encounter verbs.
-# Each row sums to 1.0. Dominant verbs reflect the profile's nature.
-_PROFILE_VERB_AFFINITY = {
+# Ghost profile -> action affinity mapping
+# All 10 profiles from ghost_profiles.json mapped to encounter actions.
+# Each row sums to 1.0. Dominant actions reflect the profile's nature.
+_PROFILE_ACTION_AFFINITY = {
     "PRECISION_HAND":   {"THINK": 0.30, "ACT":   0.30, "CRAFT": 0.15, "OBSERVE": 0.10, "MOVE":  0.05, "DEFEND": 0.05, "TOOLS": 0.05},
     "SEEKER":           {"THINK": 0.30, "OBSERVE":0.25, "MOVE":  0.20, "ACT":    0.10, "CRAFT": 0.05, "DEFEND": 0.05, "TOOLS": 0.05},
     "RHYTHM_KEEPER":    {"ACT":   0.30, "CRAFT": 0.20, "THINK": 0.20, "MOVE":   0.10, "OBSERVE":0.10, "DEFEND": 0.05, "TOOLS": 0.05},
@@ -54,9 +59,13 @@ _PROFILE_VERB_AFFINITY = {
     "FORCE_MULTIPLIER": {"ACT":   0.35, "DEFEND":0.20, "THINK": 0.15, "MOVE":   0.10, "CRAFT": 0.05, "OBSERVE":0.05, "TOOLS": 0.10},
 }
 
-_DEFAULT_VERB_WEIGHTS = {
+_DEFAULT_ACTION_WEIGHTS = {
     "THINK": 0.3, "ACT": 0.3, "MOVE": 0.15, "DEFEND": 0.15, "TOOLS": 0.1
 }
+
+# Aliases for legacy callers (campaign_engine, avatar_pipeline, etc.)
+_PROFILE_VERB_AFFINITY = _PROFILE_ACTION_AFFINITY
+_DEFAULT_VERB_WEIGHTS = _DEFAULT_ACTION_WEIGHTS
 
 
 class EncounterEngine:
@@ -79,7 +88,7 @@ class EncounterEngine:
         self.depth             = 0.0          # shifts on consolidation
         self.abilities         = []           # max 3: CORE + EQUIPPED + FLOW
         self.active_encounter  = None
-        self._chosen_verb      = None
+        self._chosen_action    = None
         self._consolidation_count = 0
         self._cooldown_remaining = 0.0        # seconds until next encounter allowed
 
@@ -129,94 +138,116 @@ class EncounterEngine:
             "entity":       entity,
             "resonance":    r,
             "worth_knowing": worth,
-            "verb_used":    None,
+            "action_used":  None,
+            "verb_used":    None,        # alias, kept for legacy consumers
+            "net_passes":   0,           # resolver-side progress toward threshold
         }
-        self._chosen_verb = None
+        self._chosen_action = None
         return worth
 
-    def available_verbs(self) -> list:
+    def available_actions(self) -> list:
         """
-        All verbs available in current encounter.
+        All actions available in current encounter.
         THINK always available. Others depend on encounter type.
         Future: TOOLS only if inventory has relevant item.
         """
         if self.active_encounter is None:
             return []
-        return list(VERBS)
+        return list(ACTIONS)
 
-    def dominant_verb(self) -> str:
+    # Legacy alias
+    available_verbs = available_actions
+
+    def dominant_action(self) -> str:
         """
-        Verb most aligned with ghost profile.
+        Action most aligned with ghost profile.
         Used by ScenarioRunner headless auto-play.
         Manual mode: player chooses, this is the suggestion.
         """
-        weights = dict(_DEFAULT_VERB_WEIGHTS)
+        weights = dict(_DEFAULT_ACTION_WEIGHTS)
 
         for profile, profile_weight in self.ghost_blend.items():
-            affinity = _PROFILE_VERB_AFFINITY.get(profile, {})
-            for verb, verb_weight in affinity.items():
-                weights[verb] = weights.get(verb, 0.0) + verb_weight * profile_weight
+            affinity = _PROFILE_ACTION_AFFINITY.get(profile, {})
+            for action, action_weight in affinity.items():
+                weights[action] = weights.get(action, 0.0) + action_weight * profile_weight
 
         return max(weights, key=weights.get)
 
-    def choose(self, verb: str) -> dict:
+    # Legacy alias
+    dominant_verb = dominant_action
+
+    def choose(self, action: str) -> dict:
         """
-        Manual verb selection.
-        Raises ValueError for unknown verbs.
+        Manual action selection.
+        Raises ValueError for unknown actions.
         Returns choice confirmation dict.
         """
-        if verb not in VERBS:
+        if action not in ACTIONS:
             raise ValueError(
-                f"Unknown verb: {verb!r}. Valid: {sorted(VERBS)}"
+                f"Unknown action: {action!r}. Valid: {sorted(ACTIONS)}"
             )
-        self._chosen_verb = verb
+        self._chosen_action = action
         if self.active_encounter:
-            self.active_encounter["verb_used"] = verb
-        return {"verb": verb, "accepted": True}
+            self.active_encounter["action_used"] = action
+            self.active_encounter["verb_used"] = action   # legacy mirror
+        return {"action": action, "verb": action, "accepted": True}
 
-    def resolve(self) -> dict:
+    def resolve(self, outcome: str = "resolved") -> dict:
         """
         Resolve the active encounter.
         If WORTH_KNOWING: record to fingerprint, stage XP.
         If not: world moves on, nothing added. Silence.
         Clears active_encounter.
+
+        outcome: "resolved" | "fled" | "defeated" | "portal_exit"
+            Only "resolved" grants full staged XP. "fled" scales XP by 0.25
+            (something was learned by walking away). "defeated" and
+            "portal_exit" stage no XP — they're scene-ends, not wins.
         """
         if self.active_encounter is None:
             return {
                 "outcome":      "no_encounter",
                 "xp_staged":    0.0,
                 "worth_knowing": False,
+                "action_used":  None,
                 "verb_used":    None,
             }
 
         enc          = self.active_encounter
         worth        = enc["worth_knowing"]
         r            = enc["resonance"]
-        verb         = enc.get("verb_used") or self._chosen_verb or self.dominant_verb()
+        action       = (enc.get("action_used") or self._chosen_action
+                        or self.dominant_action())
         xp_staged    = 0.0
 
-        if worth:
+        # XP scaling by outcome tag
+        xp_mult = {"resolved": 1.0, "fled": 0.25,
+                   "defeated": 0.0, "portal_exit": 0.0}.get(outcome, 1.0)
+
+        if worth and xp_mult > 0:
             # Record resonant dimensions to fingerprint
             for tag in enc["entity"].get("tags", []):
                 if tag in self.fingerprint.state:
                     self.fingerprint.record(tag, r)
 
-            # Stage XP scaled by resonance
-            xp_staged = XP_BASE * r
+            xp_staged = XP_BASE * r * xp_mult
             self.stage_xp(xp_staged)
 
         self.active_encounter = None
-        self._chosen_verb     = None
+        self._chosen_action   = None
 
-        # Start cooldown after a resonant encounter
-        if worth:
+        # Cooldown applies only after a meaningful-resolution outcome.
+        # Defeat and portal exit don't gate re-engagement — DQ rule:
+        # wake at the castle, immediately re-enter the world and fight.
+        if worth and outcome in ("resolved", "fled"):
             self._cooldown_remaining = ENCOUNTER_COOLDOWN
 
         return {
-            "outcome":       "resolved",
+            "outcome":       outcome,
             "xp_staged":     xp_staged,
             "worth_knowing": worth,
-            "verb_used":     verb,
+            "action_used":   action,
+            "verb_used":     action,       # legacy mirror
             "resonance":     r,
         }
 

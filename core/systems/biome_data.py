@@ -14,32 +14,27 @@ Both cavern.py (Panda3D) and renderer_bridge.py (wgpu) import from here.
 # -- Density tables: (kind, density_per_1000sqm, clearance_radius, margin) -----
 
 BIOME_CAVERN_DEFAULT = [
+    # Tartarus-mode cavern: geological bones + organic architecture only.
+    # Creatures (rat/beetle/spider/firefly) and clutter (leaf/leaf_pile/
+    # twig_scatter/rubble/cave_gravel) stripped — roaming orbs are the
+    # only living presence, spawned via core/systems/roaming_pool.py
+    # (outside the stamp density table) so they can wander, not be placed.
     ("mega_column",       0.12,    10.0,      20),
     ("column",            0.30,    5.0,       10),
     ("boulder",           1.20,    3.0,       3),
     ("stalagmite",        1.80,    3.0,       2),
-    ("giant_fungus",      0.15,    2.5,       3),  # halved — was dominating organic layer
+    ("giant_fungus",      0.15,    2.5,       3),
     ("crystal_cluster",   1.10,    2.0,       3),
-    ("dead_log",          0.70,    1.5,       2),  # boosted — needs presence
-    ("bone_pile",         0.35,    0,         2),  # boosted
-    ("moss_patch",        0.75,    0,         2),  # boosted — green counterweight to purple
-    ("ceiling_moss",      0.15,    0,         5),  # boosted — filament budget redistributed
+    ("dead_log",          0.70,    1.5,       2),
+    ("bone_pile",         0.35,    0,         2),
+    ("moss_patch",        0.75,    0,         2),
+    ("ceiling_moss",      0.15,    0,         5),
     ("hanging_vine",      0.35,    0,         4),
-    # filament removed — useless in current form, density redistributed to moss/ceiling_moss
-    ("firefly",           0.40,    0,         1),
     ("grass_tuft",        0.60,    0,         1),
-    ("rubble",            0.50,    0,         1),
-    ("leaf_pile",         0.30,    0,         1),
-    ("twig_scatter",      0.30,    0,         1),
-    ("rat",               0.45,    0,         2),
-    ("beetle",            0.25,    0,         2),
-    ("cave_gravel",       0.40,    0,         0),
     ("horizon_form",      0.12,    10.0,      30),
     ("horizon_mid",       0.08,     8.0,      20),
     ("horizon_near",      0.10,     6.0,      12),
     ("exit_lure",         0.03,   20.0,       35),
-    ("leaf",              0.25,    0,         1),
-    ("spider",            0.12,    0,         2),
 ]
 
 BIOME_OUTDOOR_FOREST = [
