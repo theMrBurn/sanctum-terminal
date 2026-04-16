@@ -104,6 +104,20 @@ class EncounterSession:
         self._last_player_save: Optional[str] = None
         self.advantage: str = "neutral"            # first_strike | ambush | neutral
 
+        # World-level data that persists across encounters in this session.
+        # flags: string keys → bool/int/str, written by set_flag effect,
+        #        readable by future path matchers (not wired yet).
+        # pending_followup: scout_id to swap into on the NEXT trigger,
+        #        consumed once. Written by open_dialog_branch effect.
+        self.flags: Dict[str, Any] = {}
+        self.pending_followup: Optional[str] = None
+
+        # Per-encounter stance history — each entry captures the semantic
+        # result of one dialog verb: {verb, stance, save, stance_match,
+        # progress_delta}. Read by _select_path at resolution. Reset when
+        # a new encounter begins.
+        self.stance_history: List[Dict[str, Any]] = []
+
     # -- Spatial trigger -----------------------------------------------------
 
     def on_camera(self, cam_x: float, cam_y: float) -> Optional[dict]:
@@ -130,6 +144,8 @@ class EncounterSession:
         if nearest_idx < 0:
             return None
 
+        self._consume_pending_followup()
+        self.stance_history = []
         self.orb = Orb.from_config(self.scout["actor"])
         entity = {
             "id":   f"{self.scout_id}#{nearest_idx}",
@@ -185,6 +201,8 @@ class EncounterSession:
         if self.engine.on_cooldown:
             return {"triggered": False, "reason": "cooldown"}
 
+        self._consume_pending_followup()
+        self.stance_history = []
         # Build orb from its configured actor id (which came from the
         # roaming agent, sourced from kind_config / encounter_config).
         self.orb = Orb.from_config(actor_id)
@@ -247,6 +265,14 @@ class EncounterSession:
                 orb_posture = cur_spec.get("posture", "")
             self.player, out = er.resolve_dialog_action(
                 self.engine, self.player, action, orb_posture, roll_fn)
+            # Log stance outcome for path matching at resolution.
+            self.stance_history.append({
+                "verb":             action,
+                "stance":           out.get("stance"),
+                "save":             out.get("save"),
+                "stance_match":     out.get("stance_match"),
+                "progress_delta":   out.get("progress_delta", 0),
+            })
         else:
             self.player, out = er.resolve_action(
                 self.engine, self.player, action, roll_fn)
@@ -315,7 +341,17 @@ class EncounterSession:
             final = self.engine.resolve(outcome="resolved")
             out["xp_staged"] = final["xp_staged"]
             out["consumed_tile"] = self._finalize_tile()
-            self._last_outcome = self._ceremony_outcome("victory", final)
+            # Match a path against stance history, apply its effects, and
+            # use its ceremony text if provided. Dialog scouts carry paths;
+            # action scouts fall through to the default victory ceremony.
+            path_name, path_cfg = self._select_path()
+            ceremony_override = (path_cfg or {}).get("ceremony")
+            self._last_outcome = self._ceremony_outcome(
+                "victory", final, text_override=ceremony_override)
+            self._last_outcome["path"] = path_name
+            out["path"] = path_name
+            if path_cfg:
+                self._apply_effects(path_cfg.get("effects", []))
             self.action_log.append({
                 "action": "—",
                 "text":   self._last_outcome["ceremony_text"],
@@ -500,14 +536,154 @@ class EncounterSession:
             "flavor":     flavor,
         }
 
-    def _ceremony_outcome(self, kind: str, final: dict) -> dict:
-        text = self.scout.get("ceremony", {}).get(kind, kind.upper())
+    def _ceremony_outcome(self, kind: str, final: dict,
+                          text_override: Optional[str] = None) -> dict:
+        if text_override:
+            text = text_override
+        else:
+            text = self.scout.get("ceremony", {}).get(kind, kind.upper())
         return {
             "ceremony":      kind,
             "ceremony_text": text,
             "xp_staged":     final.get("xp_staged", 0.0),
             "outcome":       final.get("outcome", kind),
         }
+
+    # -- Path matching -------------------------------------------------------
+
+    def _select_path(self) -> tuple[str, Optional[dict]]:
+        """Match the stance_history against scout.paths. First path whose
+        `when` clause matches wins. If none match, fall back to
+        scout.default_path. Returns (path_name, path_cfg) or ('default', None)
+        when the scout declares no paths."""
+        paths = self.scout.get("paths") or {}
+        if not paths:
+            return ("default", None)
+
+        for name, cfg in paths.items():
+            if name.startswith("_"):
+                continue
+            if self._path_matches(cfg.get("when", {})):
+                return (name, cfg)
+
+        fallback = self.scout.get("default_path")
+        if fallback and fallback in paths:
+            return (fallback, paths[fallback])
+        # No match, no default — take whichever is first, stable.
+        first = next((k for k in paths.keys() if not k.startswith("_")), None)
+        return (first or "default", paths.get(first) if first else None)
+
+    def _path_matches(self, when: dict) -> bool:
+        """Return True if the current stance_history satisfies the `when`
+        clause. Supported keys (AND-combined):
+            breaks_min     — int: at least N stance_match == 'breaks'
+            reads_min      — int: at least N stance_match == 'reads'
+            passes_min     — int: at least N save == 'pass'
+            stance_count   — {stance: N, ...}: at least N passed instances
+                             of each listed stance
+            flag           — str: self.flags[str] must be truthy
+            not_flag       — str: self.flags[str] must be falsy/absent
+        """
+        if not when:
+            return True
+
+        passes   = [h for h in self.stance_history if h.get("save") == "pass"]
+        breaks_n = sum(1 for h in passes if h.get("stance_match") == "breaks")
+        reads_n  = sum(1 for h in passes if h.get("stance_match") == "reads")
+
+        if "breaks_min" in when and breaks_n < int(when["breaks_min"]):
+            return False
+        if "reads_min"  in when and reads_n  < int(when["reads_min"]):
+            return False
+        if "passes_min" in when and len(passes) < int(when["passes_min"]):
+            return False
+        if "stance_count" in when:
+            wanted: dict = when["stance_count"]
+            for stance, need in wanted.items():
+                got = sum(1 for h in passes if h.get("stance") == stance)
+                if got < int(need):
+                    return False
+        if "flag" in when and not self.flags.get(when["flag"]):
+            return False
+        if "not_flag" in when and self.flags.get(when["not_flag"]):
+            return False
+        return True
+
+    # -- Effect dispatch -----------------------------------------------------
+
+    # Whitelisted effect names — any effect not in this set raises, so
+    # typos in config never silently no-op. Each handler is a method
+    # `_fx_<name>(spec)`; add here and implement the method to extend.
+    _EFFECT_WHITELIST = frozenset({
+        "heal_player",
+        "give_item",
+        "take_item",
+        "set_flag",
+        "trigger_rest",
+        "open_dialog_branch",
+    })
+
+    def _apply_effects(self, effects: list) -> None:
+        for spec in effects or []:
+            name = spec.get("type", "")
+            if name not in self._EFFECT_WHITELIST:
+                raise ValueError(
+                    f"unknown effect {name!r}; whitelist: "
+                    f"{sorted(self._EFFECT_WHITELIST)}")
+            handler = getattr(self, f"_fx_{name}")
+            handler(spec)
+
+    def _fx_heal_player(self, spec: dict) -> None:
+        amt = int(spec.get("amount", 0))
+        self.player = ps.heal(self.player, amt)
+
+    def _fx_give_item(self, spec: dict) -> None:
+        from core.systems.player_state import Item
+        name = str(spec["name"])
+        cost = int(spec.get("slot_cost", 1))
+        self.player = ps.add_item(self.player, Item(name=name, slot_cost=cost))
+
+    def _fx_take_item(self, spec: dict) -> None:
+        from core.systems.player_state import Item
+        name = str(spec["name"])
+        # remove_item matches on (name, slot_cost) tuple equality; use the
+        # first matching slot_cost we find in inventory to avoid forcing
+        # callers to know the stored slot_cost.
+        for it in self.player.inventory:
+            if it.name == name:
+                self.player = ps.remove_item(self.player, it)
+                return
+        # Silently absent — take_item of a missing item is a no-op, not
+        # an error. Callers who care should gate with a flag first.
+
+    def _fx_set_flag(self, spec: dict) -> None:
+        self.flags[str(spec["name"])] = spec.get("value", True)
+
+    def _fx_trigger_rest(self, _spec: dict) -> None:
+        self.engine.consolidate(reason="rest")
+
+    def _fx_open_dialog_branch(self, spec: dict) -> None:
+        self.pending_followup = str(spec["scout_id"])
+
+    # -- Followup swap -------------------------------------------------------
+
+    def _consume_pending_followup(self) -> None:
+        """If open_dialog_branch queued a scout swap, apply it now and
+        clear the queue. Fingerprint and engine stay — only the scout
+        reference and mode move."""
+        if not self.pending_followup:
+            return
+        target = self.pending_followup
+        self.pending_followup = None
+        self.switch_scout(target)
+
+    def switch_scout(self, scout_id: str) -> None:
+        """Bind the session to a new scout mid-expedition. Used by
+        open_dialog_branch to chain encounters without tearing the session
+        down."""
+        self.scout_id = scout_id
+        self.scout = ec.get_scout(scout_id)
+        self.mode = self.scout.get("mode", "action")
 
     def _active_verbs(self) -> list[str]:
         """Verbs the HUD should render for the current mode. Dialog mode

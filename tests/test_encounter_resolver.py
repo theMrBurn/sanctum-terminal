@@ -184,7 +184,10 @@ def test_defeat_does_not_set_cooldown():
     assert not e.on_cooldown, "defeat must not lock future encounters"
 
 
-def test_resolved_sets_cooldown():
+def test_resolved_does_not_block_next_encounter():
+    """Cooldown is 0 for dialog-mode parley — next orb should be
+    immediately reachable after a win. Machinery (tick_cooldown,
+    on_cooldown property) is kept intact for a future per-mode knob."""
     from core.systems.fingerprint_engine import FingerprintEngine
     fp = FingerprintEngine()
     for _ in range(5):
@@ -193,22 +196,18 @@ def test_resolved_sets_cooldown():
     e = EncounterEngine(fp, {"SEEKER": 1.0}, age=45)
     e.begin(dict(er.WATCHER))
     e.resolve(outcome="resolved")
-    assert e.on_cooldown, "resolved encounters trigger cooldown"
+    assert not e.on_cooldown, "resolved encounters must not throttle re-engagement"
 
 
-def test_cooldown_ticks_down():
+def test_cooldown_machinery_still_works_if_set_manually():
+    """If a future per-mode knob restores a cooldown, the tick path
+    must still decrement. Guards against the machinery rotting."""
     from core.systems.fingerprint_engine import FingerprintEngine
-    from core.systems.encounter_engine import ENCOUNTER_COOLDOWN
     fp = FingerprintEngine()
-    for _ in range(5):
-        fp.record("observation_time", 0.9)
-        fp.record("precision_score", 0.9)
     e = EncounterEngine(fp, {"SEEKER": 1.0}, age=45)
-    e.begin(dict(er.WATCHER))
-    e.resolve(outcome="resolved")
+    e._cooldown_remaining = 2.0
     assert e.on_cooldown
-    # Tick past the full cooldown — must unlock.
-    e.tick_cooldown(ENCOUNTER_COOLDOWN + 0.1)
+    e.tick_cooldown(2.1)
     assert not e.on_cooldown
 
 

@@ -34,8 +34,14 @@ VERBS = ACTIONS   # alias — legacy callers
 # 0.45 = ~25% pass rate. Less frequent, more meaningful. Frieren model.
 RESONANCE_THRESHOLD = 0.45
 
-# Minimum seconds between encounters -- prevents clustering
-ENCOUNTER_COOLDOWN = 60.0
+# Minimum seconds between encounters -- prevents clustering.
+# Dropped from 60s → 0s for dialog-mode loop: the 60s throttle was
+# designed for the Frieren-model combat cadence (world digests before
+# speaking again). Dialog parley wants tight re-engagement; the next
+# Watcher should be reachable the moment the last one yields. When
+# action-mode scouts return, revisit per-mode cooldowns instead of
+# a global.
+ENCOUNTER_COOLDOWN = 0.0
 
 # XP per resonant encounter, scaled by resonance score
 XP_BASE = 1.0

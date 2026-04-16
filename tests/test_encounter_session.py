@@ -260,3 +260,113 @@ def test_snapshot_shape():
     assert snap["active"]["orb"]["max_hp"] == 6
     assert "intent_telegraph" in snap["active"]
     assert "flavor" not in snap["active"], "flavor lives on log entries, not the root"
+
+
+# -- Path matching + effects -------------------------------------------------
+
+def _resolve_with_history(monkeypatch, forced_posture: str, verbs: list[str]):
+    """Helper: run an encounter to resolution with a fixed orb posture,
+    then return the session for inspection. Player auto-passes."""
+    from core.systems import encounter_config as _ec
+    from core.systems import encounter_session as _es
+
+    s = EncounterSession(seed=42)
+    tx, ty = TILE_POSITIONS[0]
+    s.on_camera(tx, ty)
+    s.player = s.player._replace(str_save=20, dex_save=20, wil_save=20)
+    s._roll = lambda size: 1
+
+    def _force_posture(*_a, **_kw):
+        # Find an intent whose posture matches forced_posture.
+        for name, intent in _ec.load()["dialog_intents"].items():
+            if intent["posture"] == forced_posture:
+                return name, intent
+        raise KeyError(f"no intent with posture {forced_posture!r}")
+
+    monkeypatch.setattr(_es, "choose_intent", _force_posture)
+    s.orb.current_intent = _force_posture()
+    for v in verbs:
+        s.on_action(v)
+    return s
+
+
+def test_default_path_selected_on_plain_resolution(monkeypatch):
+    """Mixed reads against wary — no breaks, no triple-curious. dismiss wins.
+    PROBE (curious) + YIELD (deferent) + PROBE — curious=2, deferent=1, 0 breaks."""
+    s = _resolve_with_history(monkeypatch, "wary", ["PROBE", "YIELD", "PROBE"])
+    assert s._last_outcome["path"] == "dismiss"
+    assert "yields" in s._last_outcome["ceremony_text"].lower()
+
+
+def test_bind_path_selected_on_two_breaks(monkeypatch):
+    """Two RIDDLE breaks wary — bind path wins + flag set."""
+    s = _resolve_with_history(monkeypatch, "wary", ["RIDDLE", "RIDDLE"])
+    assert s._last_outcome["path"] == "bind"
+    assert s.flags.get("watcher_bound") is True
+    assert "wake" in s._last_outcome["ceremony_text"].lower()
+
+
+def test_ally_path_selected_on_three_curious(monkeypatch):
+    """Three PROBE (curious) reads against opening — ally path + flag."""
+    s = _resolve_with_history(monkeypatch, "opening", ["PROBE", "PROBE", "PROBE"])
+    assert s._last_outcome["path"] == "ally"
+    assert s.flags.get("watcher_ally") is True
+
+
+def test_unknown_effect_raises():
+    """Typos in effect names must never silently no-op."""
+    s = EncounterSession(seed=42)
+    import pytest
+    with pytest.raises(ValueError, match="unknown effect"):
+        s._apply_effects([{"type": "nonsense"}])
+
+
+def test_set_flag_effect():
+    s = EncounterSession(seed=42)
+    s._apply_effects([{"type": "set_flag", "name": "foo", "value": 42}])
+    assert s.flags["foo"] == 42
+
+
+def test_heal_player_effect():
+    s = EncounterSession(seed=42)
+    s.player = s.player._replace(hp=3, max_hp=10)
+    s._apply_effects([{"type": "heal_player", "amount": 5}])
+    assert s.player.hp == 8
+
+
+def test_give_take_item_effects():
+    s = EncounterSession(seed=42)
+    s._apply_effects([{"type": "give_item", "name": "ember", "slot_cost": 1}])
+    assert any(it.name == "ember" for it in s.player.inventory)
+    s._apply_effects([{"type": "take_item", "name": "ember"}])
+    assert not any(it.name == "ember" for it in s.player.inventory)
+
+
+def test_trigger_rest_effect():
+    s = EncounterSession(seed=42)
+    s.engine.staged_xp = 2.0
+    before = s.engine.depth
+    s._apply_effects([{"type": "trigger_rest"}])
+    assert s.engine.depth > before
+    assert s.engine.staged_xp == 0.0
+
+
+def test_open_dialog_branch_sets_followup():
+    s = EncounterSession(seed=42)
+    s._apply_effects([{"type": "open_dialog_branch", "scout_id": "first_watcher"}])
+    assert s.pending_followup == "first_watcher"
+
+
+def test_followup_consumed_on_next_trigger(monkeypatch):
+    """When a path schedules a followup scout, the NEXT encounter swaps
+    to it. Here we swap first_watcher → first_watcher (same scout) so the
+    test doesn't need a second authored scout — the mechanic is the same."""
+    s = EncounterSession(seed=42)
+    s.pending_followup = "first_watcher"
+    s.scout_id = "placeholder"   # prove the swap overwrites
+
+    # Trigger a new encounter via on_orb_contact (doesn't need a tile).
+    result = s.on_orb_contact(actor_id="watcher", advantage="neutral")
+    assert result["triggered"] is True
+    assert s.scout_id == "first_watcher"
+    assert s.pending_followup is None
