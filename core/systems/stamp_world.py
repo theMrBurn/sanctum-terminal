@@ -98,15 +98,121 @@ SLOT_SIZE = 16.0
 # Tissue scatter — connector terrain between authored stamps. Pure noise,
 # fills the negative space. Density is per-slot (not per sqm).
 TISSUE_KINDS_CAVERN = [
-    ("grass_tuft",  3),  # (kind, count)
-    ("rubble",      2),
-    ("cave_gravel", 4),
+    ("grass_tuft",  3),  # (kind, count) — visible at standing height, keep
+    ("rubble",      1),  # trimmed 2→1: floor clutter, dominant perf cost
+    ("cave_gravel", 1),  # trimmed 4→1: tiny gravel was ~22% of all entities
 ]
 TISSUE_KINDS_OUTDOOR = [
-    ("grass_tuft",  4),
-    ("leaf_pile",   2),
-    ("twig_scatter", 3),
+    ("grass_tuft",  3),   # trimmed 4→3
+    ("leaf_pile",   1),   # trimmed 2→1
+    ("twig_scatter", 1),  # trimmed 3→1
 ]
+
+
+# -- Radial density curve -----------------------------------------------------
+#
+# Classic "old-dev" procedural trick: world feels authored by making density
+# vary with distance from origin. Near spawn the world is CLEAR (player eye
+# doesn't get buried in clutter). Middle distance is the current baseline.
+# Frontier is heavy/dense — rewards exploration with more to see.
+#
+# Bands are radial in slot units. Origin is (0, 0); 1 slot = SLOT_SIZE = 16m.
+# Hub itself is slot (0, 0) authored; HUB_ADJACENT_SLOTS are already mega-
+# filtered. This curve extends that idea to every slot, in bands.
+#
+# - spawn    (< 2 slots):   no mega stamps, half tissue, half flourishes
+# - near     (< 5 slots):   weight<4 only, standard tissue
+# - mid      (< 9 slots):   current baseline, all stamps
+# - frontier (≥ 9):         mega weights 2×, standard tissue
+#
+# Band transitions are hard (no smooth interpolation) — players perceive
+# change after walking ~48m (3 slots), which is long enough to read as
+# "different place" and short enough to be felt in a single session.
+
+BAND_SPAWN = "spawn"
+BAND_NEAR = "near"
+BAND_MID = "mid"
+BAND_FRONTIER = "frontier"
+
+
+def _radial_band(gx: int, gy: int) -> str:
+    """Return the density band for a slot. Distance from origin in slot units."""
+    d_sq = gx * gx + gy * gy
+    if d_sq < 4:        # < 2 slots = ~32m
+        return BAND_SPAWN
+    if d_sq < 25:       # < 5 slots = ~80m
+        return BAND_NEAR
+    if d_sq < 81:       # < 9 slots = ~144m
+        return BAND_MID
+    return BAND_FRONTIER
+
+
+def _filter_stamps_for_band(stamps: list, band: str) -> list:
+    """Per-band stamp filtering. Spawn drops heavy anchors AND densely
+    authored stamps so the landing zone reads as CLEAR. Near drops the
+    heavy mega stamps but keeps medium-density stamps. Frontier boosts
+    mega weights so they dominate the roll. Returns a (possibly-reweighted)
+    stamps list that _weighted_pick consumes."""
+    if band == BAND_SPAWN:
+        # Spawn must feel OPEN — reject both heavy-weight anchors AND
+        # high-member-count stamps (captured grove/grotto/arch stamps are
+        # 30-90 members; the player shouldn't spawn facing a visual wall).
+        return [s for s in stamps
+                if s.get("weight", 1) < 4
+                and len(s.get("members", [])) <= 12]
+    if band == BAND_NEAR:
+        return [s for s in stamps if s.get("weight", 1) < 4]
+    if band == BAND_FRONTIER:
+        # Mega-weight boost. Copy dicts (don't mutate upstream CAVERN_STAMPS).
+        return [
+            dict(s, weight=s.get("weight", 1) * (2 if s.get("weight", 1) >= 4 else 1))
+            for s in stamps
+        ]
+    return stamps
+
+
+def _tissue_mult_for_band(band: str) -> float:
+    """Per-band tissue scatter multiplier. Spawn band gets half density so
+    the player's first few meters are CLEAR — the 'landing zone' feeling."""
+    if band == BAND_SPAWN:
+        return 0.5
+    return 1.0
+
+
+# -- Landmark beacons ---------------------------------------------------------
+#
+# Horizon trick: every ~17th slot hashes as a beacon slot. The slot still
+# rolls its normal stamp (respecting the band filter) but ALSO gets a
+# guaranteed mega_column anchor injected. From the bands below, this
+# beacon is always visible in the distance — the player's eye finds it
+# and the feet follow. Pure deterministic — hash of slot coords.
+#
+# ~1 in 17 slots ≈ 6% spawn rate → roughly one beacon per ~270m² area.
+# With fog.far=55, the player usually sees 1-2 beacons at any moment.
+#
+# Beacons are suppressed in the spawn band (player shouldn't walk INTO
+# a beacon on frame 1 — the landmark should be AHEAD, not underfoot).
+
+_BEACON_MOD = 17
+_BEACON_A = 9973
+_BEACON_B = 8461
+
+
+def _is_beacon_slot(gx: int, gy: int) -> bool:
+    """Deterministic sparse pattern — 1/17 slots are landmark anchors."""
+    return (gx * _BEACON_A + gy * _BEACON_B) % _BEACON_MOD == 0
+
+
+def _beacon_member(gx: int, gy: int) -> dict:
+    """Beacon mega_column placed at slot center. Scale 1.1 for visual
+    dominance over neighbor mega_columns that happen to land nearby."""
+    return {
+        "kind": "mega_column",
+        "dx": 0.0,
+        "dy": 0.0,
+        "scale_mult": 1.1,
+        "hard": True,
+    }
 
 
 def _slot_seed(gx: int, gy: int, world_seed: int) -> int:
@@ -255,6 +361,16 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     if biome_name == "cavern" and (gx, gy) in _HUB_ADJACENT_SLOTS:
         stamps = [s for s in stamps if s.get("name") not in _MEGA_STAMP_NAMES]
 
+    # Radial density band — world feels "goes somewhere" because density
+    # + stamp weight class vary with distance from origin. Spawn clear,
+    # frontier heavy. See band definitions above.
+    band = _radial_band(gx, gy)
+    stamps = _filter_stamps_for_band(stamps, band)
+    if not stamps:
+        # Band filter removed everything (unlikely but defensive) — fall
+        # back to original list rather than returning empty.
+        stamps = _stamps_for(biome_name)
+
     rng = random.Random(_slot_seed(gx, gy, seed))
     cx = (gx + 0.5) * SLOT_SIZE
     cy = (gy + 0.5) * SLOT_SIZE
@@ -296,6 +412,18 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
         else:
             pending_nonspike.append((kind, x, y, scale_mult))
 
+    # Landmark beacon — if this slot's hash marks it as a beacon AND the
+    # band allows it (no beacons in the spawn band; they should be AHEAD,
+    # not underfoot), inject a guaranteed mega_column at slot center.
+    # Spikes can overlap so this coexists with whatever stamp rolled.
+    if band != BAND_SPAWN and _is_beacon_slot(gx, gy):
+        beacon = _beacon_member(gx, gy)
+        bx, by = cx, cy  # slot center
+        b_ent = _make_entity(beacon["kind"], bx, by, rng, beacon["scale_mult"])
+        if b_ent is not None:
+            roster.append(b_ent)
+            solid_positions.append((bx, by, _spike_visual_radius(beacon["kind"])))
+
     # Pass 2 — non-spike authored members. Each candidate rejected if its
     # center sits inside a spike hull from pass 1. Companions that survive
     # get registered with a small footprint so later scatter doesn't pile.
@@ -316,8 +444,12 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     # Each tissue kind rolls its count, positions are within the slot square.
     # Spike hulls and neighbor companions reject candidates to keep geometry
     # from overlapping — companions enhance clusters, never pile into them.
+    # Band multiplier keeps spawn zone ~half density for the "landing zone"
+    # feel; mid/frontier at full (1.0) count.
     half = SLOT_SIZE / 2.0
-    for kind, count in _tissue_for(biome_name):
+    tissue_mult = _tissue_mult_for_band(band)
+    for kind, base_count in _tissue_for(biome_name):
+        count = max(0, int(round(base_count * tissue_mult)))
         for _ in range(count):
             placed = False
             for _attempt in range(6):
@@ -347,12 +479,78 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     return roster
 
 
-# Scale-in fade band — entities within fade_band of the visibility edge
-# scale up from min_scale to full size as you approach. Symmetric: walking
-# away shrinks them before they disappear. No state, no Godot diffing —
-# just distance math, recomputed every frame.
-SCALE_FADE_BAND = 14.0  # last 14m of visibility (35m → 49m at horizon=49)
-SCALE_MIN = 0.05        # smallest visible scale at the very edge
+# Per-kind max render distance — the old-school trick. Tiny floor scatter
+# (gravel, twigs) only meaningful within touching distance; big landmarks
+# (mega_column, crystal_cluster) visible to the fog horizon. Dropping low-
+# value entities past their useful range is the biggest perf wedge at
+# spawn (where density spikes from the authored hub + adjacent slots).
+# Values tuned against eye-height and fog.far=55. Kinds not listed fall
+# back to the global visibility radius.
+_KIND_MAX_DISTANCE = {
+    # scatter — tiny, no silhouette beyond arm's reach
+    "cave_gravel":     8.0,
+    "twig_scatter":   10.0,
+    "leaf_pile":      14.0,
+    "rubble":         16.0,
+    "bone_pile":      16.0,
+    "grass_tuft":     18.0,
+    "moss_patch":     18.0,
+    "filament":       22.0,
+    # organic — mid-distance silhouettes that matter from further
+    "spore_pod":      25.0,
+    "toadstool":      25.0,
+    "giant_fungus":   35.0,
+    # atmosphere
+    "ceiling_moss":   28.0,
+    "hanging_vine":   28.0,
+    "firefly":        20.0,
+    # structural — landmarks visible to the horizon
+    "stalagmite":     40.0,
+    "boulder":        40.0,
+    "buttress":       45.0,
+    "monolith":       45.0,
+    "crystal_cluster": 50.0,
+    "column":         55.0,
+    "mega_column":    55.0,
+    "dead_log":       30.0,
+    "doorframe":      30.0,
+    # life — creatures close range (they move, so aggressive cull OK)
+    "beetle":         12.0,
+    "spider":         15.0,
+    "rat":            25.0,
+    "rat_ice":        25.0,
+    "rat_fire":       25.0,
+    "rat_water":      25.0,
+    "bat":            30.0,
+    "clay_pot":       25.0,
+    "treasure_chest": 25.0,
+    # encounter fixtures stay visible to fog edge
+    "orb":            50.0,
+    "shadow_orb":     50.0,
+    "exit_lure":      55.0,
+}
+
+# Scale fade — entities SMOOTHLY shrink to invisible over the last
+# SCALE_FADE_BAND meters of their per-kind max_distance. Unlike the
+# earlier stochastic dither, this is deterministic and continuous — no
+# pop, no random flicker. Same silhouette, just scaled by dist.
+SCALE_FADE_BAND = 14.0  # smooth fade window before a kind's max_distance
+SCALE_MIN = 0.02        # smallest visible scale before hard cull
+
+
+def _kind_scale_factor(kind: str, dist: float) -> float:
+    """Per-kind smooth scale fade. Entities at full scale until fade_start,
+    then linearly shrink to SCALE_MIN at max_distance, hard-culled beyond.
+    Replaces the old stochastic dither — same perf benefit, no pop."""
+    max_d = _KIND_MAX_DISTANCE.get(kind, 999.0)
+    if dist >= max_d:
+        return 0.0  # beyond kind's range — caller should drop the entity
+    fade_start = max_d - SCALE_FADE_BAND
+    if dist <= fade_start:
+        return 1.0
+    # Linear shrink over the fade band
+    t = (max_d - dist) / SCALE_FADE_BAND  # 1.0 at fade_start → 0.0 at max_d
+    return SCALE_MIN + (1.0 - SCALE_MIN) * t
 
 
 def _scale_factor(dist: float, radius: float) -> float:
@@ -392,11 +590,15 @@ def get_visible(cam_x: float, cam_y: float, radius: float,
                 d2 = dx * dx + dy * dy
                 if d2 > radius_sq:
                     continue
-                # Apply scale-in fade based on distance
                 dist = math.sqrt(d2)
-                fade = _scale_factor(dist, radius)
+                # Per-kind smooth fade — tiny scatter only renders near,
+                # landmarks to the horizon. Entity shrinks linearly over
+                # the last SCALE_FADE_BAND meters of its max_distance, then
+                # hard-culls. Deterministic, continuous, no pop.
+                fade = _kind_scale_factor(ent["kind"], dist)
+                if fade <= 0.0:
+                    continue  # beyond kind's visibility — drop
                 if fade < 1.0:
-                    # Mutate scale fields — these came from spawn_bucket so it's safe
                     ent["sx"] = round(ent["sx"] * fade, 3)
                     ent["sy"] = round(ent["sy"] * fade, 3)
                     ent["sz"] = round(ent["sz"] * fade, 3)

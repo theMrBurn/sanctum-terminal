@@ -539,11 +539,17 @@ func _update_player_avatar() -> void:
 # Two Camera3Ds in the same scene; whichever has current=true renders.
 # Iso camera follows the first-person camera's XZ each frame so the view
 # stays centered on the player's current position regardless of teleports.
-const ISO_HEIGHT_M: float = 20.0       # world-units above floor
-const ISO_DISTANCE_M: float = 18.0     # pull-back along iso yaw axis
-const ISO_PITCH_DEG: float = -55.0     # classic dev-cam downward tilt
-const ISO_YAW_DEG: float = 45.0        # 45° rotate (iso-style)
-const ISO_ORTHO_SIZE_M: float = 34.0   # visible world-meters (vertical)
+# Tuned toward Drova-style readability (2026-04-16):
+#   - Higher + steeper pitch → less mid-ground geometry blocking the player
+#   - Closer pull-back → less stuff between camera and avatar
+#   - Wider ortho size → more world visible, fewer "zoomed in" moments
+# If objects still occlude the player, the next step is a shader-based
+# camera-to-player occlusion fade (not yet wired).
+const ISO_HEIGHT_M: float = 28.0       # raised from 20 (more top-down)
+const ISO_DISTANCE_M: float = 14.0     # pulled in from 18 (less mid-ground between cam and avatar)
+const ISO_PITCH_DEG: float = -62.0     # steeper than 55 (more top-down, Drova-ish)
+const ISO_YAW_DEG: float = 45.0        # 45° rotate (classic iso)
+const ISO_ORTHO_SIZE_M: float = 42.0   # widened from 34 (Drova-feel viewport span)
 
 var iso_camera: Camera3D
 var iso_active: bool = false
@@ -950,10 +956,22 @@ func _spawn_entities() -> void:
 
 # Kinds that get dark contact shadow Decals at their base.
 # Radius multiplier scales with the kind's visual footprint.
+# Contact shadow radius per kind (multiplied by ent.sv at spawn). Values
+# roughly match the kind's visual_radius × 1.2 so the shadow hugs the hull
+# with a soft fringe. OLD values were 2-3× too big (calibrated when
+# visual_radius was under-sized by the AABB projection formula) and
+# produced "invisible object casting a shadow" artifacts at middle
+# distance where the entity was off-frame or occluded but its shadow
+# spilled onto visible ground.
 const CONTACT_SHADOW_KINDS := {
-	"mega_column": 5.0, "column": 3.5, "boulder": 2.5, "stalagmite": 1.5,
-	"giant_fungus": 2.0, "crystal_cluster": 1.8, "dead_log": 1.5,
-	"buttress": 2.5,
+	"mega_column":     2.4,   # was 5.0; visual_radius 4.5 → half that + sv scaling
+	"column":          1.4,   # was 3.5
+	"boulder":         1.0,   # was 2.5
+	"stalagmite":      0.7,   # was 1.5
+	"giant_fungus":    1.1,   # was 2.0
+	"crystal_cluster": 1.4,   # was 1.8
+	"dead_log":        1.2,   # was 1.5
+	"buttress":        1.5,   # was 2.5
 }
 
 var contact_shadow_decals: Array[Decal] = []

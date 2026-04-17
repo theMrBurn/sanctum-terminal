@@ -415,7 +415,7 @@
     "stalagmite": {
       "class": "geological",
       "spatial_class": "spike",
-      "visual_radius": 0.7,
+      "visual_radius": 0.63,
       "color_base": [
         0.33,
         0.28,
@@ -575,7 +575,7 @@
     "mega_column": {
       "class": "structural",
       "spatial_class": "spike",
-      "visual_radius": 4.5,
+      "visual_radius": 4.05,
       "elemental_reactions": {
         "electric": "electric_pulse",
         "light": "reveal_glow"
@@ -621,7 +621,7 @@
     "column": {
       "class": "structural",
       "spatial_class": "spike",
-      "visual_radius": 2.3,
+      "visual_radius": 2.07,
       "color_base": [
         0.26,
         0.23,
@@ -1754,7 +1754,7 @@
     "rat": {
       "class": "life",
       "use_vertex_colors": true,
-      "world_scale_mult": 4.0,
+      "world_scale_mult": 3.4,
       "color_base": [
         0.37,
         0.31,
@@ -1988,7 +1988,7 @@
     "rat_ice": {
       "class": "life",
       "use_vertex_colors": true,
-      "world_scale_mult": 4.0,
+      "world_scale_mult": 3.4,
       "color_base": [
         0.55,
         0.65,
@@ -2085,7 +2085,7 @@
     "rat_fire": {
       "class": "life",
       "use_vertex_colors": true,
-      "world_scale_mult": 4.0,
+      "world_scale_mult": 3.4,
       "color_base": [
         0.7,
         0.28,
@@ -2181,6 +2181,7 @@
     },
     "clay_pot": {
       "class": "life",
+      "visual_radius": 0.5,
       "use_vertex_colors": true,
       "world_scale_mult": 13.0,
       "color_base": [
@@ -2246,6 +2247,7 @@
     },
     "treasure_chest": {
       "class": "life",
+      "visual_radius": 0.7,
       "use_vertex_colors": true,
       "world_scale_mult": 12.5,
       "color_base": [

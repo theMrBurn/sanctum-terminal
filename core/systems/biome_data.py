@@ -1029,19 +1029,16 @@ ORIGIN_HUB = {
         {"kind": "firefly",     "dx": -0.5, "dy":  1.0, "scale_mult": None, "hard": False},
         {"kind": "firefly",     "dx":  1.0, "dy": -0.5, "scale_mult": None, "hard": False},
 
-        # --- WALKABLE FLOOR TISSUE (inner 8m ring) ---
+        # --- WALKABLE FLOOR TISSUE (inner 8m ring, trimmed) ---
+        # Inner cave_gravel ring removed entirely + half the grass tufts
+        # cleared — player spawns in actual negative space, not a planted
+        # garden. Four moss_patches at ±3.5m still frame the center.
         {"kind": "moss_patch",  "dx":  0.0, "dy":  3.5, "scale_mult": None, "hard": False},
         {"kind": "moss_patch",  "dx":  3.5, "dy":  0.0, "scale_mult": None, "hard": False},
         {"kind": "moss_patch",  "dx":  0.0, "dy": -3.5, "scale_mult": None, "hard": False},
         {"kind": "moss_patch",  "dx": -3.5, "dy":  0.0, "scale_mult": None, "hard": False},
-        {"kind": "grass_tuft",  "dx":  2.0, "dy":  2.5, "scale_mult": None, "hard": False},
-        {"kind": "grass_tuft",  "dx": -2.5, "dy":  1.5, "scale_mult": None, "hard": False},
         {"kind": "grass_tuft",  "dx":  2.5, "dy": -2.0, "scale_mult": None, "hard": False},
         {"kind": "grass_tuft",  "dx": -1.8, "dy": -3.0, "scale_mult": None, "hard": False},
-        {"kind": "cave_gravel", "dx":  1.5, "dy":  0.0, "scale_mult": None, "hard": False},
-        {"kind": "cave_gravel", "dx":  0.0, "dy":  1.5, "scale_mult": None, "hard": False},
-        {"kind": "cave_gravel", "dx": -1.5, "dy":  0.0, "scale_mult": None, "hard": False},
-        {"kind": "cave_gravel", "dx":  0.0, "dy": -1.5, "scale_mult": None, "hard": False},
 
         # --- PERIMETER WALL STALAGMITES (between arches — visual enclosure) ---
         # NE corner
