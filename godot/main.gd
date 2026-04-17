@@ -1631,6 +1631,12 @@ func _process(delta: float) -> void:
 	# Added one at a time after confirming the breathing headlamp reads right.
 
 
+const RIG_DEBUG: bool = true   # temp — prints player pos + send throughput once/sec
+
+var _rig_debug_accum: float = 0.0
+var _rig_debug_sends: int = 0
+
+
 func _send_camera() -> void:
 	if not connected:
 		return
@@ -1646,6 +1652,19 @@ func _send_camera() -> void:
 	}
 	var json_str := JSON.stringify(msg) + "\n"
 	tcp.put_data(json_str.to_utf8_buffer())
+	if RIG_DEBUG:
+		_rig_debug_sends += 1
+		_rig_debug_accum += UPDATE_INTERVAL
+		if _rig_debug_accum >= 1.0:
+			var rig_str: String = "--"
+			if USE_PHYSICS_RIG and is_instance_valid(player_rig):
+				var rp: Vector3 = player_rig.position
+				rig_str = "(%.1f, %.1f, %.1f) floor=%s" % [rp.x, rp.y, rp.z, str(player_rig.is_on_floor())]
+			print("[RIG] send=%d/s pp=(%.1f, %.1f, %.1f) yaw=%.0f° rig=%s env_r=%.1f" % [
+				_rig_debug_sends, p.x, p.y, p.z, rad_to_deg(_player_yaw()),
+				rig_str, float(manifest.get("playable_envelope", {}).get("radius", 0.0))])
+			_rig_debug_accum = 0.0
+			_rig_debug_sends = 0
 
 
 func _process_responses() -> void:
