@@ -172,6 +172,25 @@ CAVERN_BINDING: dict = {
             "first_tag": "The column absorbs the cast.",
         },
     },
+
+    # Lifecycle — passive transitions when no expedition is active.
+    # Brain reads this each camera tick. Three trigger modes supported:
+    #   "hub_return" → arm when player crosses inside hub_radius of hub_pos
+    #   "complete"   → instant chain (no dead air after walk-through)
+    #   "cooldown"   → time-only re-arm; no positional gate
+    # Cooldown stacks on top of any trigger as a "minimum dead air"
+    # window after completion. Rotation cycles classes in order.
+    # See design_hub_and_spoke + design_journal_quest_pipeline.
+    "lifecycle": {
+        "auto_arm": {
+            "enabled": True,
+            "on": "hub_return",
+            "hub_pos": [0.0, -14.0],   # south-arch spawn anchor
+            "hub_radius": 12.0,        # within hub interior
+            "cooldown_s": 5.0,         # grace after EXPEDITION COMPLETE
+            "rotation": ["anomaly_hunt"],
+        },
+    },
 }
 
 
@@ -183,6 +202,11 @@ OUTDOOR_BINDING: dict = {
     # is the correct behavior (fail fast, not silently wrong).
     "anchors": {},
     "active_classes": ["anomaly_hunt"],
+    # Lifecycle disabled until outdoor has a hub anchor. When it lands,
+    # mirror the cavern shape with whatever the outdoor "home" position is.
+    "lifecycle": {
+        "auto_arm": {"enabled": False},
+    },
     "message_overrides": {
         "anomaly_hunt": {
             # "first_tag": "The canopy notices.",

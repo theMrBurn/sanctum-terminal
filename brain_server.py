@@ -45,6 +45,7 @@ from core.systems.tile_exchange import TileExchange
 from core.systems.bucket_world import get_visible as bucket_get_visible
 from core.systems.stamp_world import get_visible as stamp_get_visible
 from core.systems.expedition_engine import ExpeditionEngine
+from core.systems.expedition_data import BIOME_EXPEDITIONS
 from core.systems.encounter_session import EncounterSession
 from core.systems.roaming_pool import RoamingPool
 from core.systems import kind_config as _kc
@@ -802,6 +803,15 @@ def run_server(biome_name, port=9877):
     encounter: EncounterSession | None = None
     roaming: RoamingPool | None = None
 
+    # Lifecycle bookkeeping for passive auto-arm — see
+    # BIOME_EXPEDITIONS[biome]['lifecycle']. last_complete_t enforces the
+    # cooldown_s grace window after EXPEDITION COMPLETE; rotation_idx
+    # cycles through the configured class rotation so successive auto-
+    # arms can run different scout types if the rotation declares them.
+    last_complete_t: float = 0.0
+    rotation_idx: int = 0
+    in_hub_last: bool = False  # rising-edge detect — arm on entering, not staying
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", port))
@@ -1045,9 +1055,11 @@ def run_server(biome_name, port=9877):
                             # world.get_manifest() keeps streaming scenery — the
                             # cavern is the substrate, the scout was an
                             # overlay. Godot player hits `begin_scout` to
-                            # re-arm a fresh engine.
+                            # re-arm a fresh engine, OR the lifecycle.auto_arm
+                            # config below picks up the next scout passively.
                             expedition = None
-                            print("  → endless roam; [P] in Godot begins new scout",
+                            last_complete_t = time.time()
+                            print("  → endless roam; [P] or hub-return arms next scout",
                                   flush=True)
                         try:
                             ack = json.dumps(result) + "\n"
@@ -1135,6 +1147,58 @@ def run_server(biome_name, port=9877):
                     world.dissociation_pressure = max(
                         0.0, world.dissociation_pressure - dt * 0.5)
                     world.tension._dissociation_pressure = world.dissociation_pressure
+
+                # -- Passive auto-arm — config-driven scout reacquisition ----
+                # When no expedition is active, watch for the trigger declared
+                # in BIOME_EXPEDITIONS[biome]['lifecycle']['auto_arm']. Rising-
+                # edge for hub_return so we arm on cross, not on dwell. Honors
+                # cooldown_s as a minimum dead-air window after the previous
+                # complete. Rotation lets future biomes cycle multiple classes.
+                if expedition is None:
+                    auto = BIOME_EXPEDITIONS.get(biome_name, {}).get(
+                        "lifecycle", {}).get("auto_arm", {})
+                    if auto.get("enabled", False):
+                        trig = auto.get("on", "hub_return")
+                        now_t = time.time()
+                        cooldown_ok = (
+                            now_t - last_complete_t >= auto.get("cooldown_s", 0.0))
+                        should_arm = False
+                        if trig == "hub_return":
+                            hx, hy = auto.get("hub_pos", [0.0, -14.0])
+                            hr = auto.get("hub_radius", 12.0)
+                            dx_h = cam_x - hx
+                            dy_h = cam_y - hy
+                            in_hub_now = (dx_h * dx_h + dy_h * dy_h) <= hr * hr
+                            # Rising edge — arm only when crossing INTO hub.
+                            if in_hub_now and not in_hub_last and cooldown_ok:
+                                should_arm = True
+                            in_hub_last = in_hub_now
+                        elif trig == "complete":
+                            # Instant chain — arm as soon as cooldown clears.
+                            if cooldown_ok and last_complete_t > 0.0:
+                                should_arm = True
+                        elif trig == "cooldown":
+                            # Time-only — arm whenever cooldown elapsed since
+                            # last complete (or session start if no complete yet).
+                            if cooldown_ok:
+                                should_arm = True
+                        if should_arm:
+                            rotation = auto.get("rotation", ["anomaly_hunt"])
+                            next_class = rotation[rotation_idx % len(rotation)]
+                            try:
+                                expedition = ExpeditionEngine.from_class_id(
+                                    next_class, biome_name)
+                                expedition.on_session_start(now_t)
+                                rotation_idx += 1
+                                last_wake_ids = set()  # force a manifest with overlay
+                                print(f"  → auto-armed scout: {next_class} "
+                                      f"(trigger={trig})", flush=True)
+                            except Exception as exc:
+                                print(f"  Auto-arm failed: {exc}", flush=True)
+                else:
+                    # Expedition active — reset hub edge so we can re-fire after
+                    # next completion + leaving + returning.
+                    in_hub_last = False
 
                 manifest = world.get_manifest(
                     cam_x, cam_y, cam_z, heading, pitch, dt)
