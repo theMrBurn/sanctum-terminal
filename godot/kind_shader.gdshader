@@ -39,6 +39,15 @@ uniform float use_vertex_colors : hint_range(0.0, 1.0) = 0.0;
 uniform float taper_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float twist_amount : hint_range(0.0, 1.0) = 0.0;
 
+// Distance-based fade-in — per-object alpha driven by camera distance,
+// resolved with a 4x4 Bayer dither discard so the Metal pipeline keeps
+// its fully-opaque sort (no transparency config per material). At
+// `fade_in_far` meters the object is invisible; by `fade_in_near` it's
+// fully solid. Intended sweep: 50m → 5m so geometry gradually arrives
+// out of the fog instead of popping in at the render horizon.
+uniform float fade_in_near : hint_range(0.0, 200.0) = 5.0;
+uniform float fade_in_far  : hint_range(0.0, 200.0) = 50.0;
+
 varying vec3 world_pos;
 varying float local_y;
 varying vec4 vertex_col;  // smooth interpolation — authored region gradients are intentional
@@ -146,6 +155,33 @@ void fragment() {
 
 	// Per-object origin — used for banding hashes AND light distance.
 	vec3 instance_origin = MODEL_MATRIX[3].xyz;
+
+	// Distance fade-in — emerge out of the fog, don't pop in at render
+	// horizon. Per-OBJECT distance (instance_origin, not world_pos) so the
+	// dither pattern is coherent across the whole mesh instead of shifting
+	// pixel-by-pixel across facets. Bayer 4x4 ordered dither keeps Metal
+	// happy (opaque pipeline, no alpha sort). Alpha curve: 0 at fade_in_far,
+	// 1 at fade_in_near; smoothstep is close enough to feel "staged"
+	// (user's mental ladder: 50m → 25m → 15m → 10m → 5m).
+	{
+		float fd = distance(instance_origin, CAMERA_POSITION_WORLD);
+		float alpha = 1.0 - smoothstep(fade_in_near, fade_in_far, fd);
+		if (alpha < 0.999) {
+			int px_x = int(FRAGCOORD.x) & 3;
+			int px_y = int(FRAGCOORD.y) & 3;
+			int idx = px_y * 4 + px_x;
+			// Bayer 4x4, normalized to (0, 1) — ordered dither mask.
+			float bayer4[16] = float[](
+				 0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+				12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+				 3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+				15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+			);
+			if (alpha <= bayer4[idx]) {
+				discard;
+			}
+		}
+	}
 
 	// Per-instance horizontal banding — three independent hashes drive band
 	// count, phase, and width so no two instances share a layout. The world
