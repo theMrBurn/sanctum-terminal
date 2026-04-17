@@ -1040,12 +1040,64 @@ def run_server(biome_name, port=9877):
                             print(
                                 f">>> EXPEDITION COMPLETE: {tag_count} tags, "
                                 f"{log_path}", flush=True)
+                            # Return to endless roam: null out the expedition so
+                            # subsequent manifests ship without the overlay.
+                            # world.get_manifest() keeps streaming scenery — the
+                            # cavern is the substrate, the scout was an
+                            # overlay. Godot player hits `begin_scout` to
+                            # re-arm a fresh engine.
+                            expedition = None
+                            print("  → endless roam; [P] in Godot begins new scout",
+                                  flush=True)
                         try:
                             ack = json.dumps(result) + "\n"
                             client.sendall(ack.encode("utf-8"))
                         except (BrokenPipeError, ConnectionResetError):
                             pass
                         last_wake_ids = set()  # force final manifest
+                    continue
+
+                if msg.get("cmd") == "begin_scout":
+                    # Mock quest-accept — spin up a new ExpeditionEngine in the
+                    # current biome. Default class from env (same as fresh
+                    # connect). Request body may override with "class_id".
+                    # If a scout is already active, no-op (send a courtesy ack).
+                    if expedition is not None:
+                        try:
+                            ack = json.dumps({
+                                "scout_status": "already_active",
+                                "class_id": expedition.class_id,
+                                "state": expedition.state.value,
+                            }) + "\n"
+                            client.sendall(ack.encode("utf-8"))
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        continue
+                    exp_class_id = msg.get("class_id") or os.environ.get(
+                        "EXPEDITION_CLASS", "anomaly_hunt")
+                    try:
+                        expedition = ExpeditionEngine.from_class_id(
+                            exp_class_id, biome_name)
+                        expedition.on_session_start(time.time())
+                        print(f"  → New scout: {exp_class_id} (biome={biome_name})",
+                              flush=True)
+                        ack_payload = {
+                            "scout_status": "started",
+                            "class_id": exp_class_id,
+                        }
+                    except Exception as exc:
+                        expedition = None
+                        print(f"  Scout start failed: {exc}", flush=True)
+                        ack_payload = {
+                            "scout_status": "error",
+                            "error": str(exc),
+                        }
+                    last_wake_ids = set()  # force next manifest so Godot sees overlay
+                    try:
+                        ack = json.dumps(ack_payload) + "\n"
+                        client.sendall(ack.encode("utf-8"))
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
                     continue
 
                 # Camera update — stash, only process the latest after drain

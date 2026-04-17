@@ -1731,6 +1731,19 @@ func _process_responses() -> void:
 			print("encounter_error: ", data["encounter_error"])
 			continue
 
+		# Scout-accept ack — brain signals a new expedition engine came up
+		# (or no-op if one was already active). No manifest change here;
+		# the next real manifest will carry expedition data.
+		if data.has("scout_status"):
+			match data["scout_status"]:
+				"started":
+					_show_toast("Scout accepted: %s" % data.get("class_id", "?"))
+				"already_active":
+					_show_toast("Scout already active")
+				"error":
+					_show_toast("Scout failed: %s" % data.get("error", "?"))
+			continue
+
 		# Full manifest update — brain sent new data, rebuild entities.
 		# The brain handles dirty detection via "unchanged" flag above.
 		# If we got here, the scene HAS changed — always rebuild.
@@ -3209,9 +3222,11 @@ func _on_deposit_result(result: Dictionary) -> void:
 
 
 func _on_expedition_resolution(data: Dictionary) -> void:
-	"""Brain acked a walk_through. If resolution=complete and
-	quit_godot=true, exit cleanly after a brief dwell so the last
-	toast is readable."""
+	"""Brain acked a walk_through. On 'complete' the brain also drops its
+	expedition reference, so subsequent manifests are pure endless roam
+	until the player hits [P] to begin a new scout. quit_godot stays
+	supported for the (now unusual) case where a recipe wants to hard-
+	exit the session."""
 	var resolution: String = data.get("resolution", "")
 	if resolution == "complete":
 		var log_path: String = data.get("log_path", "")
@@ -3220,6 +3235,8 @@ func _on_expedition_resolution(data: Dictionary) -> void:
 			_show_toast("Session complete.")
 			await get_tree().create_timer(0.6).timeout
 			get_tree().quit()
+		else:
+			_show_toast("Scout complete — [P] to begin another")
 	elif resolution == "exit_inactive":
 		# Player walked through before exit activated — no-op.
 		pass
@@ -4172,6 +4189,13 @@ func _input(event: InputEvent) -> void:
 				_show_toast("Shadow lab")
 			KEY_I:  # Toggle iso dev camera (ortho 3/4 top-down)
 				_toggle_iso_camera()
+			KEY_P:  # Begin scout — mock quest-accept hook. Brain spins up a
+			        # fresh ExpeditionEngine in the current biome. If a scout
+			        # is already active, brain no-ops with an ack.
+				if connected:
+					var msg := JSON.stringify({"cmd": "begin_scout"}) + "\n"
+					tcp.put_data(msg.to_utf8_buffer())
+					_show_toast("Scout requested")
 			KEY_1:
 				_send_cast_event("fire")
 			KEY_2:
