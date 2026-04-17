@@ -339,6 +339,16 @@ func _create_kind_material(kind: String) -> Material:
 	# structural landmarks and everything else stay solid.
 	mat.set_shader_parameter("ghost_chance", params.get("ghost_chance", 0.0))
 
+	# Distance fade-in band per kind. Anchors (mega_column/column/buttress)
+	# persist further into fog than tissue scatter (rubble/moss/gravel), so
+	# the silhouette ladder stays legible — landmarks visible out at the
+	# horizon, detail only near the player. Shader defaults (5m / 50m) kick
+	# in for kinds that don't override, which matches the mid/geological
+	# band. See design_wayfinding: "Every landmark must be lit" — silhouette
+	# persistence is the same idea in the fade axis.
+	mat.set_shader_parameter("fade_in_near", params.get("fade_in_near", 5.0))
+	mat.set_shader_parameter("fade_in_far", params.get("fade_in_far", 50.0))
+
 	# Vertex color path — designed kinds (toadstool, shrubs, fauna) bake
 	# color regions into mesh vertex data. When true, shader skips the
 	# facet-normal palette and reads COLOR directly. Stone kinds default

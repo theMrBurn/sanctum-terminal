@@ -173,7 +173,9 @@
         "darkness": 0.4
       },
       "sink": -0.15,
-      "scale_override": null
+      "scale_override": null,
+      "fade_in_near": 5.0,
+      "fade_in_far": 50.0
     },
     "structural": {
       "color_base": [
@@ -207,7 +209,9 @@
         "x": 2.2,
         "y": 1.0,
         "z": 2.2
-      }
+      },
+      "fade_in_near": 15.0,
+      "fade_in_far": 100.0
     },
     "crystalline": {
       "color_base": [
@@ -235,7 +239,9 @@
         "darkness": 0.3
       },
       "sink": -0.05,
-      "scale_override": null
+      "scale_override": null,
+      "fade_in_near": 10.0,
+      "fade_in_far": 80.0
     },
     "organic_flora": {
       "color_base": [
@@ -263,7 +269,9 @@
         "darkness": 0.2
       },
       "sink": -0.05,
-      "scale_override": null
+      "scale_override": null,
+      "fade_in_near": 2.0,
+      "fade_in_far": 25.0
     },
     "atmosphere": {
       "color_base": [
@@ -291,7 +299,9 @@
         "darkness": 0.0
       },
       "sink": 0.0,
-      "scale_override": null
+      "scale_override": null,
+      "fade_in_near": 2.0,
+      "fade_in_far": 25.0
     },
     "life": {
       "color_base": [
@@ -319,7 +329,9 @@
         "darkness": 0.0
       },
       "sink": 0.0,
-      "scale_override": null
+      "scale_override": null,
+      "fade_in_near": 3.0,
+      "fade_in_far": 35.0
     },
     "horizon": {
       "color_base": [
@@ -347,7 +359,9 @@
         "darkness": 0.0
       },
       "sink": 0.0,
-      "scale_override": null
+      "scale_override": null,
+      "fade_in_near": 0.0,
+      "fade_in_far": 400.0
     }
   },
   "kinds": {
@@ -461,6 +475,8 @@
       "spatial_class": "companion",
       "visual_radius": 0.4,
       "use_vertex_colors": true,
+      "fade_in_near": 2.0,
+      "fade_in_far": 25.0,
       "color_base": [
         0.37,
         0.33,
@@ -521,6 +537,8 @@
       "spatial_class": "companion",
       "visual_radius": 0.15,
       "use_vertex_colors": true,
+      "fade_in_near": 2.0,
+      "fade_in_far": 18.0,
       "color_base": [
         0.39,
         0.36,
