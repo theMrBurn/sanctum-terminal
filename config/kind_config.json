@@ -353,6 +353,7 @@
   "kinds": {
     "boulder": {
       "class": "geological",
+      "visual_radius": 0.9,
       "use_vertex_colors": true,
       "color_base": [
         0.3,
@@ -413,6 +414,8 @@
     },
     "stalagmite": {
       "class": "geological",
+      "spatial_class": "spike",
+      "visual_radius": 0.7,
       "color_base": [
         0.33,
         0.28,
@@ -455,6 +458,8 @@
     },
     "rubble": {
       "class": "geological",
+      "spatial_class": "companion",
+      "visual_radius": 0.4,
       "use_vertex_colors": true,
       "color_base": [
         0.37,
@@ -513,6 +518,8 @@
     },
     "cave_gravel": {
       "class": "geological",
+      "spatial_class": "companion",
+      "visual_radius": 0.15,
       "use_vertex_colors": true,
       "color_base": [
         0.39,
@@ -567,6 +574,8 @@
     },
     "mega_column": {
       "class": "structural",
+      "spatial_class": "spike",
+      "visual_radius": 4.5,
       "elemental_reactions": {
         "electric": "electric_pulse",
         "light": "reveal_glow"
@@ -611,6 +620,8 @@
     },
     "column": {
       "class": "structural",
+      "spatial_class": "spike",
+      "visual_radius": 2.3,
       "color_base": [
         0.26,
         0.23,
@@ -651,6 +662,7 @@
     },
     "buttress": {
       "class": "structural",
+      "visual_radius": 2.5,
       "use_vertex_colors": true,
       "color_base": [
         0.22,
@@ -725,6 +737,7 @@
     },
     "crystal_cluster": {
       "class": "crystalline",
+      "visual_radius": 2.0,
       "light_reactive": true,
       "use_vertex_colors": true,
       "elemental_reactions": {
@@ -802,6 +815,8 @@
     },
     "filament": {
       "class": "crystalline",
+      "spatial_class": "companion",
+      "visual_radius": 0.2,
       "light_reactive": true,
       "color_base": [
         0.48,
@@ -872,6 +887,8 @@
     },
     "giant_fungus": {
       "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 1.5,
       "use_vertex_colors": true,
       "elemental_reactions": {
         "fire": "fire_pulse",
@@ -948,6 +965,8 @@
     },
     "toadstool": {
       "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.4,
       "use_vertex_colors": true,
       "wind_strength": 0.02,
       "burial": {
@@ -997,6 +1016,8 @@
     },
     "spore_pod": {
       "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.5,
       "use_vertex_colors": true,
       "wind_strength": 0.0,
       "burial": {
@@ -1100,6 +1121,7 @@
     },
     "monolith": {
       "class": "structural",
+      "visual_radius": 1.0,
       "use_vertex_colors": true,
       "band_strength": 0.0,
       "taper_strength": 0.0,
@@ -1150,6 +1172,8 @@
     },
     "moss_patch": {
       "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.3,
       "use_vertex_colors": true,
       "color_base": [
         0.18,
@@ -1209,6 +1233,8 @@
     },
     "grass_tuft": {
       "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.3,
       "use_vertex_colors": true,
       "color_base": [
         0.24,
@@ -1263,6 +1289,7 @@
     },
     "dead_log": {
       "class": "organic_flora",
+      "visual_radius": 2.2,
       "color_base": [
         0.24,
         0.2,
@@ -1320,6 +1347,8 @@
     },
     "leaf_pile": {
       "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.2,
       "use_vertex_colors": true,
       "color_base": [
         0.34,
@@ -1374,6 +1403,8 @@
     },
     "twig_scatter": {
       "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.15,
       "use_vertex_colors": true,
       "color_base": [
         0.3,
@@ -1428,6 +1459,8 @@
     },
     "bone_pile": {
       "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.3,
       "use_vertex_colors": true,
       "color_base": [
         0.42,

@@ -17,6 +17,31 @@ from core.systems.biome_data import (
     HARD_OBJECTS, BIOME_REGISTRY, FORMATION_ARCHETYPES,
     CAVERN_FLOURISH_POOLS, OUTDOOR_FLOURISH_POOLS,
     FLOURISH_COUNT_RANGE, FLOURISH_RADIUS_RANGE,
+)
+from core.systems import kind_config as _kc
+
+# VISUAL_RADII — spawn keep-out uses this (kind_config.visual_radius × sv
+# mean). Replaces the old HARD_OBJECTS walking-margin values that were
+# 3-4× too wide for silhouette keep-out.
+_VISUAL_RADII = {k: float(v.get("visual_radius", 0.0))
+                 for k, v in _kc.all_kinds().items()}
+
+_VR_MEAN_SV = 1.3  # matches _make_entity sv mean across stamp/tile paths
+
+
+def _keepout_radius(kind: str) -> float:
+    """Per-kind keep-out radius for procedural placement. Uses visual_radius
+    (geometry hull) with sv mean applied so stamp-time rejection matches
+    runtime silhouette. Falls back to HARD_OBJECTS for kinds without
+    visual_radius (doorframe stays 0 to preserve walk-through)."""
+    vr = _VISUAL_RADII.get(kind, 0.0)
+    if vr > 0.0:
+        return vr * _VR_MEAN_SV
+    return float(HARD_OBJECTS.get(kind, 0.0))
+
+
+# Keep the original import pattern working
+from core.systems.biome_data import (  # noqa: E501
     CAVERN_ROOM_BEACONS, OUTDOOR_ROOM_BEACONS,
     CAVERN_STAMPS, OUTDOOR_STAMPS,
     CAVERN_STAMP_AFFINITY, OUTDOOR_STAMP_AFFINITY,
@@ -226,7 +251,10 @@ def _emit_cluster(archetype, center_x, center_y, spawns, solid_positions, rng):
     count = archetype["count"]
     spread = archetype["spread"]
     z_off = archetype.get("z_offset", 0.0)
-    clearance = HARD_OBJECTS.get(kind, 0)
+    # Own keep-out from kind_config.visual_radius × mean sv — represents
+    # the geometry hull, not the HARD_OBJECTS walking-margin. Small-kind
+    # floor of 0.3 ensures ground cover still reserves a spawn footprint.
+    clearance = max(_keepout_radius(kind), 0.3)
     placed = 0
     # First member at center (or near it if overhead cluster with z_offset)
     angles = [i * (360.0 / count) + rng.uniform(-25, 25) for i in range(count)]
@@ -235,16 +263,17 @@ def _emit_cluster(archetype, center_x, center_y, spawns, solid_positions, rng):
         dist = 0.0 if i == 0 else rng.uniform(spread * 0.5, spread)
         cx = center_x + math.cos(math.radians(angle)) * dist
         cy = center_y + math.sin(math.radians(angle)) * dist
-        # Collision check against existing solids
-        if clearance > 0:
-            too_close = False
-            for sx, sy, sc in solid_positions:
-                if (cx - sx) ** 2 + (cy - sy) ** 2 < (clearance + sc) ** 2:
-                    too_close = True
-                    break
-            if too_close:
-                continue
-            solid_positions.append((cx, cy, clearance))
+        # Always check against existing solids — no-own-clearance kinds still
+        # need to avoid spike hulls. Minkowski sum (clearance + sc) is
+        # spike-dominant when own clearance is tiny.
+        too_close = False
+        for sx, sy, sc in solid_positions:
+            if (cx - sx) ** 2 + (cy - sy) ** 2 < (clearance + sc) ** 2:
+                too_close = True
+                break
+        if too_close:
+            continue
+        solid_positions.append((cx, cy, clearance))
         meta = {"cluster_z_offset": z_off} if z_off > 0 else None
         spawns.append((kind, (cx, cy),
                        rng.uniform(0, 360), rng.randint(0, 99999), meta))
@@ -275,18 +304,19 @@ def _emit_flourishes(anchor_kind, anchor_x, anchor_y, spawns, solid_positions,
         radius = rng.uniform(min_radius, max_radius)
         fx = anchor_x + math.cos(math.radians(angle)) * radius
         fy = anchor_y + math.sin(math.radians(angle)) * radius
-        # Light collision check — don't overlap with solid hard objects
-        f_clearance = HARD_OBJECTS.get(flourish_kind, 0)
-        if f_clearance > 0:
-            too_close = False
-            for sx, sy, sc in solid_positions:
-                ddx, ddy = fx - sx, fy - sy
-                if ddx * ddx + ddy * ddy < (f_clearance + sc) ** 2:
-                    too_close = True
-                    break
-            if too_close:
-                continue
-            solid_positions.append((fx, fy, f_clearance))
+        # Always keep-out against solids — flourishes are companions that
+        # must not spawn inside spike visual hulls. 0.3m floor registers a
+        # small footprint so the next flourish doesn't overlap this one.
+        f_clearance = max(_keepout_radius(flourish_kind), 0.3)
+        too_close = False
+        for sx, sy, sc in solid_positions:
+            ddx, ddy = fx - sx, fy - sy
+            if ddx * ddx + ddy * ddy < (f_clearance + sc) ** 2:
+                too_close = True
+                break
+        if too_close:
+            continue
+        solid_positions.append((fx, fy, f_clearance))
         spawns.append((flourish_kind, (fx, fy),
                        rng.uniform(0, 360), rng.randint(0, 99999), None))
 

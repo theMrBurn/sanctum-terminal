@@ -47,7 +47,25 @@ from core.systems.stamp_world import get_visible as stamp_get_visible
 from core.systems.expedition_engine import ExpeditionEngine
 from core.systems.encounter_session import EncounterSession
 from core.systems.roaming_pool import RoamingPool
+from core.systems import kind_config as _kc
 from pathlib import Path
+
+
+# spatial_class derived sets — see tile_exchange.py for the rule.
+# spike: inversion-capable per-instance (stalactites)
+# companion: inherits attachment_plane from nearby spike host; never
+# independently inverts. Kills incoherent mixed-orientation clusters.
+_SPIKE_KINDS_SPATIAL = {k for k, v in _kc.all_kinds().items()
+                        if v.get("spatial_class") == "spike"}
+_COMPANION_KINDS_SPATIAL = {k for k, v in _kc.all_kinds().items()
+                            if v.get("spatial_class") == "companion"}
+_HOST_INHERIT_RADIUS_SQ = 8.0 * 8.0
+_STALACTITE_HASH_THRESHOLD = 0.40
+
+
+def _roll_spike_ceiling(x: float, y: float) -> bool:
+    """Deterministic stalactite roll — same hash in tile_exchange + Godot."""
+    return abs(math.sin(x * 2.71 + y * 5.43)) < _STALACTITE_HASH_THRESHOLD
 
 # Where expedition session logs land. Ignored by git (.gitignore
 # addition lands alongside commit 10). Each completed expedition
@@ -132,7 +150,9 @@ KIND_DECAY = {
 from core.systems import kind_config as _kc
 
 def _collision_radius_for(kind: str) -> float:
-    """Primary: kind_config physics.collision_radius. Fallback: HARD_OBJECTS."""
+    """Primary: kind_config physics.collision_radius. Fallback: HARD_OBJECTS.
+    Deprecated path — only kept for legacy callers. New collision emission
+    uses VISUAL_RADII × ent.sv per instance (see _make_entity paths)."""
     cfg_kind = _kc.kind(kind)
     cfg_radius = cfg_kind.get("physics", {}).get("collision_radius")
     if cfg_radius is not None:
@@ -140,6 +160,23 @@ def _collision_radius_for(kind: str) -> float:
     return float(HARD_OBJECTS.get(kind, 0.0))
 
 COLLISION_RADII = {k: _collision_radius_for(k) for k in _kc.all_kinds().keys() | HARD_OBJECTS.keys()}
+
+# VISUAL_RADII — nominal hull radius at sv=1.0 from kind_config.visual_radius.
+# Single source for BOTH player-stop collision and spawn keep-out. Brain
+# multiplies by ent.sv to get per-instance value. Kinds without visual_radius
+# (doorframe, creatures, atmosphere) are implicit walk-through (0).
+# Player stops only if per-instance radius >= PLAYER_STOP_THRESHOLD.
+PLAYER_STOP_THRESHOLD = 0.5
+
+VISUAL_RADII = {k: float(v.get("visual_radius", 0.0))
+                for k, v in _kc.all_kinds().items()}
+
+
+def _player_collision_radius(kind: str, sv: float) -> float:
+    """Per-instance player-stop radius. visual_radius × sv, zeroed for
+    walk-through kinds (small footprint companions like grass/moss)."""
+    r = VISUAL_RADII.get(kind, 0.0) * sv
+    return r if r >= PLAYER_STOP_THRESHOLD else 0.0
 
 
 # -- Multi-tile world ---------------------------------------------------------
@@ -250,14 +287,17 @@ class BrainWorld:
         half = self.tile_size / 2.0
 
         # Pre-pass: collect structural anchor positions for this tile so
-        # boulder proximity logic can reference them. O(n) over tile spawns.
+        # boulder proximity + companion host-inheritance can reference them.
+        # Spike kinds also get their stalactite roll decided here so companion
+        # inheritance can read it during the main spawn loop.
         _STRUCTURAL_KINDS = {"column", "mega_column", "buttress"}
         for spawn in tile_spawns:
             sk, (slx, sly), _, _, _ = spawn
-            if sk in _STRUCTURAL_KINDS:
+            if sk in _STRUCTURAL_KINDS or sk in _SPIKE_KINDS_SPATIAL:
                 sx_pos = slx - half + offset_x
                 sy_pos = sly - half + offset_y
-                self._structural_positions.append((sk, sx_pos, sy_pos))
+                is_ceiling = sk in _SPIKE_KINDS_SPATIAL and _roll_spike_ceiling(sx_pos, sy_pos)
+                self._structural_positions.append((sk, sx_pos, sy_pos, is_ceiling))
 
         for spawn in tile_spawns:
             # Spawns are 5-tuples: (kind, (x,y), heading, seed, metadata_or_None)
@@ -312,7 +352,7 @@ class BrainWorld:
             if kind in ("hanging_vine", "ceiling_moss"):
                 best_dist2 = 900.0  # 30m max search radius
                 snap_x, snap_y = x, y
-                for ak, ax, ay in self._structural_positions:
+                for ak, ax, ay, _ac in self._structural_positions:
                     dx, dy = x - ax, y - ay
                     d2 = dx * dx + dy * dy
                     if d2 < best_dist2 and d2 > 1.0:  # not ON the anchor
@@ -345,7 +385,7 @@ class BrainWorld:
                 "g": round(g * srng.uniform(0.85, 1.15), 3),
                 "b": round(b * srng.uniform(0.85, 1.15), 3),
                 "emissive": props["emissive"],
-                "collision_radius": COLLISION_RADII.get(kind, 0.0),
+                "collision_radius": _player_collision_radius(kind, sv),
                 "tile_variant": self.tile_variants.get((tx, ty), "standard"),
                 "behavior_type": KIND_BEHAVIOR.get(kind, ""),
                 "decay_stage": KIND_DECAY.get(kind, 0.0),
@@ -355,23 +395,28 @@ class BrainWorld:
             if kind in ("ceiling_moss", "hanging_vine"):
                 ent["attachment_plane"] = "ceiling"
 
-            # Stalactite inversion — brain owns this decision so buttresses
-            # and other formation logic can respect it. Same hash Godot used
-            # to use, now authoritative from the brain side.
-            if kind in ("mega_column", "column"):
-                variant_hash = abs(math.sin(x * 2.71 + y * 5.43))
-                if variant_hash < 0.40:
-                    ent["attachment_plane"] = "ceiling"
-                else:
-                    ent["attachment_plane"] = "floor"
+            # Spike inversion — authoritative stalactite roll for the spike
+            # spatial_class (mega_column, column, stalagmite). Decision is
+            # already in _structural_positions so companions can inherit.
+            if kind in _SPIKE_KINDS_SPATIAL:
+                ent["attachment_plane"] = "ceiling" if _roll_spike_ceiling(x, y) else "floor"
 
-            # Emissive inversion — stagger light sources between floor and
-            # ceiling planes. Same competing strategy as column/stalactite.
-            # ~30% of crystal_cluster and giant_fungus flip to ceiling.
-            # Creates the bloom-from-above that competes with floor pools.
-            if kind in ("crystal_cluster", "giant_fungus"):
-                emissive_hash = abs(math.sin(x * 3.91 + y * 7.23))
-                if emissive_hash < 0.30:
+            # Companion host-inheritance — fungus, grass, moss, etc never
+            # flip independently. Find the nearest spike host within
+            # _HOST_INHERIT_RADIUS_SQ; if the host is ceiling-attached, the
+            # companion inherits ceiling and re-positions below the ceiling
+            # plane. Kills the old "upside-down fungus beside upright fungus"
+            # incoherence AND enables hanging grass/fungus on stalactite hosts.
+            elif kind in _COMPANION_KINDS_SPATIAL:
+                host_ceiling = False
+                best_d2 = _HOST_INHERIT_RADIUS_SQ
+                for ak, ax, ay, ac in self._structural_positions:
+                    dx, dy = x - ax, y - ay
+                    d2 = dx * dx + dy * dy
+                    if d2 < best_d2:
+                        best_d2 = d2
+                        host_ceiling = ac
+                if host_ceiling:
                     ent["attachment_plane"] = "ceiling"
                     ent["z"] = round(self.ceiling_y - rng.uniform(0.5, 2.0), 2)
 

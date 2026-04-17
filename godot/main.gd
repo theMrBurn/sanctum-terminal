@@ -10,6 +10,11 @@ const EYE_HEIGHT := 2.5
 const SERVER_HOST := "127.0.0.1"
 const SERVER_PORT := 9877
 
+# Debug toggles. CREATURE_VERBOSE prints per-creature dist/flee heartbeats
+# once per second for every active creature. Off by default because at
+# 20+ creatures it dominates the stdout log and nudges frame time.
+const CREATURE_VERBOSE := false
+
 # FarCry/Skyrim-style FPS extensions — additive layer over the base camera
 # controller. See godot/player/fps_player.gd for the standalone prototype
 # this mirrors. Tuning knobs kept adjacent for easy in-place tweaking.
@@ -48,6 +53,15 @@ var lean_state: float = 0.0                # -1 (L), 0 (none), 1 (R)
 
 # Collision
 var collision_objects: Array[Dictionary] = []
+
+# Spatial cull — player physics iterates nearby_colliders instead of the full
+# collision_objects (which can be 800+ entries). Refreshed when the player
+# drifts more than COLLIDER_CULL_REFRESH meters from the cached position or
+# when _rebuild_entities swaps the underlying set.
+var nearby_colliders: Array[Dictionary] = []
+var last_cull_pos: Vector2 = Vector2(INF, INF)
+const COLLIDER_CULL_RADIUS: float = 15.0
+const COLLIDER_CULL_REFRESH: float = 5.0
 
 # Mesh cache
 var mesh_cache: Dictionary = {}
@@ -820,11 +834,13 @@ func _spawn_plane(p: Dictionary) -> void:
 			mi.rotation_degrees.x = 180.0
 		mi.position.y = offset
 	elif abs(nx) > 0.5:
-		# Left/right wall — rotate around Z to face laterally
-		mi.rotation_degrees.z = 90.0 if nx > 0.0 else -90.0
+		# Left/right wall — rotate so the PlaneMesh's +Y default face lands
+		# on the biome-declared inward normal. Kept for any future biome
+		# that opts back into wall planes; cavern no longer uses them.
+		mi.rotation_degrees.z = -90.0 if nx > 0.0 else 90.0
 		mi.position.x = offset
 	elif abs(ny) > 0.5:
-		# Front/back wall — rotate around X (brain Y = godot Z)
+		# Front/back wall — rotate around X (brain Y = godot Z).
 		mi.rotation_degrees.x = 90.0 if ny > 0.0 else -90.0
 		mi.position.z = offset
 	add_child(mi)
@@ -919,14 +935,16 @@ func _spawn_entities() -> void:
 			by_kind[kind] = []
 		by_kind[kind].append(ent)
 
-		var coll_r: float = ent.get("collision_radius", 0.0)
-		if coll_r > 0.0:
-			# Skip collision for ceiling-attached entities — they hang above head height.
-			if ent.get("attachment_plane", "") != "ceiling":
-				collision_objects.append({"x": ent.get("x", 0.0), "z": ent.get("y", 0.0), "r": coll_r})
-
+	# Per-instance collision is emitted inside _create_multimesh_variant
+	# using the actual applied xform — brain's single collision_radius
+	# couldn't match Godot's per-instance p_hash XZ variance, leaving mega
+	# kinds clip-throughable. See biome_data.py PLAYER_COLLISION_RADII
+	# comment for the deferred-refactor history.
 	for kind: String in by_kind:
 		_create_multimesh_for_kind(kind, by_kind[kind])
+	# Initial cull window — player physics reads this instead of the full
+	# collision_objects set (spatial cull for perf, see _refresh_nearby_colliders).
+	_refresh_nearby_colliders(camera.position.x, camera.position.z)
 	_spawn_contact_shadows(by_kind)
 
 
@@ -1048,12 +1066,11 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			# Together these create the real eroded-cavern look: stalagmites rising
 			# from the floor AND stalactites hanging from above.
 			if kind == "mega_column" or kind == "column":
-				# Brain owns the stalactite decision via attachment_plane field.
-				# Fallback to hash for static manifests without the field.
+				# Brain is authoritative — spike spatial_class emits
+				# attachment_plane per instance (see tile_exchange.py
+				# _roll_spike_ceiling). No Godot-side hash fallback: if the
+				# field is missing we trust that as intentionally upright.
 				var is_stalactite: bool = ent.get("attachment_plane", "") == "ceiling"
-				if not ent.has("attachment_plane"):
-					var variant_hash: float = abs(sin(ent.get("x", 0.0) * 2.71 + ent.get("y", 0.0) * 5.43))
-					is_stalactite = variant_hash < 0.40
 				if is_stalactite:
 					# Stalactite variant — narrow hanging form, elongated not fat
 					var sx_sc: float = base_s * (0.40 + p_hash * 0.25)   # 0.40-0.65
@@ -1212,6 +1229,19 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 			ent.get("y", 0.0)
 		)
 		xform.origin = pos
+
+		# Per-instance collision — brain emits visual_radius × sv directly
+		# in ent.collision_radius (single source of truth: kind_config.
+		# physics.visual_radius). No AABB math, no mesh-bounds lookup. One
+		# number per kind × per-instance scale. Ceiling-attached skip.
+		var brain_r: float = float(ent.get("collision_radius", 0.0))
+		if brain_r > 0.0 and ent.get("attachment_plane", "") != "ceiling":
+			collision_objects.append({
+				"x": ent.get("x", 0.0),
+				"z": ent.get("y", 0.0),
+				"r": brain_r,
+			})
+
 		mm.set_instance_transform(i, xform)
 
 		# Phase 2 — encode layer membership into custom data (per instance).
@@ -1517,10 +1547,8 @@ func _rebuild_entities() -> void:
 		if not new_by_kind.has(kind):
 			new_by_kind[kind] = []
 		new_by_kind[kind].append(ent)
-		var coll_r: float = ent.get("collision_radius", 0.0)
-		if coll_r > 0.0:
-			if ent.get("attachment_plane", "") != "ceiling":
-				collision_objects.append({"x": ent.get("x", 0.0), "z": ent.get("y", 0.0), "r": coll_r})
+		# Collision emission moved to _create_multimesh_variant — per-instance
+		# xform gives accurate radius for mega kinds (mirrors _spawn_entities).
 
 	# Remove kinds no longer present
 	var old_kinds := kind_nodes.keys()
@@ -1538,6 +1566,10 @@ func _rebuild_entities() -> void:
 		if kind_nodes.has(kind) and is_instance_valid(kind_nodes[kind]):
 			kind_nodes[kind].queue_free()
 		_create_multimesh_for_kind(kind, ents)
+
+	# Collision set just changed; refresh the spatial-cull window around
+	# the current camera position so player physics reads the new set.
+	_refresh_nearby_colliders(camera.position.x, camera.position.z)
 
 	# Stone density texture — refresh from current entity positions
 	# and push to all ground plane materials so the ground shader can
@@ -2331,7 +2363,7 @@ func _update_creatures(delta: float) -> void:
 		var dx: float = node.position.x - camera.position.x
 		var dz: float = node.position.z - camera.position.z
 		var dist: float = sqrt(dx * dx + dz * dz)
-		if Engine.get_process_frames() % 60 == 0:
+		if CREATURE_VERBOSE and Engine.get_process_frames() % 60 == 0:
 			print("CREATURE %s dist=%.1f flee_radius=%.1f speed=%.1f fleeing=%s" % [
 				c["kind"], dist, cfg.get("flee_radius", 0.0), cfg.get("speed", 0.0), str(c["fleeing"])])
 
@@ -2533,10 +2565,29 @@ func _update_flight_creature(c: Dictionary, cfg: Dictionary, node: Node3D, delta
 	c["vel"] = vel
 
 
+func _refresh_nearby_colliders(px: float, pz: float) -> void:
+	# Spatial cull — rebuild nearby_colliders from collision_objects for
+	# colliders within COLLIDER_CULL_RADIUS of (px, pz). Player push-out
+	# iterates the culled list (~30 entries) instead of the full set
+	# (800+). Refresh whenever the player strays more than
+	# COLLIDER_CULL_REFRESH meters from the cached pos, or when the
+	# underlying collision_objects set changes.
+	nearby_colliders.clear()
+	var r2: float = COLLIDER_CULL_RADIUS * COLLIDER_CULL_RADIUS
+	for coll: Dictionary in collision_objects:
+		var dx: float = float(coll.get("x", 0.0)) - px
+		var dz: float = float(coll.get("z", 0.0)) - pz
+		if dx * dx + dz * dz <= r2:
+			nearby_colliders.append(coll)
+	last_cull_pos = Vector2(px, pz)
+
+
 func _push_out_of_collision(pos: Vector3, radius: float) -> Vector3:
 	# Mirrors the player's push-out in _physics_process. Iterates scenery
 	# collision_objects and ejects pos along the separating axis if the
 	# creature overlaps a solid. XZ only — y is driven by hover/terrain.
+	# Creatures use the full list (they scatter across the world and can
+	# push-out anywhere); only the player uses nearby_colliders cull.
 	for coll: Dictionary in collision_objects:
 		var cdx: float = pos.x - coll["x"]
 		var cdz: float = pos.z - coll["z"]
@@ -2730,6 +2781,92 @@ func _save_tag(reason: String = "neutral") -> void:
 		var msg_str: String = JSON.stringify(msg_obj) + "\n"
 		tcp.put_data(msg_str.to_utf8_buffer())
 		pending_tag_intents[tag_count] = tag_payload
+
+
+# -- Stamp capture ---------------------------------------------------------
+# Shift+Cmd+T captures the composition around the player as a drop-in stamp
+# for biome_data.CAVERN_STAMPS. Output: godot/stamps/captured_<ts>.json with
+# a ready-to-paste stamp dict (name, weight, members list). Positions are
+# player-relative (dx/dy), so re-applying at any slot reproduces the scene.
+# Author-interesting kinds only — ambient/creature/pure decor skipped so the
+# captured stamp composes with procedural tissue scatter instead of fighting.
+
+const STAMP_CAPTURE_RADIUS_M: float = 20.0
+const STAMP_CAPTURE_SKIP_KINDS: Array = [
+	"firefly", "leaf", "beetle", "rat", "rat_ice", "rat_fire", "rat_water",
+	"spider", "bat", "orb", "clay_pot", "treasure_chest", "shadow_orb",
+	"horizon_form", "horizon_mid", "horizon_near", "exit_lure",
+]
+# Kinds that get stamp_member.hard=true — anchor geometry that world_gen
+# uses for composition clearance. Everything else defaults to hard=false
+# (tissue scatter, soft companions) so the captured stamp's density plays
+# nice with procedural companions layered on top.
+const STAMP_CAPTURE_HARD_KINDS: Array = [
+	"mega_column", "column", "stalagmite", "boulder", "buttress",
+	"crystal_cluster", "giant_fungus", "dead_log", "monolith", "doorframe",
+]
+
+
+func _save_stamp_capture() -> void:
+	var cx: float = camera.position.x
+	var cy: float = camera.position.z  # godot z axis = brain y axis
+	var r2: float = STAMP_CAPTURE_RADIUS_M * STAMP_CAPTURE_RADIUS_M
+	var skip := {}
+	for k in STAMP_CAPTURE_SKIP_KINDS:
+		skip[k] = true
+	var hard_set := {}
+	for k in STAMP_CAPTURE_HARD_KINDS:
+		hard_set[k] = true
+
+	var members: Array = []
+	for ent: Dictionary in manifest.get("entities", []):
+		var kind: String = ent.get("kind", "")
+		if skip.has(kind):
+			continue
+		var ex: float = float(ent.get("x", 0.0))
+		var ey: float = float(ent.get("y", 0.0))
+		var dx: float = ex - cx
+		var dy: float = ey - cy
+		if dx * dx + dy * dy > r2:
+			continue
+		# scale_mult reversal — _make_entity emits sv = U(0.75,1.25) × 1.30 × scale_mult.
+		# Approximate scale_mult as sv / 1.30 (dropping per-instance jitter is fine
+		# because replay applies its own sv variance at re-spawn).
+		var sv: float = float(ent.get("sv", 1.3))
+		var member: Dictionary = {
+			"kind": kind,
+			"dx": snapped(dx, 0.1),
+			"dy": snapped(dy, 0.1),
+			"scale_mult": snapped(sv / 1.30, 0.01),
+			"hard": hard_set.has(kind),
+		}
+		var ap: String = ent.get("attachment_plane", "")
+		if ap != "":
+			member["attachment_plane"] = ap
+		members.append(member)
+
+	var ts: int = int(Time.get_unix_time_from_system())
+	var stamp := {
+		"name": "captured_%d" % ts,
+		# Footprint must match the capture radius so test_members_within_footprint
+		# accepts the pasted stamp. Re-tune by hand if you want a tighter bound.
+		"footprint": STAMP_CAPTURE_RADIUS_M,
+		"weight": 1,
+		"members": members,
+	}
+
+	var stamp_dir: String = "/Users/themrburn/git/sanctum-terminal/godot/stamps"
+	DirAccess.make_dir_recursive_absolute(stamp_dir)
+	var path: String = "%s/captured_%d.json" % [stamp_dir, ts]
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file:
+		file.store_string(JSON.stringify(stamp, "  "))
+		file.close()
+		print("STAMP CAPTURED: %s (%d members)" % [path, members.size()])
+		_show_toast("Stamp captured: %d members" % members.size())
+	else:
+		print("STAMP CAPTURE FAILED: could not open %s" % path)
+		_show_toast("Stamp capture failed")
 
 
 # -- Cast input ------------------------------------------------------------
@@ -3720,22 +3857,28 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
 			KEY_T, KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_BACKSLASH:  # telemetry tag
-				# Modifier-keyed semantic categories. Plain T = neutral
-				# (legacy / unannotated). Modifiers tell the brain WHY:
-				#   Shift+T  → interesting   (deliberate positive)
-				#   Alt+T    → beautiful     (aesthetic)
-				#   Ctrl+T   → dangerous     (warning)
-				#   Cmd+T    → weird         (anomaly)
-				var reason := "neutral"
-				if event.shift_pressed:
-					reason = "interesting"
-				elif event.alt_pressed:
-					reason = "beautiful"
-				elif event.ctrl_pressed:
-					reason = "dangerous"
-				elif event.meta_pressed:
-					reason = "weird"
-				_save_tag(reason)
+				# Shift+Cmd+T (chord) captures the current composition as a
+				# stamp template — drop-in CAVERN_STAMPS entry. Check before
+				# the single-modifier branches so the chord takes priority.
+				if event.shift_pressed and event.meta_pressed:
+					_save_stamp_capture()
+				else:
+					# Modifier-keyed semantic categories. Plain T = neutral
+					# (legacy / unannotated). Modifiers tell the brain WHY:
+					#   Shift+T  → interesting   (deliberate positive)
+					#   Alt+T    → beautiful     (aesthetic)
+					#   Ctrl+T   → dangerous     (warning)
+					#   Cmd+T    → weird         (anomaly)
+					var reason := "neutral"
+					if event.shift_pressed:
+						reason = "interesting"
+					elif event.alt_pressed:
+						reason = "beautiful"
+					elif event.ctrl_pressed:
+						reason = "dangerous"
+					elif event.meta_pressed:
+						reason = "weird"
+					_save_tag(reason)
 			KEY_L:  # cycle light state
 				if connected:
 					var msg := JSON.stringify({"cmd": "light_cycle"}) + "\n"
@@ -3824,7 +3967,16 @@ func _physics_process(delta: float) -> void:
 
 	var new_pos: Vector3 = camera.position + dir * speed * delta
 
-	for coll: Dictionary in collision_objects:
+	# Spatial cull — refresh the nearby_colliders window when the player
+	# drifts out of the cached zone. Push-out then iterates the culled
+	# list (~30) instead of the full collision_objects (800+). Physics
+	# hot path cost drops ~25× compared to iterating the full set.
+	var _cull_dx: float = new_pos.x - last_cull_pos.x
+	var _cull_dz: float = new_pos.z - last_cull_pos.y
+	if _cull_dx * _cull_dx + _cull_dz * _cull_dz > COLLIDER_CULL_REFRESH * COLLIDER_CULL_REFRESH:
+		_refresh_nearby_colliders(new_pos.x, new_pos.z)
+
+	for coll: Dictionary in nearby_colliders:
 		var dx: float = new_pos.x - coll["x"]
 		var dz: float = new_pos.z - coll["z"]
 		var dist_sq: float = dx * dx + dz * dz

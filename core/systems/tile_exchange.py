@@ -28,6 +28,47 @@ from core.systems.spatial_wake import WakeChain, WAKE_CHAINS
 from core.systems.world_gen import generate_tile
 from core.systems.macro_stamp import terrain_height, set_active_stamp
 from core.systems.ambient_life import set_active_biome
+from core.systems import kind_config as _kc
+
+
+# VISUAL_RADII — nominal hull at sv=1.0; per-instance = × ent.sv. Mirror of
+# brain_server's same constant. Kinds without visual_radius default to 0
+# (walk-through / atmospheric).
+PLAYER_STOP_THRESHOLD = 0.5
+VISUAL_RADII = {k: float(v.get("visual_radius", 0.0))
+                for k, v in _kc.all_kinds().items()}
+
+
+def _player_collision_radius(kind: str, sv: float) -> float:
+    r = VISUAL_RADII.get(kind, 0.0) * sv
+    return r if r >= PLAYER_STOP_THRESHOLD else 0.0
+
+
+# Derived sets from kind_config.spatial_class — single source of truth.
+# spike: tapered primitive, inversion-capable per-instance (stalactites).
+# companion: small organic/scatter, inherits attachment_plane from nearby
+# spike host — NEVER independently inverts. This is the rule that kills
+# "upside-down fungus beside upright fungus" incoherence.
+_SPIKE_KINDS = {k for k, v in _kc.all_kinds().items()
+                if v.get("spatial_class") == "spike"}
+_COMPANION_KINDS = {k for k, v in _kc.all_kinds().items()
+                    if v.get("spatial_class") == "companion"}
+
+# Radius within which a companion adopts a spike host's attachment. Tuned
+# to the typical stamp cluster diameter — tight enough that two nearby
+# spikes with different attachments don't cross-contaminate companions.
+_HOST_INHERIT_RADIUS_SQ = 8.0 * 8.0
+
+# Same hash Godot used for stalactite roll — now brain-authoritative.
+# 40% of spikes go ceiling, 60% floor. Deterministic per (x, y).
+_STALACTITE_HASH_THRESHOLD = 0.40
+
+
+def _roll_spike_ceiling(x: float, y: float) -> bool:
+    """Deterministic stalactite roll for spike kinds. Same hash as Godot
+    previously used, now authoritative on brain side so companions can
+    inherit the decision."""
+    return abs(math.sin(x * 2.71 + y * 5.43)) < _STALACTITE_HASH_THRESHOLD
 
 
 # -- Kind properties (shared with brain_server.py) ----------------------------
@@ -243,13 +284,17 @@ class TileExchange:
         offset_y = ty * self.tile_size
         half = self.tile_size / 2.0
 
-        # Pre-pass: structural positions for this tile
+        # Pre-pass: structural positions for this tile + spike ceiling status
+        # so companions can deterministically inherit attachment from nearby
+        # spike anchors (stalactite host → hanging companions, upright host →
+        # ground companions, no mixed orientation within a cluster).
         for spawn in tile_spawns:
             sk, (slx, sly), _, _, _ = spawn
-            if sk in _STRUCTURAL_KINDS:
+            if sk in _STRUCTURAL_KINDS or sk in _SPIKE_KINDS:
                 sx_pos = slx - half + offset_x
                 sy_pos = sly - half + offset_y
-                self._structural_positions.append((sk, sx_pos, sy_pos))
+                is_ceiling = sk in _SPIKE_KINDS and _roll_spike_ceiling(sx_pos, sy_pos)
+                self._structural_positions.append((sk, sx_pos, sy_pos, is_ceiling))
 
         roster = []
         for spawn in tile_spawns:
@@ -296,7 +341,7 @@ class TileExchange:
             if kind in ("hanging_vine", "ceiling_moss"):
                 best_dist2 = 900.0
                 snap_x, snap_y = x, y
-                for ak, ax, ay in self._structural_positions:
+                for ak, ax, ay, _ac in self._structural_positions:
                     dx, dy = x - ax, y - ay
                     d2 = dx * dx + dy * dy
                     if d2 < best_dist2 and d2 > 1.0:
@@ -326,26 +371,40 @@ class TileExchange:
                 "g": round(g * srng.uniform(0.85, 1.15), 3),
                 "b": round(b * srng.uniform(0.85, 1.15), 3),
                 "emissive": props["emissive"],
-                "collision_radius": COLLISION_RADII.get(kind, 0.0),
+                "collision_radius": _player_collision_radius(kind, sv),
                 "tile_variant": self._tile_variants.get((tx, ty), "standard"),
                 "behavior_type": KIND_BEHAVIOR.get(kind, ""),
                 "decay_stage": KIND_DECAY.get(kind, 0.0),
                 "_chain_index": self.wake_chain.chain_index(kind),
             }
 
-            # Ceiling attachment
+            # Ceiling-bound kinds — always overhead regardless of host.
             if kind in ("ceiling_moss", "hanging_vine"):
                 ent["attachment_plane"] = "ceiling"
 
-            # Stalactite inversion
-            if kind in ("mega_column", "column"):
-                variant_hash = abs(math.sin(x * 2.71 + y * 5.43))
-                ent["attachment_plane"] = "ceiling" if variant_hash < 0.40 else "floor"
+            # Spike inversion — spikes (stalagmite/column/mega_column) roll
+            # independently per-instance via deterministic hash. The decision
+            # is recorded in _structural_positions so companions can inherit.
+            elif kind in _SPIKE_KINDS:
+                ent["attachment_plane"] = "ceiling" if _roll_spike_ceiling(x, y) else "floor"
 
-            # Emissive inversion
-            if kind in ("crystal_cluster", "giant_fungus"):
-                emissive_hash = abs(math.sin(x * 3.91 + y * 7.23))
-                if emissive_hash < 0.30:
+            # Companion host-inheritance — companions (fungus, grass, moss,
+            # rubble, etc) never flip independently. They look up the nearest
+            # spike anchor within _HOST_INHERIT_RADIUS_SQ; if that host rolled
+            # ceiling, the companion inherits ceiling and gets re-positioned
+            # at a random Y below the ceiling plane. This kills the old
+            # "upside-down fungus beside upright fungus" incoherence AND
+            # gives hanging grass/fungus on stalactite clusters.
+            elif kind in _COMPANION_KINDS:
+                host_ceiling = False
+                best_d2 = _HOST_INHERIT_RADIUS_SQ
+                for ak, ax, ay, ac in self._structural_positions:
+                    dx, dy = x - ax, y - ay
+                    d2 = dx * dx + dy * dy
+                    if d2 < best_d2:
+                        best_d2 = d2
+                        host_ceiling = ac
+                if host_ceiling:
                     ent["attachment_plane"] = "ceiling"
                     ent["z"] = round(self._ceiling_y - rng.uniform(0.5, 2.0), 2)
 

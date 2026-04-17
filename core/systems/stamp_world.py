@@ -32,9 +32,42 @@ from core.systems.biome_data import (
     ORIGIN_HUB,
     ENCOUNTER_TEST,
     SHADOW_LAB,
+    HARD_OBJECTS,
     PLAYER_COLLISION_RADII,
 )
 from core.systems.bucket_world import KIND_PROPS
+from core.systems import kind_config as _kc
+
+
+# Spike spatial_class — nothing that isn't also a spike is allowed to spawn
+# inside a spike's VISUAL hull (kind_config.physics.visual_radius). Spikes
+# can overlap each other (same primitive family); companions sit OUTSIDE.
+_SPIKE_KINDS_KEEPOUT = {k for k, v in _kc.all_kinds().items()
+                        if v.get("spatial_class") == "spike"}
+
+# Minimum companion-to-companion separation to prevent overlap piles.
+# Small — they're meant to enhance, not stack.
+_COMPANION_MIN_SEP = 0.5
+
+# Shared with brain_server / tile_exchange — single number per kind, ×sv
+# for per-instance. Walk-through threshold keeps grass/moss non-blocking
+# to the player while still preserving a spawn footprint for separation.
+PLAYER_STOP_THRESHOLD = 0.5
+VISUAL_RADII = {k: float(v.get("visual_radius", 0.0))
+                for k, v in _kc.all_kinds().items()}
+
+
+def _player_collision_radius(kind: str, sv: float) -> float:
+    r = VISUAL_RADII.get(kind, 0.0) * sv
+    return r if r >= PLAYER_STOP_THRESHOLD else 0.0
+
+
+def _spike_visual_radius(kind: str, sv: float = 1.3) -> float:
+    """Spike hull radius for spawn keep-out. Reads the authored
+    kind_config.physics.visual_radius directly — simple center + radius,
+    one number per kind. Default sv=1.3 mirrors _make_entity's mean
+    scale so stamp-time keep-out matches per-instance rendered hulls."""
+    return VISUAL_RADII.get(kind, 0.0) * sv
 
 
 # Mega stamps — these get filtered out of the neighborhood around the
@@ -97,11 +130,9 @@ def _make_entity(kind: str, x: float, y: float, rng: random.Random,
                  scale_mult: float = 1.0) -> Dict | None:
     """Build an entity dict from KIND_PROPS + per-instance jitter.
 
-    collision_radius is read from PLAYER_COLLISION_RADII (biome_data.py)
-    and scaled by the per-instance variant scale so small variants get
-    proportionally smaller collision. Kinds not in the table get 0 —
-    tissue, tissue-sized scatter, atmospheric kinds, and intentionally-
-    walkable structures (doorframe) all walk-through by default.
+    collision_radius is read from kind_config.physics.visual_radius × sv.
+    Walk-through kinds (visual_radius < PLAYER_STOP_THRESHOLD per instance)
+    emit 0. Single source of truth shared with brain_server + tile_exchange.
     """
     props = KIND_PROPS.get(kind)
     if props is None:
@@ -109,10 +140,7 @@ def _make_entity(kind: str, x: float, y: float, rng: random.Random,
     sv = rng.uniform(0.75, 1.25) * 1.30 * scale_mult
     sx, sy_s, sz = props["scale"]
     r, g, b = props["color"]
-    coll_base = PLAYER_COLLISION_RADII.get(kind, 0.0)
-    # Scale collision by the same variance multiplier as the visual size
-    # (normalized by the 1.30 global boost so radius matches visual footprint).
-    coll_radius = coll_base * (sv / 1.30)
+    coll_radius = _player_collision_radius(kind, sv)
     return {
         "kind": kind,
         "x": round(x, 2),
@@ -240,30 +268,81 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     sin_r = [0, 1, 0, -1][rotation_steps]
 
     roster = []
+    # Track solid positions (x, y, keep_out_radius). Spikes go first so the
+    # spike hulls are populated before any companion placement can overlap.
+    # Spike-on-spike overlap is allowed (same primitive family); every
+    # non-spike member is tested against all already-placed spike hulls
+    # and rejected if inside — per user rule "nothing spawns within the
+    # internal boundaries of spike types" (applies to authored stamp
+    # members too, not just procedural scatter).
+    solid_positions: list[tuple[float, float, float]] = []
+
+    # Pass 1 — spike members (overlap allowed between spikes).
+    pending_nonspike: list[tuple[str, float, float, float]] = []
     for member in stamp["members"]:
         kind = member["kind"]
         dx_local = member.get("dx", 0.0)
         dy_local = member.get("dy", 0.0)
-        # Rotate around stamp center
         dx_world = dx_local * cos_r - dy_local * sin_r
         dy_world = dx_local * sin_r + dy_local * cos_r
         x = cx + dx_world
         y = cy + dy_world
         scale_mult = member.get("scale_mult") or 1.0
+        if kind in _SPIKE_KINDS_KEEPOUT:
+            ent = _make_entity(kind, x, y, rng, scale_mult)
+            if ent is not None:
+                roster.append(ent)
+                solid_positions.append((x, y, _spike_visual_radius(kind)))
+        else:
+            pending_nonspike.append((kind, x, y, scale_mult))
+
+    # Pass 2 — non-spike authored members. Each candidate rejected if its
+    # center sits inside a spike hull from pass 1. Companions that survive
+    # get registered with a small footprint so later scatter doesn't pile.
+    for kind, x, y, scale_mult in pending_nonspike:
+        blocked = False
+        for sx, sy, sr in solid_positions:
+            if (x - sx) ** 2 + (y - sy) ** 2 < sr * sr:
+                blocked = True
+                break
+        if blocked:
+            continue
         ent = _make_entity(kind, x, y, rng, scale_mult)
         if ent is not None:
             roster.append(ent)
+            solid_positions.append((x, y, _COMPANION_MIN_SEP))
 
     # Tissue scatter — fills the negative space within the slot bounds.
     # Each tissue kind rolls its count, positions are within the slot square.
+    # Spike hulls and neighbor companions reject candidates to keep geometry
+    # from overlapping — companions enhance clusters, never pile into them.
     half = SLOT_SIZE / 2.0
     for kind, count in _tissue_for(biome_name):
         for _ in range(count):
-            x = cx + rng.uniform(-half, half)
-            y = cy + rng.uniform(-half, half)
-            ent = _make_entity(kind, x, y, rng)
-            if ent is not None:
-                roster.append(ent)
+            placed = False
+            for _attempt in range(6):
+                x = cx + rng.uniform(-half, half)
+                y = cy + rng.uniform(-half, half)
+                too_close = False
+                for sx, sy, sr in solid_positions:
+                    dx = x - sx
+                    dy = y - sy
+                    if dx * dx + dy * dy < sr * sr:
+                        too_close = True
+                        break
+                if too_close:
+                    continue
+                ent = _make_entity(kind, x, y, rng)
+                if ent is not None:
+                    roster.append(ent)
+                    solid_positions.append((x, y, _COMPANION_MIN_SEP))
+                placed = True
+                break
+            if not placed:
+                # All 6 attempts collided — drop this scatter slot silently.
+                # Rejecting a few tissue entries is preferable to packing
+                # them into spike hulls; scatter density isn't load-bearing.
+                pass
 
     return roster
 
