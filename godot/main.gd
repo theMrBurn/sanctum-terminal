@@ -29,6 +29,23 @@ const CAMERA_LERP_SMOOTHNESS: float    = 10.0
 const PITCH_MIN := -80.0 * PI / 180.0
 const PITCH_MAX :=  80.0 * PI / 180.0
 
+# Flip to true to drive player movement through a real CharacterBody3D +
+# move_and_slide instead of the hand-rolled Camera3D push-out. Both paths
+# live side-by-side during the physics migration so we can UAT both and
+# fall back by flipping the const if the new path misbehaves. Planned
+# removal: once UAT passes at commit 1, delete the old branch + this flag.
+const USE_PHYSICS_RIG := true
+# Player capsule — matches godot/player/fps_player.tscn.
+const PLAYER_CAPSULE_RADIUS: float = 0.4
+const PLAYER_CAPSULE_HEIGHT: float = 1.8
+# Entity colliders — cylinder height is a hardcoded approximation for the
+# first physics pass (kind_config doesn't yet carry per-kind collider height).
+# Spawn-radius cull keeps creation cost bounded on large tile rebuilds;
+# entities outside the radius still emit the legacy dict for creature
+# push-out, they just don't get a StaticBody3D.
+const ENTITY_COLLIDER_HEIGHT: float = 6.0
+const ENTITY_COLLIDER_SPAWN_R: float = 80.0
+
 const MoteMaterials = preload("res://mote_materials.gd")
 const MoteArrangements = preload("res://mote_arrangements.gd")
 
@@ -40,6 +57,17 @@ const CEILING_PLANE_Y_DEFAULT: float = 15.0
 var active_ceiling_y: float = CEILING_PLANE_Y_DEFAULT
 
 var camera: Camera3D
+# Physics rig — when USE_PHYSICS_RIG, camera is a grand-child (rig → neck →
+# camera). player_rig drives world XZ + yaw via move_and_slide, neck carries
+# pitch + crouch lerp, camera carries lean offsets. Reads that want world
+# position should use camera.global_position (works in both modes).
+var player_rig: CharacterBody3D
+var neck: Node3D
+# StaticBody3D colliders for every real entity + colliders under the
+# floor/wall planes. These hold the actual physics shapes the rig collides
+# against. Rebuilt whenever _rebuild_entities fires.
+var entity_colliders_root: Node3D
+var plane_colliders_root: Node3D
 var env_node: WorldEnvironment
 var godot_env: Environment
 var manifest: Dictionary
@@ -137,6 +165,15 @@ func _ready() -> void:
 	_setup_environment()
 	_setup_camera()
 	_setup_outline()
+	# Collider parents — single Node3D each so _rebuild_entities can free
+	# all per-instance bodies in one sweep. Created before _spawn_planes /
+	# _spawn_entities so those calls can freely add_child onto them.
+	entity_colliders_root = Node3D.new()
+	entity_colliders_root.name = "EntityColliders"
+	add_child(entity_colliders_root)
+	plane_colliders_root = Node3D.new()
+	plane_colliders_root.name = "PlaneColliders"
+	add_child(plane_colliders_root)
 	_spawn_planes()
 	_spawn_entities()
 	_update_motes()
@@ -437,11 +474,14 @@ func _setup_environment() -> void:
 
 
 func _setup_camera() -> void:
-	camera = Camera3D.new()
 	var cam_data: Dictionary = manifest.get("camera", {})
-	camera.position = Vector3(cam_data.get("x", 0.0), EYE_HEIGHT, cam_data.get("y", 0.0))
-	camera.rotation_degrees.y = cam_data.get("heading", 0.0)
+	var spawn_x: float = cam_data.get("x", 0.0)
+	var spawn_z: float = cam_data.get("y", 0.0)
+	var spawn_heading: float = cam_data.get("heading", 0.0)
+
+	camera = Camera3D.new()
 	camera.rotation_degrees.x = 10.0  # upward tilt — catches stalactites + ceiling features naturally
+
 	# Armor glow — warm omnidirectional bloom at waist height.
 	# Not a flashlight — a lantern. Lights ground AND objects equally from
 	# player's body, like bioluminescent armor plating. Soft dome of presence.
@@ -455,11 +495,73 @@ func _setup_camera() -> void:
 	armor_glow.position = Vector3(0.0, -1.2, 0.0)  # waist height below camera
 	camera.add_child(armor_glow)
 
+	if USE_PHYSICS_RIG:
+		# CharacterBody3D rig — body owns world XZ + yaw, neck owns pitch +
+		# crouch lerp, camera sits at neck origin carrying lean offset only.
+		# Capsule collider is centered at y = height/2 so the feet hit y=0.
+		player_rig = CharacterBody3D.new()
+		player_rig.name = "PlayerRig"
+		player_rig.position = Vector3(spawn_x, 0.0, spawn_z)
+		player_rig.rotation_degrees.y = spawn_heading
+		add_child(player_rig)
+
+		var cs := CollisionShape3D.new()
+		var cap := CapsuleShape3D.new()
+		cap.radius = PLAYER_CAPSULE_RADIUS
+		cap.height = PLAYER_CAPSULE_HEIGHT
+		cs.shape = cap
+		cs.position.y = PLAYER_CAPSULE_HEIGHT * 0.5
+		player_rig.add_child(cs)
+
+		neck = Node3D.new()
+		neck.name = "Neck"
+		neck.position.y = EYE_HEIGHT
+		player_rig.add_child(neck)
+
+		# Camera local transform is identity — pitch goes on the neck, yaw on
+		# the rig, lean X offset + roll go on the camera (set by _physics_process).
+		neck.add_child(camera)
+	else:
+		# Legacy path — camera IS the root. Kept for regression A/B while
+		# USE_PHYSICS_RIG rolls out. Deleted in commit 2.
+		camera.position = Vector3(spawn_x, EYE_HEIGHT, spawn_z)
+		camera.rotation_degrees.y = spawn_heading
+		add_child(camera)
+
 	# iso camera setup deferred to _finalize_spawn_scene so the first-person
 	# camera is already in the scene tree and explicitly current when iso
 	# is added. Otherwise Godot auto-activates whichever camera is added
 	# first and both cameras can end up rendering into the same viewport.
 
+
+# --- Player world-pos / yaw helpers -----------------------------------------
+# Callers that want "where is the player in the world" ask these helpers
+# instead of touching `camera.position` / `camera.rotation` directly. They
+# resolve correctly whether the camera is a root Node3D (legacy) or a
+# grand-child of the CharacterBody3D rig (USE_PHYSICS_RIG).
+func _player_pos() -> Vector3:
+	return camera.global_position
+
+func _player_yaw() -> float:
+	return player_rig.rotation.y if USE_PHYSICS_RIG else camera.rotation.y
+
+func _player_pitch() -> float:
+	return neck.rotation.x if USE_PHYSICS_RIG else camera.rotation.x
+
+# Teleport helper — writes to the right node depending on rig mode. Resets
+# velocity on teleport so a mid-fall zap doesn't carry momentum into the
+# destination. heading_rad and pitch_rad in radians.
+func _teleport_player(pos: Vector3, heading_rad: float, pitch_rad: float = 0.0) -> void:
+	if USE_PHYSICS_RIG:
+		# Rig y=0 is feet; spawn at pos.x/z regardless of pos.y (feet grounded).
+		player_rig.position = Vector3(pos.x, 0.0, pos.z)
+		player_rig.rotation.y = heading_rad
+		neck.rotation.x = pitch_rad
+		player_rig.velocity = Vector3.ZERO
+	else:
+		camera.position = Vector3(pos.x, EYE_HEIGHT, pos.z)
+		camera.rotation.y = heading_rad
+		camera.rotation.x = pitch_rad
 
 # --- Player avatar (iso-only) ------------------------------------------------
 # Tall dark silhouette placed at the first-person camera's XZ. Visible only
@@ -526,11 +628,9 @@ func _update_player_avatar() -> void:
 	# see which way they're pointing (the crosshair + avatar facing agree).
 	if not is_instance_valid(player_avatar):
 		return
-	player_avatar.position = Vector3(
-		camera.position.x,
-		AVATAR_HEIGHT_M * 0.5,
-		camera.position.z)
-	player_avatar.rotation.y = camera.rotation.y
+	var p: Vector3 = _player_pos()
+	player_avatar.position = Vector3(p.x, AVATAR_HEIGHT_M * 0.5, p.z)
+	player_avatar.rotation.y = _player_yaw()
 
 
 # --- Iso dev camera ----------------------------------------------------------
@@ -573,10 +673,8 @@ func _update_iso_camera_position() -> void:
 	var yaw_rad: float = deg_to_rad(ISO_YAW_DEG)
 	var ox: float = -sin(yaw_rad) * ISO_DISTANCE_M
 	var oz: float = cos(yaw_rad) * ISO_DISTANCE_M
-	iso_camera.position = Vector3(
-		camera.position.x + ox,
-		ISO_HEIGHT_M,
-		camera.position.z + oz)
+	var p: Vector3 = _player_pos()
+	iso_camera.position = Vector3(p.x + ox, ISO_HEIGHT_M, p.z + oz)
 
 
 func _toggle_iso_camera() -> void:
@@ -619,13 +717,11 @@ func _aim_spawn_heading() -> void:
 	var biome_name: String = manifest.get("biome", "cavern")
 
 	if biome_name == "cavern":
-		# Godot coordinate map: camera.position.x = world X, camera.position.z
-		# = world Y, camera.position.y = world up. Default camera forward is -Z;
-		# rotating 180° around Y makes it face +Z (= +world Y = north).
-		camera.position = Vector3(0.0, EYE_HEIGHT, -14.0)
-		camera.rotation.y = PI
-		camera.rotation.x = deg_to_rad(8.0)  # slight upward tilt — catches arch lintel
-		print("Hub spawn: camera at (0, -14) facing north (180°)")
+		# Hub spawn — enter the hub from the SOUTH arch (world y=-14) facing
+		# north (+Y in brain → +Z in Godot). _teleport_player writes to rig or
+		# camera depending on USE_PHYSICS_RIG and clears any stale velocity.
+		_teleport_player(Vector3(0.0, 0.0, -14.0), PI, deg_to_rad(8.0))
+		print("Hub spawn: player at (0, -14) facing north (180°)")
 	else:
 		_legacy_landmark_aim()
 
@@ -640,8 +736,9 @@ func _legacy_landmark_aim() -> void:
 	const SPAWN_CLEARANCE: float = 18.0
 	const IDEAL_MIN_DIST: float = 18.0
 	const IDEAL_MAX_DIST: float = 32.0
-	var cam_x: float = camera.position.x
-	var cam_z: float = camera.position.z
+	var p: Vector3 = _player_pos()
+	var cam_x: float = p.x
+	var cam_z: float = p.z
 	var best_dist: float = 9999.0
 	var best_x: float = 0.0
 	var best_z: float = 0.0
@@ -676,7 +773,10 @@ func _legacy_landmark_aim() -> void:
 	var landmark_heading: float = atan2(dx, -dz)
 	var peripheral_offset: float = deg_to_rad(-35.0)
 	var final_heading: float = landmark_heading + peripheral_offset
-	camera.rotation.y = final_heading
+	if USE_PHYSICS_RIG:
+		player_rig.rotation.y = final_heading
+	else:
+		camera.rotation.y = final_heading
 	print("Spawn aim: landmark at (%.1f, %.1f), dist %.1fm, heading %.1f°" % [
 		best_x, best_z, sqrt(dx*dx + dz*dz), rad_to_deg(final_heading)])
 
@@ -688,7 +788,8 @@ func _finalize_spawn_scene() -> void:
 	var fog_data: Dictionary = manifest.get("fog", {})
 	camera.far = fog_data.get("far", 55.0) * 2.5  # extended for skeleton silhouettes
 	camera.fov = 62.0  # wider peripheral — catches ceiling features + passive pull cues
-	add_child(camera)
+	# Camera is already parented inside _setup_camera (rig branch → neck.add_child,
+	# legacy branch → add_child). Don't re-parent here — Godot warns on duplicate.
 	camera.current = true   # explicit — iso camera added next mustn't take over
 	_setup_iso_camera()
 	_setup_player_avatar()
@@ -697,6 +798,7 @@ func _finalize_spawn_scene() -> void:
 	# Each pipe covers a color family. Positions lerp to nearest matching emissive.
 	var biome_name: String = manifest.get("biome", "cavern")
 	var pipe_cfgs: Array = BIOME_LIGHT_PIPES.get(biome_name, BIOME_LIGHT_PIPES["cavern"])
+	var pstart: Vector3 = _player_pos()
 	for pipe_cfg: Dictionary in pipe_cfgs:
 		var primary := OmniLight3D.new()
 		primary.light_color = pipe_cfg["color"]
@@ -704,7 +806,7 @@ func _finalize_spawn_scene() -> void:
 		primary.omni_range = pipe_cfg["range"]
 		primary.omni_attenuation = pipe_cfg["attenuation"]
 		primary.shadow_enabled = false
-		primary.position = camera.position  # start at player, drift to nearest match
+		primary.position = pstart  # start at player, drift to nearest match
 		add_child(primary)
 
 		var fill := OmniLight3D.new()
@@ -713,12 +815,12 @@ func _finalize_spawn_scene() -> void:
 		fill.omni_range = pipe_cfg["range"] * 0.5
 		fill.omni_attenuation = pipe_cfg["attenuation"] * 1.3
 		fill.shadow_enabled = false
-		fill.position = camera.position
+		fill.position = pstart
 		add_child(fill)
 
 		light_pipes.append({
 			"node": primary, "fill_node": fill, "cfg": pipe_cfg,
-			"target_pos": camera.position, "active": false,
+			"target_pos": pstart, "active": false,
 		})
 
 	# Banner cylinders — projection layers fake atmospheric depth where
@@ -744,7 +846,8 @@ func _finalize_spawn_scene() -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = cyl_mesh
 		mi.name = "Banner_%s" % bl.get("role", "layer")
-		mi.position = Vector3(camera.position.x, bl.get("height", 15.0) * 0.3, camera.position.z)
+		var bp: Vector3 = _player_pos()
+		mi.position = Vector3(bp.x, bl.get("height", 15.0) * 0.3, bp.z)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
 		banner_cylinders.append(mi)
@@ -834,6 +937,10 @@ func _spawn_plane(p: Dictionary) -> void:
 	var nz: float = float(normal[2]) if normal.size() >= 3 else 1.0
 	var offset: float = float(p.get("offset", 0.0))
 
+	var is_floor: bool = abs(nz) > 0.5 and nz > 0.0
+	var is_ceiling: bool = abs(nz) > 0.5 and nz < 0.0
+	var is_wall: bool = abs(nx) > 0.5 or abs(ny) > 0.5
+
 	if abs(nz) > 0.5:
 		# Floor or ceiling — vertical plane
 		if nz < 0.0:
@@ -851,11 +958,38 @@ func _spawn_plane(p: Dictionary) -> void:
 		mi.position.z = offset
 	add_child(mi)
 
+	# Physics collider — floors + walls get a StaticBody3D so the rig stands
+	# on real ground. Ceilings skip: head-bumps aren't a gameplay concern in
+	# a cavern and the planes extend forever, so colliding on them only
+	# produces weird jump caps. Body is a child of plane_colliders_root so
+	# rebuilds don't orphan shapes.
+	if (is_floor or is_wall) and is_instance_valid(plane_colliders_root):
+		var sb := StaticBody3D.new()
+		sb.name = "PlaneCollider_" + tag
+		var cs := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		if is_floor:
+			# Horizontal slab — thin in Y, extends to plane size in X/Z.
+			box.size = Vector3(size, 0.5, size)
+			sb.position = Vector3(0.0, offset - 0.25, 0.0)
+		elif abs(nx) > 0.5:
+			# X-normal wall — thin in X, tall, extends in Y/Z.
+			box.size = Vector3(0.5, size, size)
+			sb.position = Vector3(offset, 0.0, 0.0)
+		else:
+			# Y-normal wall (brain) = Z-normal in Godot — thin in Z, extends X/Y.
+			box.size = Vector3(size, size, 0.5)
+			sb.position = Vector3(0.0, 0.0, offset)
+		cs.shape = box
+		sb.add_child(cs)
+		plane_colliders_root.add_child(sb)
+
 	plane_nodes[tag] = {
 		"node": mi,
 		"follow": bool(p.get("follow_camera", true)),
 		"kind": p.get("kind", "ground"),
 		"offset": offset,
+		"collider_parent": plane_colliders_root if (is_floor or is_wall) else null,
 	}
 
 	# Cache canonical ceiling Y for kinds that resolve attachment by tag.
@@ -950,7 +1084,8 @@ func _spawn_entities() -> void:
 		_create_multimesh_for_kind(kind, by_kind[kind])
 	# Initial cull window — player physics reads this instead of the full
 	# collision_objects set (spatial cull for perf, see _refresh_nearby_colliders).
-	_refresh_nearby_colliders(camera.position.x, camera.position.z)
+	var p0: Vector3 = _player_pos()
+	_refresh_nearby_colliders(p0.x, p0.z)
 	_spawn_contact_shadows(by_kind)
 
 
@@ -1253,12 +1388,39 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 		# physics.visual_radius). No AABB math, no mesh-bounds lookup. One
 		# number per kind × per-instance scale. Ceiling-attached skip.
 		var brain_r: float = float(ent.get("collision_radius", 0.0))
-		if brain_r > 0.0 and ent.get("attachment_plane", "") != "ceiling":
+		var is_ceiling_att: bool = ent.get("attachment_plane", "") == "ceiling"
+		if brain_r > 0.0 and not is_ceiling_att:
+			# Dict-mirror — creatures still iterate collision_objects for their
+			# own manual push-out. Kept alongside the physics body so the
+			# rig + creature paths stay independent.
 			collision_objects.append({
 				"x": ent.get("x", 0.0),
 				"z": ent.get("y", 0.0),
 				"r": brain_r,
 			})
+			# Real physics body — CharacterBody3D rig collides against this.
+			# Cylinder approximation of the visual silhouette (no trimesh bake;
+			# the project has no authored meshes — see plan file for rationale).
+			# Height hard-coded to 6m so jumps can't clear mid-size props; future
+			# pass may per-kind this from kind_config. Cull far entities for
+			# creation cost — Godot's broadphase handles resting bodies fine
+			# but spawn churn adds up at 800+.
+			var ent_x: float = ent.get("x", 0.0)
+			var ent_z: float = ent.get("y", 0.0)
+			var _pb: Vector3 = _player_pos()
+			var body_dx: float = ent_x - _pb.x
+			var body_dz: float = ent_z - _pb.z
+			if body_dx * body_dx + body_dz * body_dz < ENTITY_COLLIDER_SPAWN_R * ENTITY_COLLIDER_SPAWN_R:
+				var sb := StaticBody3D.new()
+				sb.position = Vector3(ent_x, 0.0, ent_z)
+				var cs := CollisionShape3D.new()
+				var cyl := CylinderShape3D.new()
+				cyl.radius = brain_r
+				cyl.height = ENTITY_COLLIDER_HEIGHT
+				cs.shape = cyl
+				cs.position.y = ENTITY_COLLIDER_HEIGHT * 0.5
+				sb.add_child(cs)
+				entity_colliders_root.add_child(sb)
 
 		mm.set_instance_transform(i, xform)
 
@@ -1373,9 +1535,10 @@ func _update_hud() -> void:
 	if not overlay_cfg.get("enabled", true):
 		hud_label.text = ""
 		return
-	var cx: float = snapped(camera.position.x, 0.1)
-	var cy: float = snapped(camera.position.z, 0.1)
-	var ch: float = snapped(camera.rotation_degrees.y, 0.1)
+	var p: Vector3 = _player_pos()
+	var cx: float = snapped(p.x, 0.1)
+	var cy: float = snapped(p.z, 0.1)
+	var ch: float = snapped(rad_to_deg(_player_yaw()), 0.1)
 	var tension_st: String = manifest.get("tension_state", "?")
 	var vis: int = manifest.get("entities", []).size()
 	hud_label.text = _build_overlay_line(overlay_cfg, cx, cy, ch, tension_st, vis)
@@ -1463,12 +1626,13 @@ func _send_camera() -> void:
 	if not connected:
 		return
 	# Camera position: Godot (x, y_up, z) → manifest (x, z_forward, y_up)
+	var p: Vector3 = _player_pos()
 	var msg := {
-		"cam_x": camera.position.x,
-		"cam_y": camera.position.z,   # Godot Z → manifest Y
-		"cam_z": camera.position.y,   # Godot Y → manifest Z
-		"heading": camera.rotation_degrees.y,
-		"pitch": camera.rotation_degrees.x,
+		"cam_x": p.x,
+		"cam_y": p.z,   # Godot Z → manifest Y
+		"cam_z": p.y,   # Godot Y → manifest Z
+		"heading": rad_to_deg(_player_yaw()),
+		"pitch": rad_to_deg(_player_pitch()),
 		"dt": UPDATE_INTERVAL,
 	}
 	var json_str := JSON.stringify(msg) + "\n"
@@ -1540,6 +1704,12 @@ func _rebuild_entities() -> void:
 	# Incremental: only rebuild kinds whose entity lists changed
 	var new_by_kind: Dictionary = {}
 	collision_objects.clear()
+	# Free all per-instance physics bodies so _create_multimesh_variant can
+	# re-emit a clean set. Queue-free is fine — Godot finishes the frees at
+	# end-of-frame before next _physics_process reads the set.
+	if is_instance_valid(entity_colliders_root):
+		for c in entity_colliders_root.get_children():
+			c.queue_free()
 
 	var silhouette_ents: Array = []  # render_mode silhouette/hint → banner projection
 	for ent: Dictionary in manifest.get("entities", []):
@@ -1587,7 +1757,8 @@ func _rebuild_entities() -> void:
 
 	# Collision set just changed; refresh the spatial-cull window around
 	# the current camera position so player physics reads the new set.
-	_refresh_nearby_colliders(camera.position.x, camera.position.z)
+	var p_rb: Vector3 = _player_pos()
+	_refresh_nearby_colliders(p_rb.x, p_rb.z)
 
 	# Stone density texture — refresh from current entity positions
 	# and push to all ground plane materials so the ground shader can
@@ -2378,8 +2549,9 @@ func _update_creatures(delta: float) -> void:
 			continue
 
 		# -- Intact behavior ---------------------------------------------------
-		var dx: float = node.position.x - camera.position.x
-		var dz: float = node.position.z - camera.position.z
+		var _pp: Vector3 = _player_pos()
+		var dx: float = node.position.x - _pp.x
+		var dz: float = node.position.z - _pp.z
 		var dist: float = sqrt(dx * dx + dz * dz)
 		if CREATURE_VERBOSE and Engine.get_process_frames() % 60 == 0:
 			print("CREATURE %s dist=%.1f flee_radius=%.1f speed=%.1f fleeing=%s" % [
@@ -2505,7 +2677,7 @@ func _update_flight_creature(c: Dictionary, cfg: Dictionary, node: Node3D, delta
 	#   bob_phase (float) time accumulator for y-bob
 	if not c.has("vel"):
 		c["vel"] = Vector3.ZERO
-		c["target"] = camera.position
+		c["target"] = _player_pos()
 		c["bob_phase"] = randf() * TAU  # desync flock
 		c["flap_phase"] = randf() * 3.0  # 0..3, integer part = pose index
 		c["flap_pose_l"] = -1
@@ -2526,9 +2698,10 @@ func _update_flight_creature(c: Dictionary, cfg: Dictionary, node: Node3D, delta
 
 	# Regenerate target when reached or when player has drifted far from it.
 	# The bat leads the player — target is ahead of player's facing direction.
+	var _ppos: Vector3 = _player_pos()
 	var to_target: Vector3 = target - node.position
 	var dist_to_target: float = to_target.length()
-	var player_to_target: float = camera.position.distance_to(target)
+	var player_to_target: float = _ppos.distance_to(target)
 	if dist_to_target < 3.0 or player_to_target > waypoint_dist * 2.0:
 		var fwd: Vector3 = -camera.global_transform.basis.z
 		fwd.y = 0.0
@@ -2539,7 +2712,7 @@ func _update_flight_creature(c: Dictionary, cfg: Dictionary, node: Node3D, delta
 		var perp: Vector3 = Vector3(-fwd.z, 0.0, fwd.x)
 		var wobble: float = (randf() - 0.5) * 2.0 * waypoint_wobble
 		var cruise_alt: float = lerpf(alt_min, alt_max, randf())
-		target = camera.position + fwd * waypoint_dist + perp * wobble
+		target = _ppos + fwd * waypoint_dist + perp * wobble
 		target.y = cruise_alt
 		c["target"] = target
 		to_target = target - node.position
@@ -2669,9 +2842,10 @@ func _drop_tag_marker(num: int, pos: Vector3) -> void:
 func _save_tag(reason: String = "neutral") -> void:
 	tag_count += 1
 	var img: Image = get_viewport().get_texture().get_image()
-	var cx: float = snapped(camera.position.x, 0.1)
-	var cy: float = snapped(camera.position.z, 0.1)
-	var ch: float = snapped(camera.rotation_degrees.y, 0.1)
+	var p: Vector3 = _player_pos()
+	var cx: float = snapped(p.x, 0.1)
+	var cy: float = snapped(p.z, 0.1)
+	var ch: float = snapped(rad_to_deg(_player_yaw()), 0.1)
 	var tension_st: String = manifest.get("tension_state", "?")
 	var vis: int = manifest.get("entities", []).size()
 	var fname: String = "sanctum_tag_%02d_x%s_y%s_h%s_%s_%s_%dvis.png" % [
@@ -2753,14 +2927,15 @@ func _save_tag(reason: String = "neutral") -> void:
 	crosshair_candidates.sort_custom(func(a, b): return a["_score"] < b["_score"])
 	var crosshair_top: Array = crosshair_candidates.slice(0, 5)
 
+	var _pt: Vector3 = _player_pos()
 	var telemetry := {
 		"tag": tag_count,
 		"camera": {
-			"x": snapped(camera.position.x, 0.01),
-			"y": snapped(camera.position.z, 0.01),
-			"z": snapped(camera.position.y, 0.01),
-			"heading": snapped(camera.rotation_degrees.y, 0.1),
-			"pitch": snapped(camera.rotation_degrees.x, 0.1),
+			"x": snapped(_pt.x, 0.01),
+			"y": snapped(_pt.z, 0.01),
+			"z": snapped(_pt.y, 0.01),
+			"heading": snapped(rad_to_deg(_player_yaw()), 0.1),
+			"pitch": snapped(rad_to_deg(_player_pitch()), 0.1),
 			"fov": camera.fov,
 		},
 		"tag_reason": reason,
@@ -2794,7 +2969,7 @@ func _save_tag(reason: String = "neutral") -> void:
 	else:
 		_show_toast("TAG #%d [%s] saved" % [tag_count, reason.to_upper()])
 	# Drop 3D marker at tag position
-	_drop_tag_marker(tag_count, camera.position)
+	_drop_tag_marker(tag_count, _player_pos())
 
 	# Expedition wire: send the full sidecar to brain so the engine
 	# can score it and (on proximity) deposit it. The disk-saved PNG
@@ -2837,8 +3012,9 @@ const STAMP_CAPTURE_HARD_KINDS: Array = [
 
 
 func _save_stamp_capture() -> void:
-	var cx: float = camera.position.x
-	var cy: float = camera.position.z  # godot z axis = brain y axis
+	var _pp: Vector3 = _player_pos()
+	var cx: float = _pp.x
+	var cy: float = _pp.z  # godot z axis = brain y axis
 	var r2: float = STAMP_CAPTURE_RADIUS_M * STAMP_CAPTURE_RADIUS_M
 	var skip := {}
 	for k in STAMP_CAPTURE_SKIP_KINDS:
@@ -2910,13 +3086,14 @@ func _send_cast_event(element: String) -> void:
 		return
 	cast_count += 1
 	var fwd: Vector3 = -camera.global_transform.basis.z
+	var _pp: Vector3 = _player_pos()
 	var cast_payload: Dictionary = {
 		# Use tag_id so _find_tag_by_id resolves it uniformly with tags.
 		# Cast ids are namespaced by a negative sign to avoid collision
 		# with real tag_ids (which start at 1 and count up).
 		"tag_id": -cast_count,
 		"element": element,
-		"origin": [camera.position.x, camera.position.y, camera.position.z],
+		"origin": [_pp.x, _pp.y, _pp.z],
 		"direction": [fwd.x, fwd.y, fwd.z],
 	}
 	var msg_obj: Dictionary = {
@@ -3544,9 +3721,10 @@ func _update_motes() -> void:
 
 	# If brain provides render_tier, use it. Otherwise fallback to distance sort.
 	var has_tiers: bool = emissive_ents.size() > 0 and emissive_ents[0].has("render_tier")
+	var _pwp: Vector3 = _player_pos()
 	if not has_tiers:
-		var cam_x: float = camera.position.x
-		var cam_z: float = camera.position.z
+		var cam_x: float = _pwp.x
+		var cam_z: float = _pwp.z
 		emissive_ents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 			var da: float = (a["x"] - cam_x) ** 2 + (a["y"] - cam_z) ** 2
 			var db: float = (b["x"] - cam_x) ** 2 + (b["y"] - cam_z) ** 2
@@ -3561,7 +3739,7 @@ func _update_motes() -> void:
 		# Distance only — no view check. Backtracking keeps the same light.
 		var current_valid: bool = false
 		if pipe["active"]:
-			current_valid = pipe["target_pos"].distance_squared_to(camera.position) < 40.0 * 40.0
+			current_valid = pipe["target_pos"].distance_squared_to(_pwp) < 40.0 * 40.0
 		if not current_valid:
 			# Find nearest matching emissive
 			var best_dist: float = 9999.0
@@ -3576,7 +3754,7 @@ func _update_motes() -> void:
 				var is_ceil: bool = ent.get("attachment_plane", "") == "ceiling"
 				var ly: float = ez - 3.0 if is_ceil else ez + 5.0
 				var candidate := Vector3(ex, ly, ey)
-				var d: float = candidate.distance_squared_to(camera.position)
+				var d: float = candidate.distance_squared_to(_pwp)
 				if d < best_dist:
 					best_dist = d
 					best_pos = candidate
@@ -3600,8 +3778,8 @@ func _update_motes() -> void:
 
 	# Sort emissives by distance — nearest get full treatment (motes + decals),
 	# far ones get decals only. Budget: 12 mote slots max.
-	var cam_pos_x: float = camera.position.x
-	var cam_pos_z: float = camera.position.z
+	var cam_pos_x: float = _pwp.x
+	var cam_pos_z: float = _pwp.z
 	emissive_ents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var da: float = (a.get("x", 0.0) - cam_pos_x) ** 2 + (a.get("y", 0.0) - cam_pos_z) ** 2
 		var db: float = (b.get("x", 0.0) - cam_pos_x) ** 2 + (b.get("y", 0.0) - cam_pos_z) ** 2
@@ -3864,9 +4042,16 @@ func _update_motes() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and mouse_captured:
-		camera.rotation.y -= event.relative.x * MOUSE_SENS
-		camera.rotation.x -= event.relative.y * MOUSE_SENS
-		camera.rotation.x = clampf(camera.rotation.x, deg_to_rad(-89), deg_to_rad(89))
+		if USE_PHYSICS_RIG:
+			# Yaw on the rig, pitch on the neck — mirrors fps_player.gd:60-62
+			# so the capsule turns with the view rather than gliding sideways.
+			player_rig.rotate_y(-event.relative.x * MOUSE_SENS)
+			neck.rotate_x(-event.relative.y * MOUSE_SENS)
+			neck.rotation.x = clampf(neck.rotation.x, deg_to_rad(-89), deg_to_rad(89))
+		else:
+			camera.rotation.y -= event.relative.x * MOUSE_SENS
+			camera.rotation.x -= event.relative.y * MOUSE_SENS
+			camera.rotation.x = clampf(camera.rotation.x, deg_to_rad(-89), deg_to_rad(89))
 
 	if event.is_action_pressed("ui_cancel"):
 		if mouse_captured:
@@ -3923,18 +4108,15 @@ func _input(event: InputEvent) -> void:
 					var msg := JSON.stringify({"cmd": "tension_advance"}) + "\n"
 					tcp.put_data(msg.to_utf8_buffer())
 			KEY_H:  # Home — teleport to hub spawn
-				camera.position = Vector3(0.0, EYE_HEIGHT, -14.0)
-				camera.rotation_degrees = Vector3(-8.0, 180.0, 0.0)
+				_teleport_player(Vector3(0.0, 0.0, -14.0), PI, deg_to_rad(-8.0))
 				_show_toast("Returned to spawn")
 			KEY_J:  # Jump to encounter_test slot (slot (0,2), world (0,32))
-				camera.position = Vector3(0.0, EYE_HEIGHT, 32.0)
-				camera.rotation_degrees = Vector3(0.0, 0.0, 0.0)
+				_teleport_player(Vector3(0.0, 0.0, 32.0), 0.0, 0.0)
 				_show_toast("Encounter test pocket")
 			KEY_K:  # Jump to shadow_lab slot (slot (-2,0), world (-32,0))
 				# Stand ~6m east of the orb looking west so the fixture
 				# sits centered in frame with floor visible below it.
-				camera.position = Vector3(-26.0, EYE_HEIGHT, 0.0)
-				camera.rotation_degrees = Vector3(-5.0, -90.0, 0.0)
+				_teleport_player(Vector3(-26.0, 0.0, 0.0), deg_to_rad(-90.0), deg_to_rad(-5.0))
 				_show_toast("Shadow lab")
 			KEY_I:  # Toggle iso dev camera (ortho 3/4 top-down)
 				_toggle_iso_camera()
@@ -3965,12 +4147,156 @@ func _physics_process(delta: float) -> void:
 			var prog = enc.get("progression", null)
 			if prog is Dictionary:
 				staged = float(prog.get("staged_xp", 0.0))
-		encounter_hud.check_hub_arrival(camera.position.x, camera.position.z, staged)
+		var _phub: Vector3 = _player_pos()
+		encounter_hud.check_hub_arrival(_phub.x, _phub.z, staged)
 
 	# Movement frozen during an encounter.
 	if encounter_hud and encounter_hud.encounter_active:
 		return
 
+	# Crouch is shared between both paths (input state, not physics).
+	var crouching := Input.is_action_pressed("crouch")
+
+	if USE_PHYSICS_RIG:
+		_physics_process_rig(delta, crouching)
+	else:
+		_physics_process_legacy(delta, crouching)
+
+	# Lean — body yaw stays put; camera tilts + offsets via rotation.z. This
+	# runs in both paths since the camera is a leaf in the rig hierarchy too,
+	# so local rotation.z composes cleanly.
+	var target_lean: float = 0.0
+	if Input.is_action_pressed("lean_left"):
+		target_lean = -1.0
+	elif Input.is_action_pressed("lean_right"):
+		target_lean = 1.0
+	lean_state = lerpf(lean_state, target_lean, CAMERA_LERP_SMOOTHNESS * delta)
+	camera.rotation.z = -lean_state * deg_to_rad(LEAN_TILT_DEG)
+
+	# -- Shared post-movement tail (both paths) --
+	# Creatures react to camera (flee, scatter on shatter, debris settle).
+	_update_creatures(delta)
+	# Shadow-lab orbs drift per config animation.drift.
+	_update_shadow_orbs(delta)
+	# Iso dev camera tracks player XZ when active. Cheap no-op otherwise.
+	if iso_active:
+		_update_iso_camera_position()
+		_update_player_avatar()
+
+	# Follow-camera planes track the player on their parallel axes.
+	# Floor/ceiling: track X/Z, keep Y at configured offset.
+	# Walls: track Y/Z (or Y/X), keep lateral offset fixed.
+	var ppos: Vector3 = _player_pos()
+	for tag in plane_nodes:
+		var entry: Dictionary = plane_nodes[tag]
+		if entry.get("follow", true):
+			var node: MeshInstance3D = entry["node"]
+			var pkind: String = entry.get("kind", "ground")
+			if pkind == "wall":
+				# Wall planes keep their lateral offset, track the other two axes
+				# X-normal walls: keep X, track Y and Z
+				# Z-normal walls (brain Y): keep Z, track X and Y
+				if abs(node.rotation_degrees.z) > 45.0:
+					# X-normal wall — rotated around Z
+					node.position.y = ppos.y
+					node.position.z = ppos.z
+				else:
+					# Z-normal wall — rotated around X
+					node.position.x = ppos.x
+					node.position.y = ppos.y
+			else:
+				# Floor/ceiling — track X/Z, Y follows terrain height
+				node.position.x = ppos.x
+				node.position.z = ppos.z
+				if pkind == "ground":
+					var t_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
+					node.position.y = entry.get("offset", 0.0) + t_z
+				elif pkind == "ceiling":
+					var t_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
+					node.position.y = entry.get("offset", CEILING_PLANE_Y_DEFAULT) + t_z
+
+	# Banner cylinders follow player X/Z, keep their Y offset
+	for bc: MeshInstance3D in banner_cylinders:
+		bc.position.x = ppos.x
+		bc.position.z = ppos.z
+
+
+# --- Rig physics path (USE_PHYSICS_RIG) -----------------------------------
+# Drives a CharacterBody3D via move_and_slide. Gravity + jump handled by
+# is_on_floor(); XZ velocity set from input direction. Playable envelope
+# applied after move_and_slide as a position fixup (soft pushback + clamp).
+# Crouch is a neck-height lerp so the capsule shape doesn't need swapping.
+var rig_neck_standing_y: float = EYE_HEIGHT
+
+
+func _physics_process_rig(delta: float, crouching: bool) -> void:
+	# Gamepad right-stick look — yaw on rig (so the capsule turns with view),
+	# pitch on neck. Additive with mouse look (both write the same nodes).
+	var look_vec := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	if look_vec.length_squared() > 0.0001:
+		player_rig.rotate_y(-look_vec.x * GAMEPAD_LOOK_SENS * delta)
+		neck.rotate_x(-look_vec.y * GAMEPAD_LOOK_SENS * delta)
+		neck.rotation.x = clampf(neck.rotation.x, PITCH_MIN, PITCH_MAX)
+
+	# Horizontal input. Forward/right derived from the rig's basis (yaw-only),
+	# so sprint direction doesn't tilt when pitching the view down.
+	var input_vec := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var basis: Basis = player_rig.global_transform.basis
+	var dir: Vector3 = basis.x * input_vec.x + basis.z * input_vec.y
+	dir.y = 0.0
+	if dir.length_squared() > 0.001:
+		dir = dir.normalized()
+
+	var speed := MOVE_SPEED
+	if crouching:
+		speed = MOVE_SPEED * 0.55
+	elif Input.is_action_pressed("sprint"):
+		speed = MOVE_SPEED * SPRINT_MULTIPLIER
+
+	# Vertical — gravity + jump. is_on_floor() checks collision against the
+	# ground-plane StaticBody3D + any entity/wall colliders below the capsule.
+	if not player_rig.is_on_floor():
+		player_rig.velocity.y -= GRAVITY * delta
+	if Input.is_action_just_pressed("jump") and player_rig.is_on_floor() and not crouching:
+		player_rig.velocity.y = JUMP_VELOCITY
+
+	# Horizontal velocity set directly from input (no accel for now — matches
+	# legacy path's instant response). Godot's slide handles wall collisions.
+	player_rig.velocity.x = dir.x * speed
+	player_rig.velocity.z = dir.z * speed
+	player_rig.move_and_slide()
+
+	# Playable envelope — soft pushback + hard clamp. Applied AFTER slide so
+	# colliders do their work first and the envelope only reins in what escaped.
+	var envelope: Dictionary = manifest.get("playable_envelope", {})
+	var env_radius: float = float(envelope.get("radius", 0.0))
+	if env_radius > 0.0:
+		var env_softness: float = float(envelope.get("softness", 1.0))
+		var rp: Vector3 = player_rig.position
+		var dist_from_origin: float = sqrt(rp.x * rp.x + rp.z * rp.z)
+		if dist_from_origin > env_radius:
+			var overshoot: float = dist_from_origin - env_radius
+			var pushback_mag: float = overshoot * env_softness * delta
+			var inv_d: float = 1.0 / dist_from_origin
+			rp.x -= rp.x * inv_d * pushback_mag
+			rp.z -= rp.z * inv_d * pushback_mag
+			var dist_after: float = sqrt(rp.x * rp.x + rp.z * rp.z)
+			if dist_after > env_radius:
+				var clamp_scale: float = env_radius / dist_after
+				rp.x *= clamp_scale
+				rp.z *= clamp_scale
+			player_rig.position = rp
+
+	# Crouch — lerp neck height instead of swapping capsule shape. Camera
+	# rides the neck so the view dips smoothly. Matches fps_player.gd:113-128.
+	var crouch_target_y: float = rig_neck_standing_y - CROUCH_HEIGHT_OFFSET if crouching else rig_neck_standing_y
+	neck.position.y = lerpf(neck.position.y, crouch_target_y, CAMERA_LERP_SMOOTHNESS * delta)
+
+
+# --- Legacy physics path (DEPRECATED — delete in commit 2 once UAT passes) -
+# The hand-rolled Camera3D + manual sphere-distance push-out + terrain_z
+# eye-height loop. Kept behind USE_PHYSICS_RIG = false for A/B regression.
+func _physics_process_legacy(delta: float, crouching: bool) -> void:
 	# Gamepad right-stick look — analog, deadzone applied by InputMap.
 	# Additive to mouse look (both work simultaneously).
 	var look_vec := Input.get_vector("look_left", "look_right", "look_up", "look_down")
@@ -3988,7 +4314,6 @@ func _physics_process(delta: float) -> void:
 		dir = dir.normalized()
 
 	var speed := MOVE_SPEED
-	var crouching := Input.is_action_pressed("crouch")
 	if crouching:
 		speed = MOVE_SPEED * 0.55
 	elif Input.is_action_pressed("sprint"):
@@ -4016,10 +4341,7 @@ func _physics_process(delta: float) -> void:
 			new_pos.x += (dx / dist) * push
 			new_pos.z += (dz / dist) * push
 
-	# Playable envelope — soft pushback + hard clamp. Keeps the cavern
-	# feeling enclosed even if the player clips past an obstacle, since
-	# wall planes are cosmetic. See core/systems/playable_envelope.py for
-	# the tested primitive; this mirrors it in Godot physics.
+	# Playable envelope — soft pushback + hard clamp.
 	var envelope: Dictionary = manifest.get("playable_envelope", {})
 	var env_radius: float = float(envelope.get("radius", 0.0))
 	if env_radius > 0.0:
@@ -4039,15 +4361,11 @@ func _physics_process(delta: float) -> void:
 				new_pos.x *= clamp_scale
 				new_pos.z *= clamp_scale
 
-	# Terrain elevation — brain sends terrain_z, camera follows the rolling field.
-	# Smooth lerp prevents jarring pops when height changes between frames.
-	# Crouch offset + jump arc layer on top of the terrain eye-height baseline.
+	# Terrain elevation — brain sends terrain_z, camera follows the field.
 	var terrain_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
 	var crouch_offset: float = CROUCH_HEIGHT_OFFSET if crouching else 0.0
 	var terrain_ground_y: float = EYE_HEIGHT + terrain_z - crouch_offset
 
-	# Jump + gravity. Ground reference = terrain-driven eye height.
-	# Treat "on floor" as camera within 0.05m of the terrain ground level.
 	var on_floor: bool = (camera.position.y <= terrain_ground_y + 0.05) and vertical_velocity <= 0.0
 	if Input.is_action_just_pressed("jump") and on_floor and not crouching:
 		vertical_velocity = JUMP_VELOCITY
@@ -4058,65 +4376,7 @@ func _physics_process(delta: float) -> void:
 	if candidate_y <= terrain_ground_y:
 		candidate_y = terrain_ground_y
 		vertical_velocity = 0.0
-	# When grounded and no jump in progress, smooth-follow the terrain so
-	# crouch lerp + rolling terrain don't fight each other.
 	if vertical_velocity == 0.0:
 		candidate_y = lerpf(camera.position.y, terrain_ground_y, 7.0 * delta)
 	new_pos.y = candidate_y
 	camera.position = new_pos
-
-	# Lean — body yaw stays put; camera tilts + offsets via rotation.z and
-	# a local-space X shift. Accumulated via rotation axis so it composes
-	# cleanly with pitch/yaw set by mouse + gamepad look.
-	var target_lean: float = 0.0
-	if Input.is_action_pressed("lean_left"):
-		target_lean = -1.0
-	elif Input.is_action_pressed("lean_right"):
-		target_lean = 1.0
-	lean_state = lerpf(lean_state, target_lean, CAMERA_LERP_SMOOTHNESS * delta)
-	camera.rotation.z = -lean_state * deg_to_rad(LEAN_TILT_DEG)
-
-	# Creatures react to camera (flee, scatter on shatter, debris settle).
-	_update_creatures(delta)
-	# Shadow-lab orbs drift per config animation.drift.
-	_update_shadow_orbs(delta)
-	# Iso dev camera tracks player XZ when active. Cheap no-op otherwise.
-	if iso_active:
-		_update_iso_camera_position()
-		_update_player_avatar()
-
-	# Follow-camera planes track the player on their parallel axes.
-	# Floor/ceiling: track X/Z, keep Y at configured offset.
-	# Walls: track Y/Z (or Y/X), keep lateral offset fixed.
-	for tag in plane_nodes:
-		var entry: Dictionary = plane_nodes[tag]
-		if entry.get("follow", true):
-			var node: MeshInstance3D = entry["node"]
-			var pkind: String = entry.get("kind", "ground")
-			if pkind == "wall":
-				# Wall planes keep their lateral offset, track the other two axes
-				# X-normal walls: keep X, track Y and Z
-				# Z-normal walls (brain Y): keep Z, track X and Y
-				if abs(node.rotation_degrees.z) > 45.0:
-					# X-normal wall — rotated around Z
-					node.position.y = new_pos.y
-					node.position.z = new_pos.z
-				else:
-					# Z-normal wall — rotated around X
-					node.position.x = new_pos.x
-					node.position.y = new_pos.y
-			else:
-				# Floor/ceiling — track X/Z, Y follows terrain height
-				node.position.x = new_pos.x
-				node.position.z = new_pos.z
-				if pkind == "ground":
-					var t_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
-					node.position.y = entry.get("offset", 0.0) + t_z
-				elif pkind == "ceiling":
-					var t_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
-					node.position.y = entry.get("offset", CEILING_PLANE_Y_DEFAULT) + t_z
-
-	# Banner cylinders follow camera X/Z, keep their Y offset
-	for bc: MeshInstance3D in banner_cylinders:
-		bc.position.x = new_pos.x
-		bc.position.z = new_pos.z
