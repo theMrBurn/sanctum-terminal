@@ -1576,7 +1576,21 @@ func _connect_to_brain() -> void:
 	print("Connecting to brain server %s:%d..." % [SERVER_HOST, SERVER_PORT])
 
 
+var _hud_refresh_accum: float = 0.0
+const HUD_REFRESH_INTERVAL: float = 0.25  # 4 Hz — live enough, not a per-frame alloc
+
+
 func _process(delta: float) -> void:
+	# HUD heartbeat — prior code only refreshed on rebuild/connect, so when
+	# the player wasn't crossing tile boundaries the overlay froze at its
+	# init reading (fps=1, dc=0, tri=0) and looked like the engine was dead.
+	# 4 Hz is cheap (one string build + Performance monitor reads) and
+	# matches the cadence of other dev telemetry.
+	_hud_refresh_accum += delta
+	if _hud_refresh_accum >= HUD_REFRESH_INTERVAL:
+		_hud_refresh_accum = 0.0
+		_update_hud()
+
 	# Toast fade
 	if toast_timer > 0.0:
 		toast_timer -= delta
@@ -1631,7 +1645,7 @@ func _process(delta: float) -> void:
 	# Added one at a time after confirming the breathing headlamp reads right.
 
 
-const RIG_DEBUG: bool = true   # temp — prints player pos + send throughput once/sec
+const RIG_DEBUG: bool = false   # flip true to print player pos + send throughput once/sec
 
 var _rig_debug_accum: float = 0.0
 var _rig_debug_sends: int = 0
