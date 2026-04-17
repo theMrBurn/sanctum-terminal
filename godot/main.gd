@@ -480,7 +480,11 @@ func _setup_camera() -> void:
 	var spawn_heading: float = cam_data.get("heading", 0.0)
 
 	camera = Camera3D.new()
-	camera.rotation_degrees.x = 10.0  # upward tilt — catches stalactites + ceiling features naturally
+	# Baseline upward tilt — catches stalactites + ceiling features naturally.
+	# Applied to the neck in rig mode (since neck owns pitch) and to the
+	# camera in legacy mode (camera is the root), so the starting view
+	# matches between branches.
+	const SPAWN_PITCH_DEG: float = 10.0
 
 	# Armor glow — warm omnidirectional bloom at waist height.
 	# Not a flashlight — a lantern. Lights ground AND objects equally from
@@ -516,6 +520,10 @@ func _setup_camera() -> void:
 		neck = Node3D.new()
 		neck.name = "Neck"
 		neck.position.y = EYE_HEIGHT
+		# Baseline pitch on the neck — mirrors legacy's camera.rotation.x = 10°.
+		# Mouse/gamepad look writes neck.rotation.x directly, so this initial
+		# tilt composes cleanly with further input.
+		neck.rotation_degrees.x = SPAWN_PITCH_DEG
 		player_rig.add_child(neck)
 
 		# Camera local transform is identity — pitch goes on the neck, yaw on
@@ -526,6 +534,7 @@ func _setup_camera() -> void:
 		# USE_PHYSICS_RIG rolls out. Deleted in commit 2.
 		camera.position = Vector3(spawn_x, EYE_HEIGHT, spawn_z)
 		camera.rotation_degrees.y = spawn_heading
+		camera.rotation_degrees.x = SPAWN_PITCH_DEG
 		add_child(camera)
 
 	# iso camera setup deferred to _finalize_spawn_scene so the first-person
