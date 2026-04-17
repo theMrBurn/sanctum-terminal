@@ -2406,12 +2406,19 @@ func _update_creatures(delta: float) -> void:
 			continue
 
 		var k_params: Dictionary = _get_kind_params(c["kind"])
-		var coll_r: float = float(k_params.get("physics", {}).get("collision_radius", 0.3))
+		# Creature's OWN body radius — prefer visual_radius (the new single-
+		# source-of-truth collision field), fall back to legacy
+		# physics.collision_radius for kinds that haven't been migrated.
+		# 0.3m default matches a rat-sized footprint.
+		var coll_r: float = float(k_params.get(
+			"visual_radius",
+			k_params.get("physics", {}).get("collision_radius", 0.3)))
+		if coll_r <= 0.0:
+			coll_r = 0.3
 		if c["fleeing"]:
 			c["flee_timer"] -= delta
 			node.position.x += c["flee_dir_x"] * cfg["speed"] * delta
 			node.position.z += c["flee_dir_z"] * cfg["speed"] * delta
-			node.position = _push_out_of_collision(node.position, coll_r)
 			if c["flee_timer"] <= 0.0:
 				c["fleeing"] = false
 		elif dist < cfg["flee_radius"] and cfg["speed"] > 0.0:
@@ -2425,7 +2432,11 @@ func _update_creatures(delta: float) -> void:
 			var hz: float = c["home_z"] - node.position.z
 			node.position.x += hx * 0.3 * delta
 			node.position.z += hz * 0.3 * delta
-			node.position = _push_out_of_collision(node.position, coll_r)
+		# Push-out runs EVERY frame regardless of movement state. Static
+		# creatures (speed=0 like clay_pot/treasure_chest) that spawned
+		# embedded in geometry still get ejected. Moving creatures get
+		# corrected against any spike they drift into during flee/return.
+		node.position = _push_out_of_collision(node.position, coll_r)
 
 
 # Discrete flap poses — three frames (wings down / level / up).
