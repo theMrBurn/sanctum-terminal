@@ -175,7 +175,7 @@
       "sink": -0.15,
       "scale_override": null,
       "fade_in_near": 5.0,
-      "fade_in_far": 50.0
+      "fade_in_far": 70.0
     },
     "structural": {
       "color_base": [
@@ -210,8 +210,8 @@
         "y": 1.0,
         "z": 2.2
       },
-      "fade_in_near": 15.0,
-      "fade_in_far": 100.0
+      "fade_in_near": 8.0,
+      "fade_in_far": 110.0
     },
     "crystalline": {
       "color_base": [
@@ -240,8 +240,8 @@
       },
       "sink": -0.05,
       "scale_override": null,
-      "fade_in_near": 10.0,
-      "fade_in_far": 80.0
+      "fade_in_near": 8.0,
+      "fade_in_far": 100.0
     },
     "organic_flora": {
       "color_base": [
@@ -270,8 +270,8 @@
       },
       "sink": -0.05,
       "scale_override": null,
-      "fade_in_near": 2.0,
-      "fade_in_far": 25.0
+      "fade_in_near": 3.0,
+      "fade_in_far": 45.0
     },
     "atmosphere": {
       "color_base": [
@@ -300,8 +300,8 @@
       },
       "sink": 0.0,
       "scale_override": null,
-      "fade_in_near": 2.0,
-      "fade_in_far": 25.0
+      "fade_in_near": 3.0,
+      "fade_in_far": 45.0
     },
     "life": {
       "color_base": [
@@ -331,7 +331,7 @@
       "sink": 0.0,
       "scale_override": null,
       "fade_in_near": 3.0,
-      "fade_in_far": 35.0
+      "fade_in_far": 55.0
     },
     "horizon": {
       "color_base": [
@@ -475,8 +475,8 @@
       "spatial_class": "companion",
       "visual_radius": 0.4,
       "use_vertex_colors": true,
-      "fade_in_near": 2.0,
-      "fade_in_far": 25.0,
+      "fade_in_near": 3.0,
+      "fade_in_far": 40.0,
       "color_base": [
         0.37,
         0.33,
@@ -538,7 +538,7 @@
       "visual_radius": 0.15,
       "use_vertex_colors": true,
       "fade_in_near": 2.0,
-      "fade_in_far": 18.0,
+      "fade_in_far": 32.0,
       "color_base": [
         0.39,
         0.36,
