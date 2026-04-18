@@ -29,20 +29,15 @@ const CAMERA_LERP_SMOOTHNESS: float    = 10.0
 const PITCH_MIN := -80.0 * PI / 180.0
 const PITCH_MAX :=  80.0 * PI / 180.0
 
-# Flip to true to drive player movement through a real CharacterBody3D +
-# move_and_slide instead of the hand-rolled Camera3D push-out. Both paths
-# live side-by-side during the physics migration so we can UAT both and
-# fall back by flipping the const if the new path misbehaves. Planned
-# removal: once UAT passes at commit 1, delete the old branch + this flag.
-const USE_PHYSICS_RIG := true
-# Player capsule — matches godot/player/fps_player.tscn.
+# Player capsule — matches godot/player/fps_player.tscn. The rig is the
+# canonical movement path; the legacy Camera3D push-out has been removed.
 const PLAYER_CAPSULE_RADIUS: float = 0.4
 const PLAYER_CAPSULE_HEIGHT: float = 1.8
-# Entity colliders — cylinder height is a hardcoded approximation for the
-# first physics pass (kind_config doesn't yet carry per-kind collider height).
-# Spawn-radius cull keeps creation cost bounded on large tile rebuilds;
-# entities outside the radius still emit the legacy dict for creature
-# push-out, they just don't get a StaticBody3D.
+# Entity colliders — cylinder height is a hardcoded approximation; per-kind
+# collider height is a future kind_config addition. Spawn-radius cull keeps
+# creation cost bounded on large tile rebuilds; entities outside the radius
+# still emit the legacy collision_objects dict (creatures consume it) but
+# don't get a StaticBody3D.
 const ENTITY_COLLIDER_HEIGHT: float = 6.0
 const ENTITY_COLLIDER_SPAWN_R: float = 80.0
 
@@ -57,10 +52,11 @@ const CEILING_PLANE_Y_DEFAULT: float = 15.0
 var active_ceiling_y: float = CEILING_PLANE_Y_DEFAULT
 
 var camera: Camera3D
-# Physics rig — when USE_PHYSICS_RIG, camera is a grand-child (rig → neck →
-# camera). player_rig drives world XZ + yaw via move_and_slide, neck carries
-# pitch + crouch lerp, camera carries lean offsets. Reads that want world
-# position should use camera.global_position (works in both modes).
+# Physics rig — camera is a grand-child (rig → neck → camera). player_rig
+# drives world XZ + yaw via move_and_slide, neck carries pitch + crouch
+# lerp, camera carries lean offsets. Reads that want world position use
+# camera.global_position; helpers _player_pos / _player_yaw / _player_pitch
+# / _teleport_player route to the right node.
 var player_rig: CharacterBody3D
 var neck: Node3D
 # StaticBody3D colliders for every real entity + colliders under the
@@ -74,22 +70,14 @@ var manifest: Dictionary
 var mouse_captured := true
 
 # FPS state — populated by physics process + gamepad polling.
-var vertical_velocity: float = 0.0         # for jump arc + gravity
 var cam_base_local_y: float = 0.0          # neutral local-Y for crouch lerp
 var cam_base_local_x: float = 0.0          # neutral local-X for lean offset
 var lean_state: float = 0.0                # -1 (L), 0 (none), 1 (R)
 
-# Collision
+# Collision — dict mirror consumed by creatures' manual push-out
+# (_push_out_of_collision). The player itself collides via real
+# StaticBody3D + move_and_slide; this dict is creature-only legacy now.
 var collision_objects: Array[Dictionary] = []
-
-# Spatial cull — player physics iterates nearby_colliders instead of the full
-# collision_objects (which can be 800+ entries). Refreshed when the player
-# drifts more than COLLIDER_CULL_REFRESH meters from the cached position or
-# when _rebuild_entities swaps the underlying set.
-var nearby_colliders: Array[Dictionary] = []
-var last_cull_pos: Vector2 = Vector2(INF, INF)
-const COLLIDER_CULL_RADIUS: float = 15.0
-const COLLIDER_CULL_REFRESH: float = 5.0
 
 # Mesh cache
 var mesh_cache: Dictionary = {}
@@ -509,43 +497,34 @@ func _setup_camera() -> void:
 	armor_glow.position = Vector3(0.0, -1.2, 0.0)  # waist height below camera
 	camera.add_child(armor_glow)
 
-	if USE_PHYSICS_RIG:
-		# CharacterBody3D rig — body owns world XZ + yaw, neck owns pitch +
-		# crouch lerp, camera sits at neck origin carrying lean offset only.
-		# Capsule collider is centered at y = height/2 so the feet hit y=0.
-		player_rig = CharacterBody3D.new()
-		player_rig.name = "PlayerRig"
-		player_rig.position = Vector3(spawn_x, 0.0, spawn_z)
-		player_rig.rotation_degrees.y = spawn_heading
-		add_child(player_rig)
+	# CharacterBody3D rig — body owns world XZ + yaw, neck owns pitch +
+	# crouch lerp, camera sits at neck origin carrying lean offset only.
+	# Capsule collider is centered at y = height/2 so the feet hit y=0.
+	player_rig = CharacterBody3D.new()
+	player_rig.name = "PlayerRig"
+	player_rig.position = Vector3(spawn_x, 0.0, spawn_z)
+	player_rig.rotation_degrees.y = spawn_heading
+	add_child(player_rig)
 
-		var cs := CollisionShape3D.new()
-		var cap := CapsuleShape3D.new()
-		cap.radius = PLAYER_CAPSULE_RADIUS
-		cap.height = PLAYER_CAPSULE_HEIGHT
-		cs.shape = cap
-		cs.position.y = PLAYER_CAPSULE_HEIGHT * 0.5
-		player_rig.add_child(cs)
+	var cs := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = PLAYER_CAPSULE_RADIUS
+	cap.height = PLAYER_CAPSULE_HEIGHT
+	cs.shape = cap
+	cs.position.y = PLAYER_CAPSULE_HEIGHT * 0.5
+	player_rig.add_child(cs)
 
-		neck = Node3D.new()
-		neck.name = "Neck"
-		neck.position.y = EYE_HEIGHT
-		# Baseline pitch on the neck — mirrors legacy's camera.rotation.x = 10°.
-		# Mouse/gamepad look writes neck.rotation.x directly, so this initial
-		# tilt composes cleanly with further input.
-		neck.rotation_degrees.x = SPAWN_PITCH_DEG
-		player_rig.add_child(neck)
+	neck = Node3D.new()
+	neck.name = "Neck"
+	neck.position.y = EYE_HEIGHT
+	# Baseline pitch on the neck. Mouse/gamepad look writes neck.rotation.x
+	# directly, so this initial tilt composes cleanly with further input.
+	neck.rotation_degrees.x = SPAWN_PITCH_DEG
+	player_rig.add_child(neck)
 
-		# Camera local transform is identity — pitch goes on the neck, yaw on
-		# the rig, lean X offset + roll go on the camera (set by _physics_process).
-		neck.add_child(camera)
-	else:
-		# Legacy path — camera IS the root. Kept for regression A/B while
-		# USE_PHYSICS_RIG rolls out. Deleted in commit 2.
-		camera.position = Vector3(spawn_x, EYE_HEIGHT, spawn_z)
-		camera.rotation_degrees.y = spawn_heading
-		camera.rotation_degrees.x = SPAWN_PITCH_DEG
-		add_child(camera)
+	# Camera local transform is identity — pitch goes on the neck, yaw on
+	# the rig, lean X offset + roll go on the camera (set by _physics_process).
+	neck.add_child(camera)
 
 	# iso camera setup deferred to _finalize_spawn_scene so the first-person
 	# camera is already in the scene tree and explicitly current when iso
@@ -555,32 +534,27 @@ func _setup_camera() -> void:
 
 # --- Player world-pos / yaw helpers -----------------------------------------
 # Callers that want "where is the player in the world" ask these helpers
-# instead of touching `camera.position` / `camera.rotation` directly. They
-# resolve correctly whether the camera is a root Node3D (legacy) or a
-# grand-child of the CharacterBody3D rig (USE_PHYSICS_RIG).
+# instead of touching `camera.position` / `camera.rotation` directly.
+# camera.global_position resolves the rig→neck→camera chain to give world
+# XZ; player_rig.rotation.y is yaw, neck.rotation.x is pitch.
 func _player_pos() -> Vector3:
 	return camera.global_position
 
 func _player_yaw() -> float:
-	return player_rig.rotation.y if USE_PHYSICS_RIG else camera.rotation.y
+	return player_rig.rotation.y
 
 func _player_pitch() -> float:
-	return neck.rotation.x if USE_PHYSICS_RIG else camera.rotation.x
+	return neck.rotation.x
 
-# Teleport helper — writes to the right node depending on rig mode. Resets
-# velocity on teleport so a mid-fall zap doesn't carry momentum into the
-# destination. heading_rad and pitch_rad in radians.
+# Teleport helper — writes the rig position + neck pitch and clears velocity
+# so a mid-fall zap doesn't carry momentum into the destination. Rig y=0 is
+# feet, so pos.y is ignored — the capsule sits with feet on the ground at
+# the destination XZ. heading_rad and pitch_rad in radians.
 func _teleport_player(pos: Vector3, heading_rad: float, pitch_rad: float = 0.0) -> void:
-	if USE_PHYSICS_RIG:
-		# Rig y=0 is feet; spawn at pos.x/z regardless of pos.y (feet grounded).
-		player_rig.position = Vector3(pos.x, 0.0, pos.z)
-		player_rig.rotation.y = heading_rad
-		neck.rotation.x = pitch_rad
-		player_rig.velocity = Vector3.ZERO
-	else:
-		camera.position = Vector3(pos.x, EYE_HEIGHT, pos.z)
-		camera.rotation.y = heading_rad
-		camera.rotation.x = pitch_rad
+	player_rig.position = Vector3(pos.x, 0.0, pos.z)
+	player_rig.rotation.y = heading_rad
+	neck.rotation.x = pitch_rad
+	player_rig.velocity = Vector3.ZERO
 
 # --- Player avatar (iso-only) ------------------------------------------------
 # Tall dark silhouette placed at the first-person camera's XZ. Visible only
@@ -737,8 +711,7 @@ func _aim_spawn_heading() -> void:
 
 	if biome_name == "cavern":
 		# Hub spawn — enter the hub from the SOUTH arch (world y=-14) facing
-		# north (+Y in brain → +Z in Godot). _teleport_player writes to rig or
-		# camera depending on USE_PHYSICS_RIG and clears any stale velocity.
+		# north (+Y in brain → +Z in Godot). _teleport_player resets velocity.
 		_teleport_player(Vector3(0.0, 0.0, -14.0), PI, deg_to_rad(8.0))
 		print("Hub spawn: player at (0, -14) facing north (180°)")
 	else:
@@ -792,10 +765,7 @@ func _legacy_landmark_aim() -> void:
 	var landmark_heading: float = atan2(dx, -dz)
 	var peripheral_offset: float = deg_to_rad(-35.0)
 	var final_heading: float = landmark_heading + peripheral_offset
-	if USE_PHYSICS_RIG:
-		player_rig.rotation.y = final_heading
-	else:
-		camera.rotation.y = final_heading
+	player_rig.rotation.y = final_heading
 	print("Spawn aim: landmark at (%.1f, %.1f), dist %.1fm, heading %.1f°" % [
 		best_x, best_z, sqrt(dx*dx + dz*dz), rad_to_deg(final_heading)])
 
@@ -807,8 +777,8 @@ func _finalize_spawn_scene() -> void:
 	var fog_data: Dictionary = manifest.get("fog", {})
 	camera.far = fog_data.get("far", 55.0) * 2.5  # extended for skeleton silhouettes
 	camera.fov = 62.0  # wider peripheral — catches ceiling features + passive pull cues
-	# Camera is already parented inside _setup_camera (rig branch → neck.add_child,
-	# legacy branch → add_child). Don't re-parent here — Godot warns on duplicate.
+	# Camera is already parented inside _setup_camera (neck.add_child).
+	# Don't re-parent here — Godot warns on duplicate.
 	camera.current = true   # explicit — iso camera added next mustn't take over
 	_setup_iso_camera()
 	_setup_player_avatar()
@@ -1101,10 +1071,6 @@ func _spawn_entities() -> void:
 	# comment for the deferred-refactor history.
 	for kind: String in by_kind:
 		_create_multimesh_for_kind(kind, by_kind[kind])
-	# Initial cull window — player physics reads this instead of the full
-	# collision_objects set (spatial cull for perf, see _refresh_nearby_colliders).
-	var p0: Vector3 = _player_pos()
-	_refresh_nearby_colliders(p0.x, p0.z)
 	_spawn_contact_shadows(by_kind)
 
 
@@ -1681,7 +1647,7 @@ func _send_camera() -> void:
 		_rig_debug_accum += UPDATE_INTERVAL
 		if _rig_debug_accum >= 1.0:
 			var rig_str: String = "--"
-			if USE_PHYSICS_RIG and is_instance_valid(player_rig):
+			if is_instance_valid(player_rig):
 				var rp: Vector3 = player_rig.position
 				rig_str = "(%.1f, %.1f, %.1f) floor=%s" % [rp.x, rp.y, rp.z, str(player_rig.is_on_floor())]
 			print("[RIG] send=%d/s pp=(%.1f, %.1f, %.1f) yaw=%.0f° rig=%s env_r=%.1f" % [
@@ -1819,11 +1785,6 @@ func _rebuild_entities() -> void:
 		if kind_nodes.has(kind) and is_instance_valid(kind_nodes[kind]):
 			kind_nodes[kind].queue_free()
 		_create_multimesh_for_kind(kind, ents)
-
-	# Collision set just changed; refresh the spatial-cull window around
-	# the current camera position so player physics reads the new set.
-	var p_rb: Vector3 = _player_pos()
-	_refresh_nearby_colliders(p_rb.x, p_rb.z)
 
 	# Stone density texture — refresh from current entity positions
 	# and push to all ground plane materials so the ground shader can
@@ -2832,29 +2793,11 @@ func _update_flight_creature(c: Dictionary, cfg: Dictionary, node: Node3D, delta
 	c["vel"] = vel
 
 
-func _refresh_nearby_colliders(px: float, pz: float) -> void:
-	# Spatial cull — rebuild nearby_colliders from collision_objects for
-	# colliders within COLLIDER_CULL_RADIUS of (px, pz). Player push-out
-	# iterates the culled list (~30 entries) instead of the full set
-	# (800+). Refresh whenever the player strays more than
-	# COLLIDER_CULL_REFRESH meters from the cached pos, or when the
-	# underlying collision_objects set changes.
-	nearby_colliders.clear()
-	var r2: float = COLLIDER_CULL_RADIUS * COLLIDER_CULL_RADIUS
-	for coll: Dictionary in collision_objects:
-		var dx: float = float(coll.get("x", 0.0)) - px
-		var dz: float = float(coll.get("z", 0.0)) - pz
-		if dx * dx + dz * dz <= r2:
-			nearby_colliders.append(coll)
-	last_cull_pos = Vector2(px, pz)
-
-
 func _push_out_of_collision(pos: Vector3, radius: float) -> Vector3:
-	# Mirrors the player's push-out in _physics_process. Iterates scenery
-	# collision_objects and ejects pos along the separating axis if the
-	# creature overlaps a solid. XZ only — y is driven by hover/terrain.
-	# Creatures use the full list (they scatter across the world and can
-	# push-out anywhere); only the player uses nearby_colliders cull.
+	# Creatures' XZ push-out against scenery. The player itself uses Godot
+	# physics (StaticBody3D + move_and_slide) so this dict-iteration path is
+	# creature-only now. y is driven by hover/terrain — push-out only
+	# corrects the horizontal plane.
 	for coll: Dictionary in collision_objects:
 		var cdx: float = pos.x - coll["x"]
 		var cdz: float = pos.z - coll["z"]
@@ -4111,16 +4054,11 @@ func _update_motes() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and mouse_captured:
-		if USE_PHYSICS_RIG:
-			# Yaw on the rig, pitch on the neck — mirrors fps_player.gd:60-62
-			# so the capsule turns with the view rather than gliding sideways.
-			player_rig.rotate_y(-event.relative.x * MOUSE_SENS)
-			neck.rotate_x(-event.relative.y * MOUSE_SENS)
-			neck.rotation.x = clampf(neck.rotation.x, deg_to_rad(-89), deg_to_rad(89))
-		else:
-			camera.rotation.y -= event.relative.x * MOUSE_SENS
-			camera.rotation.x -= event.relative.y * MOUSE_SENS
-			camera.rotation.x = clampf(camera.rotation.x, deg_to_rad(-89), deg_to_rad(89))
+		# Yaw on the rig, pitch on the neck — mirrors fps_player.gd:60-62
+		# so the capsule turns with the view rather than gliding sideways.
+		player_rig.rotate_y(-event.relative.x * MOUSE_SENS)
+		neck.rotate_x(-event.relative.y * MOUSE_SENS)
+		neck.rotation.x = clampf(neck.rotation.x, deg_to_rad(-89), deg_to_rad(89))
 
 	if event.is_action_pressed("ui_cancel"):
 		if mouse_captured:
@@ -4230,17 +4168,12 @@ func _physics_process(delta: float) -> void:
 	if encounter_hud and encounter_hud.encounter_active:
 		return
 
-	# Crouch is shared between both paths (input state, not physics).
 	var crouching := Input.is_action_pressed("crouch")
+	_physics_process_rig(delta, crouching)
 
-	if USE_PHYSICS_RIG:
-		_physics_process_rig(delta, crouching)
-	else:
-		_physics_process_legacy(delta, crouching)
-
-	# Lean — body yaw stays put; camera tilts + offsets via rotation.z. This
-	# runs in both paths since the camera is a leaf in the rig hierarchy too,
-	# so local rotation.z composes cleanly.
+	# Lean — body yaw stays put; camera tilts + offsets via rotation.z. The
+	# camera is a leaf in the rig hierarchy so local rotation.z composes
+	# cleanly with neck pitch + rig yaw.
 	var target_lean: float = 0.0
 	if Input.is_action_pressed("lean_left"):
 		target_lean = -1.0
@@ -4297,7 +4230,7 @@ func _physics_process(delta: float) -> void:
 		bc.position.z = ppos.z
 
 
-# --- Rig physics path (USE_PHYSICS_RIG) -----------------------------------
+# --- Rig physics path -------------------------------------------------------
 # Drives a CharacterBody3D via move_and_slide. Gravity + jump handled by
 # is_on_floor(); XZ velocity set from input direction. Playable envelope
 # applied after move_and_slide as a position fixup (soft pushback + clamp).
@@ -4369,90 +4302,3 @@ func _physics_process_rig(delta: float, crouching: bool) -> void:
 	neck.position.y = lerpf(neck.position.y, crouch_target_y, CAMERA_LERP_SMOOTHNESS * delta)
 
 
-# --- Legacy physics path (DEPRECATED — delete in commit 2 once UAT passes) -
-# The hand-rolled Camera3D + manual sphere-distance push-out + terrain_z
-# eye-height loop. Kept behind USE_PHYSICS_RIG = false for A/B regression.
-func _physics_process_legacy(delta: float, crouching: bool) -> void:
-	# Gamepad right-stick look — analog, deadzone applied by InputMap.
-	# Additive to mouse look (both work simultaneously).
-	var look_vec := Input.get_vector("look_left", "look_right", "look_up", "look_down")
-	if look_vec.length_squared() > 0.0001:
-		camera.rotation.y -= look_vec.x * GAMEPAD_LOOK_SENS * delta
-		camera.rotation.x -= look_vec.y * GAMEPAD_LOOK_SENS * delta
-		camera.rotation.x = clampf(camera.rotation.x, PITCH_MIN, PITCH_MAX)
-
-	# Horizontal input with sprint modifier.
-	var input_vec := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var dir := (camera.global_transform.basis.x * input_vec.x
-		+ camera.global_transform.basis.z * input_vec.y)
-	dir.y = 0.0
-	if dir.length_squared() > 0.001:
-		dir = dir.normalized()
-
-	var speed := MOVE_SPEED
-	if crouching:
-		speed = MOVE_SPEED * 0.55
-	elif Input.is_action_pressed("sprint"):
-		speed = MOVE_SPEED * SPRINT_MULTIPLIER
-
-	var new_pos: Vector3 = camera.position + dir * speed * delta
-
-	# Spatial cull — refresh the nearby_colliders window when the player
-	# drifts out of the cached zone. Push-out then iterates the culled
-	# list (~30) instead of the full collision_objects (800+). Physics
-	# hot path cost drops ~25× compared to iterating the full set.
-	var _cull_dx: float = new_pos.x - last_cull_pos.x
-	var _cull_dz: float = new_pos.z - last_cull_pos.y
-	if _cull_dx * _cull_dx + _cull_dz * _cull_dz > COLLIDER_CULL_REFRESH * COLLIDER_CULL_REFRESH:
-		_refresh_nearby_colliders(new_pos.x, new_pos.z)
-
-	for coll: Dictionary in nearby_colliders:
-		var dx: float = new_pos.x - coll["x"]
-		var dz: float = new_pos.z - coll["z"]
-		var dist_sq: float = dx * dx + dz * dz
-		var min_dist: float = coll["r"] + 0.5
-		if dist_sq < min_dist * min_dist and dist_sq > 0.001:
-			var dist: float = sqrt(dist_sq)
-			var push: float = min_dist - dist
-			new_pos.x += (dx / dist) * push
-			new_pos.z += (dz / dist) * push
-
-	# Playable envelope — soft pushback + hard clamp.
-	var envelope: Dictionary = manifest.get("playable_envelope", {})
-	var env_radius: float = float(envelope.get("radius", 0.0))
-	if env_radius > 0.0:
-		var env_softness: float = float(envelope.get("softness", 1.0))
-		var dist_from_origin: float = sqrt(new_pos.x * new_pos.x
-			+ new_pos.z * new_pos.z)
-		if dist_from_origin > env_radius:
-			var overshoot: float = dist_from_origin - env_radius
-			var pushback_mag: float = overshoot * env_softness * delta
-			var inv_d: float = 1.0 / dist_from_origin
-			new_pos.x -= new_pos.x * inv_d * pushback_mag
-			new_pos.z -= new_pos.z * inv_d * pushback_mag
-			var dist_after: float = sqrt(new_pos.x * new_pos.x
-				+ new_pos.z * new_pos.z)
-			if dist_after > env_radius:
-				var clamp_scale: float = env_radius / dist_after
-				new_pos.x *= clamp_scale
-				new_pos.z *= clamp_scale
-
-	# Terrain elevation — brain sends terrain_z, camera follows the field.
-	var terrain_z: float = manifest.get("camera", {}).get("terrain_z", 0.0)
-	var crouch_offset: float = CROUCH_HEIGHT_OFFSET if crouching else 0.0
-	var terrain_ground_y: float = EYE_HEIGHT + terrain_z - crouch_offset
-
-	var on_floor: bool = (camera.position.y <= terrain_ground_y + 0.05) and vertical_velocity <= 0.0
-	if Input.is_action_just_pressed("jump") and on_floor and not crouching:
-		vertical_velocity = JUMP_VELOCITY
-		on_floor = false
-	if not on_floor:
-		vertical_velocity -= GRAVITY * delta
-	var candidate_y: float = camera.position.y + vertical_velocity * delta
-	if candidate_y <= terrain_ground_y:
-		candidate_y = terrain_ground_y
-		vertical_velocity = 0.0
-	if vertical_velocity == 0.0:
-		candidate_y = lerpf(camera.position.y, terrain_ground_y, 7.0 * delta)
-	new_pos.y = candidate_y
-	camera.position = new_pos
