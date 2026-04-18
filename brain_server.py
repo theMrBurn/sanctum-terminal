@@ -1324,11 +1324,18 @@ def run_server(biome_name, port=9877):
                 try:
                     client.sendall(response.encode("utf-8"))
                 except (BrokenPipeError, ConnectionResetError):
+                    # Mirror the no-data and reset disconnect paths above —
+                    # use `continue` so the outer accept loop survives. The
+                    # previous `break` exited the `while True:` entirely and
+                    # the brain process died. Reproduced multiple times this
+                    # session whenever Godot reloaded the scene mid-write.
                     print("  Godot disconnected (write)", flush=True)
                     client.close()
                     client = None
                     expedition = None
-                    break
+                    encounter = None
+                    roaming = None
+                    continue
 
                 # After the full manifest has shipped, clear the
                 # expedition's pending message so it's not re-toasted
