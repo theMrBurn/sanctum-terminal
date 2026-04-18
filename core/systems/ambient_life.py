@@ -24,6 +24,13 @@ from panda3d.core import (
     SamplerState,
 )
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
+# Companion recipes — single source of truth lives in biome_data so the
+# brain pipeline (tile_exchange / world_gen) and the legacy spawn() path
+# both read the same affinity recipes. ambient_life used to define a
+# duplicate dict; removed in the affinity-driven refactor.
+from core.systems.biome_data import (
+    COMPANION_SPAWNS, OUTDOOR_COMPANION_SPAWNS,
+)
 from core.systems.glow_decal import make_glow_decal, get_glow_texture, make_light_shaft, get_shaft_texture, make_glow_halo
 
 
@@ -464,26 +471,12 @@ def overlap_z(parent_h, child_h):
     return parent_h * (1.0 - OVERLAP_FACTOR) - child_h * 0.1
 
 
-# Companion spawns — objects that cluster near other objects.
-# When a base object spawns, also spawn N companions at random positions around it.
-# Grass grows near boulders, columns, moss. Not near crystals (too harsh).
-COMPANION_SPAWNS = {
-    "boulder":    {"grass_tuft": 1, "radius": 4.0},
-    "column":     {"grass_tuft": 1, "radius": 5.0},
-    "moss_patch": {"grass_tuft": 1, "radius": 2.0},
-    "dead_log":   {"grass_tuft": 1, "radius": 2.5},
-    "stalagmite": {"grass_tuft": 1, "radius": 3.0},
-}
-
-# Outdoor: anchor objects pull PNW ecosystem companions
-# Companion counts reduced — each costs a tick slot. Density table handles volume.
-OUTDOOR_COMPANION_SPAWNS = {
-    "mega_column": {"moss_patch": 1, "grass_tuft": 1, "radius": 8.0},   # Doug fir base
-    "column":      {"grass_tuft": 1, "radius": 4.0},                    # tree trunk base
-    "boulder":     {"grass_tuft": 1, "radius": 4.0},                    # fern understory
-    "dead_log":    {"moss_patch": 1, "radius": 3.0},                    # nurse log
-    "giant_fungus": {"grass_tuft": 1, "radius": 3.5},                   # bush ground cover
-}
+# Companion spawns moved to biome_data.COMPANION_SPAWNS / OUTDOOR_COMPANION_SPAWNS
+# with the affinity-driven recipe shape (pool + weights + spawn_chance +
+# radius_range). Consumed via biome_config("companions") inside spawn().
+# These two top-level dicts used to live here as a duplicate source — they
+# were never read at this scope (the consumer always went through
+# biome_config) so removing them is dead-code cleanup.
 
 
 # -- Spectrum system -----------------------------------------------------------
@@ -2981,17 +2974,52 @@ class AmbientManager:
         self._spatial.insert(eid, pos[0], pos[1], chain_index=chain_idx)
         self._hibernated_n += 1  # spawns asleep
 
-        # Companion spawns — biome-aware ecosystem clustering
-        companions = biome_config("companions").get(kind, {})
-        if companions:
+        # Companion spawns — affinity-driven ecosystem clustering. Each
+        # anchor declares a weighted POOL of possible companions; we roll
+        # spawn_chance, then pick 1..max_total members from the pool with
+        # weighted random selection. Adjacent anchors get varied mixes
+        # instead of identical scatter — emergent placement variety.
+        # See biome_data.COMPANION_SPAWNS for schema.
+        recipe = biome_config("companions").get(kind, {})
+        if recipe and "pool" in recipe:
             comp_rng = random.Random(seed + 55555)
-            for comp_kind, comp_count in companions.items():
-                if comp_kind == "radius":
-                    continue
-                r = companions.get("radius", 3.0)
-                for ci in range(comp_count):
+            if comp_rng.random() < float(recipe.get("spawn_chance", 1.0)):
+                pool = recipe["pool"]
+                radius_range = recipe.get("radius_range", [2.0, 3.0])
+                r_near = float(radius_range[0])
+                r_far = float(radius_range[1])
+                max_total = int(recipe.get("max_total", 2))
+                # Weighted-random rolls: target K = random(1, max_total)
+                # picks from the pool, with each pool entry's `max` capping
+                # how many of that kind can land in this single anchor.
+                target_count = comp_rng.randint(1, max_total)
+                weights = [float(p.get("weight", 1.0)) for p in pool]
+                placed: dict[str, int] = {}
+                ci = 0
+                for _ in range(target_count):
+                    # Pool of candidates that haven't hit their per-kind max
+                    eligible = [
+                        (i, p) for i, p in enumerate(pool)
+                        if placed.get(p["kind"], 0) < int(p.get("max", 1))
+                    ]
+                    if not eligible:
+                        break
+                    elig_weights = [weights[i] for i, _ in eligible]
+                    elig_total = sum(elig_weights)
+                    if elig_total <= 0.0:
+                        break
+                    pick_v = comp_rng.uniform(0.0, elig_total)
+                    accum = 0.0
+                    chosen = eligible[0][1]
+                    for (i, p), w in zip(eligible, elig_weights):
+                        accum += w
+                        if pick_v <= accum:
+                            chosen = p
+                            break
+                    comp_kind = chosen["kind"]
+                    placed[comp_kind] = placed.get(comp_kind, 0) + 1
                     angle = comp_rng.uniform(0, 360)
-                    dist = comp_rng.uniform(r * 0.3, r)
+                    dist = comp_rng.uniform(r_near, r_far)
                     cx = pos[0] + math.cos(math.radians(angle)) * dist
                     cy = pos[1] + math.sin(math.radians(angle)) * dist
                     cz = pos[2]
@@ -3001,6 +3029,7 @@ class AmbientManager:
                                heading=comp_rng.uniform(0, 360),
                                seed=seed + 60000 + ci,
                                height_fn=height_fn, chunk_key=chunk_key)
+                    ci += 1
 
         return entity
 

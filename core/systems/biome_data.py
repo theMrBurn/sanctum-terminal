@@ -303,22 +303,149 @@ OUTDOOR_TILE_VARIANTS = {
 
 
 # -- Companion spawns (ecosystem clustering) -----------------------------------
+#
+# Affinity-driven recipe: each anchor declares a POOL of possible companions
+# (not a fixed list). At spawn time the brain rolls spawn_chance, then picks
+# 1..max_total companions from the pool weighted by `weight`, dropping each
+# at a random distance inside radius_range. Adjacent anchors get varied
+# companion mixes — moss-on-this-boulder, gravel-on-the-next.
+#
+# Schema (per anchor kind):
+#   pool:           [{kind, weight, max}]   weighted candidate list
+#                   max = how many of THIS kind can land in one spawn (≥1)
+#                   weight = relative probability vs other pool entries
+#   spawn_chance:   float 0..1              gate roll — 0.6 = 60% of anchors
+#                                           get any companions at all
+#   radius_range:   [near, far]             companion XY distance from anchor
+#   max_total:      int                     cap total companions per anchor
+#
+# Old fixed-count shape ({comp: count, radius}) is gone — every entry now
+# uses pool-based recipes for emergent variety.
 
 COMPANION_SPAWNS = {
-    "boulder":      {"grass_tuft": 1, "moss_patch": 1, "radius": 4.0},
-    "column":       {"grass_tuft": 1, "moss_patch": 1, "radius": 3.0},
-    "mega_column":  {"moss_patch": 1, "radius": 4.0},
-    "moss_patch":   {"grass_tuft": 1, "radius": 2.0},
-    "dead_log":     {"grass_tuft": 1, "radius": 2.5},
-    "stalagmite":   {"grass_tuft": 1, "radius": 3.0},
+    "boulder": {
+        "pool": [
+            {"kind": "moss_patch",  "weight": 2.0, "max": 1},
+            {"kind": "grass_tuft",  "weight": 1.5, "max": 1},
+            {"kind": "rubble",      "weight": 1.5, "max": 2},
+            {"kind": "cave_gravel", "weight": 1.0, "max": 2},
+        ],
+        "spawn_chance": 0.7,
+        "radius_range": [2.0, 4.5],
+        "max_total": 2,
+    },
+    "column": {
+        "pool": [
+            {"kind": "moss_patch", "weight": 1.5, "max": 1},
+            {"kind": "grass_tuft", "weight": 1.5, "max": 1},
+            {"kind": "rubble",     "weight": 1.0, "max": 2},
+        ],
+        "spawn_chance": 0.6,
+        "radius_range": [2.0, 3.5],
+        "max_total": 2,
+    },
+    "mega_column": {
+        "pool": [
+            {"kind": "moss_patch",     "weight": 2.0, "max": 1},
+            {"kind": "rubble",         "weight": 1.5, "max": 2},
+            {"kind": "cave_gravel",    "weight": 1.0, "max": 2},
+            {"kind": "crystal_cluster","weight": 0.4, "max": 1},
+        ],
+        "spawn_chance": 0.85,
+        "radius_range": [3.0, 6.0],
+        "max_total": 3,
+    },
+    "moss_patch": {
+        "pool": [
+            {"kind": "grass_tuft", "weight": 1.0, "max": 2},
+        ],
+        "spawn_chance": 0.5,
+        "radius_range": [1.0, 2.0],
+        "max_total": 2,
+    },
+    "dead_log": {
+        "pool": [
+            {"kind": "moss_patch",   "weight": 2.0, "max": 1},
+            {"kind": "grass_tuft",   "weight": 1.5, "max": 2},
+            {"kind": "leaf_pile",    "weight": 1.0, "max": 1},
+            {"kind": "twig_scatter", "weight": 0.8, "max": 1},
+        ],
+        "spawn_chance": 0.75,
+        "radius_range": [1.5, 3.0],
+        "max_total": 2,
+    },
+    "stalagmite": {
+        "pool": [
+            {"kind": "grass_tuft",  "weight": 1.5, "max": 1},
+            {"kind": "rubble",      "weight": 1.0, "max": 2},
+            {"kind": "cave_gravel", "weight": 1.0, "max": 2},
+        ],
+        "spawn_chance": 0.6,
+        "radius_range": [1.5, 3.5],
+        "max_total": 2,
+    },
+    "giant_fungus": {
+        "pool": [
+            {"kind": "moss_patch", "weight": 2.0, "max": 1},
+            {"kind": "firefly",    "weight": 1.5, "max": 3},
+            {"kind": "grass_tuft", "weight": 1.0, "max": 1},
+        ],
+        "spawn_chance": 0.8,
+        "radius_range": [1.5, 3.5],
+        "max_total": 3,
+    },
 }
 
 OUTDOOR_COMPANION_SPAWNS = {
-    "mega_column": {"moss_patch": 1, "grass_tuft": 1, "radius": 8.0},
-    "column":      {"grass_tuft": 1, "radius": 4.0},
-    "boulder":     {"grass_tuft": 1, "radius": 4.0},
-    "dead_log":    {"moss_patch": 1, "radius": 3.0},
-    "giant_fungus": {"grass_tuft": 1, "radius": 3.5},
+    "mega_column": {  # Doug fir base — heavy ecosystem
+        "pool": [
+            {"kind": "moss_patch", "weight": 2.5, "max": 2},
+            {"kind": "grass_tuft", "weight": 2.0, "max": 2},
+            {"kind": "leaf_pile",  "weight": 1.5, "max": 1},
+            {"kind": "rubble",     "weight": 0.8, "max": 1},
+        ],
+        "spawn_chance": 0.9,
+        "radius_range": [4.0, 9.0],
+        "max_total": 4,
+    },
+    "column": {  # tree trunk base
+        "pool": [
+            {"kind": "grass_tuft", "weight": 2.0, "max": 2},
+            {"kind": "moss_patch", "weight": 1.5, "max": 1},
+            {"kind": "leaf_pile",  "weight": 1.0, "max": 1},
+        ],
+        "spawn_chance": 0.75,
+        "radius_range": [2.0, 4.5],
+        "max_total": 3,
+    },
+    "boulder": {  # fern understory
+        "pool": [
+            {"kind": "grass_tuft", "weight": 2.0, "max": 2},
+            {"kind": "moss_patch", "weight": 1.5, "max": 1},
+        ],
+        "spawn_chance": 0.7,
+        "radius_range": [2.0, 4.5],
+        "max_total": 2,
+    },
+    "dead_log": {  # nurse log
+        "pool": [
+            {"kind": "moss_patch", "weight": 2.5, "max": 2},
+            {"kind": "grass_tuft", "weight": 1.5, "max": 1},
+            {"kind": "leaf_pile",  "weight": 1.0, "max": 1},
+        ],
+        "spawn_chance": 0.85,
+        "radius_range": [1.5, 3.5],
+        "max_total": 3,
+    },
+    "giant_fungus": {  # bush ground cover
+        "pool": [
+            {"kind": "grass_tuft", "weight": 1.5, "max": 1},
+            {"kind": "moss_patch", "weight": 1.0, "max": 1},
+        ],
+        "spawn_chance": 0.7,
+        "radius_range": [2.0, 4.0],
+        "max_total": 2,
+    },
 }
 
 
