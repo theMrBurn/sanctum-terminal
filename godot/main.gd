@@ -4190,8 +4190,8 @@ func _input(event: InputEvent) -> void:
 			KEY_I:  # Toggle iso dev camera (ortho 3/4 top-down)
 				_toggle_iso_camera()
 			KEY_P:  # Begin scout — mock quest-accept hook. Brain spins up a
-			        # fresh ExpeditionEngine in the current biome. If a scout
-			        # is already active, brain no-ops with an ack.
+					# fresh ExpeditionEngine in the current biome. If a scout
+					# is already active, brain no-ops with an ack.
 				if connected:
 					var msg := JSON.stringify({"cmd": "begin_scout"}) + "\n"
 					tcp.put_data(msg.to_utf8_buffer())
