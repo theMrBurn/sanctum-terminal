@@ -468,6 +468,23 @@
         ],
         "emissive": 0.0
       },
+      "recipe": {
+        "tier": 2,
+        "family": "tapered_vertical",
+        "output_name": "stalagmite_recipe",
+        "variant_count": 4,
+        "bounds": [1.0, 1.0, 3.75],
+        "variant_spread": 0.3,
+        "atoms": null,
+        "family_params": {
+          "taper_strength": 0.85,
+          "flare_ratio": 1.25,
+          "flare_frac": 0.18,
+          "noise_strength": 0.13,
+          "facet_count": 8,
+          "ring_count": 6
+        }
+      },
       "ascii": "^"
     },
     "rubble": {
@@ -634,6 +651,23 @@
         ],
         "emissive": 0.0
       },
+      "recipe": {
+        "tier": 1,
+        "family": "tapered_vertical",
+        "output_name": "mega_column_recipe",
+        "variant_count": 4,
+        "bounds": [3.0, 3.0, 12.0],
+        "variant_spread": 0.18,
+        "atoms": null,
+        "family_params": {
+          "taper_strength": 0.12,
+          "flare_ratio": 1.7,
+          "flare_frac": 0.32,
+          "noise_strength": 0.08,
+          "facet_count": 10,
+          "ring_count": 8
+        }
+      },
       "ascii": "#"
     },
     "column": {
@@ -675,6 +709,23 @@
           0.18
         ],
         "emissive": 0.0
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "tapered_vertical",
+        "output_name": "column_recipe",
+        "variant_count": 4,
+        "bounds": [2.25, 2.25, 10.0],
+        "variant_spread": 0.2,
+        "atoms": null,
+        "family_params": {
+          "taper_strength": 0.18,
+          "flare_ratio": 1.55,
+          "flare_frac": 0.28,
+          "noise_strength": 0.09,
+          "facet_count": 9,
+          "ring_count": 7
+        }
       },
       "ascii": "|"
     },

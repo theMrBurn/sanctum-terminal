@@ -2217,21 +2217,27 @@ def normalize_for_godot(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
 
 
 def export_kind(kind_name: str,
-                variants: list[trimesh.Trimesh]) -> dict:
+                variants: list[trimesh.Trimesh],
+                output_name: str | None = None) -> dict:
     """Write v0..vN GLBs to godot/meshes/ and return bounds dict for
     the first variant (used as the kind's canonical bounds).
+
+    output_name overrides the filename base — useful when a recipe wants
+    to emit alongside legacy hand-authored GLBs without overwriting them
+    (A/B safe). Defaults to kind_name.
     """
     MESH_DIR.mkdir(parents=True, exist_ok=True)
+    name_base = output_name or kind_name
     canonical_bounds = None
     for i, mesh in enumerate(variants):
         bounds = mesh_bounds(mesh)
         if canonical_bounds is None:
             canonical_bounds = bounds
         normalized = normalize_for_godot(mesh.copy())
-        out_path = MESH_DIR / f"{kind_name}_v{i}.glb"
+        out_path = MESH_DIR / f"{name_base}_v{i}.glb"
         glb_bytes = normalized.export(file_type="glb")
         out_path.write_bytes(glb_bytes)
-        print(f"  {kind_name}_v{i}.glb  "
+        print(f"  {name_base}_v{i}.glb  "
               f"({len(glb_bytes)} bytes, "
               f"{len(normalized.faces)} tris, "
               f"bounds {bounds['width']:.2f} x {bounds['depth']:.2f} x {bounds['height']:.2f})")
@@ -2626,8 +2632,13 @@ def _all_known_kinds() -> list[str]:
 def generate_kind(kind_name: str) -> None:
     print(f"Generating {kind_name}...")
     variants = build_kind(kind_name)
-    bounds = export_kind(kind_name, variants)
-    update_bounds_file(kind_name, bounds)
+    # Honor recipe.output_name so a kind can emit alongside legacy hand-
+    # authored GLBs without overwriting them (A/B safe; see kind_config
+    # column / mega_column / stalagmite recipe blocks).
+    cfg = _load_kind_config().get("kinds", {}).get(kind_name, {})
+    output_name = (cfg.get("recipe") or {}).get("output_name") or kind_name
+    bounds = export_kind(kind_name, variants, output_name=output_name)
+    update_bounds_file(output_name, bounds)
 
 
 def main() -> None:
