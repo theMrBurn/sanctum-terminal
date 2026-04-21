@@ -49,6 +49,7 @@ from core.systems.expedition_data import BIOME_EXPEDITIONS
 from core.systems.encounter_session import EncounterSession
 from core.systems.roaming_pool import RoamingPool
 from core.systems import kind_config as _kc
+from core.systems import verbs as _verbs
 from pathlib import Path
 
 
@@ -966,6 +967,17 @@ def run_server(biome_name, port=9877):
 
                 if msg.get("cmd") == "cast_event":
                     cast = msg.get("cast", {})
+                    # Taxonomy gate — reject casts with unknown trajectory/
+                    # effect combos per config/verbs.json. Soft warn + drop
+                    # rather than hard fail so a malformed cast doesn't kill
+                    # the session mid-playtest.
+                    traj = cast.get("trajectory", "straight")
+                    elem = cast.get("element", "")
+                    if not _verbs.validate_cast(traj, elem):
+                        print(f"  cast_event rejected: unknown "
+                              f"trajectory={traj!r} effect={elem!r}",
+                              flush=True)
+                        continue
                     if expedition is not None:
                         expedition.on_cast_event(cast, time.time())
                     # Queue for elemental-reaction resolution in the next

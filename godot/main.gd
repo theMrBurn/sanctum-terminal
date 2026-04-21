@@ -3237,7 +3237,7 @@ func _save_stamp_capture() -> void:
 # existing deposit_intent channel — casts share tag_log.
 var cast_count: int = 0
 
-func _send_cast_event(element: String) -> void:
+func _send_cast_event(element: String, trajectory: String = "straight") -> void:
 	if not connected:
 		return
 	cast_count += 1
@@ -3249,6 +3249,7 @@ func _send_cast_event(element: String) -> void:
 		# with real tag_ids (which start at 1 and count up).
 		"tag_id": -cast_count,
 		"element": element,
+		"trajectory": trajectory,  # per config/verbs.json cast_trajectories
 		"origin": [_pp.x, _pp.y, _pp.z],
 		"direction": [fwd.x, fwd.y, fwd.z],
 	}
@@ -3261,7 +3262,7 @@ func _send_cast_event(element: String) -> void:
 	# Casts ride the same proximity → deposit_intent loop as tags. Shared
 	# pending_tag_intents dict — negative keys keep namespaces separate.
 	pending_tag_intents[-cast_count] = cast_payload
-	_show_toast("CAST #%d [%s]" % [cast_count, element.to_upper()])
+	_show_toast("CAST #%d [%s/%s]" % [cast_count, trajectory.to_upper(), element.to_upper()])
 
 
 # -- Atmospheric layer state (future: light sheet, dust motes) ------------
