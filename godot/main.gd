@@ -44,6 +44,50 @@ const ENTITY_COLLIDER_SPAWN_R: float = 80.0
 const MoteMaterials = preload("res://mote_materials.gd")
 const MoteArrangements = preload("res://mote_arrangements.gd")
 
+# Render states — observer modes that promote the accidental disconnected-brain
+# registers (design_disconnected_registers) to explicit KEY_V toggles. NORMAL
+# is brain-driven default. OVERVIEW freezes sim for godlike survey. MOEBIUS
+# widens FOV + drops fog for comic-panel silhouettes. ASTRAL desaturates to
+# grayscale for ritual/endgame reveals (design_secret_endgame).
+const RENDER_STATES: Array[String] = ["NORMAL", "OVERVIEW", "MOEBIUS", "ASTRAL"]
+const RENDER_STATE_DEFAULT_FAR: float = 137.5   # fog_far(55) * 2.5, matches _finalize_spawn_scene
+const RENDER_STATE_SURVEY_FAR: float = 600.0    # matches iso_camera.far — see everything
+const RENDER_STATE_CONFIG := {
+	"NORMAL": {
+		"fog_enabled": false,
+		"saturation": 1.0,
+		"brightness": 1.0,
+		"fov": 62.0,
+		"far": RENDER_STATE_DEFAULT_FAR,
+		"freeze_sim": false,
+	},
+	"OVERVIEW": {
+		"fog_enabled": false,
+		"saturation": 1.0,
+		"brightness": 1.0,
+		"fov": 62.0,
+		"far": RENDER_STATE_SURVEY_FAR,
+		"freeze_sim": true,
+	},
+	"MOEBIUS": {
+		"fog_enabled": false,
+		"saturation": 1.0,
+		"brightness": 1.0,
+		"fov": 100.0,
+		"far": RENDER_STATE_SURVEY_FAR,
+		"freeze_sim": false,
+	},
+	"ASTRAL": {
+		"fog_enabled": false,
+		"saturation": 0.0,
+		"brightness": 0.7,
+		"fov": 62.0,
+		"far": RENDER_STATE_SURVEY_FAR,
+		"freeze_sim": false,
+	},
+}
+var render_state: String = "NORMAL"
+
 # Plane-attachment architecture (Design Law #14, Phase 3).
 # Canonical ceiling height is now config-driven: resolved from the manifest's
 # `planes` array at spawn time and cached in `active_ceiling_y`. The constant
@@ -644,8 +688,18 @@ const ISO_PITCH_DEG: float = -62.0     # steeper than 55 (more top-down, Drova-i
 const ISO_YAW_DEG: float = 45.0        # 45° rotate (classic iso)
 const ISO_ORTHO_SIZE_M: float = 42.0   # widened from 34 (Drova-feel viewport span)
 
+# Kung Fu punch-in — animated transition between FPS and ISO per
+# design_thoughts.txt:604-672. Entry starts iso_camera at the player's
+# current eye position with a small ortho size, then lerps up+back to
+# the final ISO pose over ISO_TRANSITION_DURATION. Exit reverses. The
+# camera itself swaps `current` instantly; the motion masks the pop.
+const ISO_TRANSITION_DURATION: float = 0.9
+const ISO_START_ORTHO_SIZE: float = 8.0   # tight framing on player for punch feel
+const ISO_START_HEIGHT_OFFSET: float = 3.0  # how far above player we begin
+
 var iso_camera: Camera3D
 var iso_active: bool = false
+var iso_tween: Tween = null
 
 
 func _setup_iso_camera() -> void:
@@ -672,24 +726,117 @@ func _update_iso_camera_position() -> void:
 
 func _toggle_iso_camera() -> void:
 	iso_active = not iso_active
+	if iso_tween and iso_tween.is_running():
+		iso_tween.kill()
 	if iso_active:
-		_update_iso_camera_position()
-		_update_player_avatar()
-		iso_camera.current = true
-		if is_instance_valid(player_avatar):
-			player_avatar.visible = true
-		# Hide center crosshair — doesn't mean "facing" in iso view.
-		# The avatar's forward arrow carries direction.
-		if encounter_hud:
-			encounter_hud.set_crosshair_visible(false)
-		_show_toast("ISO dev camera")
+		_begin_iso_transition_in()
 	else:
-		camera.current = true
-		if is_instance_valid(player_avatar):
-			player_avatar.visible = false
-		if encounter_hud:
-			encounter_hud.set_crosshair_visible(true)
-		_show_toast("First-person")
+		_begin_iso_transition_out()
+
+
+# Kung Fu punch-in — iso_camera starts at player eye level with a tight ortho
+# size, then lerps up+back to the final ISO pose. Camera swap is instant at
+# frame 0; the tween sells the motion.
+func _begin_iso_transition_in() -> void:
+	var p: Vector3 = _player_pos()
+	var yaw_rad: float = deg_to_rad(ISO_YAW_DEG)
+	var ox: float = -sin(yaw_rad) * ISO_DISTANCE_M
+	var oz: float = cos(yaw_rad) * ISO_DISTANCE_M
+	var target_pos := Vector3(p.x + ox, ISO_HEIGHT_M, p.z + oz)
+	var start_pos := Vector3(p.x, p.y + ISO_START_HEIGHT_OFFSET, p.z)
+
+	iso_camera.size = ISO_START_ORTHO_SIZE
+	iso_camera.position = start_pos
+	iso_camera.rotation_degrees = Vector3(ISO_PITCH_DEG, ISO_YAW_DEG, 0.0)
+	iso_camera.current = true
+	_update_player_avatar()
+	if is_instance_valid(player_avatar):
+		player_avatar.visible = true
+	if encounter_hud:
+		encounter_hud.set_crosshair_visible(false)
+
+	iso_tween = create_tween().set_parallel(true) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	iso_tween.tween_property(iso_camera, "size",
+			ISO_ORTHO_SIZE_M, ISO_TRANSITION_DURATION)
+	iso_tween.tween_property(iso_camera, "position",
+			target_pos, ISO_TRANSITION_DURATION)
+	_show_toast("ISO dev camera")
+
+
+# Reverse of _begin_iso_transition_in — lerps iso back to player pose, then
+# swaps to the first-person camera at tween end.
+func _begin_iso_transition_out() -> void:
+	var p: Vector3 = _player_pos()
+	var return_pos := Vector3(p.x, p.y + ISO_START_HEIGHT_OFFSET, p.z)
+	iso_tween = create_tween().set_parallel(true) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	iso_tween.tween_property(iso_camera, "size",
+			ISO_START_ORTHO_SIZE, ISO_TRANSITION_DURATION)
+	iso_tween.tween_property(iso_camera, "position",
+			return_pos, ISO_TRANSITION_DURATION)
+	# Finisher runs after the parallel group via chain.
+	iso_tween.chain().tween_callback(_finish_iso_transition_out)
+	_show_toast("First-person")
+
+
+func _finish_iso_transition_out() -> void:
+	camera.current = true
+	if is_instance_valid(player_avatar):
+		player_avatar.visible = false
+	if encounter_hud:
+		encounter_hud.set_crosshair_visible(true)
+	_apply_render_state()  # re-sync FOV/far in case render state changed during ISO
+
+
+# --- Render state (observer modes) ------------------------------------------
+# Cycles NORMAL → OVERVIEW → MOEBIUS → ASTRAL → NORMAL on KEY_V. Each state
+# applies a set of env overrides and optional sim-freeze via RENDER_STATE_CONFIG.
+# NORMAL uses brain-driven defaults; other states clamp values client-side.
+func _cycle_render_state() -> void:
+	var idx: int = RENDER_STATES.find(render_state)
+	render_state = RENDER_STATES[(idx + 1) % RENDER_STATES.size()]
+	_apply_render_state()
+	_show_toast("Render: %s" % render_state)
+
+
+# Applies the current render_state's env + camera overrides. Safe to call
+# every frame — idempotent. Called after _update_atmosphere() so it wins
+# against manifest-driven fog writes (design_disconnected_registers).
+func _apply_render_state() -> void:
+	if not godot_env:
+		return
+	var cfg: Dictionary = RENDER_STATE_CONFIG.get(render_state, {})
+	if cfg.is_empty():
+		return
+
+	# Fog override — force-off when fog_enabled=false (matches _update_atmosphere
+	# default at line 1991). NORMAL inherits the brain-driven fog_light_color
+	# already written by _update_atmosphere, so no further fog work here.
+	godot_env.fog_enabled = bool(cfg.get("fog_enabled", false))
+
+	# Adjustment overrides — only engage the node when saturation/brightness
+	# differ from defaults. Keeps NORMAL from paying the post-process cost.
+	var saturation: float = float(cfg.get("saturation", 1.0))
+	var brightness: float = float(cfg.get("brightness", 1.0))
+	var needs_adjustment: bool = not is_equal_approx(saturation, 1.0) \
+			or not is_equal_approx(brightness, 1.0)
+	godot_env.adjustment_enabled = needs_adjustment
+	if needs_adjustment:
+		godot_env.adjustment_saturation = saturation
+		godot_env.adjustment_brightness = brightness
+
+	# FOV + far — only apply to the first-person camera; iso uses ortho size.
+	if camera and not iso_active:
+		camera.fov = float(cfg.get("fov", 62.0))
+		camera.far = float(cfg.get("far", RENDER_STATE_DEFAULT_FAR))
+
+
+# Convenience — render_state controls whether creature AI + shadow orb drift
+# advance. Called from _physics_process to gate _update_creatures().
+func _render_state_frozen() -> bool:
+	var cfg: Dictionary = RENDER_STATE_CONFIG.get(render_state, {})
+	return bool(cfg.get("freeze_sim", false))
 
 
 func _aim_spawn_heading() -> void:
@@ -1716,6 +1863,7 @@ func _process_responses() -> void:
 		manifest = data
 		_rebuild_entities()
 		_update_atmosphere()
+		_apply_render_state()   # Override after manifest-driven fog writes
 		_update_hud()
 		# Forward encounter snapshot + orb entities to the HUD module.
 		if encounter_hud:
@@ -4127,6 +4275,8 @@ func _input(event: InputEvent) -> void:
 				_show_toast("Shadow lab")
 			KEY_I:  # Toggle iso dev camera (ortho 3/4 top-down)
 				_toggle_iso_camera()
+			KEY_V:  # Cycle observer render state (NORMAL/OVERVIEW/MOEBIUS/ASTRAL)
+				_cycle_render_state()
 			KEY_P:  # Begin scout — mock quest-accept hook. Brain spins up a
 					# fresh ExpeditionEngine in the current biome. If a scout
 					# is already active, brain no-ops with an ack.
@@ -4184,12 +4334,16 @@ func _physics_process(delta: float) -> void:
 
 	# -- Shared post-movement tail (both paths) --
 	# Creatures react to camera (flee, scatter on shatter, debris settle).
-	_update_creatures(delta)
-	# Shadow-lab orbs drift per config animation.drift.
-	_update_shadow_orbs(delta)
+	# OVERVIEW render state freezes sim for godlike survey — skip both.
+	if not _render_state_frozen():
+		_update_creatures(delta)
+		# Shadow-lab orbs drift per config animation.drift.
+		_update_shadow_orbs(delta)
 	# Iso dev camera tracks player XZ when active. Cheap no-op otherwise.
+	# Skip during punch-in/out tween so the animation isn't overwritten.
 	if iso_active:
-		_update_iso_camera_position()
+		if iso_tween == null or not iso_tween.is_running():
+			_update_iso_camera_position()
 		_update_player_avatar()
 
 	# Follow-camera planes track the player on their parallel axes.
@@ -4300,5 +4454,3 @@ func _physics_process_rig(delta: float, crouching: bool) -> void:
 	# rides the neck so the view dips smoothly. Matches fps_player.gd:113-128.
 	var crouch_target_y: float = rig_neck_standing_y - CROUCH_HEIGHT_OFFSET if crouching else rig_neck_standing_y
 	neck.position.y = lerpf(neck.position.y, crouch_target_y, CAMERA_LERP_SMOOTHNESS * delta)
-
-
