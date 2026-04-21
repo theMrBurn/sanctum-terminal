@@ -282,24 +282,65 @@ def _emit_cluster(archetype, center_x, center_y, spawns, solid_positions, rng):
 
 
 def _emit_flourishes(anchor_kind, anchor_x, anchor_y, spawns, solid_positions,
-                     flourish_rosters, rng):
-    """Scatter 1-3 flourish entities OUTSIDE the anchor's walking margin.
+                     flourish_pools, rng):
+    """Scatter flourish entities OUTSIDE the anchor's walking margin.
 
-    Flourish radius auto-scales to the anchor's clearance so decorations
-    never land inside the walkable corridor around a landmark. Mega_column
-    with 5m clearance gets flourishes at 5.5-7.5m. Boulder with 2.5m gets
-    them at 3.0-5.0m. Etc.
+    Draws from the affinity-schema FLOURISH_POOLS[anchor_kind] recipe:
+    weighted-random draws across `pool` with per-entry `max` caps, gated
+    by `spawn_chance`, count in [1, max_total], placement in the recipe's
+    `radius_range` clamped above the anchor's walking-margin clearance.
+
+    Mirrors COMPANION_SPAWNS shape so adjacent anchors get varied mixes
+    instead of the LRU rotation that produced "grass ring around every
+    boulder" artifacts.
     """
-    roster = flourish_rosters.get(anchor_kind)
-    if not roster:
+    recipe = flourish_pools.get(anchor_kind)
+    if not recipe or "pool" not in recipe:
         return
-    count = rng.randint(FLOURISH_COUNT_RANGE[0], FLOURISH_COUNT_RANGE[1])
+    if rng.random() >= float(recipe.get("spawn_chance", 1.0)):
+        return
+
+    pool = recipe["pool"]
+    if not pool:
+        return
+
+    radius_range = recipe.get("radius_range", list(FLOURISH_RADIUS_RANGE))
+    r_near_recipe = float(radius_range[0])
+    r_far_recipe = float(radius_range[1])
+
+    # Clamp the near band above the anchor's walking margin so flourishes
+    # never land inside the walkable corridor. anchor_clearance + 0.5m was
+    # the legacy safety floor — preserved as a minimum.
     anchor_clearance = HARD_OBJECTS.get(anchor_kind, 1.5)
-    # Flourishes place just past the walking margin — keep the corridor clear
-    min_radius = anchor_clearance + 0.5
-    max_radius = anchor_clearance + 2.5
-    for _ in range(count):
-        flourish_kind = roster.next()
+    min_radius = max(r_near_recipe, anchor_clearance + 0.5)
+    max_radius = max(r_far_recipe, min_radius + 0.3)
+
+    max_total = int(recipe.get("max_total", FLOURISH_COUNT_RANGE[1]))
+    target_count = rng.randint(1, max(1, max_total))
+    weights = [float(p.get("weight", 1.0)) for p in pool]
+    placed: dict[str, int] = {}
+
+    for _ in range(target_count):
+        eligible = [
+            (i, p) for i, p in enumerate(pool)
+            if placed.get(p["kind"], 0) < int(p.get("max", 1))
+        ]
+        if not eligible:
+            break
+        elig_weights = [weights[i] for i, _ in eligible]
+        elig_total = sum(elig_weights)
+        if elig_total <= 0.0:
+            break
+        pick_v = rng.uniform(0.0, elig_total)
+        accum = 0.0
+        chosen = eligible[0][1]
+        for (i, p), w in zip(eligible, elig_weights):
+            accum += w
+            if pick_v <= accum:
+                chosen = p
+                break
+        flourish_kind = chosen["kind"]
+
         angle = rng.uniform(0, 360)
         radius = rng.uniform(min_radius, max_radius)
         fx = anchor_x + math.cos(math.radians(angle)) * radius
@@ -316,6 +357,7 @@ def _emit_flourishes(anchor_kind, anchor_x, anchor_y, spawns, solid_positions,
                 break
         if too_close:
             continue
+        placed[flourish_kind] = placed.get(flourish_kind, 0) + 1
         solid_positions.append((fx, fy, f_clearance))
         spawns.append((flourish_kind, (fx, fy),
                        rng.uniform(0, 360), rng.randint(0, 99999), None))
@@ -475,12 +517,9 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     # Landmark positions — tracked for post-loop breadcrumb trail emission
     landmark_positions = []
 
-    # Flourish rosters — per-anchor-kind RosterPool for ground density variation
-    flourish_source = OUTDOOR_FLOURISH_POOLS if biome_name == "outdoor" else CAVERN_FLOURISH_POOLS
-    flourish_rosters = {
-        anchor_kind: RosterPool(pool, seed=seed + hash(anchor_kind) % 10000)
-        for anchor_kind, pool in flourish_source.items()
-    }
+    # Affinity-schema flourish pools — weighted draws with per-entry caps.
+    # Migrated 2026-04-21 from RosterPool LRU rotation (mirrors COMPANION_SPAWNS).
+    flourish_pools = OUTDOOR_FLOURISH_POOLS if biome_name == "outdoor" else CAVERN_FLOURISH_POOLS
 
     # Anchor stamp configs — programmatic compositions around structural anchors
     anchor_stamp_cfg = OUTDOOR_ANCHOR_STAMPS if biome_name == "outdoor" else CAVERN_ANCHOR_STAMPS
@@ -643,10 +682,10 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                         _emit_base_apron("buttress", bx, by, spawns, solid_positions, rng)
                         # Flourishes near each buttress arm (ground density variation)
                         _emit_flourishes("buttress", bx, by, spawns, solid_positions,
-                                         flourish_rosters, rng)
+                                         flourish_pools, rng)
                     # Flourishes near the formation column peak
                     _emit_flourishes("mega_column", col_x, col_y, spawns, solid_positions,
-                                     flourish_rosters, rng)
+                                     flourish_pools, rng)
                     # Beacon at the formation base — one guaranteed light source
                     # per formation creates a visible landmark without walling off space.
                     # Placed 3m off the column center in the direction opposite the main arms.
@@ -687,7 +726,7 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                 landmark_positions.append((jx, jy))
             # Flourish emission — eye-tricking density variation near anchors
             _emit_flourishes(anchor, jx, jy, spawns, solid_positions,
-                             flourish_rosters, rng)
+                             flourish_pools, rng)
             # Fungus cluster: main stalk + 3-5 satellites (matches user's sketch)
             if anchor == "giant_fungus":
                 _emit_fungus_satellites(jx, jy, spawns, solid_positions, rng)

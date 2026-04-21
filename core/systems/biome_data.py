@@ -459,32 +459,176 @@ OUTDOOR_COMPANION_SPAWNS = {
 # Scale anchor: flourishes should sit WITHIN the anchor's footprint silhouette
 # so they read as "ground near the rock" not "a separate feature."
 
+# Affinity-schema shape mirrors COMPANION_SPAWNS (commit 07f4457): each
+# anchor declares a weighted POOL + spawn_chance + radius_range + max_total.
+# Consumer in world_gen._place_flourishes does weighted-random draws with
+# per-entry `max` caps, producing varied mixes across adjacent anchors
+# instead of the LRU rotation that left "grass ring around every boulder"
+# artifacts. Same schema, live-brain-pipeline path.
+#
+# Weights are coarse multipliers; per-entry `max` caps how many of a single
+# kind can land around a single anchor. spawn_chance gates whether any
+# flourishes fire at all. radius_range is the anchor-relative placement
+# band — world_gen clamps the lower bound to keep the walking corridor
+# clear.
+
 CAVERN_FLOURISH_POOLS = {
-    "boulder":       ["moss_patch", "rubble", "twig_scatter", "cave_gravel",
-                      "grass_tuft", "leaf_pile"],
-    "mega_column":   ["rubble", "moss_patch", "cave_gravel", "twig_scatter",
-                      "bone_pile", "stalagmite"],
-    "column":        ["rubble", "cave_gravel", "moss_patch", "grass_tuft"],
-    "buttress":      ["rubble", "cave_gravel", "moss_patch", "twig_scatter"],
-    "giant_fungus":  ["moss_patch", "grass_tuft", "leaf_pile", "twig_scatter"],
-    "crystal_cluster": ["cave_gravel", "rubble", "moss_patch"],
-    "dead_log":      ["moss_patch", "grass_tuft", "leaf_pile", "twig_scatter",
-                      "rubble"],
+    "boulder": {
+        "pool": [
+            {"kind": "moss_patch",   "weight": 2.5, "max": 2},
+            {"kind": "cave_gravel",  "weight": 2.0, "max": 2},
+            {"kind": "rubble",       "weight": 1.5, "max": 2},
+            {"kind": "grass_tuft",   "weight": 1.2, "max": 1},
+            {"kind": "twig_scatter", "weight": 1.0, "max": 1},
+            {"kind": "leaf_pile",    "weight": 0.8, "max": 1},
+        ],
+        "spawn_chance": 0.85,
+        "radius_range": [1.2, 2.8],
+        "max_total": 3,
+    },
+    "mega_column": {
+        "pool": [
+            {"kind": "rubble",       "weight": 2.5, "max": 3},
+            {"kind": "moss_patch",   "weight": 2.0, "max": 2},
+            {"kind": "cave_gravel",  "weight": 2.0, "max": 2},
+            {"kind": "twig_scatter", "weight": 1.0, "max": 1},
+            {"kind": "bone_pile",    "weight": 0.6, "max": 1},
+            {"kind": "stalagmite",   "weight": 0.4, "max": 1},
+        ],
+        "spawn_chance": 0.9,
+        "radius_range": [1.5, 3.5],
+        "max_total": 3,
+    },
+    "column": {
+        "pool": [
+            {"kind": "rubble",      "weight": 2.0, "max": 2},
+            {"kind": "cave_gravel", "weight": 2.0, "max": 2},
+            {"kind": "moss_patch",  "weight": 1.5, "max": 2},
+            {"kind": "grass_tuft",  "weight": 1.0, "max": 1},
+        ],
+        "spawn_chance": 0.75,
+        "radius_range": [1.2, 2.8],
+        "max_total": 2,
+    },
+    "buttress": {
+        "pool": [
+            {"kind": "rubble",       "weight": 2.0, "max": 2},
+            {"kind": "cave_gravel",  "weight": 1.8, "max": 2},
+            {"kind": "moss_patch",   "weight": 1.3, "max": 1},
+            {"kind": "twig_scatter", "weight": 1.0, "max": 1},
+        ],
+        "spawn_chance": 0.7,
+        "radius_range": [1.2, 2.8],
+        "max_total": 2,
+    },
+    "giant_fungus": {
+        "pool": [
+            {"kind": "moss_patch",   "weight": 2.5, "max": 2},
+            {"kind": "grass_tuft",   "weight": 1.5, "max": 2},
+            {"kind": "leaf_pile",    "weight": 1.2, "max": 1},
+            {"kind": "twig_scatter", "weight": 0.8, "max": 1},
+        ],
+        "spawn_chance": 0.8,
+        "radius_range": [1.0, 2.5],
+        "max_total": 3,
+    },
+    "crystal_cluster": {
+        "pool": [
+            {"kind": "cave_gravel", "weight": 2.0, "max": 2},
+            {"kind": "rubble",      "weight": 1.5, "max": 2},
+            {"kind": "moss_patch",  "weight": 0.8, "max": 1},
+        ],
+        "spawn_chance": 0.6,
+        "radius_range": [1.2, 2.8],
+        "max_total": 2,
+    },
+    "dead_log": {
+        "pool": [
+            {"kind": "moss_patch",   "weight": 2.5, "max": 2},
+            {"kind": "grass_tuft",   "weight": 1.8, "max": 2},
+            {"kind": "leaf_pile",    "weight": 1.3, "max": 1},
+            {"kind": "twig_scatter", "weight": 1.0, "max": 1},
+            {"kind": "rubble",       "weight": 0.7, "max": 1},
+        ],
+        "spawn_chance": 0.8,
+        "radius_range": [1.0, 2.5],
+        "max_total": 3,
+    },
 }
 
 OUTDOOR_FLOURISH_POOLS = {
-    "boulder":       ["moss_patch", "grass_tuft", "leaf_pile", "rubble",
-                      "twig_scatter"],
-    "mega_column":   ["moss_patch", "grass_tuft", "dead_log", "leaf_pile",
-                      "twig_scatter", "rubble"],
-    "column":        ["grass_tuft", "moss_patch", "leaf_pile"],
-    "buttress":      ["moss_patch", "rubble", "grass_tuft", "twig_scatter"],
-    "giant_fungus":  ["grass_tuft", "leaf_pile", "moss_patch"],
-    "dead_log":      ["moss_patch", "grass_tuft", "leaf_pile"],
+    "boulder": {
+        "pool": [
+            {"kind": "moss_patch",   "weight": 2.5, "max": 2},
+            {"kind": "grass_tuft",   "weight": 2.0, "max": 2},
+            {"kind": "leaf_pile",    "weight": 1.5, "max": 1},
+            {"kind": "rubble",       "weight": 1.2, "max": 2},
+            {"kind": "twig_scatter", "weight": 1.0, "max": 1},
+        ],
+        "spawn_chance": 0.85,
+        "radius_range": [1.2, 2.8],
+        "max_total": 3,
+    },
+    "mega_column": {
+        "pool": [
+            {"kind": "moss_patch",   "weight": 2.5, "max": 2},
+            {"kind": "grass_tuft",   "weight": 2.0, "max": 2},
+            {"kind": "dead_log",     "weight": 1.3, "max": 1},
+            {"kind": "leaf_pile",    "weight": 1.2, "max": 1},
+            {"kind": "twig_scatter", "weight": 1.0, "max": 1},
+            {"kind": "rubble",       "weight": 0.8, "max": 1},
+        ],
+        "spawn_chance": 0.9,
+        "radius_range": [1.5, 3.5],
+        "max_total": 3,
+    },
+    "column": {
+        "pool": [
+            {"kind": "grass_tuft",  "weight": 2.5, "max": 2},
+            {"kind": "moss_patch",  "weight": 2.0, "max": 2},
+            {"kind": "leaf_pile",   "weight": 1.3, "max": 1},
+        ],
+        "spawn_chance": 0.75,
+        "radius_range": [1.2, 2.8],
+        "max_total": 2,
+    },
+    "buttress": {
+        "pool": [
+            {"kind": "moss_patch",   "weight": 2.2, "max": 2},
+            {"kind": "rubble",       "weight": 1.5, "max": 2},
+            {"kind": "grass_tuft",   "weight": 1.5, "max": 1},
+            {"kind": "twig_scatter", "weight": 1.0, "max": 1},
+        ],
+        "spawn_chance": 0.7,
+        "radius_range": [1.2, 2.8],
+        "max_total": 2,
+    },
+    "giant_fungus": {
+        "pool": [
+            {"kind": "grass_tuft", "weight": 2.2, "max": 2},
+            {"kind": "leaf_pile",  "weight": 1.8, "max": 1},
+            {"kind": "moss_patch", "weight": 1.5, "max": 1},
+        ],
+        "spawn_chance": 0.8,
+        "radius_range": [1.0, 2.5],
+        "max_total": 3,
+    },
+    "dead_log": {
+        "pool": [
+            {"kind": "moss_patch", "weight": 2.5, "max": 2},
+            {"kind": "grass_tuft", "weight": 2.0, "max": 2},
+            {"kind": "leaf_pile",  "weight": 1.3, "max": 1},
+        ],
+        "spawn_chance": 0.8,
+        "radius_range": [1.0, 2.5],
+        "max_total": 3,
+    },
 }
 
-FLOURISH_COUNT_RANGE = (1, 3)  # per anchor
-FLOURISH_RADIUS_RANGE = (1.2, 2.8)  # tighter than before (was 1.0-3.5) — stays close to anchor, doesn't block corridors
+# Retained as back-compat defaults — consumers that haven't migrated yet can
+# still read these. Live path reads per-recipe radius_range from FLOURISH_POOLS.
+FLOURISH_COUNT_RANGE = (1, 3)
+FLOURISH_RADIUS_RANGE = (1.2, 2.8)
 
 
 # -- Cluster archetypes (RosterPool source for room feature clusters) ----------
