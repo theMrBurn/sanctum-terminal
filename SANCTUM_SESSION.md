@@ -1645,3 +1645,234 @@ da38a14 feat: light pipe architecture
 79934a6 feat: render shells, macro stamp grid, visual tuning
 67cad04 fix: lighting pipeline overhaul — dissolve replaces LOD, pipes lock
 ```
+
+## 2026-04-17 Session — The Physics Rig + Fade Tuning + Scout Loop Closure
+
+Long arc that started on the FPS collision pending issue from the prior
+session and ended with the cavern-as-overlay-substrate doctrine
+(`design_north_star`) wired end-to-end via passive auto-arm. 15 commits.
+Three commits-of-record: rig migration, fade pass-2 (the winner), scout
+endless cavern with auto-arm. Plus a brain crash fix that explains
+several "we lost the world" mid-session perceptions.
+
+### Wins, in order of landing
+
+1. **CharacterBody3D rig migration (2-commit landing, gated by feature flag)**
+   The hand-rolled Camera3D + manual XZ sphere-distance push-out player
+   was retired. New rig: `CharacterBody3D` (yaw + collide + move_and_slide)
+   → `Neck Node3D` at `EYE_HEIGHT` (pitch + crouch lerp) → `Camera3D`
+   (lean offset only). Real `StaticBody3D + CylinderShape3D` colliders
+   emitted per-instance in `_create_multimesh_variant` (`r = brain_r,
+   h = 6.0`, 80m spawn-radius cull). Floor + wall planes wrapped in
+   `StaticBody3D` in `_spawn_plane`. `_player_pos / _player_yaw /
+   _player_pitch / _teleport_player` helpers route ~20 read-write sites
+   so `camera.global_position` / `player_rig.rotation` resolve correctly
+   in either branch. Both paths shipped behind `USE_PHYSICS_RIG = true`
+   (`6bbbf89`, plus `885315e` to fix a pitch-doubling regression where
+   the legacy 10° `camera.rotation_degrees.x` stacked on top of neck
+   pitch). After hours of UAT, the legacy branch was deleted as commit
+   2 — net −154 lines, single canonical path (`4117b67`).
+
+2. **Per-object distance fade-in with Bayer 4×4 dither (no more pop-in)**
+   `kind_shader.gdshader` gained `fade_in_near` / `fade_in_far` uniforms.
+   Per-OBJECT camera distance (`distance(instance_origin,
+   CAMERA_POSITION_WORLD)`), `1.0 - smoothstep(near, far, d)` alpha,
+   resolved via 4×4 Bayer ordered dither discard. Stays on the Metal
+   opaque pipeline (per `platform_metal_no_shaders`). Replaces the
+   render-horizon "wall" with gradual emergence. (`a380db4`)
+
+3. **Per-class fade bands tiered by structural role (3-pass tune)**
+   Anchors persist into fog, tissue fades aggressively. Pass 1 introduced
+   the tier shape via `_class_defaults` in `kind_config.json`
+   (structural 15/100, geological 5/50, organic 2/25, atmosphere 2/25,
+   life 3/35, horizon 0/400) plus per-kind overrides for rubble +
+   cave_gravel (`0815e7e`). Pass 2 widened all bands to fix a stepped
+   dead zone at 25-50m (`6c9fe97`). Pass 3 — the winner — pushed tissue
+   to 3/70 and atmosphere/life to 3/65 so three tiers overlap across
+   the whole fog zone, killing the "wall of columns" silhouette
+   isolation (`ed8391e`). `_create_kind_material` reads both fields and
+   pipes them to the shader.
+
+4. **Scout completion → endless cavern + manual `[P]` quest-accept hook**
+   `ExpeditionEngine.on_walk_through` reaching `COMPLETE` now also nulls
+   the brain's `expedition` ref. `world.get_manifest()` keeps streaming
+   scenery — the cavern is the substrate, the scout was an overlay
+   (per `design_north_star` + `design_journal_quest_pipeline`). New
+   `{"cmd": "begin_scout"}` brain-side handler spins up a fresh engine
+   on demand. Godot `KEY_P` sends the cmd, `_process_responses` handles
+   the `scout_status` ack. `_on_expedition_resolution` toasts "Scout
+   complete — [P] to begin another" instead of silent fade. (`89b3512`)
+
+5. **Passive auto-arm via `lifecycle.auto_arm` config (no key press needed)**
+   `BIOME_EXPEDITIONS[biome]` gained a `lifecycle.auto_arm` block with
+   three trigger modes (`hub_return | complete | cooldown`), `hub_pos`
+   + `hub_radius` for proximity gating, `cooldown_s` for dead-air
+   minimum after EXPEDITION COMPLETE, and `rotation: [class_id]` for
+   chained scouts. Brain reads it each camera tick; rising-edge
+   detection so re-entering the hub re-arms instead of staying in the
+   hub re-firing. Cavern wired to `hub_return` at (0, -14) with 12m
+   radius and 5s cooldown. Outdoor declares `enabled: false` until
+   its hub anchor lands. Manual `[P]` stays as override. (`d6d23c7`)
+
+6. **Brain mid-write disconnect crash fix**
+   `brain_server.py:1326` — when Godot reloaded a scene mid-stream, the
+   brain's write hit `BrokenPipeError`, the handler `break`ed out of
+   the outer `while True:` accept loop, and the whole brain process
+   died. Other disconnect handlers (no-data, reset) correctly use
+   `continue`; the write handler now matches. Reproduced multiple
+   times this session before the fix landed; explains several "we
+   lost the world" perceptions. Also clears `encounter` + `roaming`
+   refs on disconnect so the next Godot connect gets fresh state for
+   all three components. (`f66695b`)
+
+7. **HUD heartbeat live (4 Hz overlay refresh)**
+   Prior to this, `_update_hud()` only fired on entity rebuild + TCP
+   state-change. When the player hovered in a tile (no rebuild) the
+   HUD froze at its init reading — `Engine.get_frames_per_second()`
+   returns 0/1 before the first frame, draw_calls = 0, looked like a
+   dead engine. New `HUD_REFRESH_INTERVAL = 0.25` in `_process` ticks
+   `_update_hud()` at 4 Hz. Cheap (one string build + Performance
+   monitor reads). Verified the actual engine state matches the HUD
+   reading via tag perf sidecars. (`6dc2965`)
+
+8. **Aseprite Wizard plugin staged (sprite pipeline ready)**
+   User is learning Aseprite for hero-object + character sprites.
+   `viniciusgerevini/godot-aseprite-wizard` v9.8.0 (MIT) copied to
+   `godot/addons/AsepriteWizard/`, intentionally NOT enabled in
+   `project.godot` — user toggles via Editor → Project → Plugins
+   when they sit back down. Once enabled, `.aseprite` files dropped
+   into `godot/lib/sprites/` (or wherever) auto-import as
+   `SpriteFrames` resources. Pinned as memory `user_sprite_pipeline`.
+   Also staged `henriquelalves/SimpleGodotCRTShader` to
+   `godot/studies/crt_shader/` (pointer-only, Phase 3 deferred).
+   (`88acd51`)
+
+9. **A/B-safe recipe meshes for stalagmite / column / mega_column**
+   The recipe-coverage scoreboard had three holdouts on legacy
+   hand-authored GLBs because earlier recipe attempts couldn't hold
+   the erosion + flare profile. `_family_tapered_vertical` (used by
+   buttress) actually does support that profile — needed only the
+   wiring. `gen_kind_mesh.export_kind` gained an optional `output_name`
+   parameter; recipe blocks added for the three kinds with
+   `output_name: <kind>_recipe`. Generates `_recipe_v0..v3.glb` on
+   disk alongside legacy GLBs without overwriting them. `MESH_ALIAS`
+   in `main.gd` untouched — runtime stays on legacy. User flips
+   `MESH_ALIAS` per-kind to A/B test. Documented in
+   `godot/meshes/RECIPE_AB.md`. Recipe coverage 5/8 → 8/8
+   dispatcher-ready. (`5886f7e`)
+
+10. **Affinity-driven companion spawn recipes (schema upgrade)**
+    Replaced fixed `COMPANION_SPAWNS` dict
+    (`{comp:count, radius}`) with affinity-driven recipes:
+    `{pool: [{kind, weight, max}], spawn_chance, radius_range,
+    max_total}`. Adjacent anchors get varied companion mixes via
+    weighted-random pool selection. Cavern + outdoor recipes both
+    migrated; mega_column gains rare `crystal_cluster` pulls
+    (weight 0.4), dead_log gains `leaf_pile` + `twig_scatter`,
+    giant_fungus pulls `firefly`. Consumer in `ambient_life.spawn()`
+    rewritten to roll `spawn_chance`, weighted-pick K members
+    (eligibility-filtered by per-pool `max`), drop each at random
+    distance in `radius_range`. Duplicate `COMPANION_SPAWNS` in
+    `ambient_life.py` removed; now imports from `biome_data`
+    (single source of truth). NOTE: this targets the legacy
+    `ambient_life.spawn()` path. The live brain pipeline uses
+    `CAVERN_FLOURISH_POOLS` via `RosterPool` in `world_gen.py`
+    — that surface is the natural next refactor target if
+    affinity-driven density should appear at runtime. The
+    schema upgrade sets the shape; FLOURISH_POOLS migration would
+    mirror it. (`07f4457`)
+
+11. **Misc landings**
+    - **Diagnostic `[RIG]` log** (`266439e`) — disposable per-second
+      print of `_player_pos / rig.position / is_on_floor` to confirm
+      the rig moves; flag flipped off once `pp` was confirmed shifting.
+    - **Spawn pitch fix** (`885315e`) — see #1 above; called out
+      separately because it landed as a hotfix between rig migration
+      and the next visual change.
+
+### Test state
+
+- 1720 passing on this branch (+ 11 pre-existing failures unchanged
+  by this session: 9 in test_kind_config / test_render_shells /
+  test_screenshot_overlay / test_wall_planes, 1 in test_campaign_engine,
+  1 in test_kind_config from a stale palette assertion). Verified by
+  stashing the session diff and re-running the failing tests on
+  baseline.
+
+### Project Targets — Updated
+
+Strikethroughs are this session's wins:
+
+- ~~FPS collision pending (rig clipping through columns)~~ DONE — rig
+  migration replaced manual push-out with `CharacterBody3D + StaticBody3D`
+- ~~Pop-in at render horizon~~ DONE — distance fade with Bayer dither
+- ~~Mid-distance dead zone (anchors arrive, tissue gone)~~ DONE — pass 2
+  fade bands stack three tiers across the whole fog zone
+- ~~Scout completion empties world (felt like procgen broke)~~ DONE —
+  expedition is overlay; brain keeps streaming after COMPLETE
+- ~~Manual quest-accept hook~~ DONE — `[P]` sends `begin_scout`
+- ~~Passive scout re-arm on hub return~~ DONE — `lifecycle.auto_arm` config
+- ~~Brain dies on Godot mid-write disconnect~~ DONE — `continue` not `break`
+- ~~HUD frozen at init values~~ DONE — 4 Hz heartbeat in `_process`
+- ~~Aseprite pipeline gate~~ READY — Wizard staged, waiting for first sprite
+- ~~Recipe coverage scoreboard~~ DISPATCHER 8/8 — runtime 5/8 (A/B safe)
+- ~~Companion spawn schema~~ DONE — pool/weights/chance/radius_range
+- FLOURISH_POOLS migration to affinity schema — NEXT (mirrors COMPANION
+  shape, but on the live brain pipeline path; 30-45 min)
+- Auto-arm hub-return UAT — pending play test (no code; just verify
+  the brain log prints `auto-armed scout: anomaly_hunt (trigger=hub_return)`
+  on hub re-entry after a completed scout)
+- crystal_cap silhouette + palette — gated on user sketch (Procreate)
+- Vector composite skin PoC — gated on first Aseprite sprite drop
+- Tension choreography rhythms — PARKED (framework built, choreography
+  config + per-encounter signatures still deferred)
+
+### Path Forward — Next Session
+
+Three natural picks:
+
+1. **FLOURISH_POOLS migration** — apply the affinity schema (pool +
+   weights + chance) to `CAVERN_FLOURISH_POOLS` /
+   `OUTDOOR_FLOURISH_POOLS` so the live brain pipeline gets the same
+   emergent variety the legacy path now has. Mirror the shape. Test
+   in-game by walking the same loop pre/post and looking for varied
+   companion mixes per anchor.
+
+2. **Hub-return verification + scout-loop UAT** — start a scout,
+   complete 10 tags, walk through south arch, get the toast, walk
+   back into hub, watch brain log for the auto-arm print. Closes
+   the auto-arm loop with empirical evidence.
+
+3. **First Aseprite sprite ingest** — once the user drops a first
+   sprite into `godot/lib/sprites/`, enable the Aseprite Wizard
+   plugin and import as SpriteFrames. Then start the Vector composite
+   skin PoC (item 5 in design_thoughts.txt) — billboard sprite child
+   on a primitive parent. Test on a single kind first (clay_pot or a
+   specific decorative entity).
+
+Procreate / Aseprite work is now the highest-leverage axis — sprite
+authoring unlocks the Xenogears ISO state machine, the vector
+composite skin PoC, and crystal_cap simultaneously. Code-side, the
+configuration surface is in good shape after the affinity schema +
+fade-band tiering. The visual cohesion the user has been chasing
+"for what feels like weeks" landed in this session.
+
+### Commit trail (this session)
+
+```
+07f4457 refactor: affinity-driven companion spawn recipes (pool + weights + chance)
+5886f7e feat: A/B-safe recipe meshes for stalagmite/column/mega_column
+4117b67 refactor: delete legacy Camera3D push-out path (commit 2/2)
+f66695b fix: brain survives Godot mid-write disconnects (was killing whole loop)
+88acd51 chore: stage Aseprite Wizard plugin + CRT shader study + palette audit doc
+d6d23c7 feat: passive scout auto-arm via biome lifecycle config
+89b3512 feat: scout completion loops back to endless cavern; [P] begins new scout
+ed8391e tune: pass 2 fade bands — push tissue into midground, dead zone was real
+6c9fe97 tune: widen + overlap fade bands so depth reads continuous
+0815e7e feat: per-class fade-in bands — anchors persist, tissue fades aggressively
+a380db4 feat: per-object distance fade-in with Bayer dither — no more pop-in
+6dc2965 fix: refresh HUD overlay at 4 Hz so it stops lying about perf
+266439e debug: log player pos + send rate to diagnose tile-streaming regression
+885315e fix: rig-mode spawn pitch doubled to 18° via stacked camera+neck tilt
+6bbbf89 refactor: native Godot physics for player (commit 1/2)
+```
