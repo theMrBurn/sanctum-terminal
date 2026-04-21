@@ -17,8 +17,11 @@ read-only at runtime.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
+
+from core.systems import kind_config_schema
 
 
 # Resolve config/kind_config.json relative to repo root. core/systems/ is
@@ -29,13 +32,25 @@ _CONFIG_PATH = _REPO_ROOT / "config" / "kind_config.json"
 
 _cache: dict[str, Any] | None = None
 
+# Config-lock (design_thoughts.txt:864-888) — brain validates the schema on
+# first load. Set SANCTUM_SKIP_CONFIG_VALIDATION=1 to bypass (dev only; the
+# point of the lock is to fail loudly, so only skip while iterating on the
+# schema itself).
+_SKIP_VALIDATION_ENV = "SANCTUM_SKIP_CONFIG_VALIDATION"
+
 
 def load() -> dict[str, Any]:
-    """Return the parsed kind_config dict, loaded once and cached."""
+    """Return the parsed kind_config dict, loaded once and cached.
+
+    Raises kind_config_schema.ConfigError if the file fails validation.
+    """
     global _cache
     if _cache is None:
         with _CONFIG_PATH.open() as f:
-            _cache = json.load(f)
+            data = json.load(f)
+        if not os.environ.get(_SKIP_VALIDATION_ENV):
+            kind_config_schema.assert_valid(data)
+        _cache = data
     return _cache
 
 
