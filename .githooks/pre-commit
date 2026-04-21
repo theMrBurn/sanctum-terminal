@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# sanctum-terminal pre-commit — config-lock protocol #2 + #4
+#
+# Runs structural validators on config files before a commit lands. Catches
+# the "I edited the wrong key" drift the session-opener preamble warns about
+# (design_thoughts.txt:864-888).
+#
+# INSTALL (one time per clone):
+#     git config --local core.hooksPath .githooks
+#
+# Currently gates:
+#   - config/kind_config.json via core.systems.kind_config_schema (#2)
+#   - godot/main.gd for NEW hardcoded `const FOO: float = ...` additions
+#     without an `# ALLOWLIST` comment (#4)
+#
+# Bypass ONLY in emergencies with --no-verify (and fix forward immediately).
+
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+STAGED_FILES="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+# -- kind_config.json schema -------------------------------------------------
+if echo "$STAGED_FILES" | grep -qx "config/kind_config.json"; then
+  echo "pre-commit: validating config/kind_config.json schema..."
+  # Read the STAGED blob, not the working tree copy. That way a malformed
+  # unstaged edit doesn't unblock a valid stage (and vice versa).
+  STAGED_BLOB="$(mktemp -t kind_config_staged.XXXXXX)"
+  trap 'rm -f "$STAGED_BLOB"' EXIT
+  git show ":config/kind_config.json" > "$STAGED_BLOB"
+
+  if ! PYTHONPATH="$REPO_ROOT" python3 - <<PY
+import json, sys
+from core.systems import kind_config_schema
+
+with open("$STAGED_BLOB") as f:
+    data = json.load(f)
+
+errors = kind_config_schema.validate(data)
+if errors:
+    print("kind_config.json failed schema validation:", file=sys.stderr)
+    for e in errors:
+        print(f"  - {e}", file=sys.stderr)
+    sys.exit(1)
+print("  OK — schema valid")
+PY
+  then
+    echo "pre-commit: REJECTED — fix the schema errors above, restage, then commit." >&2
+    exit 1
+  fi
+fi
+
+# -- godot/main.gd hardcoded-const guard -------------------------------------
+# Flag newly-added lines of form `const FOO: float = 1.23` in godot/main.gd
+# that lack an `# ALLOWLIST` marker on the same line. Per config-lock #4
+# (design_thoughts.txt:875-877) — brain-authoritative config means tunables
+# belong in config/kind_config.json, not as GDScript literals. Annotate
+# structural constants (eye height, lerp rate) with `# ALLOWLIST: <reason>`
+# to explicitly opt them out of the rule.
+if echo "$STAGED_FILES" | grep -qx "godot/main.gd"; then
+  # `git diff --cached -U0` → only new lines; filter to added lines starting
+  # with `const <UPPER>: float =`. `-U0` drops context so we see pure adds.
+  OFFENDERS="$(git diff --cached -U0 -- godot/main.gd \
+    | awk '/^\+[^+]/ { line=substr($0, 2); if (line ~ /^const [A-Z_][A-Z0-9_]*: *float *=/ && line !~ /# *ALLOWLIST/) print line }')"
+  if [ -n "$OFFENDERS" ]; then
+    echo "pre-commit: REJECTED — godot/main.gd hardcoded-const guard (config-lock #4)" >&2
+    echo "" >&2
+    echo "The following new constants were added without an ALLOWLIST marker:" >&2
+    echo "$OFFENDERS" | sed 's/^/  /' >&2
+    echo "" >&2
+    echo "Tunables should live in config/kind_config.json (brain-authoritative)." >&2
+    echo "If the constant is intentionally local, append '# ALLOWLIST: <reason>' to the line." >&2
+    exit 1
+  fi
+fi
+
+exit 0
