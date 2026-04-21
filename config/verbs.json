@@ -1,0 +1,54 @@
+{
+  "_schema_version": 1,
+  "_doc": "Cast + contact verb taxonomies. Two 2D matrices pinned from design_thoughts.txt:598-600. Cast = trajectory × effect. Contact = verb × (optional held object). Identifiers-only scaffold — no gameplay tuning (damage/force/palette) until renderer consumes them. Brain reads via core/systems/verbs.py. Godot will consume via manifest when cast/contact rendering lands.",
+
+  "cast_trajectories": {
+    "_doc": "How a cast reaches its target. Determines travel curve, speed band, and whether the player can lead or dodge it.",
+    "straight":   {"label": "straight",   "family": "linear",   "speed_band": "mid"},
+    "fast":       {"label": "fast",       "family": "linear",   "speed_band": "high"},
+    "slow_float": {"label": "slow-float", "family": "linear",   "speed_band": "low"},
+    "instant":    {"label": "instant",    "family": "hitscan",  "speed_band": "infinite"},
+    "arc":        {"label": "arc",        "family": "ballistic", "speed_band": "mid"}
+  },
+
+  "cast_effects": {
+    "_doc": "The payload delivered on contact. Grouped by element family so palettes + reactions can resolve by family when specifics are unknown.",
+    "light":    {"label": "light",    "family": "radiant"},
+    "dark":     {"label": "dark",     "family": "umbral"},
+    "hot":      {"label": "hot",      "family": "thermal"},
+    "cold":     {"label": "cold",     "family": "thermal"},
+    "metal":    {"label": "metal",    "family": "kinetic"},
+    "ice":      {"label": "ice",      "family": "thermal"},
+    "fire":     {"label": "fire",     "family": "thermal"},
+    "laser":    {"label": "laser",    "family": "radiant"},
+    "bolt":     {"label": "bolt",     "family": "electric"},
+    "dart":     {"label": "dart",     "family": "kinetic"},
+    "splash":   {"label": "splash",   "family": "fluid"},
+    "air":      {"label": "air",      "family": "pneumatic"},
+    "electric": {"label": "electric", "family": "electric"}
+  },
+
+  "contact_verbs": {
+    "_doc": "Avatar-initiated physical contact without a held object. Resolved brain-side off the same proximity trigger that fires deposit_intent. Intensity band is coarse placement for the renderer to map to contact VFX.",
+    "touch":  {"label": "touch",  "intensity": "featherweight"},
+    "hit":    {"label": "hit",    "intensity": "medium"},
+    "kick":   {"label": "kick",   "intensity": "heavy"},
+    "bonk":   {"label": "bonk",   "intensity": "light"},
+    "split":  {"label": "split",  "intensity": "heavy"},
+    "chop":   {"label": "chop",   "intensity": "heavy"},
+    "drop":   {"label": "drop",   "intensity": "light"},
+    "toss":   {"label": "toss",   "intensity": "light"},
+    "pebble": {"label": "pebble", "intensity": "featherweight"},
+    "bump":   {"label": "bump",   "intensity": "featherweight"},
+    "shrug":  {"label": "shrug",  "intensity": "featherweight"}
+  },
+
+  "held_object_verbs": {
+    "_doc": "Contact verbs that require a held object. Object kind (from kind_config weapons) crosses with verb to produce final flavor. Renderer picks an animation; brain picks a narration line.",
+    "stabbing":   {"label": "stabbing",   "trajectory": "straight", "intensity": "heavy"},
+    "thrusting":  {"label": "thrusting",  "trajectory": "straight", "intensity": "heavy"},
+    "slashing":   {"label": "slashing",   "trajectory": "arc",      "intensity": "heavy"},
+    "bashing":    {"label": "bashing",    "trajectory": "arc",      "intensity": "heavy"},
+    "smashing":   {"label": "smashing",   "trajectory": "arc",      "intensity": "heavy"}
+  }
+}
