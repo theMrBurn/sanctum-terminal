@@ -2682,5 +2682,6 @@
       },
       "ascii": "O"
     }
-  }
+  },
+  "schema_version": 1
 }

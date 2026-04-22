@@ -1364,6 +1364,12 @@ def run_server(biome_name, port=9877):
 
 
 def main():
+    # Config-lock #6: schema + version + snapshot preflight before boot.
+    # Raises PreflightError on schema/version failure; prints snapshot drift
+    # as WARN and proceeds. Bypass with SANCTUM_SKIP_CONFIG_VALIDATION=1.
+    from core.systems import config_preflight
+    config_preflight.assert_valid_config_state()
+
     biome_name = sys.argv[1] if len(sys.argv) > 1 else "outdoor"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 9877
     run_server(biome_name, port)

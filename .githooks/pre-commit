@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# sanctum-terminal pre-commit — config-lock protocol #2 + #4
+# sanctum-terminal pre-commit — config-lock protocol #2 + #3 + #4
 #
 # Runs structural validators on config files before a commit lands. Catches
 # the "I edited the wrong key" drift the session-opener preamble warns about
@@ -11,6 +11,7 @@
 #
 # Currently gates:
 #   - config/kind_config.json via core.systems.kind_config_schema (#2)
+#   - config/kind_config.snapshot.json drift — SOFT WARN only (#3)
 #   - godot/main.gd for NEW hardcoded `const FOO: float = ...` additions
 #     without an `# ALLOWLIST` comment (#4)
 #
@@ -32,11 +33,11 @@ if echo "$STAGED_FILES" | grep -qx "config/kind_config.json"; then
   trap 'rm -f "$STAGED_BLOB"' EXIT
   git show ":config/kind_config.json" > "$STAGED_BLOB"
 
-  if ! PYTHONPATH="$REPO_ROOT" python3 - <<PY
-import json, sys
+  if ! PYTHONPATH="$REPO_ROOT" STAGED_BLOB="$STAGED_BLOB" python3 - <<'PY'
+import json, os, sys
 from core.systems import kind_config_schema
 
-with open("$STAGED_BLOB") as f:
+with open(os.environ["STAGED_BLOB"]) as f:
     data = json.load(f)
 
 errors = kind_config_schema.validate(data)
@@ -51,6 +52,56 @@ PY
     echo "pre-commit: REJECTED — fix the schema errors above, restage, then commit." >&2
     exit 1
   fi
+
+  # -- snapshot drift (#3): soft warn so the user sees value-level drift
+  # at commit time. Does NOT block: drift is usually intentional, the point
+  # is just to make it visible. If snapshot is also staged and matches,
+  # you'll see nothing. If not, you get a summary and a reminder.
+  PYTHONPATH="$REPO_ROOT" STAGED_BLOB="$STAGED_BLOB" python3 - <<'PY' || true
+import json, os, sys, subprocess
+from core.systems import kind_config_snapshot as snap
+
+with open(os.environ["STAGED_BLOB"]) as f:
+    staged_config = json.load(f)
+
+# Compare against the snapshot as it will appear post-commit: use staged
+# version if snapshot is also staged, else use HEAD/working-tree copy.
+staged_files = subprocess.check_output(
+    ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+    text=True,
+).splitlines()
+if "config/kind_config.snapshot.json" in staged_files:
+    staged_snap = subprocess.check_output(
+        ["git", "show", ":config/kind_config.snapshot.json"], text=True,
+    )
+    try:
+        snapshot_data = json.loads(staged_snap)
+    except json.JSONDecodeError:
+        print("pre-commit WARN: staged snapshot is not valid JSON", file=sys.stderr)
+        sys.exit(0)
+elif snap.SNAPSHOT_PATH.exists():
+    snapshot_data = snap.load_snapshot()
+else:
+    print(
+        "pre-commit NOTE: no snapshot file yet — run "
+        "'python3 scripts/snapshot_kind_config.py --update' to seed one.",
+        file=sys.stderr,
+    )
+    sys.exit(0)
+
+d = snap.diff(snap.flatten(snapshot_data), snap.flatten(staged_config))
+if snap.is_empty(d):
+    sys.exit(0)
+
+n = len(d["added"]) + len(d["removed"]) + len(d["changed"])
+print(f"pre-commit WARN: {n} value drift(s) vs snapshot (soft, not blocking):", file=sys.stderr)
+print(snap.format_diff(d), file=sys.stderr)
+print(
+    "  Run 'python3 scripts/snapshot_kind_config.py --update' and stage "
+    "the snapshot to silence this warning.",
+    file=sys.stderr,
+)
+PY
 fi
 
 # -- godot/main.gd hardcoded-const guard -------------------------------------
