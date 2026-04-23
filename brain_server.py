@@ -27,13 +27,12 @@ import time
 
 from core.systems.biome_data import (
     BIOME_REGISTRY,
-    OUTDOOR_LIGHT_STATES, CAVERN_LIGHT_STATES,
     HARD_OBJECTS,
     RENDER_SHELLS, KIND_RENDER_CLASS,
 )
 from core.systems.spatial_wake import SpatialHash, WakeChain, WAKE_CHAINS
 from core.systems.world_gen import generate_tile
-from core.systems.tension_cycle import TensionCycle, OUTDOOR_CYCLE, CAVERN_CYCLE
+from core.systems.tension_cycle import TensionCycle
 from core.systems.plane_exchange import classify_all_entities, CAVERN_EXCHANGE_NODES
 from core.systems.chronometer import Chronometer
 from core.systems.ambient_life import SpectrumEngine, set_active_biome
@@ -206,7 +205,7 @@ class BrainWorld:
         self.spatial = SpatialHash(cell_size=20.0)
 
         # Tension cycle — board immediately for live atmosphere
-        cycle_cfg = OUTDOOR_CYCLE if biome_name == "outdoor" else CAVERN_CYCLE
+        cycle_cfg = BIOME_REGISTRY[biome_name]["cycle"]
         self.tension = TensionCycle(cycle_cfg)
         self.tension.board()
 
@@ -236,10 +235,13 @@ class BrainWorld:
                 self.ceiling_y = plane.get("offset", 15.0)
                 break
 
-        # Light states
-        self.light_states = OUTDOOR_LIGHT_STATES if biome_name == "outdoor" else CAVERN_LIGHT_STATES
+        # Light states — starting state looked up by name so biomes with
+        # differently-ordered light_states dicts stay stable across refactors.
+        biome_reg = BIOME_REGISTRY[biome_name]
+        self.light_states = biome_reg["light_states"]
         self.light_state_names = list(self.light_states.keys())
-        self.light_state_idx = 1 if biome_name == "outdoor" else 0  # dusk / cave
+        default_state = biome_reg["default_light_state"]
+        self.light_state_idx = self.light_state_names.index(default_state)
 
         # Entity storage (legacy — kept for compatibility with non-exchange paths)
         self.entities = {}       # eid → entity dict (for manifest)
@@ -750,6 +752,15 @@ class BrainWorld:
             "planes": self.planes,
             "banner_layers": BIOME_REGISTRY.get(self.biome_name, {}).get("banner_layers", []),
             "biome": self.biome_name,
+            # Atmosphere config streamed so Godot's _update_atmosphere can
+            # parameterize off data instead of biome-name branches.
+            "atmosphere": BIOME_REGISTRY.get(self.biome_name, {}).get("atmosphere", {}),
+            # Spawn behavior — Godot reads mode + location to pick hub vs
+            # legacy landmark framing. Single callsite in _spawn_player_start.
+            "spawn": {
+                "mode": BIOME_REGISTRY.get(self.biome_name, {}).get("spawn_mode", "legacy_landmark"),
+                "location": BIOME_REGISTRY.get(self.biome_name, {}).get("spawn_location", {}),
+            },
             "playable_envelope": {
                 "radius": BIOME_REGISTRY.get(self.biome_name, {}).get("playable_radius", 0.0),
                 "softness": BIOME_REGISTRY.get(self.biome_name, {}).get("playable_softness", 1.0),

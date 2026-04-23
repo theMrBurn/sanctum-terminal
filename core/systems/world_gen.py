@@ -13,9 +13,7 @@ import math
 import random
 
 from core.systems.biome_data import (
-    BIOME_CAVERN_DEFAULT, BIOME_OUTDOOR_FOREST,
     HARD_OBJECTS, BIOME_REGISTRY, FORMATION_ARCHETYPES,
-    CAVERN_FLOURISH_POOLS, OUTDOOR_FLOURISH_POOLS,
     FLOURISH_COUNT_RANGE, FLOURISH_RADIUS_RANGE,
 )
 from core.systems import kind_config as _kc
@@ -40,13 +38,6 @@ def _keepout_radius(kind: str) -> float:
     return float(HARD_OBJECTS.get(kind, 0.0))
 
 
-# Keep the original import pattern working
-from core.systems.biome_data import (  # noqa: E501
-    CAVERN_ROOM_BEACONS, OUTDOOR_ROOM_BEACONS,
-    CAVERN_STAMPS, OUTDOOR_STAMPS,
-    CAVERN_STAMP_AFFINITY, OUTDOOR_STAMP_AFFINITY,
-    CAVERN_ANCHOR_STAMPS, OUTDOOR_ANCHOR_STAMPS,
-)
 from core.systems.frame_composer import FrameComposer, FRAMING_CONFIG
 from core.systems.roster_pool import RosterPool
 
@@ -477,8 +468,12 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     (kind, (x, y), heading, seed, meta) tuples.
     Coordinate system: (0, 0) to (tile_size, tile_size).
     """
+    # Registry is the single source — `density`, `tile_variants`, and
+    # everything else below flow from here. Caller can still pass `biome`
+    # explicitly to force an override (tests, ad-hoc generation).
+    registry = BIOME_REGISTRY.get(biome_name, BIOME_REGISTRY["cavern"])
     if biome is None:
-        biome = BIOME_OUTDOOR_FOREST if biome_name == "outdoor" else BIOME_CAVERN_DEFAULT
+        biome = registry["density"]
     tile = tile_size
     tile_area = tile * tile
     rng = random.Random(seed)
@@ -486,7 +481,6 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     solid_positions = []
 
     # Tile variant roll
-    registry = BIOME_REGISTRY.get(biome_name, BIOME_REGISTRY["cavern"])
     variants = registry["tile_variants"]
     variant_names = list(variants.keys())
     variant_weights = [variants[v]["weight"] for v in variant_names]
@@ -501,12 +495,9 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
 
     # Honeycomb nodes = mega_column positions. Columns ARE the lattice.
     # Cavern 16-20m: leaves 6-10m walking corridor after 2.5m anchor radii
-    # and 2-3m buttress reach. Previous 10-13m produced −1m corridors when
-    # formations were placed, causing clipping through geometry everywhere.
-    if biome_name == "outdoor":
-        node_spacing = rng.uniform(20.0, 24.0)
-    else:
-        node_spacing = rng.uniform(16.0, 20.0)
+    # and 2-3m buttress reach. Outdoor 20-24m for wider meadow spacing.
+    spacing_min, spacing_max = registry["node_spacing_range"]
+    node_spacing = rng.uniform(spacing_min, spacing_max)
     nodes = []
 
     # Formation roster — every 3rd mega_column spawns an integrated geological formation
@@ -519,19 +510,18 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
 
     # Affinity-schema flourish pools — weighted draws with per-entry caps.
     # Migrated 2026-04-21 from RosterPool LRU rotation (mirrors COMPANION_SPAWNS).
-    flourish_pools = OUTDOOR_FLOURISH_POOLS if biome_name == "outdoor" else CAVERN_FLOURISH_POOLS
+    flourish_pools = registry["flourish_pools"]
 
     # Anchor stamp configs — programmatic compositions around structural anchors
-    anchor_stamp_cfg = OUTDOOR_ANCHOR_STAMPS if biome_name == "outdoor" else CAVERN_ANCHOR_STAMPS
+    anchor_stamp_cfg = registry["anchor_stamps"]
 
     # Beacon roster — feature cluster pools for formation column beacons.
     # LRU-cycled so adjacent formations get different beacon types.
-    beacon_source = OUTDOOR_ROOM_BEACONS if biome_name == "outdoor" else CAVERN_ROOM_BEACONS
-    beacon_roster = RosterPool(beacon_source, seed=seed + 54321)
+    beacon_roster = RosterPool(registry["room_beacons"], seed=seed + 54321)
 
     # Stamp roster — authored compositions replacing single-anchor nodes.
     # ~25% of non-formation nodes get a stamp instead of a random anchor roll.
-    stamp_source = OUTDOOR_STAMPS if biome_name == "outdoor" else CAVERN_STAMPS
+    stamp_source = registry["stamps"]
     stamp_roster = RosterPool(stamp_source, seed=seed + 11111) if stamp_source else None
 
     # Stamp spatial awareness — track placed stamp centers + names.
@@ -544,7 +534,7 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
 
     # Stamp affinity — tile variant biases which stamps appear.
     # Preferred stamps get 3x weight. Non-preferred still appear.
-    stamp_affinity_src = OUTDOOR_STAMP_AFFINITY if biome_name == "outdoor" else CAVERN_STAMP_AFFINITY
+    stamp_affinity_src = registry["stamp_affinity"]
     stamp_affinity = stamp_affinity_src.get(variant_name, {})
 
     node_index = 0
@@ -693,8 +683,8 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
                     beacon_x = jx + math.cos(col_oa + math.pi) * 3.0
                     beacon_y = jy + math.sin(col_oa + math.pi) * 3.0
                     _emit_cluster(beacon, beacon_x, beacon_y, spawns, solid_positions, rng)
-                    # Ceiling mold colony — cavern only (outdoor has no ceiling)
-                    if not parent_is_stalactite and biome_name == "cavern":
+                    # Ceiling mold colony — only biomes with a ceiling plane
+                    if not parent_is_stalactite and registry["has_ceiling"]:
                         _emit_ceiling_cluster(col_x, col_y, spawns, rng)
                     mega_column_count += 1
                     nx += node_spacing
@@ -730,9 +720,10 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
             # Fungus cluster: main stalk + 3-5 satellites (matches user's sketch)
             if anchor == "giant_fungus":
                 _emit_fungus_satellites(jx, jy, spawns, solid_positions, rng)
-            # Ceiling mold — scales with radial factor (no mold near spawn center)
-            ceiling_chance = 0.60 * rf
-            if biome_name == "cavern" and anchor in ("mega_column", "column", "stalagmite") and rng.random() < ceiling_chance:
+            # Ceiling mold — scales with radial factor (no mold near spawn center).
+            # Biomes without a ceiling plane set ceiling_mold_chance=0.0.
+            ceiling_chance = registry["ceiling_mold_chance"] * rf
+            if registry["has_ceiling"] and anchor in ("mega_column", "column", "stalagmite") and rng.random() < ceiling_chance:
                 _emit_ceiling_cluster(jx, jy, spawns, rng)
             # Anchor stamp — frequency also scales with distance from center
             if rf > 0.2:  # no anchor stamps in the innermost 20% of spawn tile

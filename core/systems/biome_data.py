@@ -8,7 +8,55 @@ tile variants, companion recipes, color scales, light affinities,
 spectrum profiles, mote presets, and light layer configs.
 
 Both cavern.py (Panda3D) and renderer_bridge.py (wgpu) import from here.
+
+BIOME_REGISTRY at the bottom of this file is THE config lookup — every
+downstream system (brain_server, world_gen, stamp_world, Godot renderer)
+reads per-biome knobs from there. Adding a new biome = adding one entry
+to BIOME_REGISTRY. NO `if biome_name == "foo"` branches anywhere else.
 """
+
+from core.systems.tension_cycle import CAVERN_CYCLE, OUTDOOR_CYCLE
+
+
+# -- Tissue scatter — connector kinds between authored stamps -----------------
+#
+# Per-slot (kind, count) pairs consumed by stamp_world._tissue_for(). Pure
+# noise terrain that fills negative space between authored compositions.
+
+TISSUE_KINDS_CAVERN = [
+    ("grass_tuft",  3),   # visible at standing height
+    ("rubble",      1),   # trimmed 2→1: floor clutter, dominant perf cost
+    ("cave_gravel", 1),   # trimmed 4→1: tiny gravel was ~22% of all entities
+]
+TISSUE_KINDS_OUTDOOR = [
+    ("grass_tuft",   3),  # trimmed 4→3
+    ("leaf_pile",    1),  # trimmed 2→1
+    ("twig_scatter", 1),  # trimmed 3→1
+]
+
+
+# -- Authored slots (cavern-only fixtures) ------------------------------------
+#
+# Grid slots that own their content exclusively. stamp_world reads
+# BIOME_REGISTRY[biome_name]["authored_slots"] to dispatch these slots
+# to hand-authored instantiators instead of the procedural pool.
+#
+# Slot key strings are resolved by stamp_world._instantiate_authored_by_name
+# via a dispatch table — keeps authored-scene references (ORIGIN_HUB etc.)
+# out of this module's import surface.
+
+CAVERN_AUTHORED_SLOTS = {
+    (0, 0): "hub_origin",
+    (0, 2): "encounter_test",
+    (-2, 0): "shadow_lab",
+}
+
+# Slots around origin-hub where mega stamps are excluded so the authored
+# hub's silhouette stays readable from the periphery.
+CAVERN_MEGA_STAMP_EXCLUSION_SLOTS = {
+    (gx, gy) for gx in (-1, 0, 1) for gy in (-1, 0, 1)
+    if (gx, gy) != (0, 0)
+}
 
 
 # -- Density tables: (kind, density_per_1000sqm, clearance_radius, margin) -----
@@ -2242,12 +2290,41 @@ BIOME_REGISTRY = {
         "motes": MOTE_PRESETS,
         "tile_variants": TILE_VARIANTS,
         "light_states": CAVERN_LIGHT_STATES,
+        "default_light_state": "cave",
+        "cycle": CAVERN_CYCLE,
         "density": BIOME_CAVERN_DEFAULT,
         "planes": BIOME_PLANES["cavern"],
         "stamps": CAVERN_STAMPS,
+        "stamp_affinity": CAVERN_STAMP_AFFINITY,
+        "anchor_stamps": CAVERN_ANCHOR_STAMPS,
+        "room_beacons": CAVERN_ROOM_BEACONS,
+        "flourish_pools": CAVERN_FLOURISH_POOLS,
+        "tissue_kinds": TISSUE_KINDS_CAVERN,
         "banner_layers": CAVERN_BANNER_LAYERS,
         "macro_stamps": [MACRO_STAMP_CAVERN_CHAMBER, MACRO_STAMP_CAVERN_CORRIDOR],
         "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
+        # World-gen tunables
+        "node_spacing_range": (16.0, 20.0),
+        "has_ceiling": True,
+        "ceiling_mold_chance": 0.60,
+        # Authored slots — cavern has the hub + fixtures; outdoor is pure procedural
+        "authored_slots": CAVERN_AUTHORED_SLOTS,
+        "mega_stamp_exclusion_slots": CAVERN_MEGA_STAMP_EXCLUSION_SLOTS,
+        # Spawn behavior — Godot reads spawn_mode to pick hub vs legacy landmark
+        "spawn_mode": "hub",
+        "spawn_location": {
+            "x": 0.0, "y": -14.0,
+            "heading_deg": 180.0, "pitch_deg": 8.0,
+        },
+        # Atmosphere — streamed to Godot via manifest for _update_atmosphere
+        # Cavern register: flat-shaded, no fog, ambient floor, pipes do lighting
+        "atmosphere": {
+            "fog_enabled": False,
+            "ambient_energy_base": 0.12,
+            "ambient_energy_chrono_factor": -0.01,  # applied per chronometer.night_weight
+            "sun_enabled": False,
+            "aerial_perspective": 0.0,
+        },
         # Playable envelope — set very far so the cavern reads as endless.
         # Procedural tile generation supplies content out to arbitrary
         # distance; only actual entity geometry (spikes, boulders) should
@@ -2293,14 +2370,44 @@ BIOME_REGISTRY = {
         "motes": OUTDOOR_MOTE_PRESETS,
         "tile_variants": OUTDOOR_TILE_VARIANTS,
         "light_states": OUTDOOR_LIGHT_STATES,
+        "default_light_state": "dusk",
+        "cycle": OUTDOOR_CYCLE,
         "density": BIOME_OUTDOOR_FOREST,
         "planes": BIOME_PLANES["outdoor"],
         "stamps": OUTDOOR_STAMPS,
+        "stamp_affinity": OUTDOOR_STAMP_AFFINITY,
+        "anchor_stamps": OUTDOOR_ANCHOR_STAMPS,
+        "room_beacons": OUTDOOR_ROOM_BEACONS,
+        "flourish_pools": OUTDOOR_FLOURISH_POOLS,
+        "tissue_kinds": TISSUE_KINDS_OUTDOOR,
         "banner_layers": OUTDOOR_BANNER_LAYERS,
         "macro_stamps": [MACRO_STAMP_OUTDOOR_CLEARING],
         "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
         "playable_radius": 80.0,     # outdoor is wider — more open feel
         "playable_softness": 1.5,
+        # World-gen tunables
+        "node_spacing_range": (20.0, 24.0),
+        "has_ceiling": False,
+        "ceiling_mold_chance": 0.0,
+        # No authored scenes — outdoor is fully procedural for now
+        "authored_slots": {},
+        "mega_stamp_exclusion_slots": set(),
+        # Spawn behavior — outdoor uses the legacy landmark-framing path
+        # until an authored hub lands for this biome
+        "spawn_mode": "legacy_landmark",
+        "spawn_location": {
+            "x": 0.0, "y": 0.0,
+            "heading_deg": 0.0, "pitch_deg": 0.0,
+        },
+        # Atmosphere — streamed to Godot via manifest for _update_atmosphere
+        # Outdoor register: fog on, ambient at full energy, sun overhead
+        "atmosphere": {
+            "fog_enabled": True,
+            "ambient_energy_base": 1.0,
+            "ambient_energy_chrono_factor": 0.0,
+            "sun_enabled": True,
+            "aerial_perspective": 0.4,
+        },
         "exchange": {
             "delivery_budget": 400,
             "compression_threshold": 600,

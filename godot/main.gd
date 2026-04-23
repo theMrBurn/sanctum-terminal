@@ -54,7 +54,8 @@ const RENDER_STATE_DEFAULT_FAR: float = 137.5   # fog_far(55) * 2.5, matches _fi
 const RENDER_STATE_SURVEY_FAR: float = 600.0    # matches iso_camera.far — see everything
 const RENDER_STATE_CONFIG := {
 	"NORMAL": {
-		"fog_enabled": false,
+		# fog_enabled intentionally absent — NORMAL passes through whatever
+		# _update_atmosphere set. Cavern keeps fog off; outdoor keeps it on.
 		"saturation": 1.0,
 		"brightness": 1.0,
 		"fov": 62.0,
@@ -110,6 +111,9 @@ var entity_colliders_root: Node3D
 var plane_colliders_root: Node3D
 var env_node: WorldEnvironment
 var godot_env: Environment
+# Sun for outdoor biomes — lazy-created on first outdoor atmosphere update.
+# Cavern register never instantiates this (pipes do the work).
+var sun_light: DirectionalLight3D
 var manifest: Dictionary
 var mouse_captured := true
 
@@ -810,10 +814,11 @@ func _apply_render_state() -> void:
 	if cfg.is_empty():
 		return
 
-	# Fog override — force-off when fog_enabled=false (matches _update_atmosphere
-	# default at line 1991). NORMAL inherits the brain-driven fog_light_color
-	# already written by _update_atmosphere, so no further fog work here.
-	godot_env.fog_enabled = bool(cfg.get("fog_enabled", false))
+	# Fog override — observer modes (OVERVIEW/MOEBIUS/ASTRAL) force fog off
+	# for comic-panel silhouettes. NORMAL omits the key, so the brain-driven
+	# _update_atmosphere value (cavern=off, outdoor=on) survives.
+	if cfg.has("fog_enabled"):
+		godot_env.fog_enabled = bool(cfg["fog_enabled"])
 
 	# Adjustment overrides — only engage the node when saturation/brightness
 	# differ from defaults. Keeps NORMAL from paying the post-process cost.
@@ -854,13 +859,21 @@ func _aim_spawn_heading() -> void:
 	Both branches finalize via _finalize_spawn_scene() which handles
 	camera attachment, light pipes, and banner cylinders.
 	"""
-	var biome_name: String = manifest.get("biome", "cavern")
-
-	if biome_name == "cavern":
-		# Hub spawn — enter the hub from the SOUTH arch (world y=-14) facing
-		# north (+Y in brain → +Z in Godot). _teleport_player resets velocity.
-		_teleport_player(Vector3(0.0, 0.0, -14.0), PI, deg_to_rad(8.0))
-		print("Hub spawn: player at (0, -14) facing north (180°)")
+	# Spawn dispatch is config-driven — brain sends `spawn.mode` and
+	# `spawn.location` from BIOME_REGISTRY. Godot only knows about modes,
+	# not biome names. Adding a new spawn_mode = one extra branch here.
+	var spawn: Dictionary = manifest.get("spawn", {})
+	var mode: String = spawn.get("mode", "legacy_landmark")
+	if mode == "hub":
+		var loc: Dictionary = spawn.get("location", {})
+		var sx: float = float(loc.get("x", 0.0))
+		# Brain's y coord maps to Godot's Z (forward axis).
+		var sz: float = float(loc.get("y", 0.0))
+		var heading_rad: float = deg_to_rad(float(loc.get("heading_deg", 0.0)))
+		var pitch_rad: float = deg_to_rad(float(loc.get("pitch_deg", 0.0)))
+		_teleport_player(Vector3(sx, 0.0, sz), heading_rad, pitch_rad)
+		print("Hub spawn: player at (%.1f, %.1f) heading %.1f°" % [
+			sx, sz, float(loc.get("heading_deg", 0.0))])
 	else:
 		_legacy_landmark_aim()
 
@@ -2125,38 +2138,69 @@ func _rebuild_silhouettes(sil_ents: Array) -> void:
 func _update_atmosphere() -> void:
 	if not godot_env:
 		return
-
+	# Config-driven. BIOME_REGISTRY[biome]["atmosphere"] streams in via
+	# the manifest as a flat dict of knobs. No biome-name branches —
+	# cavern-ness vs outdoor-ness is entirely encoded in the knob values.
+	#
+	# Knobs:
+	#   fog_enabled                   — bool
+	#   ambient_energy_base           — float, base ambient light energy
+	#   ambient_energy_chrono_factor  — float, multiplied by night_weight
+	#   sun_enabled                   — bool, toggles DirectionalLight3D
+	#   aerial_perspective            — float, fog sky bleed (0.0-1.0)
+	var atm: Dictionary = manifest.get("atmosphere", {})
 	var fog: Dictionary = manifest.get("fog", {})
-	var fc: Array = fog.get("color", [0.1, 0.1, 0.1])
+	var fc: Array = fog.get("color", [0.22, 0.24, 0.28])
 	var fog_far: float = fog.get("far", 55.0)
-	# Distant fog band tracks manifest color
-	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
-	godot_env.fog_density = 0.8 / max(fog_far, 1.0)
-	# Test: disable fog entirely to confirm per-fragment fog attenuation
-	# is what kills surface flatness. Sable-style refs have NO atmospheric
-	# gradient — distant geometry just hard-cuts to sky. Flip back true
-	# after comparison.
-	godot_env.fog_enabled = false
+	var fog_near: float = fog.get("near", 15.0)
 
+	godot_env.fog_enabled = bool(atm.get("fog_enabled", false))
+	godot_env.fog_light_color = Color(fc[0], fc[1], fc[2])
+	# Density formula: thicker when the fog band is narrow. When fog
+	# is enabled the density reflects the near-to-far band; when it's
+	# off the value is unused anyway (we keep the legacy 0.8/far for
+	# any code path that reads fog_density without checking the flag).
+	var band: float = fog_far - fog_near if godot_env.fog_enabled else fog_far
+	godot_env.fog_density = 0.8 / max(band, 1.0)
+	godot_env.fog_sky_affect = 1.0
+	godot_env.fog_aerial_perspective = float(atm.get("aerial_perspective", 0.0))
+
+	# Ambient — manifest color × registry energy × chronometer modulation.
 	var amb: Array = manifest.get("ambient", [0.3, 0.22, 0.15])
 	godot_env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	# Base visibility — every object shows texture, lights add character
-	godot_env.ambient_light_energy = 0.40
+	var base_energy: float = float(atm.get("ambient_energy_base", 1.0))
+	var chrono_factor: float = float(atm.get("ambient_energy_chrono_factor", 0.0))
+	var night_w: float = manifest.get("chronometer", {}).get("night_weight", 0.0)
+	godot_env.ambient_light_energy = base_energy + chrono_factor * night_w
 
-	# Chronometer modulation — subtle, never fight the cavern's ambient floor
-	var chrono: Dictionary = manifest.get("chronometer", {})
-	var night_w: float = chrono.get("night_weight", 0.0)
-	# Night: barely perceptible dim from the ambient floor
-	godot_env.ambient_light_energy = 0.12 - night_w * 0.01
+	# Sky / background tint from manifest bg_color — picks up in fog falloff
+	# and as the clear color behind distant geometry.
+	var bg: Array = manifest.get("bg_color", [0.18, 0.22, 0.30])
+	godot_env.background_color = Color(bg[0], bg[1], bg[2])
 
-	# Tension visual effects — PARKED. System proven as PoC, but modulating
-	# bloom/fog/saturation/FOV fights the baseline rendering we're stabilizing.
-	# Re-enable when game engine state changes are wired in. Until then, fixed baseline.
-	# (Tension state still tracked in manifest for telemetry/tags — just no visual effect.)
+	# Sun — lazy DirectionalLight3D. When disabled (cavern) the node is
+	# kept invisible rather than freed, so re-enabling (biome swap) is
+	# cheap. Fixed angle: 60° below horizontal, yawed 30°.
+	var sun_enabled: bool = bool(atm.get("sun_enabled", false))
+	if sun_enabled:
+		var sun: Dictionary = manifest.get("sun", {})
+		var sun_color: Array = sun.get("color", [1.0, 0.90, 0.65])
+		var sun_scale: float = sun.get("scale", 4.0)
+		if not sun_light:
+			sun_light = DirectionalLight3D.new()
+			sun_light.rotation_degrees = Vector3(-60.0, 30.0, 0.0)
+			sun_light.shadow_enabled = true
+			add_child(sun_light)
+		sun_light.visible = sun_scale > 0.0
+		sun_light.light_color = Color(sun_color[0], sun_color[1], sun_color[2])
+		sun_light.light_energy = sun_scale
+	elif sun_light:
+		sun_light.visible = false
+		sun_light.light_energy = 0.0
+
+	# Tension visual effects parked; hold FOV steady regardless of biome.
 	camera.fov = lerpf(camera.fov, 62.0, 0.05)  # was 52 — ghost delta regression
 	camera.rotation_degrees.z = lerpf(camera.rotation_degrees.z, 0.0, 0.1)
-
-	# Update camera far clip
 	camera.far = fog_far * 1.5
 
 

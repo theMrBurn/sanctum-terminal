@@ -27,8 +27,6 @@ from typing import Dict, List
 
 from core.systems.biome_data import (
     BIOME_REGISTRY,
-    CAVERN_STAMPS,
-    OUTDOOR_STAMPS,
     ORIGIN_HUB,
     ENCOUNTER_TEST,
     SHADOW_LAB,
@@ -75,38 +73,26 @@ def _spike_visual_radius(kind: str, sv: float = 1.3) -> float:
 # anchors. The transition from hub → procedural should feel intentional.
 _MEGA_STAMP_NAMES = {"obelisk_court", "column_henge", "buttress_arch"}
 
-# Slots where the origin hub owns the space or the mega filter applies.
-# (0, 0) = hub itself.
-# (-1..1, -1..1) \ (0,0) = 8 adjacent slots where mega stamps are excluded.
-_HUB_ORIGIN_SLOT = (0, 0)
-_HUB_ADJACENT_SLOTS = {(gx, gy)
-                       for gx in (-1, 0, 1)
-                       for gy in (-1, 0, 1)
-                       if (gx, gy) != _HUB_ORIGIN_SLOT}
-# Encounter test slot — second authored anchor, north of hub. Reserved
-# so the procedural pool doesn't overwrite it. Slot world center: (0, 32).
-_ENCOUNTER_TEST_SLOT = (0, 2)
-# Shadow lab slot — third authored anchor, west of hub. Sandbox for the
-# decal_projector primitive. Slot world center: (-32, 0).
-_SHADOW_LAB_SLOT = (-2, 0)
+# Authored-slot dispatch. Keys are the slot-name strings declared in
+# BIOME_REGISTRY[biome_name]["authored_slots"] values; values are the
+# authored stamp + salt seed to apply at that slot.
+#
+# When stamp_at() hits an authored slot, it looks up the slot name here
+# and runs _instantiate_authored with the stamp + salt. Adding a new
+# authored scene = one entry in BIOME_REGISTRY + one entry here.
+_AUTHORED_SLOT_DISPATCH = {
+    "hub_origin":     (ORIGIN_HUB,     0xBADC0DE),
+    "encounter_test": (ENCOUNTER_TEST, 0xB47C0DE),
+    "shadow_lab":     (SHADOW_LAB,     0x5ADC0DE),
+}
 
 
 # Slot grid — each cell holds one stamp. 16m matches the visible radius
 # (49m / 3 ≈ 16m) so the camera always sees ~3-4 slots in every direction.
 SLOT_SIZE = 16.0
 
-# Tissue scatter — connector terrain between authored stamps. Pure noise,
-# fills the negative space. Density is per-slot (not per sqm).
-TISSUE_KINDS_CAVERN = [
-    ("grass_tuft",  3),  # (kind, count) — visible at standing height, keep
-    ("rubble",      1),  # trimmed 2→1: floor clutter, dominant perf cost
-    ("cave_gravel", 1),  # trimmed 4→1: tiny gravel was ~22% of all entities
-]
-TISSUE_KINDS_OUTDOOR = [
-    ("grass_tuft",  3),   # trimmed 4→3
-    ("leaf_pile",   1),   # trimmed 2→1
-    ("twig_scatter", 1),  # trimmed 3→1
-]
+# Tissue scatter config now lives in biome_data.TISSUE_KINDS_* and is
+# exposed via BIOME_REGISTRY[biome_name]["tissue_kinds"]. See _tissue_for().
 
 
 # -- Radial density curve -----------------------------------------------------
@@ -221,15 +207,11 @@ def _slot_seed(gx: int, gy: int, world_seed: int) -> int:
 
 
 def _stamps_for(biome_name: str) -> list:
-    if biome_name == "outdoor":
-        return OUTDOOR_STAMPS
-    return CAVERN_STAMPS
+    return BIOME_REGISTRY.get(biome_name, BIOME_REGISTRY["cavern"])["stamps"]
 
 
 def _tissue_for(biome_name: str) -> list:
-    if biome_name == "outdoor":
-        return TISSUE_KINDS_OUTDOOR
-    return TISSUE_KINDS_CAVERN
+    return BIOME_REGISTRY.get(biome_name, BIOME_REGISTRY["cavern"])["tissue_kinds"]
 
 
 def _make_entity(kind: str, x: float, y: float, rng: random.Random,
@@ -310,55 +292,38 @@ def _instantiate_authored(stamp: Dict, world_cx: float, world_cy: float,
     return roster
 
 
-def _instantiate_hub(world_cx: float, world_cy: float,
-                     seed: int) -> List[Dict]:
-    """Emit ORIGIN_HUB members at the given world position."""
-    return _instantiate_authored(ORIGIN_HUB, world_cx, world_cy,
-                                 seed, 0xBADC0DE)
-
-
 def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     """Pure function: slot coords → entity list.
 
-    For the cavern biome, slot (0, 0) is the origin hub — a hand-authored
-    stamp placed at world (0, 0) regardless of slot center offset. All
-    other slots pick procedurally via weighted selection. The 8 slots
-    immediately adjacent to (0, 0) exclude mega stamps so the transition
-    from authored hub to procedural periphery stays legible.
+    Authored slots (declared in BIOME_REGISTRY[biome_name]["authored_slots"])
+    are hand-placed scenes that own their slot exclusively — the origin
+    hub, the encounter-test fixture, the shadow lab. All other slots
+    draw procedurally via weighted selection. The mega-stamp exclusion
+    set keeps specific slots off the mega-stamp pool so transitions read
+    cleanly.
     """
-    # Origin hub special case — the only hand-authored scene in the game.
-    # Takes full ownership of slot (0, 0) in the cavern biome; skips the
-    # weighted pool and skips tissue scatter so the authored composition
-    # stays clean.
-    if biome_name == "cavern" and (gx, gy) == _HUB_ORIGIN_SLOT:
-        return _instantiate_hub(0.0, 0.0, seed)
+    registry = BIOME_REGISTRY.get(biome_name, BIOME_REGISTRY["cavern"])
 
-    # Encounter test slot — second authored anchor for iteration on
-    # creatures/encounters without touching the hub. World-center at
-    # (gx * SLOT_SIZE, gy * SLOT_SIZE).
-    if biome_name == "cavern" and (gx, gy) == _ENCOUNTER_TEST_SLOT:
-        cx = gx * SLOT_SIZE
-        cy = gy * SLOT_SIZE
-        return _instantiate_authored(ENCOUNTER_TEST, cx, cy,
-                                     seed, 0xB47C0DE)
-
-    # Shadow lab slot — decal_projector sandbox. Same pattern as
-    # ENCOUNTER_TEST but west of hub so the two fixtures stay visually
-    # independent when screenshotting.
-    if biome_name == "cavern" and (gx, gy) == _SHADOW_LAB_SLOT:
-        cx = gx * SLOT_SIZE
-        cy = gy * SLOT_SIZE
-        return _instantiate_authored(SHADOW_LAB, cx, cy,
-                                     seed, 0x5ADC0DE)
+    # Authored slot dispatch — one table, config-driven from biome registry.
+    authored_slots = registry.get("authored_slots", {})
+    slot_key = authored_slots.get((gx, gy))
+    if slot_key is not None:
+        stamp, salt = _AUTHORED_SLOT_DISPATCH[slot_key]
+        # Origin hub is always pinned to world (0, 0) regardless of slot
+        # center offset; other authored scenes use the slot grid origin.
+        if slot_key == "hub_origin":
+            cx, cy = 0.0, 0.0
+        else:
+            cx, cy = gx * SLOT_SIZE, gy * SLOT_SIZE
+        return _instantiate_authored(stamp, cx, cy, seed, salt)
 
     stamps = _stamps_for(biome_name)
     if not stamps:
         return []
 
-    # Mega-stamp exclusion zone — keep the neighborhood of the hub calm
-    # so the transition from authored hub to procedural periphery is
-    # readable and you can see the hub's silhouette from outside.
-    if biome_name == "cavern" and (gx, gy) in _HUB_ADJACENT_SLOTS:
+    # Mega-stamp exclusion — slots near authored anchors keep the
+    # periphery calm so the authored composition stays readable.
+    if (gx, gy) in registry.get("mega_stamp_exclusion_slots", set()):
         stamps = [s for s in stamps if s.get("name") not in _MEGA_STAMP_NAMES]
 
     # Radial density band — world feels "goes somewhere" because density
