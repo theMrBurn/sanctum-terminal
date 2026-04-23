@@ -137,6 +137,56 @@ def test_bad_scale_override_reported() -> None:
     assert any("scale_override" in e for e in errors)
 
 
+def test_vertex_colors_true_forbids_non_white_render_color() -> None:
+    """Passthrough convention: use_vertex_colors=True → render.color=[1,1,1]."""
+    data = {
+        "_class_defaults": {"geo": {}},
+        "kinds": {
+            "widget": {
+                "class": "geo",
+                "use_vertex_colors": True,
+                "render": {"color": [0.5, 0.3, 0.2]},
+            },
+        },
+    }
+    errors = kind_config_schema.validate(data)
+    assert any(
+        "widget.render.color" in e and "use_vertex_colors=True" in e
+        for e in errors
+    ), errors
+
+
+def test_vertex_colors_true_with_white_render_color_passes() -> None:
+    data = {
+        "_class_defaults": {"geo": {}},
+        "kinds": {
+            "widget": {
+                "class": "geo",
+                "use_vertex_colors": True,
+                "render": {"color": [1.0, 1.0, 1.0]},
+            },
+        },
+    }
+    errors = kind_config_schema.validate(data)
+    assert not any("use_vertex_colors" in e for e in errors)
+
+
+def test_vertex_colors_false_allows_colored_render_color() -> None:
+    """Facet kinds rely on render.color for MultiMesh instance coloring."""
+    data = {
+        "_class_defaults": {"geo": {}},
+        "kinds": {
+            "widget": {
+                "class": "geo",
+                "use_vertex_colors": False,
+                "render": {"color": [0.5, 0.3, 0.2]},
+            },
+        },
+    }
+    errors = kind_config_schema.validate(data)
+    assert not any("use_vertex_colors" in e for e in errors)
+
+
 def test_assert_valid_lists_all_errors() -> None:
     data = {
         "kinds": {

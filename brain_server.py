@@ -526,21 +526,36 @@ class BrainWorld:
         # Current light state (base values)
         ls = self.light_states[self.light_state_names[self.light_state_idx]]
 
-        # Tension envelope overrides fog/ambient when active,
-        # but clamped to floors so player can always navigate the scene.
-        # Min ambient keeps silhouettes readable; min fog_far keeps depth usable.
-        AMBIENT_FLOOR = (0.30, 0.28, 0.25)
-        FOG_FAR_FLOOR = 55.0
-        FOG_NEAR_CEIL = 12.0  # don't let fog pull closer than 12m
+        # Tension modulates scalar-wise onto the light-state baseline, so
+        # pressing L (day/dusk/night) stays visually authoritative while
+        # tension drives dramatic damping. "open" is the identity state
+        # (factor ≈ 1.0); deeper states (tunnel/dump) dim toward darkness.
+        #
+        # Factor = envelope_ambient_avg / open_state_ambient_avg. Applied as
+        # a multiplier on ls["ambient"] so hue stays true to time-of-day
+        # and intensity follows tension. Same multiplier reshapes fog.
+        AMBIENT_FLOOR = (0.04, 0.04, 0.05)  # silhouettes still read at night
+        FOG_NEAR_CEIL = 2.0    # don't let fog touch the camera
+        FOG_FAR_FLOOR = 6.0    # always leave a few meters of visibility
         if self.tension.active and envelope:
-            fog_near = max(envelope.fog[0], FOG_NEAR_CEIL)
-            fog_far = max(envelope.fog[1], FOG_FAR_FLOOR)
-            amb = envelope.ambient
+            open_amb = self.tension._config.get("open", {}).get(
+                "ambient", (0.5, 0.5, 0.5))
+            open_avg = max(sum(open_amb) / 3.0, 0.01)
+            tension_avg = sum(envelope.ambient) / 3.0
+            factor = max(tension_avg / open_avg, 0.05)
             ambient = [
-                max(amb[0], AMBIENT_FLOOR[0]),
-                max(amb[1], AMBIENT_FLOOR[1]),
-                max(amb[2], AMBIENT_FLOOR[2]),
+                max(ls["ambient"][0] * factor, AMBIENT_FLOOR[0]),
+                max(ls["ambient"][1] * factor, AMBIENT_FLOOR[1]),
+                max(ls["ambient"][2] * factor, AMBIENT_FLOOR[2]),
             ]
+            # Fog: same scalar modulation on ls baseline, but tension
+            # envelope's fog_near/fog_far ratios to "open" drive the curve.
+            open_fog = self.tension._config.get("open", {}).get(
+                "fog", (ls["fog_near"], ls["fog_far"]))
+            near_factor = envelope.fog[0] / max(open_fog[0], 0.01)
+            far_factor = envelope.fog[1] / max(open_fog[1], 0.01)
+            fog_near = max(ls["fog_near"] * near_factor, FOG_NEAR_CEIL)
+            fog_far = max(ls["fog_far"] * far_factor, FOG_FAR_FLOOR)
         else:
             fog_near = ls["fog_near"]
             fog_far = ls["fog_far"]

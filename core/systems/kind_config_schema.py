@@ -173,6 +173,33 @@ def _validate_class_defaults(defaults: Any) -> tuple[list[str], set[str]]:
     return errors, set(defaults.keys())
 
 
+def _validate_vertex_color_passthrough(cfg: dict[str, Any], path: str) -> list[str]:
+    """When use_vertex_colors is True, render.color must be [1,1,1].
+
+    Vertex-color kinds render via individual MeshInstance3D paths where the
+    mesh's baked COLOR stream drives pixels. Manifest r/g/b is dead data on
+    this path — declaring a non-[1,1,1] render.color creates a "two sources
+    of truth" ambiguity that's caused real-user "what color is this kind?"
+    confusion. Require [1,1,1] passthrough so there's exactly one answer:
+    color_base/shadow/accent own the palette, render.color is unused.
+    """
+    if not cfg.get("use_vertex_colors", False):
+        return []
+    render = cfg.get("render", {})
+    if "color" not in render:
+        return []
+    c = render["color"]
+    if not _is_color(c, 3) and not _is_color(c, 4):
+        return []  # a separate rule will catch the shape error
+    if c[:3] != [1.0, 1.0, 1.0]:
+        return [
+            f"{path}.render.color: must be [1,1,1] when use_vertex_colors=True "
+            f"(vertex-color kinds ignore manifest r/g/b; use color_base instead), "
+            f"got {c!r}"
+        ]
+    return []
+
+
 def _validate_kinds(kinds: Any, known_classes: set[str]) -> list[str]:
     if not isinstance(kinds, dict):
         return [f"kinds: expected object, got {type(kinds).__name__}"]
@@ -195,6 +222,7 @@ def _validate_kinds(kinds: Any, known_classes: set[str]) -> list[str]:
                     f"(known: {sorted(known_classes)})"
                 )
         errors.extend(_validate_class_block(cfg, path))
+        errors.extend(_validate_vertex_color_passthrough(cfg, path))
     return errors
 
 
