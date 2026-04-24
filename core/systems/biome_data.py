@@ -1893,7 +1893,11 @@ OUTDOOR_LIGHT_STATES = {
         "bg_color": (0.18, 0.22, 0.30),
         "far_clip": 60.0,
         "sun_color": (1.0, 0.90, 0.65),
-        "sun_scale": 4.0,
+        # Godot DirectionalLight energy: 1.0 ≈ one real sun. The previous
+        # 4.0 (four suns) saturated every sun-lit surface into cream, hiding
+        # the vertex-color palette on shaded entities (leaf_pile, moss_patch,
+        # etc.) as "pale cards on dark ground" — 2026-04-23 UAT.
+        "sun_scale": 1.5,
         "moon_color": (0.0, 0.0, 0.0),
         "moon_scale": 0.0,
     },
@@ -1905,7 +1909,7 @@ OUTDOOR_LIGHT_STATES = {
         "bg_color": (0.12, 0.08, 0.12),
         "far_clip": 50.0,
         "sun_color": (1.0, 0.55, 0.20),
-        "sun_scale": 5.0,
+        "sun_scale": 1.8,
         "moon_color": (0.0, 0.0, 0.0),
         "moon_scale": 0.0,
     },
@@ -1919,7 +1923,7 @@ OUTDOOR_LIGHT_STATES = {
         "sun_color": (0.0, 0.0, 0.0),
         "sun_scale": 0.0,
         "moon_color": (0.60, 0.65, 0.80),
-        "moon_scale": 3.0,
+        "moon_scale": 1.0,
     },
 }
 
@@ -2182,7 +2186,11 @@ KIND_RENDER_CLASS = {
 
 MACRO_STAMP_CAVERN_CHAMBER = {
     "name": "cavern_chamber",
-    "elevation_step": 3.0,
+    # step=0 until entity spawn-z honors terrain_height. Grid below is
+    # kept for future use; scalar zeroed so a one-cell edit can't silently
+    # trigger the "entities below floor" artifact (2026-04-23 UAT).
+    # Density/allowed grids are the active feature.
+    "elevation_step": 0.0,
     # Elevation FLAT for now — density/allowed grids are the active feature.
     # Tile-aware elevation (matching edges between adjacent tiles) is Phase 2.
     # The bowl-shaped grid below is pinned for future use.
@@ -2218,7 +2226,9 @@ MACRO_STAMP_CAVERN_CHAMBER = {
 
 MACRO_STAMP_CAVERN_CORRIDOR = {
     "name": "cavern_corridor",
-    "elevation_step": 3.0,
+    # step=0 — see MACRO_STAMP_CAVERN_CHAMBER note. Parity across all
+    # macro stamps until entity.z = terrain_z wiring lands.
+    "elevation_step": 0.0,
     "elevation": [
         [0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 0, 0],
@@ -2250,7 +2260,12 @@ MACRO_STAMP_CAVERN_CORRIDOR = {
 
 MACRO_STAMP_OUTDOOR_CLEARING = {
     "name": "outdoor_clearing",
-    "elevation_step": 2.0,
+    # elevation_step 0 until entity spawn-z honors terrain_height. With
+    # step > 0 the ground plane lifts (per player XY) but entities stay at
+    # z=0, producing "entities below the floor" artifacts (2026-04-23 UAT).
+    # Keep the elevation grid shape for future use; just zero the scalar
+    # so terrain stays flat. Restore when brain sets entity.z = terrain_z.
+    "elevation_step": 0.0,
     "elevation": [
         [1, 1, 1, 0, 1, 1, 1],
         [1, 0, 0, 0, 0, 0, 1],
@@ -2400,10 +2415,14 @@ BIOME_REGISTRY = {
             "heading_deg": 0.0, "pitch_deg": 0.0,
         },
         # Atmosphere — streamed to Godot via manifest for _update_atmosphere
-        # Outdoor register: fog on, ambient at full energy, sun overhead
+        # Outdoor register: fog on, ambient as fill-light, sun overhead.
+        # Ambient_energy 0.4 = moderate fill-light (was 1.0, which lifted
+        # entity ALBEDO enough to fight the unshaded ground's dark tone —
+        # produced "pale card on dark floor" artifacts). Sun at 1.5 does
+        # the primary lighting; ambient fills shadows without saturating.
         "atmosphere": {
             "fog_enabled": True,
-            "ambient_energy_base": 1.0,
+            "ambient_energy_base": 0.4,
             "ambient_energy_chrono_factor": 0.0,
             "sun_enabled": True,
             "aerial_perspective": 0.4,
