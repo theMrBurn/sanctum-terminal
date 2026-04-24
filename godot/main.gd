@@ -139,8 +139,22 @@ var buf: String = ""
 var update_timer: float = 0.0
 const UPDATE_INTERVAL := 0.1  # send camera 10x/sec
 
+# Spawn dispatch flag — cleared on _ready, set true when _aim_spawn_heading
+# actually teleports via a spawn config (not the legacy landmark fallback).
+# First brain manifest arriving with a populated `spawn` dict re-runs
+# dispatch, so boot-time static-manifest spawn can be corrected once live
+# data lands.
+var spawn_dispatched: bool = false
+
 # MultiMesh nodes per kind (for live rebuild)
 var kind_nodes: Dictionary = {}
+
+# All kind ShaderMaterials (one per kind_variant). Appended by
+# _create_kind_material, broadcast to on _update_atmosphere so
+# `ambient_color` and other atmosphere-driven shader uniforms stay in
+# sync with the environment. Cleared in _rebuild_entities before
+# materials are re-created.
+var kind_materials: Array[ShaderMaterial] = []
 
 # Plane-attachment architecture: tag → {node, follow} dict, driven by
 # manifest.planes. Ground/ceiling/future walls all live here.
@@ -391,6 +405,16 @@ func _create_kind_material(kind: String) -> Material:
 	# to false so they keep banding + facet stratification.
 	mat.set_shader_parameter("use_vertex_colors",
 		1.0 if params.get("use_vertex_colors", false) else 0.0)
+
+	# Seed ambient_color from current manifest so the far-tint LERP reads
+	# the right biome tone before the first _update_atmosphere tick. Will
+	# be re-broadcast every atmosphere update (light state cycling etc.).
+	var amb_seed: Array = manifest.get("ambient", [0.5, 0.5, 0.5])
+	mat.set_shader_parameter("ambient_color",
+		Vector3(amb_seed[0], amb_seed[1], amb_seed[2]))
+
+	# Track this material so _update_atmosphere can broadcast updates.
+	kind_materials.append(mat)
 
 	return mat
 
@@ -844,7 +868,7 @@ func _render_state_frozen() -> bool:
 	return bool(cfg.get("freeze_sim", false))
 
 
-func _aim_spawn_heading() -> void:
+func _aim_spawn_heading(finalize_scene: bool = true) -> void:
 	"""Spawn ritual — position and orient the camera for first frame.
 
 	Cavern biome: player emerges through the SOUTH arch of the origin hub
@@ -862,8 +886,13 @@ func _aim_spawn_heading() -> void:
 	# Spawn dispatch is config-driven — brain sends `spawn.mode` and
 	# `spawn.location` from BIOME_REGISTRY. Godot only knows about modes,
 	# not biome names. Adding a new spawn_mode = one extra branch here.
+	#
+	# When called at boot time, `manifest` is the static fallback which may
+	# lack a spawn dict — we fall through to _legacy_landmark_aim and leave
+	# spawn_dispatched=false so the first live brain manifest can re-run
+	# dispatch with the real spawn config.
 	var spawn: Dictionary = manifest.get("spawn", {})
-	var mode: String = spawn.get("mode", "legacy_landmark")
+	var mode: String = spawn.get("mode", "")
 	if mode == "hub":
 		var loc: Dictionary = spawn.get("location", {})
 		var sx: float = float(loc.get("x", 0.0))
@@ -874,10 +903,19 @@ func _aim_spawn_heading() -> void:
 		_teleport_player(Vector3(sx, 0.0, sz), heading_rad, pitch_rad)
 		print("Hub spawn: player at (%.1f, %.1f) heading %.1f°" % [
 			sx, sz, float(loc.get("heading_deg", 0.0))])
-	else:
+		spawn_dispatched = true
+	elif mode == "legacy_landmark":
 		_legacy_landmark_aim()
+		spawn_dispatched = true
+	else:
+		# No spawn mode in manifest — static fallback, don't reposition.
+		# First live manifest with a spawn dict will trigger this path.
+		pass
 
-	_finalize_spawn_scene()
+	# _finalize_spawn_scene wires iso camera, player avatar, light pipes —
+	# exactly-once-per-boot. Re-runs from first-live-manifest skip it.
+	if finalize_scene:
+		_finalize_spawn_scene()
 
 
 func _legacy_landmark_aim() -> void:
@@ -1874,6 +1912,13 @@ func _process_responses() -> void:
 		# The brain handles dirty detection via "unchanged" flag above.
 		# If we got here, the scene HAS changed — always rebuild.
 		manifest = data
+		# First live manifest with a spawn config — dispatch now so the
+		# boot-time fallback (which couldn't teleport without spawn data)
+		# gets its correction before the player moves. Guarded so mid-play
+		# manifest updates don't teleport the player back to spawn.
+		# Skip scene-finalize; iso cam + avatar + pipes already exist from _ready().
+		if not spawn_dispatched and manifest.has("spawn"):
+			_aim_spawn_heading(false)
 		_rebuild_entities()
 		_update_atmosphere()
 		_apply_render_state()   # Override after manifest-driven fog writes
@@ -1896,6 +1941,9 @@ func _rebuild_entities() -> void:
 	# Incremental: only rebuild kinds whose entity lists changed
 	var new_by_kind: Dictionary = {}
 	collision_objects.clear()
+	# Kind materials are recreated per-rebuild inside _create_kind_material;
+	# clear the broadcast list so dead materials aren't held in memory.
+	kind_materials.clear()
 	# Free all per-instance physics bodies so _create_multimesh_variant can
 	# re-emit a clean set. Queue-free is fine — Godot finishes the frees at
 	# end-of-frame before next _physics_process reads the set.
@@ -2172,6 +2220,16 @@ func _update_atmosphere() -> void:
 	var chrono_factor: float = float(atm.get("ambient_energy_chrono_factor", 0.0))
 	var night_w: float = manifest.get("chronometer", {}).get("night_weight", 0.0)
 	godot_env.ambient_light_energy = base_energy + chrono_factor * night_w
+
+	# Broadcast ambient_color to every kind shader so the far-tint LERP
+	# matches the current biome/light-state. Same distance math (`fd`
+	# inside the fragment) drives presence/desat/sky-tint — this uniform
+	# just gives the sky-tint step its destination color. Reuses one
+	# computation across the whole perceptual stack per `design_cheat_philosophy`.
+	var amb_vec: Vector3 = Vector3(amb[0], amb[1], amb[2])
+	for km: ShaderMaterial in kind_materials:
+		if is_instance_valid(km):
+			km.set_shader_parameter("ambient_color", amb_vec)
 
 	# Sky / background tint from manifest bg_color — picks up in fog falloff
 	# and as the clear color behind distant geometry.

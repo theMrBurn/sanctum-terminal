@@ -2398,8 +2398,11 @@ BIOME_REGISTRY = {
         "banner_layers": OUTDOOR_BANNER_LAYERS,
         "macro_stamps": [MACRO_STAMP_OUTDOOR_CLEARING],
         "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
-        "playable_radius": 80.0,     # outdoor is wider — more open feel
-        "playable_softness": 1.5,
+        # Endless procedural by default — matches cavern's boilerplate.
+        # Area-authoring (clearings, named landmarks) is a refinement layer
+        # ON TOP, not a replacement for endless. See design_endless_biomes.
+        "playable_radius": 500.0,
+        "playable_softness": 0.5,
         # World-gen tunables
         "node_spacing_range": (20.0, 24.0),
         "has_ceiling": False,

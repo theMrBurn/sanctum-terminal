@@ -174,8 +174,8 @@
       },
       "sink": -0.15,
       "scale_override": null,
-      "fade_in_near": 5.0,
-      "fade_in_far": 90.0
+      "fade_in_near": 30.0,
+      "fade_in_far": 50.0
     },
     "structural": {
       "color_base": [
@@ -210,8 +210,8 @@
         "y": 1.0,
         "z": 2.2
       },
-      "fade_in_near": 8.0,
-      "fade_in_far": 130.0
+      "fade_in_near": 40.0,
+      "fade_in_far": 55.0
     },
     "crystalline": {
       "color_base": [
@@ -240,8 +240,8 @@
       },
       "sink": -0.05,
       "scale_override": null,
-      "fade_in_near": 8.0,
-      "fade_in_far": 120.0
+      "fade_in_near": 30.0,
+      "fade_in_far": 50.0
     },
     "organic_flora": {
       "color_base": [
@@ -270,8 +270,8 @@
       },
       "sink": -0.05,
       "scale_override": null,
-      "fade_in_near": 3.0,
-      "fade_in_far": 70.0
+      "fade_in_near": 15.0,
+      "fade_in_far": 30.0
     },
     "atmosphere": {
       "color_base": [
@@ -300,8 +300,8 @@
       },
       "sink": 0.0,
       "scale_override": null,
-      "fade_in_near": 3.0,
-      "fade_in_far": 65.0
+      "fade_in_near": 15.0,
+      "fade_in_far": 30.0
     },
     "life": {
       "color_base": [
@@ -330,8 +330,8 @@
       },
       "sink": 0.0,
       "scale_override": null,
-      "fade_in_near": 3.0,
-      "fade_in_far": 65.0
+      "fade_in_near": 15.0,
+      "fade_in_far": 30.0
     },
     "horizon": {
       "color_base": [

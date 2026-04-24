@@ -21,8 +21,8 @@
         "darkness": 0.0,
         "radius": 0.0
       },
-      "fade_in_far": 65.0,
-      "fade_in_near": 3.0,
+      "fade_in_far": 30.0,
+      "fade_in_near": 15.0,
       "ghost_chance": 0.0,
       "light_reactive": false,
       "scale_override": null,
@@ -51,8 +51,8 @@
         "darkness": 0.3,
         "radius": 4.0
       },
-      "fade_in_far": 120.0,
-      "fade_in_near": 8.0,
+      "fade_in_far": 50.0,
+      "fade_in_near": 30.0,
       "ghost_chance": 0.0,
       "light_reactive": true,
       "scale_override": null,
@@ -135,8 +135,8 @@
         "darkness": 0.4,
         "radius": 3.0
       },
-      "fade_in_far": 90.0,
-      "fade_in_near": 5.0,
+      "fade_in_far": 50.0,
+      "fade_in_near": 30.0,
       "ghost_chance": 0.33,
       "light_reactive": false,
       "scale_override": null,
@@ -195,8 +195,8 @@
         "darkness": 0.0,
         "radius": 0.0
       },
-      "fade_in_far": 65.0,
-      "fade_in_near": 3.0,
+      "fade_in_far": 30.0,
+      "fade_in_near": 15.0,
       "ghost_chance": 0.0,
       "light_reactive": false,
       "scale_override": null,
@@ -225,8 +225,8 @@
         "darkness": 0.2,
         "radius": 1.5
       },
-      "fade_in_far": 70.0,
-      "fade_in_near": 3.0,
+      "fade_in_far": 30.0,
+      "fade_in_near": 15.0,
       "ghost_chance": 0.0,
       "light_reactive": false,
       "scale_override": null,
@@ -255,8 +255,8 @@
         "darkness": 0.5,
         "radius": 6.0
       },
-      "fade_in_far": 130.0,
-      "fade_in_near": 8.0,
+      "fade_in_far": 55.0,
+      "fade_in_near": 40.0,
       "ghost_chance": 0.0,
       "light_reactive": false,
       "scale_override": {

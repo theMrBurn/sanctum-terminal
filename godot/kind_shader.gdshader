@@ -48,6 +48,12 @@ uniform float twist_amount : hint_range(0.0, 1.0) = 0.0;
 uniform float fade_in_near : hint_range(0.0, 200.0) = 5.0;
 uniform float fade_in_far  : hint_range(0.0, 200.0) = 50.0;
 
+// Atmosphere tint — the environment's ambient light color, broadcast
+// by main.gd when _update_atmosphere runs. Distant fragments LERP
+// toward this color as a cheap aerial-perspective cheat: objects
+// recede into the biome's sky tone instead of simply discarding.
+uniform vec3 ambient_color = vec3(0.5, 0.5, 0.5);
+
 varying vec3 world_pos;
 varying float local_y;
 varying vec4 vertex_col;  // smooth interpolation — authored region gradients are intentional
@@ -155,6 +161,12 @@ void fragment() {
 
 	// Per-object origin — used for banding hashes AND light distance.
 	vec3 instance_origin = MODEL_MATRIX[3].xyz;
+	// Per-object camera distance — shared across all distance-relative
+	// effects below. ONE calculation drives fade dither, presence bubble,
+	// aerial desaturation, and far-tint LERP. "Why cant the same math
+	// that renders distance also helps govern other relative effects?"
+	// — 2026-04-24. Answer: it can, and here it does.
+	float fd = distance(instance_origin, CAMERA_POSITION_WORLD);
 
 	// Distance fade-in — emerge out of the fog, don't pop in at render
 	// horizon. Per-OBJECT distance (instance_origin, not world_pos) so the
@@ -164,7 +176,6 @@ void fragment() {
 	// 1 at fade_in_near; smoothstep is close enough to feel "staged"
 	// (user's mental ladder: 50m → 25m → 15m → 10m → 5m).
 	{
-		float fd = distance(instance_origin, CAMERA_POSITION_WORLD);
 		float alpha = 1.0 - smoothstep(fade_in_near, fade_in_far, fd);
 		if (alpha < 0.999) {
 			int px_x = int(FRAGCOORD.x) & 3;
@@ -233,6 +244,34 @@ void fragment() {
 		vec3 tinted = vec3(0.95, 0.80, 0.60) * shifted_lum;
 		col = mix(col, tinted, head_t * 0.35);
 	}
+
+	// -- Distance-relative perceptual stack ----------------------------------
+	//
+	// Three cheats driven off the same `fd` already computed above. Together
+	// they give the player's eye the relativity that uniform ambient + a
+	// directional sun can't — nearby objects feel PRESENT, mid-distance
+	// objects flatten into atmospheric perspective, far objects blend into
+	// the biome's sky tone. Empirically tuned for outdoor fog_far=55 and
+	// cavern no-fog; same curves work for both because the biome's
+	// ambient_color gives the far-tint its character.
+
+	// 1. Presence bubble — arm's reach lifts ALBEDO ~+35%. Fades to
+	//    neutral by 18m. Emulates point-light falloff without adding a
+	//    per-object light; works at night when ambient is near-black.
+	col *= 1.0 + (1.0 - smoothstep(0.0, 18.0, fd)) * 0.35;
+
+	// 2. Atmospheric desaturation — mid-range LERPs toward luminance.
+	//    Mimics how distant color drifts toward grey in real atmosphere.
+	//    Peaks at 40% mix past 40m.
+	float sat_t = smoothstep(8.0, 40.0, fd);
+	float lum_d = dot(col, vec3(0.299, 0.587, 0.114));
+	col = mix(col, vec3(lum_d), sat_t * 0.4);
+
+	// 3. Sky/ambient tint — far silhouettes LERP toward the biome's
+	//    ambient color so they read as "of the environment" rather than
+	//    cutout shapes. 30% mix past 50m.
+	float tint_t = smoothstep(25.0, 50.0, fd);
+	col = mix(col, ambient_color, tint_t * 0.3);
 
 	ALBEDO = col;
 }
