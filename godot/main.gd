@@ -2238,6 +2238,7 @@ func _process_responses() -> void:
 		# Skip scene-finalize; iso cam + avatar + pipes already exist from _ready().
 		if not spawn_dispatched and manifest.has("spawn"):
 			_aim_spawn_heading(false)
+		_check_world_revision()  # L2 — must run before _rebuild so spawn re-dispatch arms
 		_rebuild_entities()
 		_sync_equipped()  # PR 4 — camera-parented wielded item from manifest.player.equipped
 		_update_atmosphere()
@@ -3693,6 +3694,47 @@ func _send_cast_event(element: String, trajectory: String = "straight") -> void:
 	_show_toast("CAST #%d [%s/%s]" % [cast_count, trajectory.to_upper(), element.to_upper()])
 
 
+# -- Loop state transitions (L2) -----------------------------------------
+# Brain owns the game state machine (HUB / MISSION_SELECT / IN_MISSION /
+# RESULTS); Godot fires intent events. The brain validates each transition,
+# regenerates the world on launch / return-to-hub, and bumps world_revision
+# so this side knows to re-dispatch spawn and rebuild entity caches.
+
+var _last_world_revision: int = 0
+
+
+func _send_state_transition(target: String) -> void:
+	if not connected:
+		return
+	var msg := JSON.stringify({"cmd": "state_transition_request", "target": target}) + "\n"
+	tcp.put_data(msg.to_utf8_buffer())
+
+
+# Single back/cancel/done key — context-aware, dispatches based on current
+# game state. Reads manifest.game_state.state to decide.
+func _send_state_back() -> void:
+	var current_state: String = String(manifest.get("game_state", {}).get("state", "HUB"))
+	# Both MISSION_SELECT (cancel) and IN_MISSION (abort) and RESULTS
+	# (acknowledge) all go HUB-ward.
+	if current_state == "MISSION_SELECT" or current_state == "IN_MISSION" or current_state == "RESULTS":
+		_send_state_transition("HUB")
+		_show_toast("BACK -> HUB")
+	# At HUB already — no-op.
+
+
+func _check_world_revision() -> void:
+	# Brain bumps world_revision on every regen. When it changes we clear
+	# spawn_dispatched so the next manifest re-runs spawn (teleport player
+	# to the spawn location of the regenerated world).
+	var rev: int = int(manifest.get("world_revision", 0))
+	if rev != _last_world_revision:
+		_last_world_revision = rev
+		spawn_dispatched = false  # next manifest cycle re-dispatches spawn
+		# The manifest itself carries the new entity set, so _rebuild_entities
+		# will pick up the regenerated world without further intervention.
+		print("[loop] world regen detected (revision=%d), spawn re-dispatch armed" % rev)
+
+
 # -- Equip / holster (PR 4) -----------------------------------------------
 # Brain owns inventory + equipped state. Godot fires intent events; brain
 # validates (must be in inventory) and mutates player.equipped. Next manifest
@@ -4810,6 +4852,14 @@ func _input(event: InputEvent) -> void:
 				_send_equip_request("torch_handcrafted")
 			KEY_Q:  # Holster — clear equipped
 				_send_holster_request()
+			KEY_M:  # Open mission select (HUB → MISSION_SELECT)
+				_send_state_transition("MISSION_SELECT")
+				_show_toast("MISSION SELECT")
+			KEY_L:  # Launch mission (MISSION_SELECT → IN_MISSION)
+				_send_state_transition("IN_MISSION")
+				_show_toast("LAUNCH")
+			KEY_X:  # Back / cancel / acknowledge — context-aware return to HUB
+				_send_state_back()
 
 
 func _unhandled_input(event: InputEvent) -> void:

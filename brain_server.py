@@ -251,6 +251,14 @@ class BrainWorld:
         # validated; Godot reads manifest.game_state every update.
         self.game_state: GameState = GameState.initial()
 
+        # World regen support (L2). hub_seed preserves the canonical hub world
+        # so RESULTS → HUB returns to the same staging area each time. Mission
+        # transitions assign a fresh mission_seed that overrides base_seed
+        # while IN_MISSION. world_revision bumps on every regen — Godot
+        # watches it, re-dispatches spawn, and rebuilds entity render state.
+        self.hub_seed: int = base_seed
+        self.world_revision: int = 0
+
         # Ceiling height — resolved from biome planes config.
         # Ceiling_moss and hanging_vine attach relative to this.
         self.ceiling_y = 15.0  # fallback
@@ -282,6 +290,33 @@ class BrainWorld:
 
         # Generate center tile (legacy path seeds spatial hash for extended skeleton query)
         self._generate_tile(0, 0)
+
+    def regen_world(self, new_seed: int) -> None:
+        """Wipe cached world state and reset to a fresh seed (L2).
+
+        The active stamp_world path is pure-function — just updating
+        self.base_seed makes the next get_visible() call use the new seed.
+        Legacy/exchange paths cache tile data, so we also clear those so
+        a non-stamp run regenerates correctly.
+
+        Increments world_revision so Godot can detect the regen and
+        re-dispatch spawn (teleport player to spawn location) and rebuild
+        its entity render state.
+        """
+        self.base_seed = new_seed
+        self.world_revision += 1
+        self.entities.clear()
+        self.spawns.clear()
+        self.loaded_tiles.clear()
+        self.tile_variants.clear()
+        self.spatial = SpatialHash(cell_size=20.0)
+        self._structural_positions = []
+        self.next_eid = 0
+        # Rebuild exchange with new seed (legacy-path safety).
+        self.exchange = TileExchange(self.biome_name, new_seed, self.tile_size)
+        # Re-prime spawn tile so non-stamp paths have entities.
+        self._generate_tile(0, 0)
+
 
     def _tile_key(self, cam_x, cam_y):
         return (int(math.floor(cam_x / self.tile_size)),
@@ -823,6 +858,10 @@ class BrainWorld:
             # effect; streamed every tick so transitions land within one
             # manifest cycle.
             "game_state": gs.to_manifest(self.game_state),
+            # Bumped each regen_world call. Godot watches for change and
+            # re-dispatches spawn + clears entity caches so the world
+            # transition lands within one manifest cycle.
+            "world_revision": self.world_revision,
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),
             "tension_envelope": {
@@ -1032,6 +1071,48 @@ def run_server(biome_name, port=9877):
                         # Force manifest resend so snapshot's updated
                         # last_message reaches Godot immediately.
                         last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "state_transition_request":
+                    target_str = str(msg.get("target", ""))
+                    try:
+                        target = gs.GameStateName(target_str)
+                    except ValueError:
+                        print(f"  state_transition rejected: unknown target {target_str!r}", flush=True)
+                        continue
+                    old = world.game_state
+                    try:
+                        # Mission transitions need an id + seed. For L2 testing
+                        # without a picker UI (L6), launching from MISSION_SELECT
+                        # auto-generates both.
+                        kwargs = {}
+                        if target == gs.GameStateName.IN_MISSION:
+                            kwargs["mission_id"] = str(msg.get("mission_id", "anomaly_hunt_01"))
+                            kwargs["mission_seed"] = int(msg.get("mission_seed", random.randint(1, 999_999)))
+                        elif target == gs.GameStateName.RESULTS:
+                            kwargs["results"] = msg.get("results", {})
+                        new_state = gs.transition(old, target, **kwargs)
+                    except ValueError as e:
+                        print(f"  state_transition rejected: {e}", flush=True)
+                        continue
+
+                    world.game_state = new_state
+                    print(f"  state: {old.state.value} -> {new_state.state.value}", flush=True)
+
+                    # Side effects per transition.
+                    # Launching: regen world with the mission seed.
+                    # Returning to HUB from a mission/results: regen with hub seed.
+                    # Cancel from MISSION_SELECT: no regen (still in hub world).
+                    if (old.state == gs.GameStateName.MISSION_SELECT
+                            and new_state.state == gs.GameStateName.IN_MISSION):
+                        world.regen_world(new_state.mission_seed)
+                        print(f"  world regen: mission seed={new_state.mission_seed}", flush=True)
+                    elif (old.state in (gs.GameStateName.IN_MISSION, gs.GameStateName.RESULTS)
+                            and new_state.state == gs.GameStateName.HUB):
+                        world.regen_world(world.hub_seed)
+                        print(f"  world regen: hub seed={world.hub_seed}", flush=True)
+
+                    last_wake_ids = set()  # force manifest resend with new state
                     continue
 
                 if msg.get("cmd") == "equip_request":
