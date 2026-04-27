@@ -300,3 +300,102 @@ def test_illegal_state_transition_rejected_cleanly(brain):
             f"illegal transition should leave state at HUB, got {m['game_state']['state']}"
     finally:
         client.close()
+
+
+def test_equip_holster_wire(brain):
+    """The equip/holster TCP path: holster the auto-equipped torch, re-equip."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        m = client.recv_full_manifest()
+        # Auto-equipped at boot for UAT.
+        assert m["player"]["equipped"] == "torch_handcrafted"
+
+        # Holster.
+        client.send({"cmd": "holster_request"})
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["player"]["equipped"] is None, \
+            f"expected None after holster, got {m['player']['equipped']}"
+
+        # Re-equip.
+        client.send({"cmd": "equip_request", "name": "torch_handcrafted"})
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["player"]["equipped"] == "torch_handcrafted"
+    finally:
+        client.close()
+
+
+def test_equip_non_inventory_item_rejected(brain):
+    """Equipping something not in inventory must not change equipped state."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        m = client.recv_full_manifest()
+        original = m["player"]["equipped"]
+
+        # 'magic_sword' is not in inventory — brain should reject.
+        client.send({"cmd": "equip_request", "name": "magic_sword"})
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["player"]["equipped"] == original, \
+            f"rejection should leave equipped unchanged (was {original}, got {m['player']['equipped']})"
+    finally:
+        client.close()
+
+
+def test_mission_complete_outside_in_mission_ignored(brain):
+    """Trigger fired at HUB should silently no-op — no loot, no state change."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["game_state"]["state"] == "HUB"
+        original_inv_size = len(m["player"]["inventory"])
+
+        # Fire trigger from HUB — brain handler gates on IN_MISSION, ignores.
+        client.send({"cmd": "mission_complete_trigger", "trigger_kind": "clay_pot"})
+        client.send_camera()
+        m = client.recv_full_manifest()
+
+        assert m["game_state"]["state"] == "HUB", "state should not transition from HUB"
+        assert len(m["player"]["inventory"]) == original_inv_size, \
+            "no loot should drop outside IN_MISSION"
+    finally:
+        client.close()
+
+
+def test_repeated_missions_do_not_crash_brain(brain):
+    """Run the loop many times — brain should stay responsive, inventory
+    should respect slot cap (full inventory triggers ValueError caught
+    by the brain handler with 'loot drop skipped: ...' log)."""
+    client = BrainClient()
+    try:
+        # 8 full cycles — enough to fill the 10-slot default inventory
+        # (starts with 3 items, each mission drops 1-3, so saturation by ~5-6).
+        for cycle in range(8):
+            client.send({"cmd": "state_transition_request", "target": "MISSION_SELECT"})
+            client.send_camera()
+            client.recv_full_manifest()
+            client.send({"cmd": "state_transition_request", "target": "IN_MISSION"})
+            client.send_camera()
+            client.recv_full_manifest()
+            client.send({"cmd": "mission_complete_trigger", "trigger_kind": "clay_pot"})
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["state"] == "RESULTS", \
+                f"cycle {cycle}: expected RESULTS, got {m['game_state']['state']}"
+            client.send({"cmd": "state_transition_request", "target": "HUB"})
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["state"] == "HUB", \
+                f"cycle {cycle}: expected return to HUB"
+
+        # After 8 cycles brain still alive and answering. Inventory should
+        # not exceed slots cap.
+        slots_cap = 10  # PlayerState.new() default
+        assert len(m["player"]["inventory"]) <= slots_cap, \
+            f"inventory exceeded slot cap: {len(m['player']['inventory'])}"
+    finally:
+        client.close()
