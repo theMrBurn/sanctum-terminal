@@ -349,3 +349,23 @@ def test_pickupable_must_be_bool() -> None:
     data = _kind_with({"pickupable": "yes"})
     errors = kind_config_schema.validate(data)
     assert any("pickupable" in e for e in errors)
+
+
+def test_subparts_sprite_field_valid() -> None:
+    """Optional sprite path on a flame subpart routes to billboard texture."""
+    data = _kind_with({
+        "render": {"subparts": [
+            {"family": "flame", "scale": 0.4,
+             "sprite": "lib/sprites/flame/flame_user_01.png"}
+        ]}
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_subparts_sprite_must_be_string() -> None:
+    data = _kind_with({
+        "render": {"subparts": [{"family": "flame", "sprite": 42}]}
+    })
+    errors = kind_config_schema.validate(data)
+    assert any("sprite" in e for e in errors)

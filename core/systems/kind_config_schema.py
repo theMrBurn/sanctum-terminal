@@ -173,6 +173,10 @@ def _validate_subparts(subparts: Any, path: str) -> list[str]:
             errors.append(
                 f"{sp_path}.palette: expected string, got {sp['palette']!r}"
             )
+        if "sprite" in sp and not isinstance(sp["sprite"], str):
+            errors.append(
+                f"{sp_path}.sprite: expected string path, got {sp['sprite']!r}"
+            )
     return errors
 
 

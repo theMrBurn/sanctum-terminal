@@ -1415,11 +1415,17 @@ const _FAMILY_EXEMPLAR_KIND := {
 }
 
 
-func _resolve_subpart_mesh(family: String, color: Variant, emission: float) -> Mesh:
+func _resolve_subpart_mesh(sp: Dictionary) -> Mesh:
+	var family: String = String(sp.get("family", ""))
+	var color: Variant = sp.get("color", null)
+	var emission: float = float(sp.get("emission", 0.0))
 	if family == "orb":
 		return _build_orb_mesh(color, emission)
 	if family == "flame":
-		return _build_flame_mesh(color, emission)
+		# Optional sprite path overrides the procedural shader. Sketches
+		# routed through tools/sketch_to_sprite.py land in lib/sprites/.
+		var sprite_path: Variant = sp.get("sprite", null)
+		return _build_flame_mesh(color, emission, sprite_path)
 	var exemplar: String = _FAMILY_EXEMPLAR_KIND.get(family, "")
 	if exemplar == "":
 		push_error("[subparts] unknown primitive family: %s" % family)
@@ -1468,9 +1474,38 @@ func _build_orb_mesh(color: Variant, emission: float) -> Mesh:
 const _FLAME_SHADER: Shader = preload("res://flame_billboard.gdshader")
 
 
-func _build_flame_mesh(color: Variant, emission: float) -> Mesh:
+func _build_flame_mesh(color: Variant, emission: float, sprite_path: Variant = null) -> Mesh:
 	var quad := QuadMesh.new()
 	quad.size = Vector2(1.0, 1.0)
+
+	# Sprite path overrides the procedural shader. Sketches piped through
+	# tools/sketch_to_sprite.py land in lib/sprites/ — billboard them with
+	# Godot's built-in StandardMaterial3D billboard mode + alpha + emission.
+	# Same family ("flame"), same kind_config schema, just a different
+	# visual backend per design_crud_substrate.
+	if sprite_path is String and sprite_path != "":
+		var full_path: String = "res://%s" % sprite_path if not sprite_path.begins_with("res://") else sprite_path
+		if ResourceLoader.exists(full_path):
+			var tex: Texture2D = load(full_path)
+			var smat := StandardMaterial3D.new()
+			smat.albedo_texture = tex
+			smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+			smat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			smat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			# Emission via the texture itself — the sprite's bright pixels
+			# carry the glow. Multiplier scales the energy.
+			smat.emission_enabled = true
+			smat.emission_texture = tex
+			smat.emission_energy_multiplier = max(emission, 1.0)
+			if color is Array and color.size() >= 3:
+				smat.albedo_color = Color(color[0], color[1], color[2])
+			quad.surface_set_material(0, smat)
+			return quad
+		push_warning("[flame] sprite path not found, falling back to procedural: %s" % full_path)
+
+	# Procedural shader path (default).
 	var mat := ShaderMaterial.new()
 	mat.shader = _FLAME_SHADER
 	# Outer color from subpart, inner derived by pulling toward white-hot.
@@ -1515,9 +1550,8 @@ func _create_composite_for_kind(kind: String, ents: Array, subparts: Array) -> v
 func _build_subpart_multimesh(ents: Array, sp: Dictionary, kind: String, idx: int) -> MultiMeshInstance3D:
 	var family: String = String(sp.get("family", ""))
 	var sp_color: Variant = sp.get("color", null)
-	var sp_emission: float = float(sp.get("emission", 0.0))
 
-	var mesh: Mesh = _resolve_subpart_mesh(family, sp_color, sp_emission)
+	var mesh: Mesh = _resolve_subpart_mesh(sp)
 	if mesh == null:
 		return null
 
