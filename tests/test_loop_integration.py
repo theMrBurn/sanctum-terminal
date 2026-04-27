@@ -37,6 +37,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_PORT = 9878  # offset from the default 9877 so we don't fight a live brain
+TEST_PORT_PERSIST = 9879  # second port for the persistence-across-restart test
 
 
 # --- Brain subprocess -------------------------------------------------------
@@ -51,12 +52,15 @@ class BrainProcess:
     READY_MARKER = "ready on"
     BOOT_TIMEOUT_S = 15.0
 
-    def __init__(self, biome: str = "outdoor"):
+    def __init__(self, biome: str = "outdoor", port: int = TEST_PORT,
+                 save_path: Path | None = None):
         env = os.environ.copy()
         env["SANCTUM_STAMP"] = "1"
         env["PYTHONPATH"] = str(REPO_ROOT)
+        if save_path is not None:
+            env["SANCTUM_SAVE_PATH"] = str(save_path)
         self.proc = subprocess.Popen(
-            [str(REPO_ROOT / ".venv/bin/python"), "brain_server.py", biome, str(TEST_PORT)],
+            [str(REPO_ROOT / ".venv/bin/python"), "brain_server.py", biome, str(port)],
             cwd=str(REPO_ROOT),
             env=env,
             stdout=subprocess.PIPE,
@@ -64,6 +68,7 @@ class BrainProcess:
             text=True,
             bufsize=1,
         )
+        self._port = port
         self.stdout_lines: list[str] = []
         self._ready = threading.Event()
         self._stdout_thread = threading.Thread(
@@ -364,6 +369,82 @@ def test_mission_complete_outside_in_mission_ignored(brain):
             "no loot should drop outside IN_MISSION"
     finally:
         client.close()
+
+
+def test_save_load_persists_across_brain_restart(tmp_path):
+    """L5 — autosave on RESULTS → HUB persists; the next brain boot loads
+    the saved state. This is the core promise: tomorrow morning your
+    inventory is still there.
+
+    Spins two brains back-to-back with a shared SANCTUM_SAVE_PATH:
+      brain #1: complete a mission, return to HUB (autosave fires)
+      brain #2: should boot loading the saved inventory + completed_missions
+    """
+    save_path = tmp_path / "test_save.json"
+    assert not save_path.exists()
+
+    # ---- Brain #1 ----
+    b1 = BrainProcess(biome="outdoor", port=TEST_PORT_PERSIST, save_path=save_path)
+    try:
+        c1 = BrainClient(port=TEST_PORT_PERSIST)
+        try:
+            c1.send_camera()
+            m = c1.recv_full_manifest()
+            initial_inv = len(m["player"]["inventory"])
+            assert m["player"]["completed_missions"] == [], \
+                "fresh brain should have no completed missions"
+
+            # Run one full cycle
+            c1.send({"cmd": "state_transition_request", "target": "MISSION_SELECT"})
+            c1.send_camera()
+            c1.recv_full_manifest()
+            c1.send({"cmd": "state_transition_request", "target": "IN_MISSION"})
+            c1.send_camera()
+            c1.recv_full_manifest()
+            c1.send({"cmd": "mission_complete_trigger", "trigger_kind": "clay_pot"})
+            c1.send_camera()
+            c1.recv_full_manifest()
+            c1.send({"cmd": "state_transition_request", "target": "HUB"})
+            c1.send_camera()
+            m = c1.recv_full_manifest()
+
+            assert m["game_state"]["state"] == "HUB"
+            # Mission should be in completed list
+            assert "anomaly_hunt_01" in m["player"]["completed_missions"]
+            inv_after_mission = len(m["player"]["inventory"])
+            assert inv_after_mission > initial_inv, "loot should have dropped"
+        finally:
+            c1.close()
+    finally:
+        b1.stop()
+
+    # ---- Save file should exist now ----
+    assert save_path.exists(), "autosave should have written during RESULTS → HUB"
+    saved_data = json.loads(save_path.read_text())
+    assert saved_data["version"] == 1
+    assert "anomaly_hunt_01" in saved_data["player"]["completed_missions"]
+
+    # ---- Brain #2 — fresh boot, same save path ----
+    b2 = BrainProcess(biome="outdoor", port=TEST_PORT_PERSIST, save_path=save_path)
+    try:
+        c2 = BrainClient(port=TEST_PORT_PERSIST)
+        try:
+            c2.send_camera()
+            m = c2.recv_full_manifest()
+            # Inventory size should match what was saved (not reset to 3 fixtures)
+            assert len(m["player"]["inventory"]) == inv_after_mission, \
+                f"loaded inventory should match saved (saved={inv_after_mission}, " \
+                f"loaded={len(m['player']['inventory'])})"
+            # Completed missions persisted
+            assert "anomaly_hunt_01" in m["player"]["completed_missions"]
+            # Brain log should mention the load
+            log_text = "\n".join(b2.stdout_lines)
+            assert "loaded save" in log_text, \
+                f"brain #2 should log 'loaded save' — got log:\n{log_text}"
+        finally:
+            c2.close()
+    finally:
+        b2.stop()
 
 
 def test_repeated_missions_do_not_crash_brain(brain):

@@ -40,6 +40,7 @@ from core.systems import player_state as ps
 from core.systems.player_state import PlayerState, Item
 from core.systems import game_state as gs
 from core.systems.game_state import GameState
+from core.systems import save_state
 from core.systems.macro_stamp import (
     terrain_height, set_active_stamp, grid_density, grid_allowed,
 )
@@ -236,21 +237,29 @@ class BrainWorld:
         # against this on entry/exit (refactor pending). Streamed to Godot
         # via manifest.player so the viewer can render the camera-parented
         # equipped item without round-tripping every frame.
-        self.player: PlayerState = PlayerState.new(seed=base_seed)
-
-        # PR 4 manual UAT — pre-equip a torch so the camera-parented render
-        # path can be exercised without PR 5 (proximity pickup) being live.
-        # Auto-equipped at boot so the user sees the torch in hand on spawn,
-        # can holster (Q) and re-equip (E) to verify both paths. Remove the
-        # auto-equip line when PR 5 lands real pickup.
-        self.player = ps.add_item(self.player, Item(name="torch_handcrafted"))
-        self.player = ps.equip(self.player, "torch_handcrafted")
-
-        # L8 manual UAT — pre-fill 2 healing potions so KEY_F has something
-        # to consume on first boot before any mission loot drops. Remove
-        # when L6 (mission select) and the loot loop make this redundant.
-        for _ in range(2):
-            self.player = ps.add_item(self.player, Item(name="healing_potion"))
+        #
+        # L5 — try to load an existing save. If it loads, use it; otherwise
+        # build a fresh player and seed it with the UAT fixtures. The load
+        # path is silent on missing-file (None return); print on actual hit.
+        loaded_player = save_state.load()
+        if loaded_player is not None:
+            self.player = loaded_player
+            print(
+                f"  loaded save: {len(loaded_player.inventory)} items, "
+                f"equipped={loaded_player.equipped!r}, "
+                f"missions={len(loaded_player.completed_missions)}",
+                flush=True,
+            )
+        else:
+            self.player = PlayerState.new(seed=base_seed)
+            # PR 4 manual UAT — auto-equip a torch + pre-fill 2 healing potions
+            # so first-boot exercises the equipped-render and use-key paths.
+            # Once a save exists these injections are skipped (the saved
+            # inventory drives instead).
+            self.player = ps.add_item(self.player, Item(name="torch_handcrafted"))
+            self.player = ps.equip(self.player, "torch_handcrafted")
+            for _ in range(2):
+                self.player = ps.add_item(self.player, Item(name="healing_potion"))
 
         # Loop-completion state machine (L1). Spine of the DRG/Persona-style
         # gameplay loop. Boots at HUB with no mission context. Transitions
@@ -859,6 +868,7 @@ class BrainWorld:
                 "equipped": self.player.equipped,
                 "hp": self.player.hp,
                 "max_hp": self.player.max_hp,
+                "completed_missions": list(self.player.completed_missions),
             },
             # Loop state — Godot reads to gate UI / input / render mode per
             # phase (HUB / MISSION_SELECT / IN_MISSION / RESULTS). Mutated
@@ -1184,6 +1194,15 @@ def run_server(biome_name, port=9877):
                         world.game_state = gs.transition(
                             world.game_state, gs.GameStateName.RESULTS,
                             results=payload)
+                        # L5 — append the just-completed mission so the next
+                        # autosave (RESULTS → HUB) carries it. Append-only;
+                        # duplicate ids are fine (the player ran the same
+                        # mission twice).
+                        if world.game_state.mission_id is not None:
+                            new_completed = (world.player.completed_missions
+                                             + (world.game_state.mission_id,))
+                            world.player = world.player._replace(
+                                completed_missions=new_completed)
                         last_wake_ids = set()
                         print(f"  mission complete: {trigger_kind} -> RESULTS {payload}", flush=True)
                     except ValueError as e:
@@ -1228,6 +1247,20 @@ def run_server(biome_name, port=9877):
                             and new_state.state == gs.GameStateName.HUB):
                         world.regen_world(world.hub_seed)
                         print(f"  world regen: hub seed={world.hub_seed}", flush=True)
+
+                    # L5 autosave — write player state to disk on the natural
+                    # mission boundary (RESULTS → HUB). Other transitions
+                    # don't need to save: HUB ↔ MISSION_SELECT mutates nothing
+                    # persistent; MISSION_SELECT → IN_MISSION is pre-mission;
+                    # IN_MISSION → HUB (abort) intentionally drops mission
+                    # progress and reverts to the last known-good autosave.
+                    if (old.state == gs.GameStateName.RESULTS
+                            and new_state.state == gs.GameStateName.HUB):
+                        try:
+                            written = save_state.save(world.player)
+                            print(f"  autosave: {written}", flush=True)
+                        except OSError as e:
+                            print(f"  autosave failed: {e}", flush=True)
 
                     last_wake_ids = set()  # force manifest resend with new state
                     continue

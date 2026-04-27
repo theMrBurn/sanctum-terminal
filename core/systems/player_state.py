@@ -34,6 +34,11 @@ class PlayerState(NamedTuple):
     # must also be present in inventory — equip() enforces. Streams to the
     # manifest so Godot can render the camera-parented composite primitive.
     equipped: Optional[str] = None
+    # Mission IDs the player has completed, in order. Append-only; survives
+    # save/load. Used for progression gates (e.g. "you can launch
+    # `deeper_anomaly` once `anomaly_hunt_01` has been done"). L7's mission
+    # complete handler appends; L5 persists.
+    completed_missions: Tuple[str, ...] = ()
 
     @classmethod
     def new(cls, name: str = "Wanderer",
@@ -51,6 +56,7 @@ class PlayerState(NamedTuple):
             slots=slots,
             inventory=(),
             equipped=None,
+            completed_missions=(),
         )
 
     def is_dead(self) -> bool:

@@ -63,3 +63,9 @@ godot/meshes/pre_repair_backup/
 # These are the post-mortem artifacts for visual triage — kept locally,
 # correlated with godot/tags/ screenshots, not committed.
 sessions/
+
+# ── Player save state (L5) ───────────────────────────────────────────────────
+# Persisted across brain restarts. Tomorrow morning's inventory lives here.
+# Tests use SANCTUM_SAVE_PATH to redirect to tmp_path so they don't pollute
+# the real save. Brain regenerates a fresh PlayerState on missing file.
+save/
