@@ -1073,6 +1073,33 @@ def run_server(biome_name, port=9877):
                         last_wake_ids = set()
                     continue
 
+                if msg.get("cmd") == "mission_complete_trigger":
+                    # Godot fires when a mission objective resolves (L3: a
+                    # destructible kind shattering inside IN_MISSION state).
+                    # Brain validates we're actually in a mission, builds a
+                    # results payload, and transitions to RESULTS. Players
+                    # acknowledge with X (HUB transition).
+                    if world.game_state.state != gs.GameStateName.IN_MISSION:
+                        # Trigger fired outside a mission — likely a pot
+                        # broken at the hub. Ignore quietly; not an error.
+                        continue
+                    trigger_kind = str(msg.get("trigger_kind", "unknown"))
+                    payload = {
+                        "mission_id": world.game_state.mission_id,
+                        "trigger_kind": trigger_kind,
+                        "loot": list(msg.get("loot", [])),
+                        "xp": int(msg.get("xp", 10)),
+                    }
+                    try:
+                        world.game_state = gs.transition(
+                            world.game_state, gs.GameStateName.RESULTS,
+                            results=payload)
+                        last_wake_ids = set()
+                        print(f"  mission complete: {trigger_kind} -> RESULTS {payload}", flush=True)
+                    except ValueError as e:
+                        print(f"  mission_complete rejected: {e}", flush=True)
+                    continue
+
                 if msg.get("cmd") == "state_transition_request":
                     target_str = str(msg.get("target", ""))
                     try:

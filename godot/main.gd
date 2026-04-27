@@ -2239,6 +2239,7 @@ func _process_responses() -> void:
 		if not spawn_dispatched and manifest.has("spawn"):
 			_aim_spawn_heading(false)
 		_check_world_revision()  # L2 — must run before _rebuild so spawn re-dispatch arms
+		_check_state_change()    # L3 — fires per-state enter/exit hooks on transition
 		_rebuild_entities()
 		_sync_equipped()  # PR 4 — camera-parented wielded item from manifest.player.equipped
 		_update_atmosphere()
@@ -3178,6 +3179,10 @@ func _update_creatures(delta: float) -> void:
 				vels.append(dir * scatter_spd * (0.7 + randf() * 0.6))
 			c["atom_velocities"] = vels
 			_show_toast("*crack*")
+			# L3 — destruction inside IN_MISSION resolves the mission.
+			# _send_mission_complete gates on state internally so hub
+			# pot shatters don't accidentally fire it.
+			_send_mission_complete(c["kind"])
 			continue
 
 		var k_params: Dictionary = _get_kind_params(c["kind"])
@@ -3692,6 +3697,105 @@ func _send_cast_event(element: String, trajectory: String = "straight") -> void:
 	# pending_tag_intents dict — negative keys keep namespaces separate.
 	pending_tag_intents[-cast_count] = cast_payload
 	_show_toast("CAST #%d [%s/%s]" % [cast_count, trajectory.to_upper(), element.to_upper()])
+
+
+# -- Loop state machine hooks (L3) ---------------------------------------
+# State-change dispatcher. Reads manifest.game_state.state every tick;
+# when it differs from _last_state, fires _on_state_changed which routes
+# to per-state enter/exit handlers. The state lives brain-side; this is
+# pure reactive Godot.
+#
+# Per-state functions stay tiny initially — toasts and HUD shifts. As
+# state-specific logic grows past ~100 lines combined, extract to a
+# dedicated GameStateController node. For now main.gd is the right home.
+
+var _last_state: String = "HUB"
+
+
+func _check_state_change() -> void:
+	var current: String = String(manifest.get("game_state", {}).get("state", "HUB"))
+	if current == _last_state:
+		return
+	var old: String = _last_state
+	_last_state = current
+	_on_state_changed(old, current)
+
+
+func _on_state_changed(old: String, new: String) -> void:
+	print("[state] %s -> %s" % [old, new])
+	# Exit old state
+	match old:
+		"MISSION_SELECT": _exit_mission_select()
+		"IN_MISSION":     _exit_in_mission()
+		"RESULTS":        _exit_results()
+	# Enter new state
+	match new:
+		"HUB":            _enter_hub()
+		"MISSION_SELECT": _enter_mission_select()
+		"IN_MISSION":     _enter_in_mission()
+		"RESULTS":        _enter_results()
+
+
+# Per-state handlers — placeholders / toasts for now. Real UI wires later.
+
+func _enter_hub() -> void:
+	_show_toast("HUB — at staging")
+
+
+func _enter_mission_select() -> void:
+	_show_toast("MISSION SELECT — [ENTER] launch / [X] cancel")
+
+
+func _enter_in_mission() -> void:
+	_show_toast("MISSION ACTIVE — break something to complete")
+
+
+func _enter_results() -> void:
+	# Read the payload from the manifest's RESULTS state.
+	var payload: Dictionary = manifest.get("game_state", {}).get("results", {})
+	if payload == null:
+		payload = {}
+	var loot: Array = payload.get("loot", [])
+	var xp: int = int(payload.get("xp", 0))
+	var trig: String = String(payload.get("trigger_kind", "?"))
+	_show_toast("MISSION COMPLETE  trigger=%s  xp=%d  loot=%s  [X] return" % [trig, xp, str(loot)])
+	print("[state] RESULTS payload: %s" % payload)
+
+
+func _exit_mission_select() -> void:
+	pass  # nothing to tear down yet
+
+
+func _exit_in_mission() -> void:
+	pass
+
+
+func _exit_results() -> void:
+	pass
+
+
+# Mission completion trigger. Called from _update_creatures when a
+# destructible kind shatters AND we're currently IN_MISSION. Brain
+# validates the state, builds a results payload, transitions to RESULTS.
+# Outside IN_MISSION, brain ignores — pots can shatter at the hub
+# without resolving anything.
+
+func _send_mission_complete(trigger_kind: String) -> void:
+	if not connected:
+		return
+	# Only attempt if we're actually in a mission. Saves a TCP roundtrip
+	# for hub-side pot shatters; brain would reject anyway.
+	var state: String = String(manifest.get("game_state", {}).get("state", "HUB"))
+	if state != "IN_MISSION":
+		return
+	var payload: Dictionary = {
+		"cmd": "mission_complete_trigger",
+		"trigger_kind": trigger_kind,
+		"loot": [],   # populated in L7 (reward distribution)
+		"xp": 25,
+	}
+	tcp.put_data((JSON.stringify(payload) + "\n").to_utf8_buffer())
+	print("[mission] complete trigger fired (kind=%s)" % trigger_kind)
 
 
 # -- Loop state transitions (L2) -----------------------------------------
