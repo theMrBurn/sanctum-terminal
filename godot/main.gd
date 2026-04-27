@@ -1453,6 +1453,10 @@ func _create_composite_for_kind(kind: String, ents: Array, subparts: Array) -> v
 	# Single Node3D parent groups all subpart MultiMeshes for this kind.
 	# kind_nodes[kind] tracks the parent so existing cleanup logic
 	# (_rebuild_entities free path) cascades to all children.
+	if not _debug_torch_inject_logged:
+		# Note: _debug_torch_inject_logged also gates the inject print above,
+		# so this composite-path log emits at most once per session.
+		print("[PR 2 DEBUG] composite path: kind=%s ents=%d subparts=%d" % [kind, ents.size(), subparts.size()])
 	var parent := Node3D.new()
 	parent.name = "%s_composite" % kind
 	add_child(parent)
@@ -1532,11 +1536,14 @@ func _build_subpart_multimesh(ents: Array, sp: Dictionary, kind: String, idx: in
 # if torches are already in the manifest. Remove the call site in
 # _rebuild_entities once PR 5 lands real proximity-pickup torches.
 const _DEBUG_TEST_TORCHES_ENABLED: bool = true  # ALLOWLIST: temp UAT toggle
+# Hub spawn is at brain (0, -14). Place torches 3-5m forward (toward +Y in
+# brain space) so they're visible immediately from spawn without walking far.
 const _DEBUG_TORCH_POSITIONS: Array = [
-	[3.0, 3.0],
-	[-3.0, 3.0],
-	[0.0, 5.0],
+	[0.0, -10.0],   # straight ahead, 4m forward
+	[-2.5, -11.0],  # forward-left
+	[2.5, -11.0],   # forward-right
 ]
+var _debug_torch_inject_logged: bool = false
 
 
 func _inject_debug_test_torches() -> void:
@@ -1561,6 +1568,9 @@ func _inject_debug_test_torches() -> void:
 			"render_mode": "default",
 		})
 	manifest["entities"] = entities
+	if not _debug_torch_inject_logged:
+		print("[PR 2 DEBUG] injected %d test torches at hub spawn" % _DEBUG_TORCH_POSITIONS.size())
+		_debug_torch_inject_logged = true
 
 
 func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
