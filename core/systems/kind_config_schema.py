@@ -115,8 +115,8 @@ def _validate_render(render: Any, path: str) -> list[str]:
 
 
 # Known primitive families. Schema enforces subpart.family is in this set.
-# Source of truth: tools/gen_kind_mesh.py FAMILY_BUILDERS + the orb (promoted
-# 2026-04-26 per design_render_reuse_mandate).
+# Source of truth: tools/gen_kind_mesh.py FAMILY_BUILDERS + procedural Godot-side
+# primitives (orb, flame). Promotions per design_render_reuse_mandate.
 _KNOWN_PRIMITIVE_FAMILIES = frozenset({
     "tapered_vertical",
     "rock_lobed",
@@ -125,6 +125,7 @@ _KNOWN_PRIMITIVE_FAMILIES = frozenset({
     "scatter_tissue",
     "creature_small",
     "orb",
+    "flame",
 })
 
 

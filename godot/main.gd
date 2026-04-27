@@ -1418,6 +1418,8 @@ const _FAMILY_EXEMPLAR_KIND := {
 func _resolve_subpart_mesh(family: String, color: Variant, emission: float) -> Mesh:
 	if family == "orb":
 		return _build_orb_mesh(color, emission)
+	if family == "flame":
+		return _build_flame_mesh(color, emission)
 	var exemplar: String = _FAMILY_EXEMPLAR_KIND.get(family, "")
 	if exemplar == "":
 		push_error("[subparts] unknown primitive family: %s" % family)
@@ -1447,6 +1449,45 @@ func _build_orb_mesh(color: Variant, emission: float) -> Mesh:
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	sphere.surface_set_material(0, mat)
 	return sphere
+
+
+# Procedural fire primitive — camera-facing billboard QuadMesh with
+# flame_billboard.gdshader applied. Per design_render_reuse_mandate, "flame"
+# is a registered primitive (promoted 2026-04-26 from "the orb pretending
+# to be fire"). The shader handles teardrop shape, gradient hot-core to
+# cool-edge, sinusoidal flicker, and per-instance time offset for batched
+# decorrelation.
+#
+# Subpart parameters mapped to shader uniforms:
+#   color    → outer_color (cool edge); inner is derived by lerp toward white
+#   emission → intensity (emission energy multiplier)
+#
+# Scale on the subpart sets quad size; QuadMesh is in XY (Godot), so brain
+# scale [width_x, depth_y, height_z] becomes godot scale (x, height_z, y) per
+# the existing coord conversion in _build_subpart_multimesh.
+const _FLAME_SHADER: Shader = preload("res://flame_billboard.gdshader")
+
+
+func _build_flame_mesh(color: Variant, emission: float) -> Mesh:
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.0, 1.0)
+	var mat := ShaderMaterial.new()
+	mat.shader = _FLAME_SHADER
+	# Outer color from subpart, inner derived by pulling toward white-hot.
+	# Lerp factor 0.7 keeps the inner core saturated but visibly hotter than
+	# the outer ring — the gradient that makes fire read as fire rather than
+	# a uniform glowing blob.
+	var outer := Color(1.0, 0.4, 0.1)
+	if color is Array and color.size() >= 3:
+		outer = Color(color[0], color[1], color[2])
+	var inner := outer.lerp(Color(1.0, 1.0, 0.9), 0.7)
+	mat.set_shader_parameter("outer_color", outer)
+	mat.set_shader_parameter("inner_color", inner)
+	mat.set_shader_parameter("intensity", max(emission, 1.0))
+	# flicker_speed left at shader default (1.5); expose later if a kind
+	# wants a different cadence (campfire = slower, ember = faster).
+	quad.surface_set_material(0, mat)
+	return quad
 
 
 func _create_composite_for_kind(kind: String, ents: Array, subparts: Array) -> void:
@@ -1521,9 +1562,10 @@ func _build_subpart_multimesh(ents: Array, sp: Dictionary, kind: String, idx: in
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	mmi.name = "%s_sp%d_%s" % [kind, idx, family]
-	# Non-orb subparts apply color via material override on the MultiMeshInstance3D
-	# (orb materials are baked into the SphereMesh in _build_orb_mesh).
-	if family != "orb" and sp_color is Array and sp_color.size() >= 3:
+	# Non-procedural subparts apply color via material override on the
+	# MultiMeshInstance3D (procedural primitives bake their own materials in
+	# their builders — orb's StandardMaterial3D and flame's ShaderMaterial).
+	if family != "orb" and family != "flame" and sp_color is Array and sp_color.size() >= 3:
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = Color(float(sp_color[0]), float(sp_color[1]), float(sp_color[2]))
 		mmi.material_override = mat
