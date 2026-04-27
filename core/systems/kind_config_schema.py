@@ -109,7 +109,117 @@ def _validate_render(render: Any, path: str) -> list[str]:
             errors.append(
                 f"{path}.z_offset: expected [min, max] with min <= max, got {z!r}"
             )
+    if "subparts" in render:
+        errors.extend(_validate_subparts(render["subparts"], f"{path}.subparts"))
     return errors
+
+
+# Known primitive families. Schema enforces subpart.family is in this set.
+# Source of truth: tools/gen_kind_mesh.py FAMILY_BUILDERS + the orb (promoted
+# 2026-04-26 per design_render_reuse_mandate).
+_KNOWN_PRIMITIVE_FAMILIES = frozenset({
+    "tapered_vertical",
+    "rock_lobed",
+    "crystal_spike",
+    "flora_composed",
+    "scatter_tissue",
+    "creature_small",
+    "orb",
+})
+
+
+def _validate_subparts(subparts: Any, path: str) -> list[str]:
+    """A list of {family, scale, color?, emission?, offset?, palette?} entries.
+
+    Each subpart references a primitive family from the registry. Composition
+    is the rendering mechanism for kinds that need multiple visual components
+    (per design_render_reuse_mandate).
+    """
+    errors: list[str] = []
+    if not isinstance(subparts, list):
+        return [f"{path}: expected list of subpart objects, got {type(subparts).__name__}"]
+    for i, sp in enumerate(subparts):
+        sp_path = f"{path}[{i}]"
+        if not isinstance(sp, dict):
+            errors.append(f"{sp_path}: expected object, got {type(sp).__name__}")
+            continue
+        if "family" not in sp:
+            errors.append(f"{sp_path}: missing required key 'family'")
+        elif sp["family"] not in _KNOWN_PRIMITIVE_FAMILIES:
+            errors.append(
+                f"{sp_path}.family: {sp['family']!r} not in primitive registry "
+                f"(known: {sorted(_KNOWN_PRIMITIVE_FAMILIES)})"
+            )
+        if "scale" in sp and not (_is_number(sp["scale"]) or _is_vec3(sp["scale"])):
+            errors.append(
+                f"{sp_path}.scale: expected number or [x,y,z], got {sp['scale']!r}"
+            )
+        if "color" in sp and not _is_color(sp["color"], 3):
+            errors.append(
+                f"{sp_path}.color: expected [r,g,b], got {sp['color']!r}"
+            )
+        if "emission" in sp:
+            e = sp["emission"]
+            if not _is_number(e) or e < 0:
+                errors.append(
+                    f"{sp_path}.emission: expected non-negative number, got {e!r}"
+                )
+        if "offset" in sp and not _is_vec3(sp["offset"]):
+            errors.append(
+                f"{sp_path}.offset: expected [x,y,z], got {sp['offset']!r}"
+            )
+        if "palette" in sp and not isinstance(sp["palette"], str):
+            errors.append(
+                f"{sp_path}.palette: expected string, got {sp['palette']!r}"
+            )
+    return errors
+
+
+def _validate_effect_spec_shape(spec: Any, path: str) -> list[str]:
+    """Shallow shape check — full per-handler param validation runs at dispatch
+    time (encounter_session._validate_effect_spec). Schema only ensures the
+    config-load-time structure is sane: a dict with a 'type' string."""
+    errors: list[str] = []
+    if not isinstance(spec, dict):
+        return [f"{path}: expected effect spec object, got {type(spec).__name__}"]
+    if "type" not in spec:
+        errors.append(f"{path}: missing required key 'type'")
+    elif not isinstance(spec["type"], str):
+        errors.append(
+            f"{path}.type: expected string, got {spec['type']!r}"
+        )
+    return errors
+
+
+def _validate_effect_list(lst: Any, path: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(lst, list):
+        return [f"{path}: expected list of effect specs, got {type(lst).__name__}"]
+    for i, spec in enumerate(lst):
+        errors.extend(_validate_effect_spec_shape(spec, f"{path}[{i}]"))
+    return errors
+
+
+def _validate_tool_reactions(reactions: Any, path: str) -> list[str]:
+    """A {element_name: effect_spec | [effect_spec...]} mapping.
+    Element names are free-form strings (extensible); reactions are validated
+    as effect spec shapes."""
+    errors: list[str] = []
+    if not isinstance(reactions, dict):
+        return [f"{path}: expected object, got {type(reactions).__name__}"]
+    for element, reaction in reactions.items():
+        r_path = f"{path}.{element}"
+        if not isinstance(element, str):
+            errors.append(f"{r_path}: element name must be a string")
+            continue
+        if isinstance(reaction, list):
+            errors.extend(_validate_effect_list(reaction, r_path))
+        else:
+            errors.extend(_validate_effect_spec_shape(reaction, r_path))
+    return errors
+
+
+_EROSION_MODES = frozenset({"time", "use"})
 
 
 def _validate_scale_override(val: Any, path: str) -> list[str]:
@@ -150,16 +260,31 @@ def _validate_class_block(
         "visual_radius", "band_strength", "wind_strength", "ghost_chance",
         "fade_in_near", "fade_in_far", "sink", "taper_strength",
         "twist_amount", "world_scale_mult",
+        "erosion_rate", "charge_max",
     ):
         if num_key in cfg and not _is_number(cfg[num_key]):
             errors.append(
                 f"{path}.{num_key}: expected number, got {cfg[num_key]!r}"
             )
-    for bool_key in ("light_reactive", "use_vertex_colors"):
+    for bool_key in ("light_reactive", "use_vertex_colors", "pickupable"):
         if bool_key in cfg and not isinstance(cfg[bool_key], bool):
             errors.append(
                 f"{path}.{bool_key}: expected bool, got {cfg[bool_key]!r}"
             )
+    if "erosion_mode" in cfg:
+        em = cfg["erosion_mode"]
+        if em not in _EROSION_MODES:
+            errors.append(
+                f"{path}.erosion_mode: expected one of {sorted(_EROSION_MODES)}, got {em!r}"
+            )
+    if "wielded_effects" in cfg:
+        errors.extend(
+            _validate_effect_list(cfg["wielded_effects"], f"{path}.wielded_effects")
+        )
+    if "tool_reactions" in cfg:
+        errors.extend(
+            _validate_tool_reactions(cfg["tool_reactions"], f"{path}.tool_reactions")
+        )
     return errors
 
 

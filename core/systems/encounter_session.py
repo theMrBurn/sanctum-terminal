@@ -628,6 +628,12 @@ class EncounterSession:
         "set_flag": {"name": (str, True), "value": (object, False)},
         "trigger_rest": {},
         "open_dialog_branch": {"scout_id": (str, True)},
+        # Combat / surface-interaction effects (added 2026-04-26 for the
+        # torch direction). Handlers will land in PR 7 when tool reactions
+        # are wired; schema is here now so kind_config can reference them.
+        "damage_hp": {"amount": (int, True)},
+        "ignite": {"duration": ((int, float), False)},
+        "apply_status": {"status": (str, True), "duration": ((int, float), False)},
     }
 
     def _validate_effect_spec(self, name: str, spec: dict) -> None:
@@ -640,9 +646,15 @@ class EncounterSession:
                 continue
             val = spec[key]
             if expected_type is not object and not isinstance(val, expected_type):
+                # expected_type can be a single class or a tuple of classes;
+                # render either as a clean name list for the error message.
+                if isinstance(expected_type, tuple):
+                    expected_str = " or ".join(t.__name__ for t in expected_type)
+                else:
+                    expected_str = expected_type.__name__
                 raise ValueError(
                     f"effect {name!r}: param {key!r} expected "
-                    f"{expected_type.__name__}, got {type(val).__name__}")
+                    f"{expected_str}, got {type(val).__name__}")
         # "type" is the dispatcher key, always allowed alongside schema keys.
         extras = set(spec) - set(schema) - {"type"}
         if extras:
@@ -692,6 +704,24 @@ class EncounterSession:
 
     def _fx_open_dialog_branch(self, spec: dict) -> None:
         self.pending_followup = str(spec["scout_id"])
+
+    # -- Combat / surface effects (stubs, real handlers land in PR 7) -------
+    # The schema declares these so kind_config can reference them, but the
+    # runtime behavior lands when tool reactions wire up. Calling any of
+    # these before that raises a clear NotImplementedError rather than the
+    # cryptic AttributeError that getattr() would produce without stubs.
+
+    def _fx_damage_hp(self, spec: dict) -> None:
+        raise NotImplementedError(
+            "damage_hp handler lands in PR 7 (tool reactions resolution)")
+
+    def _fx_ignite(self, spec: dict) -> None:
+        raise NotImplementedError(
+            "ignite handler lands in PR 7 (tool reactions resolution)")
+
+    def _fx_apply_status(self, spec: dict) -> None:
+        raise NotImplementedError(
+            "apply_status handler lands in PR 7 (tool reactions resolution)")
 
     # -- Followup swap -------------------------------------------------------
 

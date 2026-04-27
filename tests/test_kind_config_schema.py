@@ -199,3 +199,153 @@ def test_assert_valid_lists_all_errors() -> None:
     msg = str(exc_info.value)
     assert "bad_a" in msg
     assert "bad_b" in msg
+
+
+# --- subparts (composition) -------------------------------------------------
+
+_BASE_KIND = {
+    "_class_defaults": {"geo": {}},
+    "kinds": {"widget": {"class": "geo"}},
+}
+
+
+def _kind_with(extras: dict) -> dict:
+    """Build a minimal kind config with the given fields added to widget."""
+    data = {
+        "_class_defaults": {"geo": {}},
+        "kinds": {"widget": {"class": "geo", **extras}},
+    }
+    return data
+
+
+def test_subparts_valid_composition() -> None:
+    """A torch-shaped composite (handle + flame) validates clean."""
+    data = _kind_with({
+        "render": {
+            "subparts": [
+                {"family": "tapered_vertical", "scale": [0.04, 0.04, 0.5],
+                 "color": [0.4, 0.25, 0.15], "offset": [0, 0, 0]},
+                {"family": "orb", "scale": 0.08,
+                 "color": [1.0, 0.6, 0.2], "emission": 1.0, "offset": [0, 0, 0.5]},
+            ]
+        }
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_subparts_unknown_family_rejected() -> None:
+    data = _kind_with({
+        "render": {"subparts": [{"family": "definitely_not_a_primitive"}]}
+    })
+    errors = kind_config_schema.validate(data)
+    assert any("primitive registry" in e for e in errors)
+
+
+def test_subparts_missing_family_rejected() -> None:
+    data = _kind_with({
+        "render": {"subparts": [{"scale": 0.1}]}  # no family
+    })
+    errors = kind_config_schema.validate(data)
+    assert any("missing required key 'family'" in e for e in errors)
+
+
+def test_subparts_wrong_offset_rejected() -> None:
+    data = _kind_with({
+        "render": {"subparts": [{"family": "orb", "offset": [1, 2]}]}  # 2-tuple
+    })
+    errors = kind_config_schema.validate(data)
+    assert any("offset" in e for e in errors)
+
+
+def test_subparts_negative_emission_rejected() -> None:
+    data = _kind_with({
+        "render": {"subparts": [{"family": "orb", "emission": -1}]}
+    })
+    errors = kind_config_schema.validate(data)
+    assert any("emission" in e for e in errors)
+
+
+def test_subparts_not_list_rejected() -> None:
+    data = _kind_with({"render": {"subparts": "not_a_list"}})
+    errors = kind_config_schema.validate(data)
+    assert any("expected list" in e for e in errors)
+
+
+# --- wielded_effects + tool_reactions ---------------------------------------
+
+
+def test_wielded_effects_valid() -> None:
+    data = _kind_with({
+        "wielded_effects": [
+            {"type": "ignite", "duration": 3.0},
+            {"type": "damage_hp", "amount": 5},
+        ]
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_wielded_effects_missing_type_rejected() -> None:
+    data = _kind_with({"wielded_effects": [{"amount": 5}]})  # no type
+    errors = kind_config_schema.validate(data)
+    assert any("missing required key 'type'" in e for e in errors)
+
+
+def test_wielded_effects_not_list_rejected() -> None:
+    data = _kind_with({"wielded_effects": {"type": "ignite"}})  # dict, not list
+    errors = kind_config_schema.validate(data)
+    assert any("expected list" in e for e in errors)
+
+
+def test_tool_reactions_valid() -> None:
+    data = _kind_with({
+        "tool_reactions": {
+            "fire": {"type": "ignite", "duration": 5.0},
+            "ice": [
+                {"type": "damage_hp", "amount": 3},
+                {"type": "apply_status", "status": "frozen", "duration": 2.0},
+            ],
+        }
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_tool_reactions_malformed_spec_rejected() -> None:
+    data = _kind_with({
+        "tool_reactions": {"fire": {"no_type_key": True}}
+    })
+    errors = kind_config_schema.validate(data)
+    assert any("missing required key 'type'" in e for e in errors)
+
+
+# --- erosion fields ---------------------------------------------------------
+
+
+def test_erosion_fields_valid() -> None:
+    data = _kind_with({
+        "erosion_rate": 0.05,
+        "charge_max": 100,
+        "erosion_mode": "time",
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_erosion_mode_unknown_rejected() -> None:
+    data = _kind_with({"erosion_mode": "perpetual"})  # not in {"time", "use"}
+    errors = kind_config_schema.validate(data)
+    assert any("erosion_mode" in e for e in errors)
+
+
+def test_erosion_rate_must_be_number() -> None:
+    data = _kind_with({"erosion_rate": "fast"})
+    errors = kind_config_schema.validate(data)
+    assert any("erosion_rate" in e for e in errors)
+
+
+def test_pickupable_must_be_bool() -> None:
+    data = _kind_with({"pickupable": "yes"})
+    errors = kind_config_schema.validate(data)
+    assert any("pickupable" in e for e in errors)

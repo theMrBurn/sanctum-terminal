@@ -2597,6 +2597,77 @@
       "visual_radius": 0.4,
       "wind_strength": 0.02
     },
+    "torch_handcrafted": {
+      "ascii": "T",
+      "charge_max": 100.0,
+      "class": "encounter",
+      "color_accent": [
+        0.5,
+        0.32,
+        0.2
+      ],
+      "color_base": [
+        0.4,
+        0.25,
+        0.15
+      ],
+      "color_shadow": [
+        0.3,
+        0.18,
+        0.1
+      ],
+      "erosion_mode": "time",
+      "erosion_rate": 0.05,
+      "pickupable": true,
+      "render": {
+        "subparts": [
+          {
+            "color": [
+              0.4,
+              0.25,
+              0.15
+            ],
+            "family": "tapered_vertical",
+            "offset": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              0.04,
+              0.04,
+              0.5
+            ]
+          },
+          {
+            "color": [
+              1.0,
+              0.6,
+              0.2
+            ],
+            "emission": 1.0,
+            "family": "orb",
+            "offset": [
+              0.0,
+              0.0,
+              0.5
+            ],
+            "palette": "fire_warm",
+            "scale": [
+              0.08,
+              0.08,
+              0.08
+            ]
+          }
+        ]
+      },
+      "wielded_effects": [
+        {
+          "duration": 3.0,
+          "type": "ignite"
+        }
+      ]
+    },
     "treasure_chest": {
       "ascii": "T",
       "behavior": {
@@ -2721,6 +2792,49 @@
       "spatial_class": "companion",
       "use_vertex_colors": true,
       "visual_radius": 0.15
+    },
+    "wood_crate": {
+      "ascii": "#",
+      "class": "encounter",
+      "color_accent": [
+        0.5,
+        0.34,
+        0.22
+      ],
+      "color_base": [
+        0.42,
+        0.28,
+        0.18
+      ],
+      "color_shadow": [
+        0.32,
+        0.2,
+        0.12
+      ],
+      "render": {
+        "color": [
+          0.42,
+          0.28,
+          0.18
+        ],
+        "scale": [
+          0.4,
+          0.4,
+          0.4
+        ]
+      },
+      "tool_reactions": {
+        "fire": [
+          {
+            "duration": 5.0,
+            "type": "ignite"
+          },
+          {
+            "amount": 10,
+            "type": "damage_hp"
+          }
+        ]
+      }
     }
   },
   "schema_version": 1
