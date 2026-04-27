@@ -2677,10 +2677,10 @@
       ],
       "render": {
         "subparts": [
-          {"family": "tapered_vertical", "scale": [0.04, 0.04, 0.5],
+          {"family": "tapered_vertical", "scale": [0.06, 0.06, 0.9],
            "color": [0.4, 0.25, 0.15], "offset": [0.0, 0.0, 0.0]},
-          {"family": "orb", "scale": [0.08, 0.08, 0.08],
-           "color": [1.0, 0.6, 0.2], "emission": 1.0, "offset": [0.0, 0.0, 0.5],
+          {"family": "orb", "scale": [0.30, 0.30, 0.30],
+           "color": [1.0, 0.6, 0.2], "emission": 2.0, "offset": [0.0, 0.0, 0.9],
            "palette": "fire_warm"}
         ]
       },
