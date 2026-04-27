@@ -1619,6 +1619,10 @@ const _DEBUG_TORCH_POSITIONS: Array = [
 	[-2.5, -11.0],  # forward-left
 	[2.5, -11.0],   # forward-right
 ]
+# Mission-completion test target — clay_pot in among the torches. Re-injected
+# on every manifest rebuild so post-mission regen always re-spawns it (and
+# breaking it at hub harmlessly does nothing per L3's IN_MISSION state gate).
+const _DEBUG_POT_POSITION: Array = [0.0, -8.0]  # 6m forward of spawn
 var _debug_torch_inject_logged: bool = false
 
 
@@ -1643,9 +1647,24 @@ func _inject_debug_test_torches() -> void:
 			"render_shell": 0,
 			"render_mode": "default",
 		})
+	# Mission completion test target — a clay_pot among the torches.
+	# Brain's mission_complete_trigger handler gates on IN_MISSION state,
+	# so breaking this at hub is a harmless *crack* with no side effects.
+	entities.append({
+		"kind": "clay_pot",
+		"x": _DEBUG_POT_POSITION[0],
+		"y": _DEBUG_POT_POSITION[1],
+		"z": 0.0,
+		"heading": 0.0,
+		"r": 0.5, "g": 0.4, "b": 0.3,
+		"emissive": 0.0,
+		"sv": 1.0,
+		"render_shell": 0,
+		"render_mode": "default",
+	})
 	manifest["entities"] = entities
 	if not _debug_torch_inject_logged:
-		print("[PR 2 DEBUG] injected %d test torches at hub spawn" % _DEBUG_TORCH_POSITIONS.size())
+		print("[PR 2 DEBUG] injected %d test torches + 1 clay_pot at hub spawn" % _DEBUG_TORCH_POSITIONS.size())
 		_debug_torch_inject_logged = true
 
 
