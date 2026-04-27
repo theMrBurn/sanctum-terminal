@@ -102,6 +102,13 @@ def _validate_render(render: Any, path: str) -> list[str]:
             errors.append(
                 f"{path}.emissive: expected non-negative number, got {e!r}"
             )
+    if "z_offset" in render:
+        z = render["z_offset"]
+        if not (isinstance(z, list) and len(z) == 2
+                and all(_is_number(v) for v in z) and z[0] <= z[1]):
+            errors.append(
+                f"{path}.z_offset: expected [min, max] with min <= max, got {z!r}"
+            )
     return errors
 
 

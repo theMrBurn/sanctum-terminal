@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,21 @@ def all_kinds() -> dict[str, dict[str, Any]]:
     """Return the full kinds map."""
     cfg = load()
     return cfg.get("kinds", {})
+
+
+def z_offset(name: str, rng: random.Random) -> float:
+    """Sample the z-offset for a kind from its render.z_offset [min, max] range.
+    Returns 0.0 if the kind doesn't declare one. Constant ranges (min == max)
+    skip the rng draw — preserves the original code path's rng state for kinds
+    with fixed z (e.g., leaf at 3.0).
+    """
+    z_range = kind(name).get("render", {}).get("z_offset")
+    if not z_range:
+        return 0.0
+    lo, hi = float(z_range[0]), float(z_range[1])
+    if lo == hi:
+        return lo
+    return rng.uniform(lo, hi)
 
 
 def reset_cache() -> None:

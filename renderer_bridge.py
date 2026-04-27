@@ -17,6 +17,7 @@ import random
 from core.systems.biome_data import (
     OUTDOOR_LIGHT_STATES, CAVERN_LIGHT_STATES,
 )
+from core.systems import kind_config
 from core.systems.spatial_wake import SpatialHash, WakeChain, WAKE_CHAINS
 from core.systems.world_gen import generate_tile
 from native_renderer import NativeRenderer, GROUND_INSTANCE
@@ -89,17 +90,7 @@ def generate_world(biome_name, seed=42, tile_size=288.0):
         # Center tile around origin
         x = tx - half
         y = ty - half
-        z = 0.0
-        if kind == "leaf":
-            z = 3.0
-        elif kind == "ceiling_moss":
-            z = rng.uniform(5.0, 8.0)
-        elif kind == "hanging_vine":
-            z = rng.uniform(4.0, 7.0)
-        elif kind == "filament":
-            z = rng.uniform(1.0, 4.0)
-        elif kind == "firefly":
-            z = rng.uniform(0.5, 2.5)
+        z = kind_config.z_offset(kind, rng)
         spawns.append((kind, x, y, z, heading, kseed))
 
     return spawns
