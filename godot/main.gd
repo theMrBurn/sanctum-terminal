@@ -1353,6 +1353,25 @@ func _spawn_contact_shadows(by_kind: Dictionary) -> void:
 
 func _create_multimesh_for_kind(kind: String, ents: Array) -> void:
 	var _perf_t0: int = Time.get_ticks_usec() if PERF_LOG_ENABLED else 0
+
+	# Composite kinds (render.subparts present) take a separate path.
+	# See design_render_reuse_mandate — every renderable thing composes from
+	# existing primitives. Subparts is the schema mechanism. Variant-based
+	# rendering below is for single-mesh kinds and is left untouched.
+	var cfg: Dictionary = _get_kind_params(kind)
+	var subparts: Variant = cfg.get("render", {}).get("subparts", null)
+	if subparts is Array and subparts.size() > 0:
+		_create_composite_for_kind(kind, ents, subparts)
+		if PERF_LOG_ENABLED:
+			var _perf_dt_c: float = (Time.get_ticks_usec() - _perf_t0) / 1000.0
+			_perf_mm_total_ms += _perf_dt_c
+			_perf_mm_calls += 1
+			if _perf_dt_c > _perf_mm_max_ms:
+				_perf_mm_max_ms = _perf_dt_c
+			if _perf_dt_c > PERF_SPIKE_MS:
+				print("[PERF spike] mm kind=%s (composite) ents=%d dt=%.2fms" % [kind, ents.size(), _perf_dt_c])
+		return
+
 	# Split entities into variant groups based on their seed/position hash
 	var by_variant: Dictionary = {}
 	for ent: Dictionary in ents:
@@ -1373,6 +1392,175 @@ func _create_multimesh_for_kind(kind: String, ents: Array) -> void:
 			_perf_mm_max_ms = _perf_dt
 		if _perf_dt > PERF_SPIKE_MS:
 			print("[PERF spike] mm kind=%s ents=%d dt=%.2fms" % [kind, ents.size(), _perf_dt])
+
+
+# --- Composite primitive rendering (PR 2) -----------------------------------
+# Per design_render_reuse_mandate, kinds with render.subparts compose visuals
+# from primitives in the registry. One MultiMesh per subpart, all sharing
+# entity transforms with subpart-specific scale/offset/material applied.
+#
+# Family resolution maps each primitive name to a Godot-side mesh source:
+# - "orb" builds SphereMesh procedurally (parameterized per design_red_orb_fixture)
+# - other families fall back to their exemplar kind's GLB (compositional reuse —
+#   the family's canonical shape is whatever an existing kind that uses it looks
+#   like; reuse beats authoring per the mandate)
+
+const _FAMILY_EXEMPLAR_KIND := {
+	"tapered_vertical": "stalagmite",
+	"rock_lobed": "boulder",
+	"crystal_spike": "crystal_cluster",
+	"flora_composed": "giant_fungus",
+	"scatter_tissue": "moss_patch",
+	"creature_small": "rat",
+}
+
+
+func _resolve_subpart_mesh(family: String, color: Variant, emission: float) -> Mesh:
+	if family == "orb":
+		return _build_orb_mesh(color, emission)
+	var exemplar: String = _FAMILY_EXEMPLAR_KIND.get(family, "")
+	if exemplar == "":
+		push_error("[subparts] unknown primitive family: %s" % family)
+		var box := BoxMesh.new()
+		box.size = Vector3.ONE
+		return box
+	# Fall back to the exemplar kind's mesh; shape comes from the family
+	# regardless of which specific kind authored it. Per-subpart color/emission
+	# overrides are applied via material override on the MultiMeshInstance3D.
+	return _get_mesh_for_kind(exemplar, 0)
+
+
+func _build_orb_mesh(color: Variant, emission: float) -> Mesh:
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.5
+	sphere.height = 1.0
+	var mat := StandardMaterial3D.new()
+	if color is Array and color.size() >= 3:
+		mat.albedo_color = Color(color[0], color[1], color[2])
+		mat.emission = mat.albedo_color
+	else:
+		mat.albedo_color = Color(1.0, 0.5, 0.2)
+		mat.emission = mat.albedo_color
+	if emission > 0.0:
+		mat.emission_enabled = true
+		mat.emission_energy_multiplier = max(emission * 4.0, 1.0)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sphere.surface_set_material(0, mat)
+	return sphere
+
+
+func _create_composite_for_kind(kind: String, ents: Array, subparts: Array) -> void:
+	# Single Node3D parent groups all subpart MultiMeshes for this kind.
+	# kind_nodes[kind] tracks the parent so existing cleanup logic
+	# (_rebuild_entities free path) cascades to all children.
+	var parent := Node3D.new()
+	parent.name = "%s_composite" % kind
+	add_child(parent)
+	if kind_nodes.has(kind) and is_instance_valid(kind_nodes[kind]):
+		kind_nodes[kind].queue_free()
+	kind_nodes[kind] = parent
+
+	for sp_idx in range(subparts.size()):
+		var sp: Dictionary = subparts[sp_idx]
+		var mmi := _build_subpart_multimesh(ents, sp, kind, sp_idx)
+		if mmi:
+			parent.add_child(mmi)
+
+
+func _build_subpart_multimesh(ents: Array, sp: Dictionary, kind: String, idx: int) -> MultiMeshInstance3D:
+	var family: String = String(sp.get("family", ""))
+	var sp_color: Variant = sp.get("color", null)
+	var sp_emission: float = float(sp.get("emission", 0.0))
+
+	var mesh: Mesh = _resolve_subpart_mesh(family, sp_color, sp_emission)
+	if mesh == null:
+		return null
+
+	# Compute scale vector (brain xyz → godot xzy because brain z is height).
+	var sp_scale: Variant = sp.get("scale", 1.0)
+	var scale_v: Vector3
+	if sp_scale is Array and sp_scale.size() >= 3:
+		scale_v = Vector3(float(sp_scale[0]), float(sp_scale[2]), float(sp_scale[1]))
+	elif sp_scale is float or sp_scale is int:
+		var s: float = float(sp_scale)
+		scale_v = Vector3(s, s, s)
+	else:
+		scale_v = Vector3.ONE
+
+	# Subpart offset (brain xyz → godot xzy).
+	var sp_offset: Variant = sp.get("offset", null)
+	var off_v: Vector3
+	if sp_offset is Array and sp_offset.size() >= 3:
+		off_v = Vector3(float(sp_offset[0]), float(sp_offset[2]), float(sp_offset[1]))
+	else:
+		off_v = Vector3.ZERO
+
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = false
+	mm.mesh = mesh
+	mm.instance_count = ents.size()
+
+	for i in range(ents.size()):
+		var ent: Dictionary = ents[i]
+		var heading: float = deg_to_rad(float(ent.get("heading", 0.0)))
+		var ent_x: float = float(ent.get("x", 0.0))
+		var ent_y: float = float(ent.get("y", 0.0))
+		var ent_z: float = float(ent.get("z", 0.0))
+		var xform := Transform3D()
+		xform = xform.scaled(scale_v)
+		xform = xform.rotated(Vector3.UP, heading)
+		# Brain (x, y, z) → Godot (x, z, y) where brain z is height.
+		xform.origin = Vector3(ent_x + off_v.x, ent_z + off_v.y, ent_y + off_v.z)
+		mm.set_instance_transform(i, xform)
+
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.name = "%s_sp%d_%s" % [kind, idx, family]
+	# Non-orb subparts apply color via material override on the MultiMeshInstance3D
+	# (orb materials are baked into the SphereMesh in _build_orb_mesh).
+	if family != "orb" and sp_color is Array and sp_color.size() >= 3:
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(float(sp_color[0]), float(sp_color[1]), float(sp_color[2]))
+		mmi.material_override = mat
+	return mmi
+# --- end composite renderer -------------------------------------------------
+
+
+# DEBUG (PR 2 manual UAT) — injects 3 test torches at known positions near
+# the hub so the subparts renderer can be UAT'd visually. Idempotent: skips
+# if torches are already in the manifest. Remove the call site in
+# _rebuild_entities once PR 5 lands real proximity-pickup torches.
+const _DEBUG_TEST_TORCHES_ENABLED: bool = true  # ALLOWLIST: temp UAT toggle
+const _DEBUG_TORCH_POSITIONS: Array = [
+	[3.0, 3.0],
+	[-3.0, 3.0],
+	[0.0, 5.0],
+]
+
+
+func _inject_debug_test_torches() -> void:
+	if not _DEBUG_TEST_TORCHES_ENABLED:
+		return
+	var entities: Array = manifest.get("entities", [])
+	# Idempotent — don't re-inject on subsequent _rebuild_entities calls.
+	for ent: Dictionary in entities:
+		if ent.get("kind", "") == "torch_handcrafted":
+			return
+	for pos: Array in _DEBUG_TORCH_POSITIONS:
+		entities.append({
+			"kind": "torch_handcrafted",
+			"x": pos[0],
+			"y": pos[1],
+			"z": 0.0,
+			"heading": 0.0,
+			"r": 0.4, "g": 0.25, "b": 0.15,
+			"emissive": 0.0,
+			"sv": 1.0,
+			"render_shell": 0,
+			"render_mode": "default",
+		})
+	manifest["entities"] = entities
 
 
 func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
@@ -1983,6 +2171,12 @@ func _process_responses() -> void:
 
 
 func _rebuild_entities() -> void:
+	# DEBUG (PR 2 manual UAT) — inject test torches near hub spawn so the
+	# subparts composition renderer can be verified visually before PR 5
+	# (proximity pickup) wires real world torches via brain manifest. Remove
+	# this block once world torches are authored. ALLOWLIST: temp test fixture
+	_inject_debug_test_torches()
+
 	# Incremental: only rebuild kinds whose entity lists changed
 	var new_by_kind: Dictionary = {}
 	collision_objects.clear()
