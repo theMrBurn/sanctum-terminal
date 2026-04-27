@@ -36,7 +36,8 @@ from core.systems.tension_cycle import TensionCycle
 from core.systems.plane_exchange import classify_all_entities, CAVERN_EXCHANGE_NODES
 from core.systems.chronometer import Chronometer
 from core.systems.ambient_life import SpectrumEngine, set_active_biome
-from core.systems.player_state import PlayerState
+from core.systems import player_state as ps
+from core.systems.player_state import PlayerState, Item
 from core.systems.macro_stamp import (
     terrain_height, set_active_stamp, grid_density, grid_allowed,
 )
@@ -234,6 +235,14 @@ class BrainWorld:
         # via manifest.player so the viewer can render the camera-parented
         # equipped item without round-tripping every frame.
         self.player: PlayerState = PlayerState.new(seed=base_seed)
+
+        # PR 4 manual UAT — pre-equip a torch so the camera-parented render
+        # path can be exercised without PR 5 (proximity pickup) being live.
+        # Auto-equipped at boot so the user sees the torch in hand on spawn,
+        # can holster (Q) and re-equip (E) to verify both paths. Remove the
+        # auto-equip line when PR 5 lands real pickup.
+        self.player = ps.add_item(self.player, Item(name="torch_handcrafted"))
+        self.player = ps.equip(self.player, "torch_handcrafted")
 
         # Ceiling height — resolved from biome planes config.
         # Ceiling_moss and hanging_vine attach relative to this.
@@ -1010,6 +1019,24 @@ def run_server(biome_name, port=9877):
                         # Force manifest resend so snapshot's updated
                         # last_message reaches Godot immediately.
                         last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "equip_request":
+                    item_name = str(msg.get("name", ""))
+                    try:
+                        world.player = ps.equip(world.player, item_name)
+                        last_wake_ids = set()
+                        print(f"  equipped: {item_name}", flush=True)
+                    except ValueError as e:
+                        print(f"  equip rejected: {e}", flush=True)
+                    continue
+
+                if msg.get("cmd") == "holster_request":
+                    if world.player.equipped is not None:
+                        prev = world.player.equipped
+                        world.player = ps.unequip(world.player)
+                        last_wake_ids = set()
+                        print(f"  holstered: {prev}", flush=True)
                     continue
 
                 if msg.get("cmd") == "cast_event":

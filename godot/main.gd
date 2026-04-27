@@ -2239,6 +2239,7 @@ func _process_responses() -> void:
 		if not spawn_dispatched and manifest.has("spawn"):
 			_aim_spawn_heading(false)
 		_rebuild_entities()
+		_sync_equipped()  # PR 4 — camera-parented wielded item from manifest.player.equipped
 		_update_atmosphere()
 		_apply_render_state()   # Override after manifest-driven fog writes
 		_update_hud()
@@ -3692,6 +3693,81 @@ func _send_cast_event(element: String, trajectory: String = "straight") -> void:
 	_show_toast("CAST #%d [%s/%s]" % [cast_count, trajectory.to_upper(), element.to_upper()])
 
 
+# -- Equip / holster (PR 4) -----------------------------------------------
+# Brain owns inventory + equipped state. Godot fires intent events; brain
+# validates (must be in inventory) and mutates player.equipped. Next manifest
+# reflects the new equipped string and Godot's _sync_equipped mounts/unmounts
+# the camera-parented composite primitive. Per feedback_brain_owns_config.
+
+func _send_equip_request(item_name: String) -> void:
+	if not connected:
+		return
+	var msg := JSON.stringify({"cmd": "equip_request", "name": item_name}) + "\n"
+	tcp.put_data(msg.to_utf8_buffer())
+	_show_toast("EQUIP %s" % item_name)
+
+
+func _send_holster_request() -> void:
+	if not connected:
+		return
+	var msg := JSON.stringify({"cmd": "holster_request"}) + "\n"
+	tcp.put_data(msg.to_utf8_buffer())
+	_show_toast("HOLSTER")
+
+
+# Camera-parented composite for the equipped item. Built once per equip
+# transition, freed on holster. Mirrors the in-world composite renderer
+# (_create_composite_for_kind) but parents to the camera so the item
+# moves with the player view. Wielded position is a config-style hand-frame
+# offset (right, down, forward) — exposed as a const so Skyrim/Cyberpunk/
+# Minecraft-style pose tuning is one edit.
+const _WIELDED_HAND_OFFSET: Vector3 = Vector3(0.32, -0.30, -0.55)  # ALLOWLIST: hand-frame pose, tunable per game register
+const _WIELDED_HAND_TILT_DEG: float = -15.0  # ALLOWLIST: hand-frame pose, tunable per game register
+var _equipped_kind: String = ""
+var _equipped_node: Node3D = null
+
+
+func _sync_equipped() -> void:
+	# Read the manifest's authoritative equipped string and mount/unmount the
+	# camera-parented composite to match. Idempotent — only rebuilds when
+	# the equipped kind actually changes.
+	var pdict: Dictionary = manifest.get("player", {})
+	var new_kind: String = String(pdict.get("equipped", "")) if pdict.get("equipped") != null else ""
+	if new_kind == _equipped_kind:
+		return
+	if is_instance_valid(_equipped_node):
+		_equipped_node.queue_free()
+		_equipped_node = null
+	_equipped_kind = new_kind
+	if new_kind == "":
+		return
+	var cfg: Dictionary = _get_kind_params(new_kind)
+	var subparts: Variant = cfg.get("render", {}).get("subparts", null)
+	if not (subparts is Array and subparts.size() > 0):
+		push_warning("[equipped] no subparts for kind=%s" % new_kind)
+		return
+	var hand: Node3D = Node3D.new()
+	hand.name = "equipped_%s" % new_kind
+	hand.position = _WIELDED_HAND_OFFSET
+	hand.rotation_degrees = Vector3(0, 0, _WIELDED_HAND_TILT_DEG)
+	if camera:
+		camera.add_child(hand)
+	else:
+		add_child(hand)
+	# Build each subpart as a single-instance MultiMesh parented to the hand
+	# anchor. Reuses the same _build_subpart_multimesh path so future subpart
+	# schema additions (sprite, palette, etc.) work in-hand for free.
+	for sp_idx in range(subparts.size()):
+		var sp: Dictionary = subparts[sp_idx]
+		var mmi: MultiMeshInstance3D = _build_subpart_multimesh(
+			[{"x": 0.0, "y": 0.0, "z": 0.0, "heading": 0.0}],
+			sp, new_kind, sp_idx)
+		if mmi:
+			hand.add_child(mmi)
+	_equipped_node = hand
+	print("[equipped] mounted %s with %d subparts" % [new_kind, subparts.size()])
+
+
 # -- Atmospheric layer state (future: light sheet, dust motes) ------------
 
 
@@ -4730,6 +4806,10 @@ func _input(event: InputEvent) -> void:
 				_send_cast_event("electric")
 			KEY_4:
 				_send_cast_event("light")
+			KEY_E:  # Equip torch (PR 4 — wielded item path)
+				_send_equip_request("torch_handcrafted")
+			KEY_Q:  # Holster — clear equipped
+				_send_holster_request()
 
 
 func _unhandled_input(event: InputEvent) -> void:
