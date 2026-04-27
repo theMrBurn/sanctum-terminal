@@ -2298,7 +2298,8 @@
       "world_scale_mult": 13.0,
       "mission_loot": [
         {"name": "pot_shard", "weight": 1.0},
-        {"name": "ember", "weight": 0.4}
+        {"name": "ember", "weight": 0.4},
+        {"name": "healing_potion", "weight": 0.6}
       ],
       "color_base": [
         0.6,
@@ -2689,6 +2690,16 @@
         ]
       },
       "ascii": "T"
+    },
+    "healing_potion": {
+      "class": "encounter",
+      "consumable": true,
+      "use_effects": [
+        {"type": "heal_player", "amount": 3}
+      ],
+      "color_base": [0.3, 0.55, 0.4],
+      "color_shadow": [0.2, 0.4, 0.3],
+      "color_accent": [0.4, 0.7, 0.5]
     },
     "wood_crate": {
       "class": "encounter",

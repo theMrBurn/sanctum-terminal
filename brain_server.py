@@ -246,6 +246,12 @@ class BrainWorld:
         self.player = ps.add_item(self.player, Item(name="torch_handcrafted"))
         self.player = ps.equip(self.player, "torch_handcrafted")
 
+        # L8 manual UAT — pre-fill 2 healing potions so KEY_F has something
+        # to consume on first boot before any mission loot drops. Remove
+        # when L6 (mission select) and the loot loop make this redundant.
+        for _ in range(2):
+            self.player = ps.add_item(self.player, Item(name="healing_potion"))
+
         # Loop-completion state machine (L1). Spine of the DRG/Persona-style
         # gameplay loop. Boots at HUB with no mission context. Transitions
         # validated; Godot reads manifest.game_state every update.
@@ -851,6 +857,8 @@ class BrainWorld:
                     for item in self.player.inventory
                 ],
                 "equipped": self.player.equipped,
+                "hp": self.player.hp,
+                "max_hp": self.player.max_hp,
             },
             # Loop state — Godot reads to gate UI / input / render mode per
             # phase (HUB / MISSION_SELECT / IN_MISSION / RESULTS). Mutated
@@ -1071,6 +1079,64 @@ def run_server(biome_name, port=9877):
                         # Force manifest resend so snapshot's updated
                         # last_message reaches Godot immediately.
                         last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "use_request":
+                    # L8 — activate a use_effects-bearing item. If a name is
+                    # supplied, use that specific item; otherwise find the
+                    # first item in inventory that has use_effects (typical
+                    # case: KEY_F = "use the next consumable").
+                    item_name = str(msg.get("name", ""))
+                    target_item = None
+                    target_kcfg = None
+                    for it in world.player.inventory:
+                        if item_name and it.name != item_name:
+                            continue
+                        kcfg_it = _kc.kind(it.name)
+                        if kcfg_it.get("use_effects"):
+                            target_item = it
+                            target_kcfg = kcfg_it
+                            break
+                    if target_item is None:
+                        print(f"  use_request: no usable item found (filter={item_name!r})", flush=True)
+                        continue
+
+                    # Apply each use_effect. For now the only use-handler
+                    # implemented at brain level is heal_player; others fall
+                    # through with a warning until a brain-side _apply_effects
+                    # dispatcher lands (mirrors EncounterSession's pattern).
+                    old_hp = world.player.hp
+                    applied: list[str] = []
+                    for eff in target_kcfg.get("use_effects", []):
+                        et = str(eff.get("type", ""))
+                        if et == "heal_player":
+                            world.player = ps.heal(world.player, int(eff.get("amount", 0)))
+                            applied.append(et)
+                        else:
+                            print(f"  use_request: effect {et!r} not implemented at brain level", flush=True)
+
+                    # Consume if the item is flagged consumable.
+                    consumed = False
+                    if target_kcfg.get("consumable", False):
+                        try:
+                            world.player = ps.remove_item(world.player, target_item)
+                            consumed = True
+                        except ValueError:
+                            pass  # already gone — race with another use? skip.
+
+                    print(f"  used {target_item.name}: hp {old_hp} -> {world.player.hp}, consumed={consumed}, effects={applied}", flush=True)
+                    last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "damage_self":
+                    # Debug — lets the user damage themselves to test healing.
+                    # Remove once real damage paths exist (encounter combat,
+                    # tool reactions, environmental hazards).
+                    amt = int(msg.get("amount", 2))
+                    old_hp = world.player.hp
+                    world.player = ps.take_damage(world.player, amt)
+                    print(f"  damage_self: hp {old_hp} -> {world.player.hp}", flush=True)
+                    last_wake_ids = set()
                     continue
 
                 if msg.get("cmd") == "mission_complete_trigger":

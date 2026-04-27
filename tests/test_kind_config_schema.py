@@ -425,3 +425,32 @@ def test_mission_loot_empty_name_rejected() -> None:
     data = _kind_with({"mission_loot": [""]})
     errors = kind_config_schema.validate(data)
     assert any("empty item name" in e for e in errors)
+
+
+# --- consumable + use_effects (L8) -----------------------------------------
+
+def test_consumable_with_use_effects_valid() -> None:
+    data = _kind_with({
+        "consumable": True,
+        "use_effects": [{"type": "heal_player", "amount": 3}],
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_consumable_must_be_bool() -> None:
+    data = _kind_with({"consumable": "yes"})
+    errors = kind_config_schema.validate(data)
+    assert any("consumable" in e for e in errors)
+
+
+def test_use_effects_must_be_list() -> None:
+    data = _kind_with({"use_effects": {"type": "heal_player"}})  # dict, not list
+    errors = kind_config_schema.validate(data)
+    assert any("expected list" in e for e in errors)
+
+
+def test_use_effects_missing_type_rejected() -> None:
+    data = _kind_with({"use_effects": [{"amount": 5}]})
+    errors = kind_config_schema.validate(data)
+    assert any("missing required key 'type'" in e for e in errors)

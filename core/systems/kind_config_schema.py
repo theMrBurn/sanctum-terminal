@@ -271,7 +271,8 @@ def _validate_class_block(
             errors.append(
                 f"{path}.{num_key}: expected number, got {cfg[num_key]!r}"
             )
-    for bool_key in ("light_reactive", "use_vertex_colors", "pickupable"):
+    for bool_key in ("light_reactive", "use_vertex_colors", "pickupable",
+                     "consumable"):
         if bool_key in cfg and not isinstance(cfg[bool_key], bool):
             errors.append(
                 f"{path}.{bool_key}: expected bool, got {cfg[bool_key]!r}"
@@ -293,6 +294,10 @@ def _validate_class_block(
     if "mission_loot" in cfg:
         errors.extend(
             _validate_mission_loot(cfg["mission_loot"], f"{path}.mission_loot")
+        )
+    if "use_effects" in cfg:
+        errors.extend(
+            _validate_effect_list(cfg["use_effects"], f"{path}.use_effects")
         )
     return errors
 

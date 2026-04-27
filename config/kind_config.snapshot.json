@@ -959,6 +959,10 @@
         {
           "name": "ember",
           "weight": 0.4
+        },
+        {
+          "name": "healing_potion",
+          "weight": 0.6
         }
       ],
       "physics": {
@@ -1546,6 +1550,31 @@
           7.0
         ]
       }
+    },
+    "healing_potion": {
+      "class": "encounter",
+      "color_accent": [
+        0.4,
+        0.7,
+        0.5
+      ],
+      "color_base": [
+        0.3,
+        0.55,
+        0.4
+      ],
+      "color_shadow": [
+        0.2,
+        0.4,
+        0.3
+      ],
+      "consumable": true,
+      "use_effects": [
+        {
+          "amount": 3,
+          "type": "heal_player"
+        }
+      ]
     },
     "horizon_form": {
       "ascii": " ",

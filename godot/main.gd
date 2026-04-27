@@ -2259,6 +2259,7 @@ func _process_responses() -> void:
 			_aim_spawn_heading(false)
 		_check_world_revision()  # L2 — must run before _rebuild so spawn re-dispatch arms
 		_check_state_change()    # L3 — fires per-state enter/exit hooks on transition
+		_check_player_feedback() # L8 — HP / inventory delta toasts
 		_rebuild_entities()
 		_sync_equipped()  # PR 4 — camera-parented wielded item from manifest.player.equipped
 		_update_atmosphere()
@@ -3718,6 +3719,58 @@ func _send_cast_event(element: String, trajectory: String = "straight") -> void:
 	_show_toast("CAST #%d [%s/%s]" % [cast_count, trajectory.to_upper(), element.to_upper()])
 
 
+# -- Item use + HP feedback (L8) -----------------------------------------
+# Use-key dispatch. Brain owns the item table + heal/damage application.
+# Godot just fires intent and reacts to the manifest's player.hp delta.
+
+var _last_hp: int = -1
+var _last_inventory_size: int = -1
+
+
+func _send_use_request(item_name: String = "") -> void:
+	if not connected:
+		return
+	var msg := JSON.stringify({"cmd": "use_request", "name": item_name}) + "\n"
+	tcp.put_data(msg.to_utf8_buffer())
+
+
+func _send_damage_self(amount: int = 2) -> void:
+	if not connected:
+		return
+	var msg := JSON.stringify({"cmd": "damage_self", "amount": amount}) + "\n"
+	tcp.put_data(msg.to_utf8_buffer())
+
+
+# Watches manifest.player.hp + inventory size each tick. On HP change shows
+# a toast with the delta + new value. On inventory shrink (a consumable was
+# used or take_item fired) shows the matching toast. Initial state stays
+# silent — _last_hp is initialized lazily on first read.
+func _check_player_feedback() -> void:
+	var p: Dictionary = manifest.get("player", {})
+	if p.is_empty():
+		return
+	var hp: int = int(p.get("hp", 0))
+	var max_hp: int = int(p.get("max_hp", 0))
+	var inv: Array = p.get("inventory", [])
+	var inv_size: int = inv.size()
+	if _last_hp < 0:
+		# First sighting — establish baseline silently.
+		_last_hp = hp
+		_last_inventory_size = inv_size
+		return
+	if hp != _last_hp:
+		var delta: int = hp - _last_hp
+		var sign_str: String = "+" if delta > 0 else ""
+		_show_toast("HP %s%d  (%d/%d)" % [sign_str, delta, hp, max_hp])
+		_last_hp = hp
+	if inv_size < _last_inventory_size:
+		# Item disappeared — used or removed by effect. Toast it.
+		_show_toast("Inventory: %d items" % inv_size)
+	if inv_size > _last_inventory_size:
+		_show_toast("+%d items (now %d)" % [inv_size - _last_inventory_size, inv_size])
+	_last_inventory_size = inv_size
+
+
 # -- Loop state machine hooks (L3) ---------------------------------------
 # State-change dispatcher. Reads manifest.game_state.state every tick;
 # when it differs from _last_state, fires _on_state_changed which routes
@@ -4983,6 +5036,10 @@ func _input(event: InputEvent) -> void:
 				_show_toast("LAUNCH")
 			KEY_X:  # Back / cancel / acknowledge — context-aware return to HUB
 				_send_state_back()
+			KEY_F:  # Use the next consumable in inventory (L8)
+				_send_use_request()
+			KEY_MINUS:  # DEBUG — damage self for testing healing
+				_send_damage_self(2)
 
 
 func _unhandled_input(event: InputEvent) -> void:
