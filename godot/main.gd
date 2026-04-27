@@ -89,6 +89,23 @@ const RENDER_STATE_CONFIG := {
 }
 var render_state: String = "NORMAL"
 
+# --- PERF INSTRUMENTATION (Impl #3 audit) -----------------------------
+# Captures per-call ms for the two suspected hot paths plus a rolling
+# aggregate. Set PERF_LOG_ENABLED=false to silence. Per-call spike
+# threshold prints individual events that exceed it; rolling summary
+# prints sum + max every PERF_SUMMARY_FRAMES frames.
+const PERF_LOG_ENABLED: bool = false  # ALLOWLIST: instrumentation toggle, not gameplay
+const PERF_SPIKE_MS: float = 2.0  # ALLOWLIST: per-call log threshold, diagnostic only
+const PERF_SUMMARY_FRAMES: int = 60  # ALLOWLIST: heartbeat cadence, diagnostic only
+var _perf_mm_total_ms: float = 0.0
+var _perf_mm_max_ms: float = 0.0
+var _perf_mm_calls: int = 0
+var _perf_motes_total_ms: float = 0.0
+var _perf_motes_max_ms: float = 0.0
+var _perf_motes_calls: int = 0
+var _perf_frame_counter: int = 0
+# ----------------------------------------------------------------------
+
 # Plane-attachment architecture (Design Law #14, Phase 3).
 # Canonical ceiling height is now config-driven: resolved from the manifest's
 # `planes` array at spawn time and cached in `active_ceiling_y`. The constant
@@ -195,6 +212,8 @@ const EXPEDITION_DEPOSIT_RADIUS := 15.0  # covers the hub interior (~30m across)
 
 
 func _ready() -> void:
+	if PERF_LOG_ENABLED:
+		print("[PERF] instrumentation enabled — heartbeat every %d frames, spike threshold %.1fms" % [PERF_SUMMARY_FRAMES, PERF_SPIKE_MS])
 	_load_kind_config()
 	_load_mesh_bounds()
 
@@ -1333,6 +1352,7 @@ func _spawn_contact_shadows(by_kind: Dictionary) -> void:
 
 
 func _create_multimesh_for_kind(kind: String, ents: Array) -> void:
+	var _perf_t0: int = Time.get_ticks_usec() if PERF_LOG_ENABLED else 0
 	# Split entities into variant groups based on their seed/position hash
 	var by_variant: Dictionary = {}
 	for ent: Dictionary in ents:
@@ -1344,6 +1364,15 @@ func _create_multimesh_for_kind(kind: String, ents: Array) -> void:
 
 	for vi: int in by_variant:
 		_create_multimesh_variant(kind, by_variant[vi], vi)
+
+	if PERF_LOG_ENABLED:
+		var _perf_dt: float = (Time.get_ticks_usec() - _perf_t0) / 1000.0
+		_perf_mm_total_ms += _perf_dt
+		_perf_mm_calls += 1
+		if _perf_dt > _perf_mm_max_ms:
+			_perf_mm_max_ms = _perf_dt
+		if _perf_dt > PERF_SPIKE_MS:
+			print("[PERF spike] mm kind=%s ents=%d dt=%.2fms" % [kind, ents.size(), _perf_dt])
 
 
 func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
@@ -1764,6 +1793,22 @@ func _process(delta: float) -> void:
 	if _hud_refresh_accum >= HUD_REFRESH_INTERVAL:
 		_hud_refresh_accum = 0.0
 		_update_hud()
+
+	if PERF_LOG_ENABLED:
+		_perf_frame_counter += 1
+		if _perf_frame_counter >= PERF_SUMMARY_FRAMES:
+			print("[PERF %d-frame] mm: %d calls, sum=%.1fms, max=%.2fms | motes: %d calls, sum=%.1fms, max=%.2fms" % [
+				PERF_SUMMARY_FRAMES,
+				_perf_mm_calls, _perf_mm_total_ms, _perf_mm_max_ms,
+				_perf_motes_calls, _perf_motes_total_ms, _perf_motes_max_ms,
+			])
+			_perf_frame_counter = 0
+			_perf_mm_total_ms = 0.0
+			_perf_mm_max_ms = 0.0
+			_perf_mm_calls = 0
+			_perf_motes_total_ms = 0.0
+			_perf_motes_max_ms = 0.0
+			_perf_motes_calls = 0
 
 	# Toast fade
 	if toast_timer > 0.0:
@@ -3958,6 +4003,7 @@ func _spawn_mote_structure(ent: Dictionary, cfg: Dictionary) -> void:
 
 
 func _update_motes() -> void:
+	var _perf_t0: int = Time.get_ticks_usec() if PERF_LOG_ENABLED else 0
 	# Atmospheric mode: rebuild emissive decals + particles + persistent
 	# pipe lights from current entities each time the scene changes.
 	# Decals and particles rebuild each update (cheap, position-dependent).
@@ -4299,6 +4345,15 @@ func _update_motes() -> void:
 
 	# -- Creature scurry (rats/beetles/spiders dart away from camera) --
 	_spawn_creatures()
+
+	if PERF_LOG_ENABLED:
+		var _perf_dt: float = (Time.get_ticks_usec() - _perf_t0) / 1000.0
+		_perf_motes_total_ms += _perf_dt
+		_perf_motes_calls += 1
+		if _perf_dt > _perf_motes_max_ms:
+			_perf_motes_max_ms = _perf_dt
+		if _perf_dt > PERF_SPIKE_MS:
+			print("[PERF spike] motes dt=%.2fms" % [_perf_dt])
 
 
 # -- Input ---------------------------------------------------------------------
