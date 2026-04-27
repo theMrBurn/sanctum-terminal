@@ -16,6 +16,7 @@ from core.systems.player_state import (
     PlayerState, Item,
     take_damage, heal, add_item, remove_item,
     inventory_used, inventory_free, save_roll,
+    equip, unequip,
 )
 
 
@@ -180,3 +181,54 @@ def test_pure_operations_preserve_original():
     # Original `p` is untouched.
     assert p.inventory == ()
     assert p.hp == p.max_hp
+
+
+# --- Equipped item -----------------------------------------------------------
+
+def test_default_player_has_nothing_equipped():
+    p = PlayerState.new(seed=1)
+    assert p.equipped is None
+
+
+def test_equip_sets_equipped_field():
+    p = PlayerState.new(seed=1, slots=4)
+    p = add_item(p, Item(name="torch_handcrafted"))
+    p = equip(p, "torch_handcrafted")
+    assert p.equipped == "torch_handcrafted"
+
+
+def test_equip_rejects_item_not_in_inventory():
+    p = PlayerState.new(seed=1, slots=4)
+    with pytest.raises(ValueError, match="not in inventory"):
+        equip(p, "torch_handcrafted")
+
+
+def test_unequip_clears_equipped():
+    p = PlayerState.new(seed=1, slots=4)
+    p = add_item(p, Item(name="torch_handcrafted"))
+    p = equip(p, "torch_handcrafted")
+    p = unequip(p)
+    assert p.equipped is None
+
+
+def test_remove_equipped_item_clears_equipped():
+    """Can't wield what you don't carry — removing the equipped item
+    must clear the equipped field, not leave a dangling reference."""
+    p = PlayerState.new(seed=1, slots=4)
+    item = Item(name="torch_handcrafted")
+    p = add_item(p, item)
+    p = equip(p, "torch_handcrafted")
+    p = remove_item(p, item)
+    assert p.equipped is None
+    assert not p.inventory
+
+
+def test_remove_non_equipped_item_preserves_equipped():
+    p = PlayerState.new(seed=1, slots=4)
+    torch = Item(name="torch_handcrafted")
+    candle = Item(name="candle")
+    p = add_item(p, torch)
+    p = add_item(p, candle)
+    p = equip(p, "torch_handcrafted")
+    p = remove_item(p, candle)
+    assert p.equipped == "torch_handcrafted"

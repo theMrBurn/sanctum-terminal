@@ -36,6 +36,7 @@ from core.systems.tension_cycle import TensionCycle
 from core.systems.plane_exchange import classify_all_entities, CAVERN_EXCHANGE_NODES
 from core.systems.chronometer import Chronometer
 from core.systems.ambient_life import SpectrumEngine, set_active_biome
+from core.systems.player_state import PlayerState
 from core.systems.macro_stamp import (
     terrain_height, set_active_stamp, grid_density, grid_allowed,
 )
@@ -226,6 +227,13 @@ class BrainWorld:
         # Biome-declared planes streamed to the viewer; renderer instantiates
         # one MeshInstance3D per entry. Adding a plane is a pure config edit.
         self.planes = BIOME_REGISTRY.get(biome_name, {}).get("planes", [])
+
+        # Brain-global player state (PR 3 of the torch direction). Holds
+        # inventory + currently-wielded item. Encounter sessions copy/restore
+        # against this on entry/exit (refactor pending). Streamed to Godot
+        # via manifest.player so the viewer can render the camera-parented
+        # equipped item without round-tripping every frame.
+        self.player: PlayerState = PlayerState.new(seed=base_seed)
 
         # Ceiling height — resolved from biome planes config.
         # Ceiling_moss and hanging_vine attach relative to this.
@@ -779,6 +787,19 @@ class BrainWorld:
             "playable_envelope": {
                 "radius": BIOME_REGISTRY.get(self.biome_name, {}).get("playable_radius", 0.0),
                 "softness": BIOME_REGISTRY.get(self.biome_name, {}).get("playable_softness", 1.0),
+            },
+            # Player state surfaced for Godot's equipped-render path. Inventory
+            # is a flat list of {name, slot_cost} so the viewer can populate a
+            # HUD; equipped is the name of the currently-wielded item (or null).
+            # Mutated brain-side via give_item / take_item / equip / unequip;
+            # streamed every manifest update so Godot's equipped composite
+            # primitive stays in sync without per-frame round-trips.
+            "player": {
+                "inventory": [
+                    {"name": item.name, "slot_cost": item.slot_cost}
+                    for item in self.player.inventory
+                ],
+                "equipped": self.player.equipped,
             },
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),

@@ -11,7 +11,7 @@ leveling, loot tables all sit upstream and consume this primitive.
 from __future__ import annotations
 
 import random
-from typing import Callable, NamedTuple, Tuple
+from typing import Callable, NamedTuple, Optional, Tuple
 
 
 # --- Data --------------------------------------------------------------------
@@ -30,6 +30,10 @@ class PlayerState(NamedTuple):
     wil_save: int
     slots: int
     inventory: Tuple[Item, ...]
+    # The currently-wielded item's name, or None if nothing equipped. Item
+    # must also be present in inventory — equip() enforces. Streams to the
+    # manifest so Godot can render the camera-parented composite primitive.
+    equipped: Optional[str] = None
 
     @classmethod
     def new(cls, name: str = "Wanderer",
@@ -46,6 +50,7 @@ class PlayerState(NamedTuple):
             wil_save=rng.randint(1, 20),
             slots=slots,
             inventory=(),
+            equipped=None,
         )
 
     def is_dead(self) -> bool:
@@ -92,8 +97,26 @@ def remove_item(p: PlayerState, item: Item) -> PlayerState:
     for i, existing in enumerate(p.inventory):
         if existing == item:
             new_inv = p.inventory[:i] + p.inventory[i + 1:]
-            return p._replace(inventory=new_inv)
+            # If the removed item was equipped, clear equipped — you can't
+            # wield what you no longer have.
+            new_equipped = None if p.equipped == item.name else p.equipped
+            return p._replace(inventory=new_inv, equipped=new_equipped)
     raise ValueError(f"item {item.name!r} not in inventory")
+
+
+def equip(p: PlayerState, item_name: str) -> PlayerState:
+    """Set the currently-wielded item by name. Raises if the item isn't
+    in inventory — you can't wield what you don't carry."""
+    if not any(i.name == item_name for i in p.inventory):
+        raise ValueError(
+            f"cannot equip {item_name!r}: not in inventory "
+            f"({sorted(i.name for i in p.inventory)})")
+    return p._replace(equipped=item_name)
+
+
+def unequip(p: PlayerState) -> PlayerState:
+    """Holster the currently-wielded item. No-op if nothing equipped."""
+    return p._replace(equipped=None)
 
 
 _SAVE_FIELDS = {"str": "str_save", "dex": "dex_save", "wil": "wil_save"}
