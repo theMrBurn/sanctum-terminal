@@ -1709,6 +1709,11 @@ const _DEBUG_TORCH_POSITIONS: Array = [
 # on every manifest rebuild so post-mission regen always re-spawns it (and
 # breaking it at hub harmlessly does nothing per L3's IN_MISSION state gate).
 const _DEBUG_POT_POSITION: Array = [0.0, -8.0]  # 6m forward of spawn
+# Flow + haze primitive showcase — drops a puddle and a spore_cloud beside
+# the torches so the new procedural shaders are visible without authoring
+# biome roster entries. Same regen-survival pattern as the torches.
+const _DEBUG_PUDDLE_POSITION: Array = [-5.0, -8.0]   # 3m left of pot
+const _DEBUG_SPORE_POSITION: Array = [5.0, -8.0]     # 3m right of pot
 var _debug_torch_inject_logged: bool = false
 
 
@@ -1748,9 +1753,35 @@ func _inject_debug_test_torches() -> void:
 		"render_shell": 0,
 		"render_mode": "default",
 	})
+	# Flow primitive showcase — puddle on the ground, slow scroll
+	entities.append({
+		"kind": "puddle",
+		"x": _DEBUG_PUDDLE_POSITION[0],
+		"y": _DEBUG_PUDDLE_POSITION[1],
+		"z": 0.0,
+		"heading": 0.0,
+		"r": 0.28, "g": 0.4, "b": 0.5,
+		"emissive": 0.0,
+		"sv": 1.0,
+		"render_shell": 0,
+		"render_mode": "default",
+	})
+	# Haze primitive showcase — spore cloud floating above ground
+	entities.append({
+		"kind": "spore_cloud",
+		"x": _DEBUG_SPORE_POSITION[0],
+		"y": _DEBUG_SPORE_POSITION[1],
+		"z": 0.0,
+		"heading": 0.0,
+		"r": 0.4, "g": 0.62, "b": 0.32,
+		"emissive": 0.0,
+		"sv": 1.0,
+		"render_shell": 0,
+		"render_mode": "default",
+	})
 	manifest["entities"] = entities
 	if not _debug_torch_inject_logged:
-		print("[PR 2 DEBUG] injected %d test torches + 1 clay_pot at hub spawn" % _DEBUG_TORCH_POSITIONS.size())
+		print("[PR 2 DEBUG] injected %d torches + clay_pot + puddle + spore_cloud at hub spawn" % _DEBUG_TORCH_POSITIONS.size())
 		_debug_torch_inject_logged = true
 
 
@@ -3847,13 +3878,21 @@ func _check_player_feedback() -> void:
 	if hp != _last_hp:
 		var delta: int = hp - _last_hp
 		var sign_str: String = "+" if delta > 0 else ""
-		_show_toast("HP %s%d  (%d/%d)" % [sign_str, delta, hp, max_hp])
+		var hp_msg: String = "HP %s%d  (%d/%d)" % [sign_str, delta, hp, max_hp]
+		_show_toast(hp_msg)
+		# Also print so the feedback is visible in the Output panel —
+		# toasts are transient and easy to miss when state-change toasts
+		# fire on the same frame.
+		print("[player] %s" % hp_msg)
 		_last_hp = hp
 	if inv_size < _last_inventory_size:
-		# Item disappeared — used or removed by effect. Toast it.
-		_show_toast("Inventory: %d items" % inv_size)
+		var msg_lost: String = "Inventory: %d items" % inv_size
+		_show_toast(msg_lost)
+		print("[player] -%d items (now %d)" % [_last_inventory_size - inv_size, inv_size])
 	if inv_size > _last_inventory_size:
-		_show_toast("+%d items (now %d)" % [inv_size - _last_inventory_size, inv_size])
+		var msg_gained: String = "+%d items (now %d)" % [inv_size - _last_inventory_size, inv_size]
+		_show_toast(msg_gained)
+		print("[player] %s" % msg_gained)
 	_last_inventory_size = inv_size
 
 
