@@ -38,6 +38,8 @@ from core.systems.chronometer import Chronometer
 from core.systems.ambient_life import SpectrumEngine, set_active_biome
 from core.systems import player_state as ps
 from core.systems.player_state import PlayerState, Item
+from core.systems import game_state as gs
+from core.systems.game_state import GameState
 from core.systems.macro_stamp import (
     terrain_height, set_active_stamp, grid_density, grid_allowed,
 )
@@ -243,6 +245,11 @@ class BrainWorld:
         # auto-equip line when PR 5 lands real pickup.
         self.player = ps.add_item(self.player, Item(name="torch_handcrafted"))
         self.player = ps.equip(self.player, "torch_handcrafted")
+
+        # Loop-completion state machine (L1). Spine of the DRG/Persona-style
+        # gameplay loop. Boots at HUB with no mission context. Transitions
+        # validated; Godot reads manifest.game_state every update.
+        self.game_state: GameState = GameState.initial()
 
         # Ceiling height — resolved from biome planes config.
         # Ceiling_moss and hanging_vine attach relative to this.
@@ -810,6 +817,12 @@ class BrainWorld:
                 ],
                 "equipped": self.player.equipped,
             },
+            # Loop state — Godot reads to gate UI / input / render mode per
+            # phase (HUB / MISSION_SELECT / IN_MISSION / RESULTS). Mutated
+            # brain-side via state_transition_request and mission_complete
+            # effect; streamed every tick so transitions land within one
+            # manifest cycle.
+            "game_state": gs.to_manifest(self.game_state),
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),
             "tension_envelope": {
