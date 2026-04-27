@@ -611,25 +611,53 @@ class EncounterSession:
 
     # -- Effect dispatch -----------------------------------------------------
 
-    # Whitelisted effect names — any effect not in this set raises, so
-    # typos in config never silently no-op. Each handler is a method
-    # `_fx_<name>(spec)`; add here and implement the method to extend.
-    _EFFECT_WHITELIST = frozenset({
-        "heal_player",
-        "give_item",
-        "take_item",
-        "set_flag",
-        "trigger_rest",
-        "open_dialog_branch",
-    })
+    # Per-effect param schema. Each entry maps {param_name: (type, required)}.
+    # Schema serves three jobs:
+    #   1) Replaces the whitelist — keys are the known effect names.
+    #   2) Validates spec params at dispatch time — wrong types and missing
+    #      required keys raise BEFORE handler runs. Catches config typos
+    #      (e.g. "amounnt") that would otherwise no-op silently or KeyError
+    #      deep in the handler.
+    #   3) Documents the contract of every effect in one place.
+    # `object` matches any type — used when the param accepts mixed values
+    # (e.g. set_flag.value can be bool/int/str).
+    _EFFECT_SCHEMAS: dict[str, dict[str, tuple]] = {
+        "heal_player": {"amount": (int, False)},
+        "give_item": {"name": (str, True), "slot_cost": (int, False)},
+        "take_item": {"name": (str, True)},
+        "set_flag": {"name": (str, True), "value": (object, False)},
+        "trigger_rest": {},
+        "open_dialog_branch": {"scout_id": (str, True)},
+    }
+
+    def _validate_effect_spec(self, name: str, spec: dict) -> None:
+        schema = self._EFFECT_SCHEMAS[name]
+        for key, (expected_type, required) in schema.items():
+            if key not in spec:
+                if required:
+                    raise ValueError(
+                        f"effect {name!r}: missing required param {key!r}")
+                continue
+            val = spec[key]
+            if expected_type is not object and not isinstance(val, expected_type):
+                raise ValueError(
+                    f"effect {name!r}: param {key!r} expected "
+                    f"{expected_type.__name__}, got {type(val).__name__}")
+        # "type" is the dispatcher key, always allowed alongside schema keys.
+        extras = set(spec) - set(schema) - {"type"}
+        if extras:
+            raise ValueError(
+                f"effect {name!r}: unknown params {sorted(extras)}; "
+                f"known: {sorted(schema)}")
 
     def _apply_effects(self, effects: list) -> None:
         for spec in effects or []:
             name = spec.get("type", "")
-            if name not in self._EFFECT_WHITELIST:
+            if name not in self._EFFECT_SCHEMAS:
                 raise ValueError(
-                    f"unknown effect {name!r}; whitelist: "
-                    f"{sorted(self._EFFECT_WHITELIST)}")
+                    f"unknown effect {name!r}; known: "
+                    f"{sorted(self._EFFECT_SCHEMAS)}")
+            self._validate_effect_spec(name, spec)
             handler = getattr(self, f"_fx_{name}")
             handler(spec)
 

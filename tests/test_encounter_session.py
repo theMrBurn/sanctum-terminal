@@ -316,9 +316,39 @@ def test_ally_path_selected_on_three_curious(monkeypatch):
 def test_unknown_effect_raises():
     """Typos in effect names must never silently no-op."""
     s = EncounterSession(seed=42)
-    import pytest
     with pytest.raises(ValueError, match="unknown effect"):
         s._apply_effects([{"type": "nonsense"}])
+
+
+def test_missing_required_param_raises():
+    """Required params absent from spec must raise before handler runs."""
+    s = EncounterSession(seed=42)
+    with pytest.raises(ValueError, match="missing required param 'name'"):
+        s._apply_effects([{"type": "give_item", "slot_cost": 1}])
+
+
+def test_wrong_param_type_raises():
+    """Type mismatches surface immediately, not as KeyError deep in handler."""
+    s = EncounterSession(seed=42)
+    with pytest.raises(ValueError, match="expected str, got int"):
+        s._apply_effects([{"type": "give_item", "name": 42}])
+
+
+def test_extra_param_raises():
+    """Typos in optional param names (e.g. 'amounnt') get caught — would
+    otherwise silently no-op since the handler reads spec.get(...)."""
+    s = EncounterSession(seed=42)
+    with pytest.raises(ValueError, match="unknown params"):
+        s._apply_effects([{"type": "heal_player", "amounnt": 5}])
+
+
+def test_set_flag_value_accepts_any_type():
+    """set_flag.value uses object as the type — any value is valid."""
+    s = EncounterSession(seed=42)
+    s._apply_effects([{"type": "set_flag", "name": "a", "value": True}])
+    s._apply_effects([{"type": "set_flag", "name": "b", "value": "hello"}])
+    s._apply_effects([{"type": "set_flag", "name": "c", "value": 99}])
+    assert s.flags == {"a": True, "b": "hello", "c": 99}
 
 
 def test_set_flag_effect():
