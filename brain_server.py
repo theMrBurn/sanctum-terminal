@@ -1076,19 +1076,43 @@ def run_server(biome_name, port=9877):
                 if msg.get("cmd") == "mission_complete_trigger":
                     # Godot fires when a mission objective resolves (L3: a
                     # destructible kind shattering inside IN_MISSION state).
-                    # Brain validates we're actually in a mission, builds a
-                    # results payload, and transitions to RESULTS. Players
-                    # acknowledge with X (HUB transition).
+                    # Brain validates we're actually in a mission, rolls
+                    # loot from kind_config[trigger_kind].mission_loot,
+                    # mutates player inventory, builds results payload, and
+                    # transitions to RESULTS.
                     if world.game_state.state != gs.GameStateName.IN_MISSION:
-                        # Trigger fired outside a mission — likely a pot
-                        # broken at the hub. Ignore quietly; not an error.
                         continue
                     trigger_kind = str(msg.get("trigger_kind", "unknown"))
+
+                    # L7 — roll loot from kind_config and add to inventory.
+                    # Each entry: a string name (guaranteed) or {name, weight}
+                    # (rolled). Brain is authoritative on what landed.
+                    loot_dropped: list[str] = []
+                    kcfg = _kc.kind(trigger_kind)
+                    for entry in kcfg.get("mission_loot", []):
+                        if isinstance(entry, str):
+                            name = entry
+                        elif isinstance(entry, dict):
+                            weight = float(entry.get("weight", 1.0))
+                            if random.random() > weight:
+                                continue
+                            name = str(entry.get("name", ""))
+                        else:
+                            continue
+                        if not name:
+                            continue
+                        try:
+                            world.player = ps.add_item(world.player, Item(name=name))
+                            loot_dropped.append(name)
+                        except ValueError as e:
+                            # Inventory full — drop the item, keep going.
+                            print(f"  loot drop skipped (inventory full): {name}", flush=True)
+
                     payload = {
                         "mission_id": world.game_state.mission_id,
                         "trigger_kind": trigger_kind,
-                        "loot": list(msg.get("loot", [])),
-                        "xp": int(msg.get("xp", 10)),
+                        "loot": loot_dropped,
+                        "xp": int(msg.get("xp", 25)),
                     }
                     try:
                         world.game_state = gs.transition(

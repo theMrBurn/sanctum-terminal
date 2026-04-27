@@ -369,3 +369,59 @@ def test_subparts_sprite_must_be_string() -> None:
     })
     errors = kind_config_schema.validate(data)
     assert any("sprite" in e for e in errors)
+
+
+# --- mission_loot (L7) ------------------------------------------------------
+
+def test_mission_loot_string_form_valid() -> None:
+    """Bare strings = guaranteed drops. Terse for simple cases."""
+    data = _kind_with({"mission_loot": ["pot_shard", "ember"]})
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_mission_loot_dict_form_valid() -> None:
+    """{name, weight} for weighted drops. Brain rolls per entry."""
+    data = _kind_with({
+        "mission_loot": [
+            {"name": "pot_shard", "weight": 1.0},
+            {"name": "ember", "weight": 0.4},
+        ]
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_mission_loot_mixed_forms_valid() -> None:
+    data = _kind_with({
+        "mission_loot": [
+            "pot_shard",  # guaranteed
+            {"name": "ember", "weight": 0.3},
+        ]
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_mission_loot_must_be_list() -> None:
+    data = _kind_with({"mission_loot": "pot_shard"})  # bare string
+    errors = kind_config_schema.validate(data)
+    assert any("mission_loot" in e for e in errors)
+
+
+def test_mission_loot_dict_missing_name_rejected() -> None:
+    data = _kind_with({"mission_loot": [{"weight": 0.5}]})
+    errors = kind_config_schema.validate(data)
+    assert any("missing required key 'name'" in e for e in errors)
+
+
+def test_mission_loot_weight_out_of_range_rejected() -> None:
+    data = _kind_with({"mission_loot": [{"name": "x", "weight": 1.5}]})
+    errors = kind_config_schema.validate(data)
+    assert any("weight" in e for e in errors)
+
+
+def test_mission_loot_empty_name_rejected() -> None:
+    data = _kind_with({"mission_loot": [""]})
+    errors = kind_config_schema.validate(data)
+    assert any("empty item name" in e for e in errors)

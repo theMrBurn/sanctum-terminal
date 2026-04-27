@@ -951,6 +951,16 @@
         0.32,
         0.18
       ],
+      "mission_loot": [
+        {
+          "name": "pot_shard",
+          "weight": 1.0
+        },
+        {
+          "name": "ember",
+          "weight": 0.4
+        }
+      ],
       "physics": {
         "collision_radius": 1.2
       },

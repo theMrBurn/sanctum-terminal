@@ -290,6 +290,42 @@ def _validate_class_block(
         errors.extend(
             _validate_tool_reactions(cfg["tool_reactions"], f"{path}.tool_reactions")
         )
+    if "mission_loot" in cfg:
+        errors.extend(
+            _validate_mission_loot(cfg["mission_loot"], f"{path}.mission_loot")
+        )
+    return errors
+
+
+def _validate_mission_loot(loot: Any, path: str) -> list[str]:
+    """Loot list — items dropped when this kind is the trigger that
+    resolves an IN_MISSION state. Format: list of strings (item names)
+    for guaranteed drops, OR list of {name: str, weight: float} dicts
+    for weighted drops.
+
+    Both forms accepted so simple cases stay terse and complex cases
+    have room. L7 brain handler picks accordingly.
+    """
+    errors: list[str] = []
+    if not isinstance(loot, list):
+        return [f"{path}: expected list of items, got {type(loot).__name__}"]
+    for i, entry in enumerate(loot):
+        ep = f"{path}[{i}]"
+        if isinstance(entry, str):
+            if not entry:
+                errors.append(f"{ep}: empty item name")
+            continue
+        if not isinstance(entry, dict):
+            errors.append(f"{ep}: expected string or {{name, weight}} dict")
+            continue
+        if "name" not in entry:
+            errors.append(f"{ep}: missing required key 'name'")
+        elif not isinstance(entry["name"], str) or not entry["name"]:
+            errors.append(f"{ep}.name: expected non-empty string")
+        if "weight" in entry:
+            w = entry["weight"]
+            if not _is_number(w) or w < 0 or w > 1:
+                errors.append(f"{ep}.weight: expected number in [0, 1], got {w!r}")
     return errors
 
 
