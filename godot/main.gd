@@ -4855,7 +4855,7 @@ func _input(event: InputEvent) -> void:
 			KEY_M:  # Open mission select (HUB → MISSION_SELECT)
 				_send_state_transition("MISSION_SELECT")
 				_show_toast("MISSION SELECT")
-			KEY_L:  # Launch mission (MISSION_SELECT → IN_MISSION)
+			KEY_ENTER, KEY_KP_ENTER:  # Launch mission (MISSION_SELECT → IN_MISSION)
 				_send_state_transition("IN_MISSION")
 				_show_toast("LAUNCH")
 			KEY_X:  # Back / cancel / acknowledge — context-aware return to HUB
