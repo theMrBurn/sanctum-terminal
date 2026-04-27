@@ -2668,6 +2668,36 @@
       },
       "ascii": "O"
     },
+    "puddle": {
+      "class": "atmosphere",
+      "color_base": [0.25, 0.35, 0.45],
+      "color_shadow": [0.18, 0.26, 0.34],
+      "color_accent": [0.32, 0.44, 0.55],
+      "render": {
+        "subparts": [
+          {"family": "flow", "scale": [1.6, 1.6, 1.0],
+           "color": [0.28, 0.40, 0.50],
+           "flow_velocity": [0.04, 0.02], "noise_scale": 1.5,
+           "opacity": 0.85, "offset": [0.0, 0.0, 0.02]}
+        ]
+      },
+      "ascii": "~"
+    },
+    "spore_cloud": {
+      "class": "atmosphere",
+      "color_base": [0.35, 0.55, 0.30],
+      "color_shadow": [0.26, 0.42, 0.22],
+      "color_accent": [0.45, 0.65, 0.38],
+      "render": {
+        "subparts": [
+          {"family": "haze", "scale": [3.0, 3.0, 2.5],
+           "color": [0.40, 0.62, 0.32], "density": 0.45,
+           "drift": [0.03, 0.04, 0.02], "turbulence_seed": 1.7,
+           "offset": [0.0, 0.0, 1.0]}
+        ]
+      },
+      "ascii": "%"
+    },
     "torch_handcrafted": {
       "class": "encounter",
       "color_base": [0.4, 0.25, 0.15],
@@ -2686,7 +2716,10 @@
            "color": [0.4, 0.25, 0.15], "offset": [0.0, 0.0, 0.0]},
           {"family": "flame", "scale": [0.4, 0.4, 0.6],
            "color": [1.0, 0.45, 0.12], "emission": 2.0, "offset": [0.0, 0.0, 1.05],
-           "palette": "fire_warm"}
+           "palette": "fire_warm"},
+          {"family": "haze", "scale": [0.6, 0.6, 1.2],
+           "color": [0.55, 0.52, 0.48], "density": 0.18,
+           "drift": [0.02, 0.0, 0.08], "offset": [0.0, 0.0, 1.8]}
         ]
       },
       "ascii": "T"

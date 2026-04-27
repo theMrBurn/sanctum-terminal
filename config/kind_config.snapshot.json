@@ -1928,6 +1928,53 @@
         ]
       }
     },
+    "puddle": {
+      "ascii": "~",
+      "class": "atmosphere",
+      "color_accent": [
+        0.32,
+        0.44,
+        0.55
+      ],
+      "color_base": [
+        0.25,
+        0.35,
+        0.45
+      ],
+      "color_shadow": [
+        0.18,
+        0.26,
+        0.34
+      ],
+      "render": {
+        "subparts": [
+          {
+            "color": [
+              0.28,
+              0.4,
+              0.5
+            ],
+            "family": "flow",
+            "flow_velocity": [
+              0.04,
+              0.02
+            ],
+            "noise_scale": 1.5,
+            "offset": [
+              0.0,
+              0.0,
+              0.02
+            ],
+            "opacity": 0.85,
+            "scale": [
+              1.6,
+              1.6,
+              1.0
+            ]
+          }
+        ]
+      }
+    },
     "rat": {
       "ascii": "r",
       "behavior": {
@@ -2466,6 +2513,54 @@
       },
       "use_vertex_colors": true
     },
+    "spore_cloud": {
+      "ascii": "%",
+      "class": "atmosphere",
+      "color_accent": [
+        0.45,
+        0.65,
+        0.38
+      ],
+      "color_base": [
+        0.35,
+        0.55,
+        0.3
+      ],
+      "color_shadow": [
+        0.26,
+        0.42,
+        0.22
+      ],
+      "render": {
+        "subparts": [
+          {
+            "color": [
+              0.4,
+              0.62,
+              0.32
+            ],
+            "density": 0.45,
+            "drift": [
+              0.03,
+              0.04,
+              0.02
+            ],
+            "family": "haze",
+            "offset": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "scale": [
+              3.0,
+              3.0,
+              2.5
+            ],
+            "turbulence_seed": 1.7
+          }
+        ]
+      }
+    },
     "spore_pod": {
       "ascii": "%",
       "burial": {
@@ -2696,6 +2791,30 @@
               0.4,
               0.4,
               0.6
+            ]
+          },
+          {
+            "color": [
+              0.55,
+              0.52,
+              0.48
+            ],
+            "density": 0.18,
+            "drift": [
+              0.02,
+              0.0,
+              0.08
+            ],
+            "family": "haze",
+            "offset": [
+              0.0,
+              0.0,
+              1.8
+            ],
+            "scale": [
+              0.6,
+              0.6,
+              1.2
             ]
           }
         ]

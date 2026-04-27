@@ -1426,6 +1426,10 @@ func _resolve_subpart_mesh(sp: Dictionary) -> Mesh:
 		# routed through tools/sketch_to_sprite.py land in lib/sprites/.
 		var sprite_path: Variant = sp.get("sprite", null)
 		return _build_flame_mesh(color, emission, sprite_path)
+	if family == "flow":
+		return _build_flow_mesh(sp)
+	if family == "haze":
+		return _build_haze_mesh(sp)
 	var exemplar: String = _FAMILY_EXEMPLAR_KIND.get(family, "")
 	if exemplar == "":
 		push_error("[subparts] unknown primitive family: %s" % family)
@@ -1525,6 +1529,83 @@ func _build_flame_mesh(color: Variant, emission: float, sprite_path: Variant = n
 	return quad
 
 
+# Flow + Haze primitives — Primal 7 P_06 and P_07. Both use the shared
+# bayer_dither.gdshaderinc include for terminal-aesthetic transparency, both
+# stay in the MultiMesh pipeline, both treat color/density/velocity as
+# uniforms set from kind_config. Per design_kind_config_single_source the
+# primitive is colorless capability; the kind's render.subparts entry owns
+# the params.
+const _FLOW_SHADER: Shader = preload("res://flow_primitive.gdshader")
+const _HAZE_SHADER: Shader = preload("res://haze_primitive.gdshader")
+const _FLOW_NOISE_TEX: Texture2D = preload("res://noise_64.png")
+
+
+func _build_flow_mesh(sp: Dictionary) -> Mesh:
+	# PlaneMesh lies flat on XZ — what a puddle/slime trail/lava trickle
+	# should look like. QuadMesh is XY (vertical), wrong for this primitive.
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(1.0, 1.0)
+
+	var mat := ShaderMaterial.new()
+	mat.shader = _FLOW_SHADER
+
+	var color: Variant = sp.get("color", null)
+	var tint := Color(0.4, 0.4, 0.4)
+	if color is Array and color.size() >= 3:
+		tint = Color(float(color[0]), float(color[1]), float(color[2]))
+	mat.set_shader_parameter("tint", Vector3(tint.r, tint.g, tint.b))
+
+	var fv: Variant = sp.get("flow_velocity", [0.05, 0.0])
+	var fv_x: float = 0.05
+	var fv_y: float = 0.0
+	if fv is Array and fv.size() >= 2:
+		fv_x = float(fv[0])
+		fv_y = float(fv[1])
+	mat.set_shader_parameter("flow_velocity", Vector2(fv_x, fv_y))
+
+	mat.set_shader_parameter("noise_scale", float(sp.get("noise_scale", 1.0)))
+	mat.set_shader_parameter("opacity", float(sp.get("opacity", 0.7)))
+	mat.set_shader_parameter("emission_strength", float(sp.get("emission", 0.0)))
+	mat.set_shader_parameter("noise_tex", _FLOW_NOISE_TEX)
+
+	plane.surface_set_material(0, mat)
+	return plane
+
+
+func _build_haze_mesh(sp: Dictionary) -> Mesh:
+	# Unit BoxMesh. Subpart scale on the kind sets the actual volume size,
+	# matching how every other primitive handles dimensions.
+	var box := BoxMesh.new()
+	box.size = Vector3(1.0, 1.0, 1.0)
+
+	var mat := ShaderMaterial.new()
+	mat.shader = _HAZE_SHADER
+
+	var color: Variant = sp.get("color", null)
+	var tint := Color(0.4, 0.4, 0.4)
+	if color is Array and color.size() >= 3:
+		tint = Color(float(color[0]), float(color[1]), float(color[2]))
+	mat.set_shader_parameter("tint", Vector3(tint.r, tint.g, tint.b))
+
+	mat.set_shader_parameter("density", float(sp.get("density", 0.4)))
+	mat.set_shader_parameter("turbulence_seed", float(sp.get("turbulence_seed", 0.0)))
+
+	var drift: Variant = sp.get("drift", [0.0, 0.05, 0.0])
+	var dx: float = 0.0
+	var dy: float = 0.05
+	var dz: float = 0.0
+	if drift is Array and drift.size() >= 3:
+		dx = float(drift[0])
+		dy = float(drift[1])
+		dz = float(drift[2])
+	mat.set_shader_parameter("drift", Vector3(dx, dy, dz))
+
+	mat.set_shader_parameter("emission_strength", float(sp.get("emission", 0.0)))
+
+	box.surface_set_material(0, mat)
+	return box
+
+
 func _create_composite_for_kind(kind: String, ents: Array, subparts: Array) -> void:
 	# Single Node3D parent groups all subpart MultiMeshes for this kind.
 	# kind_nodes[kind] tracks the parent so existing cleanup logic
@@ -1598,8 +1679,13 @@ func _build_subpart_multimesh(ents: Array, sp: Dictionary, kind: String, idx: in
 	mmi.name = "%s_sp%d_%s" % [kind, idx, family]
 	# Non-procedural subparts apply color via material override on the
 	# MultiMeshInstance3D (procedural primitives bake their own materials in
-	# their builders — orb's StandardMaterial3D and flame's ShaderMaterial).
-	if family != "orb" and family != "flame" and sp_color is Array and sp_color.size() >= 3:
+	# their builders — orb's StandardMaterial3D, flame's ShaderMaterial,
+	# flow/haze's ShaderMaterial with their dither shaders).
+	var bakes_own_material: bool = (
+		family == "orb" or family == "flame"
+		or family == "flow" or family == "haze"
+	)
+	if not bakes_own_material and sp_color is Array and sp_color.size() >= 3:
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = Color(float(sp_color[0]), float(sp_color[1]), float(sp_color[2]))
 		mmi.material_override = mat

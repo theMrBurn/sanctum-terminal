@@ -126,6 +126,8 @@ _KNOWN_PRIMITIVE_FAMILIES = frozenset({
     "creature_small",
     "orb",
     "flame",
+    "flow",
+    "haze",
 })
 
 
