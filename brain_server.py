@@ -251,13 +251,17 @@ class BrainWorld:
         # L5 — try to load an existing save. If it loads, use it; otherwise
         # build a fresh player and seed it with the UAT fixtures. The load
         # path is silent on missing-file (None return); print on actual hit.
-        loaded_player = save_state.load()
+        loaded = save_state.load()
+        loaded_player = loaded.player if loaded is not None else None
+        loaded_sheet = loaded.character_sheet if loaded is not None else None
         if loaded_player is not None:
             self.player = loaded_player
+            sheet_status = (f"sheet={loaded_sheet.name!r} (age {loaded_sheet.age})"
+                            if loaded_sheet is not None else "sheet=<none, will run pillar creation>")
             print(
                 f"  loaded save: {len(loaded_player.inventory)} items, "
                 f"equipped={loaded_player.equipped!r}, "
-                f"missions={len(loaded_player.completed_missions)}",
+                f"missions={len(loaded_player.completed_missions)}, {sheet_status}",
                 flush=True,
             )
         else:
@@ -272,21 +276,23 @@ class BrainWorld:
                 self.player = ps.add_item(self.player, Item(name="healing_potion"))
 
         # Character creation state — `design_seven_pillars`. New player without
-        # a save enters CHARACTER_CREATION with a CharacterDraft. Stub-pillars
-        # 2-7 auto-default so player only engages Pillar 1 (Name) for the
-        # initial UAT. Real interactive pillars replace stubs in later sessions.
-        self.character_sheet: CharacterSheet | None = None
+        # a save (or a legacy V1 save without a sheet) enters CHARACTER_CREATION
+        # with a CharacterDraft. Stub-pillars 2-7 auto-default so player only
+        # engages Pillar 1 (Name) for the initial UAT. Real interactive pillars
+        # replace stubs in later sessions.
+        self.character_sheet: CharacterSheet | None = loaded_sheet
         self.character_draft: CharacterDraft | None = None
         self.active_dial: DialPrompt | None = None
 
-        if loaded_player is None:
-            # Fresh player — run the 7-pillar ritual.
+        if loaded_sheet is not None:
+            # Returning player with a sealed sheet — straight to HUB.
+            self.game_state: GameState = GameState.initial()
+        else:
+            # Either no save at all, or a legacy V1 save without a sheet.
+            # Either way, run the 7-pillar ritual to build a sheet. Stubs 2-7
+            # auto-default so only Pillar 1 (Name) requires interaction.
             self.character_draft = self._init_creation_draft()
             self.game_state: GameState = GameState.fresh_character()
-        else:
-            # Returning player — straight to HUB. (Save format does not yet
-            # carry the CharacterSheet; a future PR migrates that.)
-            self.game_state: GameState = GameState.initial()
 
         # World regen support (L2). hub_seed preserves the canonical hub world
         # so RESULTS → HUB returns to the same staging area each time. Mission
@@ -1416,7 +1422,7 @@ def run_server(biome_name, port=9877):
                     if (old.state == gs.GameStateName.RESULTS
                             and new_state.state == gs.GameStateName.HUB):
                         try:
-                            written = save_state.save(world.player)
+                            written = save_state.save(world.player, world.character_sheet)
                             print(f"  autosave: {written}", flush=True)
                         except OSError as e:
                             print(f"  autosave failed: {e}", flush=True)
@@ -1501,6 +1507,14 @@ def run_server(biome_name, port=9877):
                                 world.game_state, gs.GameStateName.HUB)
                             print(f"  character sealed: {world.character_sheet.name} (age {world.character_sheet.age})", flush=True)
                             print(f"  state: {old_state.state.value} -> {world.game_state.state.value}", flush=True)
+                            # Autosave the sealed sheet so brain restart preserves
+                            # identity (per "real game saves" — the sheet survives
+                            # alongside PlayerState).
+                            try:
+                                written = save_state.save(world.player, world.character_sheet)
+                                print(f"  autosave (post-creation): {written}", flush=True)
+                            except OSError as save_err:
+                                print(f"  autosave failed: {save_err}", flush=True)
                         except Exception as e:
                             print(f"  finalize failed: {e}", flush=True)
 

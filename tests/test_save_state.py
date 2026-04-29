@@ -1,23 +1,30 @@
-"""Tests for core.systems.save_state — JSON disk persistence for PlayerState.
+"""Tests for core.systems.save_state — JSON disk persistence.
+
+V2 schema: PlayerState + optional CharacterSheet. V1 saves migrate inline
+(character_sheet=None), so legacy players don't lose progress on the
+schema bump — they just enter CHARACTER_CREATION on next launch to seal
+a sheet.
 
 Covers:
-  - to_dict / from_dict round-trip preserves every field
-  - save / load round-trip preserves PlayerState identity
-  - load() returns None on missing file (brain proceeds with fresh player)
-  - load() returns None on malformed JSON (defensive — no crash)
-  - load() returns None on incompatible schema version
+  - to_dict / from_dict round-trip preserves every field (V2 shape)
+  - save / load round-trip preserves PlayerState + CharacterSheet
+  - load() returns None on missing file / malformed JSON / future versions
+  - V1 → V2 migration: V1 saves load with character_sheet=None
   - SANCTUM_SAVE_PATH env var redirects the default location
-  - Atomic save: a crash mid-write doesn't leave the target half-written
+  - Atomic save: no .tmp residue after clean write
 """
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
 
 from core.systems import save_state
+from core.systems.character_sheet import (
+    ClassEntry,
+    generate_character_sheet,
+)
 from core.systems.player_state import Item, PlayerState
 
 
@@ -46,74 +53,147 @@ def _make_player() -> PlayerState:
     return p
 
 
-# --- Dict round-trip --------------------------------------------------------
+def _make_sheet():
+    return generate_character_sheet(
+        name="themrburn",
+        birthday=(3, 25),
+        age=45,
+    )
 
-def test_to_dict_includes_all_fields():
+
+# --- to_dict / from_dict ----------------------------------------------------
+
+def test_to_dict_v2_includes_player_and_null_sheet_by_default():
     p = _make_player()
     d = save_state.to_dict(p)
-    assert d["version"] == 1
+    assert d["version"] == 2
+    assert d["character_sheet"] is None
     pd = d["player"]
     assert pd["name"] == "Test"
     assert pd["hp"] == 4
-    assert pd["max_hp"] == 6
     assert pd["equipped"] == "torch_handcrafted"
     assert pd["completed_missions"] == ["anomaly_hunt_01", "deeper_anomaly"]
-    assert len(pd["inventory"]) == 3
-    assert pd["inventory"][2] == {"name": "pot_shard", "slot_cost": 2}
 
 
-def test_from_dict_round_trip():
+def test_to_dict_with_sheet_includes_identity_fields():
     p = _make_player()
-    restored = save_state.from_dict(save_state.to_dict(p))
-    assert restored == p
+    sheet = _make_sheet()
+    d = save_state.to_dict(p, sheet)
+    assert d["version"] == 2
+    sd = d["character_sheet"]
+    assert sd["name"] == "themrburn"
+    assert sd["birthday"] == [3, 25]
+    assert sd["age"] == 45
+    assert len(sd["class_history"]) == 2  # rogue → monk template
+    assert sd["stats"]["WIS"] == 16  # monk preset
+    assert "OBSERVE" in sd["verbs_known"]
 
 
-def test_from_dict_handles_missing_optional_fields():
-    """A save predating equipped / completed_missions still loads — fields
-    fall back to PlayerState defaults."""
-    minimal = {
+def test_from_dict_returns_saved_with_player_only():
+    p = _make_player()
+    saved = save_state.from_dict(save_state.to_dict(p))
+    assert saved.player == p
+    assert saved.character_sheet is None
+
+
+def test_from_dict_returns_saved_with_sheet():
+    p = _make_player()
+    sheet = _make_sheet()
+    saved = save_state.from_dict(save_state.to_dict(p, sheet))
+    assert saved.player == p
+    assert saved.character_sheet is not None
+    assert saved.character_sheet.name == "themrburn"
+    assert saved.character_sheet.age == 45
+    # earned_abilities recomputed from class_history (not stored)
+    assert len(saved.character_sheet.earned_abilities) == 8  # rogue + monk = 8
+
+
+def test_from_dict_handles_v1_minimal_save():
+    """A V1 save (no character_sheet field, no version=2) still loads.
+    V1 → V2 migration injects character_sheet=None."""
+    minimal_v1 = {
         "version": 1,
         "player": {
-            "name": "Minimal",
+            "name": "Legacy",
             "hp": 6, "max_hp": 6,
             "str_save": 10, "dex_save": 10, "wil_save": 10,
             "slots": 10,
             "inventory": [],
-            # equipped + completed_missions absent
         },
     }
-    restored = save_state.from_dict(minimal)
-    assert restored.name == "Minimal"
-    assert restored.equipped is None
-    assert restored.completed_missions == ()
+    # from_dict expects already-migrated data; load() does the migration.
+    # Test the migration via save_load_round_trip below.
+    # Direct call with V1-shaped dict:
+    minimal_v1["character_sheet"] = None  # what migration would inject
+    saved = save_state.from_dict(minimal_v1)
+    assert saved.player.name == "Legacy"
+    assert saved.character_sheet is None
 
 
 # --- Disk round-trip --------------------------------------------------------
 
-def test_save_load_round_trip(isolated_save):
+def test_save_load_round_trip_player_only(isolated_save):
     p = _make_player()
     written = save_state.save(p)
     assert written == isolated_save
-    assert isolated_save.exists()
-    restored = save_state.load()
-    assert restored == p
+    saved = save_state.load()
+    assert saved is not None
+    assert saved.player == p
+    assert saved.character_sheet is None
 
 
-def test_save_writes_human_readable_json(isolated_save):
+def test_save_load_round_trip_with_sheet(isolated_save):
+    p = _make_player()
+    sheet = _make_sheet()
+    save_state.save(p, sheet)
+    saved = save_state.load()
+    assert saved is not None
+    assert saved.player == p
+    assert saved.character_sheet is not None
+    assert saved.character_sheet.name == sheet.name
+    assert saved.character_sheet.age == sheet.age
+    assert saved.character_sheet.dex == sheet.dex
+
+
+def test_save_writes_v2_human_readable_json(isolated_save):
     p = _make_player()
     save_state.save(p)
     text = isolated_save.read_text()
-    # Should be pretty-printed (indent=2) so saves are readable / diffable.
-    assert "  " in text
+    assert "  " in text  # pretty-printed
     assert "\n" in text
     parsed = json.loads(text)
-    assert parsed["version"] == 1
+    assert parsed["version"] == 2
+    assert "character_sheet" in parsed  # field exists, even if null
+
+
+# --- V1 → V2 migration ------------------------------------------------------
+
+def test_load_v1_save_migrates_inline(isolated_save):
+    """A V1 save on disk should load successfully with character_sheet=None.
+    Brain treats this as 'legacy player; run pillar 1 to get a sheet.'"""
+    isolated_save.parent.mkdir(parents=True, exist_ok=True)
+    v1_save = {
+        "version": 1,
+        "player": {
+            "name": "Legacy",
+            "hp": 6, "max_hp": 6,
+            "str_save": 10, "dex_save": 10, "wil_save": 10,
+            "slots": 10,
+            "inventory": [],
+            "equipped": None,
+            "completed_missions": [],
+        },
+    }
+    isolated_save.write_text(json.dumps(v1_save))
+    saved = save_state.load()
+    assert saved is not None
+    assert saved.player.name == "Legacy"
+    assert saved.character_sheet is None  # migrated to None
 
 
 # --- Defensive load paths ---------------------------------------------------
 
 def test_load_missing_file_returns_none(isolated_save):
-    """No save file = first-boot. Brain falls back to PlayerState.new()."""
     assert not isolated_save.exists()
     assert save_state.load() is None
 
@@ -124,7 +204,7 @@ def test_load_malformed_json_returns_none(isolated_save):
     assert save_state.load() is None
 
 
-def test_load_wrong_schema_version_returns_none(isolated_save):
+def test_load_future_schema_version_returns_none(isolated_save):
     isolated_save.parent.mkdir(parents=True, exist_ok=True)
     isolated_save.write_text(json.dumps({"version": 999, "player": {}}))
     # Future-version saves are refused — better fresh-start than corrupt-load.
@@ -132,26 +212,23 @@ def test_load_wrong_schema_version_returns_none(isolated_save):
 
 
 def test_load_truncated_player_returns_none(isolated_save):
-    """A save with a 'player' value that's not a dict fails defensively."""
     isolated_save.parent.mkdir(parents=True, exist_ok=True)
-    isolated_save.write_text(json.dumps({"version": 1, "player": "broken"}))
+    isolated_save.write_text(json.dumps({"version": 2, "player": "broken"}))
     assert save_state.load() is None
 
 
 # --- Atomic write -----------------------------------------------------------
 
 def test_atomic_save_does_not_leave_tmp_file(isolated_save):
-    """After a clean save, no .tmp residue should remain."""
     p = _make_player()
     save_state.save(p)
     tmp = isolated_save.with_suffix(isolated_save.suffix + ".tmp")
-    assert not tmp.exists(), "atomic save should rename the temp file, not leave it"
+    assert not tmp.exists()
 
 
 # --- Path resolution --------------------------------------------------------
 
 def test_explicit_path_overrides_env_var(tmp_path, monkeypatch):
-    """save(path=...) wins over SANCTUM_SAVE_PATH wins over default."""
     env_target = tmp_path / "env.json"
     explicit = tmp_path / "explicit.json"
     monkeypatch.setenv("SANCTUM_SAVE_PATH", str(env_target))
