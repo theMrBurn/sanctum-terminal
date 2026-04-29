@@ -5,9 +5,16 @@ Vault -- unified read/write interface for world state.
 One object. Ask it anything.
 
 Tables:
-    archive   -- relics (real-world events, impact-rated)
-    scenarios -- scenario ledger (provenance hash = primary key)
-    objects   -- catalog cache (seeded from objects.json)
+    archive          -- relics (real-world events, impact-rated)
+    scenarios        -- scenario ledger (provenance hash = primary key)
+    objects          -- catalog cache (seeded from objects.json)
+    entries          -- Permanent Objects journal-planner entries (her voice, canon)
+    lexicon          -- derived personal lexicon, grows monotonically
+    lexicon_contexts -- per-appearance snippets preserving exact phrasing
+    lexicon_state    -- singleton row tracking triple-trigger cadence + parser_version
+    user_seeds       -- per-user category overrides; populated by planner bootstrap UI.
+                        Categories are whatever string the user types -- no enum, no
+                        cultural defaults. The system learns her vocabulary, not ours.
 
 The vault is the ledger. Everything that passes through the world
 leaves a mark. The Yellow Sign is on every record.
@@ -66,6 +73,71 @@ class vault:
                         primitive TEXT,
                         data      TEXT
                     )
+                """)
+                # -- Permanent Objects journal ---------------------------------
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS entries (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        when_ts     TEXT    NOT NULL,
+                        severity    INTEGER NOT NULL DEFAULT 1,
+                        frequency   TEXT    NOT NULL DEFAULT 'once',
+                        raw_note    TEXT,
+                        created_at  TEXT    NOT NULL,
+                        updated_at  TEXT    NOT NULL
+                    )
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS lexicon (
+                        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                        term                TEXT    NOT NULL,
+                        lemma               TEXT,
+                        ngram_size          INTEGER NOT NULL,
+                        category            TEXT,
+                        first_seen_entry_id INTEGER REFERENCES entries(id),
+                        first_seen_at       TEXT    NOT NULL,
+                        last_seen_at        TEXT    NOT NULL,
+                        occurrences         INTEGER NOT NULL DEFAULT 1,
+                        embedding           BLOB,
+                        UNIQUE(term, ngram_size)
+                    )
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS lexicon_contexts (
+                        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                        lexicon_id   INTEGER NOT NULL REFERENCES lexicon(id),
+                        entry_id     INTEGER NOT NULL REFERENCES entries(id),
+                        snippet      TEXT    NOT NULL,
+                        slot         TEXT,
+                        register     TEXT,
+                        co_occurring TEXT
+                    )
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS lexicon_state (
+                        id                 INTEGER PRIMARY KEY CHECK (id = 1),
+                        last_entry_at      TEXT,
+                        last_inline_update TEXT,
+                        last_full_retrain  TEXT,
+                        last_planner_open  TEXT,
+                        parser_version     INTEGER NOT NULL DEFAULT 1,
+                        w2v_version        INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+                # User-defined category overrides. Populated by the planner UI's
+                # first-appearance bootstrap; the system never invents a category
+                # without the user's input. Category is a free-form string.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS user_seeds (
+                        term      TEXT PRIMARY KEY,
+                        category  TEXT NOT NULL,
+                        source    TEXT NOT NULL DEFAULT 'bootstrap',
+                        added_at  TEXT NOT NULL
+                    )
+                """)
+                # Seed singleton row -- parser_version is the regen anchor
+                conn.execute("""
+                    INSERT OR IGNORE INTO lexicon_state (id, parser_version, w2v_version)
+                    VALUES (1, 1, 0)
                 """)
                 conn.commit()
         except sqlite3.Error as e:
@@ -276,6 +348,56 @@ class vault:
             d["id"] = row["id"]
             result.append(d)
         return result
+
+    # -- Permanent Objects journal: state singleton ---------------------------
+
+    def lexicon_state(self) -> dict:
+        """
+        Return the lexicon_state singleton row.
+        Always exists -- seeded on schema init with parser_version=1.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM lexicon_state WHERE id = 1"
+            ).fetchone()
+        return dict(row) if row else None
+
+    # -- Permanent Objects journal: user-defined seed categories --------------
+
+    def user_seed_category(self, term: str) -> str | None:
+        """
+        Return the user-defined category for `term`, or None.
+        First lookup in the categorization pipeline -- user-defined seeds
+        always win over system defaults.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT category FROM user_seeds WHERE term = ?", (term,)
+            ).fetchone()
+        return row[0] if row else None
+
+    def add_user_seed(self, term: str, category: str,
+                      source: str = "bootstrap") -> None:
+        """
+        Record a user-defined category for `term`. Called by the planner
+        UI's first-appearance bootstrap. `category` is whatever string
+        the user typed -- no enum, no controlled vocabulary.
+        """
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO user_seeds (term, category, source, added_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(term) DO UPDATE SET
+                  category = excluded.category,
+                  source   = excluded.source,
+                  added_at = excluded.added_at
+            """, (term, category, source, now))
+            conn.commit()
+
+    # -- Object catalog (continued) -------------------------------------------
 
     def objects_by_category(self, category: str) -> list:
         with sqlite3.connect(self.db_path) as conn:

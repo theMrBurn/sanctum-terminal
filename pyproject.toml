@@ -8,6 +8,9 @@ version = "0.1.0"
 dependencies = [
     "panda3d>=1.10.14",
     "rich>=13.0.0",
+    # Permanent Objects journal lexicon (offline NLP, no LLM, no network at runtime).
+    # Model installed separately: `python -m spacy download en_core_web_sm`
+    "spacy>=3.7,<4.0",
 ]
 
 [tool.setuptools]
