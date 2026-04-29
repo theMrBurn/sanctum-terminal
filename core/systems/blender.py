@@ -1,0 +1,223 @@
+"""World Blender V0 — synthesis layer that composes lexicon + character
+substrate into personalized in-game artifacts.
+
+Per `design_world_blender`: the Blender is a *consumer* layer. It pulls
+from existing substrates (lexicon, character_sheet, biome registry,
+chronometer, tension) and produces CharacterSheets / encounter-shaped
+dicts. It does NOT invent new primitive types.
+
+V0 scope: rules-based composition with a stubbed LexiconClient. When the
+lexicon J3+ endpoint ships, swap LexiconStub for a vault-backed client
+without touching the Blender's compose logic. Same input contract.
+
+Hard rules from `design_wont_tolerate`:
+  - Voice phrases are returned VERBATIM. No paraphrasing, no smoothing.
+  - Empty lexicon falls back to neutral primitives, not invented filler.
+  - No LLM, no network, no scraping.
+  - No degrading framings of real people from the journal.
+"""
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+from core.systems.character_classes import CLASSES
+from core.systems.character_sheet import (
+    CharacterSheet,
+    ClassEntry,
+    generate_character_sheet,
+)
+
+
+@dataclass(frozen=True)
+class LexiconTerm:
+    """Minimal shape the Blender consumes. Real lexicon rows have more
+    fields (lemma, ngram_size, last_seen_at, co_occurring) but the
+    Blender only needs term + category + snippet + occurrences for V0
+    composition. Future versions can pull more without breaking callers."""
+    term: str
+    category: str | None = None
+    occurrences: int = 1
+    snippet: str | None = None  # verbatim surface form for voice echo
+
+
+class LexiconClient(Protocol):
+    """The API surface the Blender consumes. Swap implementations:
+       - LexiconStub for tests + pre-J3 development
+       - VaultLexiconClient (future) for live brain integration after J3+ lands
+    """
+
+    def query(self, category: str | None = None) -> list[LexiconTerm]: ...
+
+    def similar(self, word: str, k: int = 8) -> list[str]: ...
+
+    def voice_phrases(self, min_occurrences: int = 2) -> list[str]: ...
+
+
+class LexiconStub:
+    """Empty by default; tests inject fixtures.
+
+    No hardcoded cultural / personal terms — per `design_wont_tolerate` #5
+    cultural neutrality and `design_lexicon_architecture`. The stub is
+    a transport for fixture data only, never a source of synthetic content.
+    """
+
+    def __init__(
+        self,
+        terms: list[LexiconTerm] | None = None,
+        voice: list[str] | None = None,
+        similar_map: dict[str, list[str]] | None = None,
+    ) -> None:
+        self._terms: list[LexiconTerm] = list(terms or [])
+        self._voice: list[str] = list(voice or [])
+        self._similar: dict[str, list[str]] = dict(similar_map or {})
+
+    def query(self, category: str | None = None) -> list[LexiconTerm]:
+        if category is None:
+            return list(self._terms)
+        return [t for t in self._terms if t.category == category]
+
+    def similar(self, word: str, k: int = 8) -> list[str]:
+        return self._similar.get(word, [])[:k]
+
+    def voice_phrases(self, min_occurrences: int = 2) -> list[str]:
+        return list(self._voice)
+
+
+# ── Role → class mapping ──────────────────────────────────────────────
+
+
+# Maps Blender role names to character classes from `core.systems.character_classes`.
+# Roles are gameplay-meaningful labels ("vendor", "companion") that map to
+# class definitions ("rogue", "monk") which carry the actual stats + abilities.
+# Unknown roles fall back to "rogue" — the most generic class.
+ROLE_TO_CLASS: dict[str, str] = {
+    "watcher": "watcher",
+    "scout": "scout",
+    "scholar": "scholar",
+    "vendor": "rogue",
+    "companion": "monk",
+    "cipher": "philosopher",
+}
+
+
+def _class_for_role(role: str) -> str:
+    return ROLE_TO_CLASS.get(role.lower(), "rogue")
+
+
+# ── Blender ───────────────────────────────────────────────────────────
+
+
+@dataclass
+class WorldBlender:
+    """Composes substrates into per-session artifacts.
+
+    Pure data + lexicon queries. Deterministic when seeded.
+    """
+
+    lexicon: LexiconClient = field(default_factory=LexiconStub)
+
+    def npc_for_role(
+        self,
+        role: str,
+        *,
+        biome: str | None = None,
+        seed: int | None = None,
+    ) -> CharacterSheet:
+        """Synthesize an NPC CharacterSheet for `role`.
+
+        Composition:
+          - Name from lexicon.query(category="PERSON") if any; otherwise
+            a role-based neutral default ("Watcher", "Scout", ...). Snippet
+            wins over normalized term so her capitalization survives.
+          - Class history from ROLE_TO_CLASS mapping.
+          - Age sampled deterministically from `seed`.
+          - Stats + abilities derive from the class preset (no override).
+
+        Per `design_wont_tolerate`: never invents synthetic personal names
+        when the lexicon is empty — falls back to neutral role labels.
+        """
+        rng = random.Random(seed)
+
+        person_terms = self.lexicon.query(category="PERSON")
+        if person_terms:
+            chosen = rng.choice(person_terms)
+            # Snippet preserves her exact surface form per the voice contract.
+            name = chosen.snippet if chosen.snippet else chosen.term
+        else:
+            name = role.title()  # neutral fallback
+
+        class_name = _class_for_role(role)
+        # NPC age: rough archetype-appropriate band. Not fed back to the
+        # player as a literal stat; just shapes class progression depth.
+        age = rng.randint(30, 80)
+        history = [ClassEntry(class_name, levels=age, started_at_age=0)]
+
+        return generate_character_sheet(
+            name=name,
+            birthday=(1, 1),  # NPC placeholder; not surfaced in HUD
+            age=age,
+            class_history=history,
+        )
+
+    def voice_lines_for_npc(
+        self,
+        role: str,
+        n: int = 3,
+        min_occurrences: int = 1,
+    ) -> list[str]:
+        """Return up to `n` verbatim voice phrases for an NPC's dialog options.
+
+        Per `design_wont_tolerate` #1 + #9: phrases are returned VERBATIM
+        from the lexicon. Never paraphrase, smooth, or "improve" them. If
+        no voice data is available, returns []; the encounter system uses
+        neutral fallbacks rather than synthesizing voice.
+        """
+        phrases = self.lexicon.voice_phrases(min_occurrences=min_occurrences)
+        return phrases[:n]
+
+    def encounter_template(
+        self,
+        *,
+        biome: str,
+        tension: str = "open",
+        role: str = "watcher",
+        seed: int | None = None,
+    ) -> dict[str, Any]:
+        """Compose an encounter shape: NPC + voice options + biome flavor.
+
+        Returns a dict matching the brain's encounter manifest shape.
+        Action options come from the existing `design_orb_encounters`
+        substrate when available; voice phrases are layered on as
+        verbatim dialog lines.
+        """
+        npc = self.npc_for_role(role, biome=biome, seed=seed)
+        voice = self.voice_lines_for_npc(role, n=3)
+
+        return {
+            "name": npc.name,
+            "kind": role,
+            "biome": biome,
+            "tension": tension,
+            # action_options shape mirrors the existing encounter system
+            # (string list of action names). Voice phrases ride alongside
+            # so the renderer can echo them as the labels OR fall back to
+            # action names directly.
+            "action_options": ["parley", "observe", "leave"],
+            "voice_phrases": voice,
+            "npc_sheet": {
+                "name": npc.name,
+                "age": npc.age,
+                "class_history": [
+                    {"name": e.name, "levels": e.levels} for e in npc.class_history
+                ],
+            },
+        }
+
+
+# Convenience factory — single Blender instance with empty stub. Tests and
+# brain code can either import this default or build their own with a
+# specific LexiconClient injected.
+def default_blender() -> WorldBlender:
+    return WorldBlender(lexicon=LexiconStub())
