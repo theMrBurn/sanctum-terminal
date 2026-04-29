@@ -26,6 +26,7 @@ import pyray as rl  # noqa: E402
 from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
+from clients.vector_terminal import state_events as state_events_renderer  # noqa: E402
 from clients.vector_terminal.collision import resolve_collisions  # noqa: E402
 from clients.vector_terminal.envelope import clamp_to_envelope  # noqa: E402
 from clients.vector_terminal.inputs import action_for_key_index, next_inventory_name  # noqa: E402
@@ -91,6 +92,12 @@ def main() -> int:
     # old one (different source = reset cursor to its default).
     selected_dial_idx = 0
     last_dial_source: str | None = None
+
+    # StateEvent toast state — watermark suppresses historical events on
+    # connect; new events become active toasts and expire by register-driven
+    # duration. Per design_state_events.
+    seen_event_id = 0
+    active_toasts: list = []
 
     while not rl.window_should_close():
         dt = rl.get_frame_time()
@@ -229,6 +236,14 @@ def main() -> int:
             if rl.is_key_pressed(rl.KeyboardKey.KEY_BACKSLASH):
                 noclip = not noclip
 
+            # Backspace = abort to HUB. Brain validates IN_MISSION → HUB
+            # so this only does anything when we're actually in a mission.
+            # Always-a-way-home navigation per the UAT-driven design directive.
+            if rl.is_key_pressed(rl.KeyboardKey.KEY_BACKSPACE):
+                state = str(last_manifest.get("game_state", {}).get("state", ""))
+                if state == "IN_MISSION":
+                    client.send({"cmd": "state_transition_request", "target": "HUB"})
+
             if rl.is_mouse_button_pressed(rl.MouseButton.MOUSE_BUTTON_LEFT):
                 click_pings.append(now)
                 client.send({
@@ -291,6 +306,15 @@ def main() -> int:
             if is_first_manifest or revision.observe(msg.get("world_revision")):
                 _teleport_to_spawn(camera, msg)
                 yaw, pitch = _spawn_orientation(msg)
+
+        # Advance state-event toasts — runs once per frame regardless of
+        # whether new manifests arrived. Watermark + active list update.
+        seen_event_id, active_toasts = state_events_renderer.update(
+            last_manifest.get("state_events", []) or [],
+            seen_event_id,
+            active_toasts,
+            now,
+        )
 
         if now - last_cam_send >= cfg.CAM_UPDATE_DT:
             client.send(
@@ -372,6 +396,14 @@ def main() -> int:
 
         if noclip:
             hud.draw_status_chip("NOCLIP", rl.get_screen_width(), amber)
+
+        # State event toasts — drawn last so they're on top of HUD/dial/etc.
+        state_events_renderer.draw(
+            active_toasts,
+            rl.get_screen_width(),
+            now,
+            amber,
+        )
 
         rl.end_drawing()
 

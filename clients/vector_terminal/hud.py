@@ -43,13 +43,42 @@ def draw_crosshair(width: int, height: int, color) -> None:
 
 
 def draw_hud(manifest: dict, color) -> None:
-    """Top-left field stack — HP / TENSION / PHASE / EXPED / EQUIP / INV / MSG."""
+    """Top-left field stack. Identity from `character_sheet` (when sealed)
+    leads; live status (HP / TENSION / PHASE / EXPED / EQUIP / INV / MSG)
+    follows. A divider separates them so identity and state are visually
+    distinct."""
     if _FONT is None:
         load_font()
     x = cfg.HUD_X
     y = cfg.HUD_Y
     line = cfg.HUD_LINE_HEIGHT
 
+    fields: list[str] = []
+
+    # ── Identity block (only when character_sheet present) ──
+    sheet = manifest.get("character_sheet")
+    if sheet:
+        name = sheet.get("name", "?")
+        level = sheet.get("level", sheet.get("age", "?"))
+        background = sheet.get("background", "")
+        fields.append(f"{name.upper()} · LEVEL {level}")
+        if background:
+            fields.append(f"  {background}")
+        stats = sheet.get("stats") or {}
+        if stats:
+            fields.append(
+                f"  DEX {stats.get('DEX','?')}  WIS {stats.get('WIS','?')}  "
+                f"INT {stats.get('INT','?')}  CHA {stats.get('CHA','?')}"
+            )
+        abilities = sheet.get("selected_abilities") or []
+        if abilities:
+            fields.append(f"  ABL {_truncate(', '.join(abilities), cfg.HUD_INV_MAX_CHARS)}")
+        verbs = sheet.get("verbs_known") or []
+        if verbs:
+            fields.append(f"  VRB {' · '.join(verbs)}")
+        fields.append("---")
+
+    # ── Live status block ──
     player = manifest.get("player", {})
     hp = player.get("hp", 0)
     max_hp = player.get("max_hp", 0)
@@ -70,7 +99,7 @@ def draw_hud(manifest: dict, color) -> None:
     obj = expedition.get("objective_text", "")
     msg = expedition.get("last_message_text", "") or expedition.get("last_message", "")
 
-    fields = [
+    fields.extend([
         f"HP {hp}/{max_hp}",
         f"TENSION {tension_state} {tension_budget:.2f}",
         f"PHASE {phase}",
@@ -78,7 +107,8 @@ def draw_hud(manifest: dict, color) -> None:
         f"EQUIP {equipped}",
         f"INV {inv_text}",
         f"MSG {_truncate(str(msg), cfg.HUD_MSG_MAX_CHARS)}",
-    ]
+    ])
+
     for i, text in enumerate(fields):
         _draw(text, x, y + i * line, color)
 

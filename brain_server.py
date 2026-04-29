@@ -57,6 +57,13 @@ from core.systems import pillars as pillars_registry
 from core.systems.character_draft import CharacterDraft
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
+from core.systems.state_events import (
+    StateEventBuffer,
+    to_manifest as state_events_to_manifest,
+    LOOP as REG_LOOP,
+    RITUAL as REG_RITUAL,
+    SYSTEM as REG_SYSTEM,
+)
 from datetime import date
 from core.systems.expedition_engine import ExpeditionEngine
 from core.systems.expedition_data import BIOME_EXPEDITIONS
@@ -283,6 +290,11 @@ class BrainWorld:
         self.character_sheet: CharacterSheet | None = loaded_sheet
         self.character_draft: CharacterDraft | None = None
         self.active_dial: DialPrompt | None = None
+
+        # StateEvent buffer — universal player-feedback primitive (per
+        # `design_state_events` once memory is saved). Every state change
+        # the player should know about emits an event; clients render toasts.
+        self.state_events: StateEventBuffer = StateEventBuffer()
 
         if loaded_sheet is not None:
             # Returning player with a sealed sheet — straight to HUB.
@@ -968,6 +980,10 @@ class BrainWorld:
             # which pillars have sealed; `character_sheet` is the finalized
             # output once draft is complete. All three are None outside the
             # CHARACTER_CREATION → HUB transition path.
+            # State events — universal player-feedback ring buffer.
+            # Clients track watermark by event id; first connect syncs to
+            # the latest id (no historical toast spam).
+            "state_events": state_events_to_manifest(self.state_events),
             "dial_prompt": (
                 dial_to_manifest(self.active_dial)
                 if self.active_dial is not None
@@ -1408,10 +1424,28 @@ def run_server(biome_name, port=9877):
                             and new_state.state == gs.GameStateName.IN_MISSION):
                         world.regen_world(new_state.mission_seed)
                         print(f"  world regen: mission seed={new_state.mission_seed}", flush=True)
+                        world.state_events.emit(
+                            "mission_launched",
+                            "MISSION LAUNCHED",
+                            f"seed {new_state.mission_seed}",
+                            REG_LOOP,
+                        )
                     elif (old.state in (gs.GameStateName.IN_MISSION, gs.GameStateName.RESULTS)
                             and new_state.state == gs.GameStateName.HUB):
                         world.regen_world(world.hub_seed)
                         print(f"  world regen: hub seed={world.hub_seed}", flush=True)
+                        # Distinguish abort from completion via the prior state.
+                        label = "RETURNING HOME" if old.state == gs.GameStateName.IN_MISSION else "RETURNED HOME"
+                        world.state_events.emit(
+                            "state_transition", label, None, REG_LOOP)
+                    else:
+                        # Generic state transition feedback for HUB↔MISSION_SELECT, etc.
+                        world.state_events.emit(
+                            "state_transition",
+                            f"{old.state.value} → {new_state.state.value}",
+                            None,
+                            REG_LOOP,
+                        )
 
                     # L5 autosave — write player state to disk on the natural
                     # mission boundary (RESULTS → HUB). Other transitions
@@ -1424,6 +1458,8 @@ def run_server(biome_name, port=9877):
                         try:
                             written = save_state.save(world.player, world.character_sheet)
                             print(f"  autosave: {written}", flush=True)
+                            world.state_events.emit(
+                                "save_written", "SAVED", None, REG_SYSTEM)
                         except OSError as e:
                             print(f"  autosave failed: {e}", flush=True)
 
@@ -1507,16 +1543,39 @@ def run_server(biome_name, port=9877):
                                 world.game_state, gs.GameStateName.HUB)
                             print(f"  character sealed: {world.character_sheet.name} (age {world.character_sheet.age})", flush=True)
                             print(f"  state: {old_state.state.value} -> {world.game_state.state.value}", flush=True)
+                            world.state_events.emit(
+                                "pillar_sealed",
+                                f"PILLAR SEALED · {pillar_id.upper()}",
+                                f"{world.character_sheet.name} · age {world.character_sheet.age}",
+                                REG_RITUAL,
+                            )
+                            world.state_events.emit(
+                                "state_transition",
+                                "RETURNING TO HUB",
+                                None,
+                                REG_LOOP,
+                            )
                             # Autosave the sealed sheet so brain restart preserves
                             # identity (per "real game saves" — the sheet survives
                             # alongside PlayerState).
                             try:
                                 written = save_state.save(world.player, world.character_sheet)
                                 print(f"  autosave (post-creation): {written}", flush=True)
+                                world.state_events.emit(
+                                    "save_written", "SAVED", None, REG_SYSTEM)
                             except OSError as save_err:
                                 print(f"  autosave failed: {save_err}", flush=True)
                         except Exception as e:
                             print(f"  finalize failed: {e}", flush=True)
+                    else:
+                        # Sealed a non-final pillar (in normal multi-pillar flow);
+                        # emit a feedback event but don't transition or save.
+                        world.state_events.emit(
+                            "pillar_sealed",
+                            f"PILLAR SEALED · {pillar_id.upper()}",
+                            None,
+                            REG_RITUAL,
+                        )
 
                     last_wake_ids = set()
                     continue
