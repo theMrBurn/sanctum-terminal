@@ -560,13 +560,16 @@ def get_visible(cam_x: float, cam_y: float, radius: float,
                 # landmarks to the horizon. Entity shrinks linearly over
                 # the last SCALE_FADE_BAND meters of its max_distance, then
                 # hard-culls. Deterministic, continuous, no pop.
+                # Per-kind visibility cull stays — it's data-level (entity too
+                # far for its kind, don't ship it). The scale-fade application
+                # that USED to live here was moved out per design_brain_ground_truth
+                # 2026-04-28 — it was render-hint smoothing for Godot's PBR
+                # pipeline, which belongs in the renderer, not the brain.
+                # Vector terminal renders raw scales; if Godot wants the
+                # smooth grow-in back, it applies it client-side.
                 fade = _kind_scale_factor(ent["kind"], dist)
                 if fade <= 0.0:
                     continue  # beyond kind's visibility — drop
-                if fade < 1.0:
-                    ent["sx"] = round(ent["sx"] * fade, 3)
-                    ent["sy"] = round(ent["sy"] * fade, 3)
-                    ent["sz"] = round(ent["sz"] * fade, 3)
                 visible.append(ent)
 
     return visible

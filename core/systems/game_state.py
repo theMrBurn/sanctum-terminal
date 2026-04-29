@@ -30,8 +30,9 @@ from typing import Any, NamedTuple, Optional
 # --- States -----------------------------------------------------------------
 
 class GameStateName(str, Enum):
-    """The four canonical loop states. Stored as strings so manifest
+    """The five canonical loop states. Stored as strings so manifest
     serialization is direct (json.dumps friendly)."""
+    CHARACTER_CREATION = "CHARACTER_CREATION"  # at hub, doing the 7-pillar ritual
     HUB = "HUB"                     # at staging area, free exploration
     MISSION_SELECT = "MISSION_SELECT"  # picker open, choosing a mission
     IN_MISSION = "IN_MISSION"       # out in a procedural instance
@@ -41,6 +42,7 @@ class GameStateName(str, Enum):
 # Allowed transitions. Anything not in this set raises ValueError.
 # Reading: (FROM, TO).
 _ALLOWED_TRANSITIONS = frozenset({
+    (GameStateName.CHARACTER_CREATION, GameStateName.HUB),     # all pillars sealed
     (GameStateName.HUB, GameStateName.MISSION_SELECT),         # open picker
     (GameStateName.MISSION_SELECT, GameStateName.HUB),         # cancel picker
     (GameStateName.MISSION_SELECT, GameStateName.IN_MISSION),  # launch mission
@@ -72,6 +74,16 @@ class GameState(NamedTuple):
             results=None,
         )
 
+    @classmethod
+    def fresh_character(cls) -> "GameState":
+        """Brand-new player — no save file, run the 7-pillar ritual at hub."""
+        return cls(
+            state=GameStateName.CHARACTER_CREATION,
+            mission_id=None,
+            mission_seed=None,
+            results=None,
+        )
+
 
 # --- Transitions ------------------------------------------------------------
 
@@ -95,9 +107,10 @@ def transition(
         )
 
     if target == GameStateName.HUB:
-        # Returning to hub clears all mission context. The world regen
-        # that backs this transition lives in BrainWorld; here we just
-        # mark the state as fresh.
+        # Returning to hub clears all mission context (and any character-creation
+        # context — once you transition out of CHARACTER_CREATION, the draft
+        # has been finalized). World regen that backs this transition lives
+        # in BrainWorld; here we just mark the state as fresh.
         return current._replace(
             state=target,
             mission_id=None,

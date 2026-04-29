@@ -1,4 +1,4 @@
-.PHONY: clean factory test test-unit test-quest run seed-db trunk-check meshes brain brain-cavern
+.PHONY: clean factory test test-unit test-quest run seed-db trunk-check meshes brain brain-cavern brain-vector vector
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
@@ -114,3 +114,13 @@ brain: meshes
 
 brain-cavern: meshes
 	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py cavern
+
+# Brain for vector_terminal use — same stamp_world mode as brain-cavern but
+# skips the meshes prereq since vector_terminal renders wireframes from
+# kind_config bounds, never loads GLB meshes. Pair with `make vector`.
+brain-vector:
+	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py cavern
+
+# Launch the vector_terminal client (assumes a brain is already up on :9877).
+vector:
+	PYTHONPATH=. ./.venv/bin/python -m clients.vector_terminal.main

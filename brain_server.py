@@ -24,6 +24,7 @@ import select
 import socket
 import sys
 import time
+from typing import Optional
 
 from core.systems.biome_data import (
     BIOME_REGISTRY,
@@ -48,6 +49,15 @@ from core.systems.biome_data import MACRO_STAMP_CAVERN_CHAMBER
 from core.systems.tile_exchange import TileExchange
 from core.systems.bucket_world import get_visible as bucket_get_visible
 from core.systems.stamp_world import get_visible as stamp_get_visible
+
+# Character creation primitives — `design_character_sheet`, `design_seven_pillars`,
+# `design_dial_input`, `design_character_draft`. The schema, the dial input shape,
+# the event-sourced draft, and the pillar handler registry.
+from core.systems import pillars as pillars_registry
+from core.systems.character_draft import CharacterDraft
+from core.systems.character_sheet import CharacterSheet
+from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
+from datetime import date
 from core.systems.expedition_engine import ExpeditionEngine
 from core.systems.expedition_data import BIOME_EXPEDITIONS
 from core.systems.encounter_session import EncounterSession
@@ -261,10 +271,22 @@ class BrainWorld:
             for _ in range(2):
                 self.player = ps.add_item(self.player, Item(name="healing_potion"))
 
-        # Loop-completion state machine (L1). Spine of the DRG/Persona-style
-        # gameplay loop. Boots at HUB with no mission context. Transitions
-        # validated; Godot reads manifest.game_state every update.
-        self.game_state: GameState = GameState.initial()
+        # Character creation state — `design_seven_pillars`. New player without
+        # a save enters CHARACTER_CREATION with a CharacterDraft. Stub-pillars
+        # 2-7 auto-default so player only engages Pillar 1 (Name) for the
+        # initial UAT. Real interactive pillars replace stubs in later sessions.
+        self.character_sheet: CharacterSheet | None = None
+        self.character_draft: CharacterDraft | None = None
+        self.active_dial: DialPrompt | None = None
+
+        if loaded_player is None:
+            # Fresh player — run the 7-pillar ritual.
+            self.character_draft = self._init_creation_draft()
+            self.game_state: GameState = GameState.fresh_character()
+        else:
+            # Returning player — straight to HUB. (Save format does not yet
+            # carry the CharacterSheet; a future PR migrates that.)
+            self.game_state: GameState = GameState.initial()
 
         # World regen support (L2). hub_seed preserves the canonical hub world
         # so RESULTS → HUB returns to the same staging area each time. Mission
@@ -273,6 +295,18 @@ class BrainWorld:
         # watches it, re-dispatches spawn, and rebuilds entity render state.
         self.hub_seed: int = base_seed
         self.world_revision: int = 0
+
+        # Mission picker (L6). Derived from BIOME_EXPEDITIONS[biome]. Each
+        # active class becomes a mission_id by appending "_01" — same shape
+        # the L7 reward path already records into completed_missions, so the
+        # picker plugs in without reshaping persistence.
+        # selected_mission_id is None outside MISSION_SELECT; set on entry,
+        # cycled by mission_select_cycle, consumed at launch.
+        self.available_missions: list[str] = [
+            f"{cls}_01"
+            for cls in BIOME_EXPEDITIONS.get(biome_name, {}).get("active_classes", [])
+        ]
+        self.selected_mission_id: Optional[str] = None
 
         # Ceiling height — resolved from biome planes config.
         # Ceiling_moss and hanging_vine attach relative to this.
@@ -305,6 +339,23 @@ class BrainWorld:
 
         # Generate center tile (legacy path seeds spatial hash for extended skeleton query)
         self._generate_tile(0, 0)
+
+    def _init_creation_draft(self) -> CharacterDraft:
+        """Build a draft pre-stuffed with stub answers for pillars 2-7 so
+        the first interactive session only requires Pillar 1 (Name) to
+        complete and finalize. As real pillar implementations land, the
+        corresponding stub append disappears here; the player then engages
+        the real pillar instead. Per `design_seven_pillars` UAT scope.
+        """
+        draft = CharacterDraft()
+        today = date.today()
+        draft.append("days", (today.month, today.day))
+        draft.append("years", 30)
+        draft.append("first_path", "rogue")
+        draft.append("vow", "remain")
+        draft.append("standing", ["DEX", "WIS", "CHA"])
+        draft.append("mark", ["Quiet Tread"])
+        return draft
 
     def regen_world(self, new_seed: int) -> None:
         """Wipe cached world state and reset to a fresh seed (L2).
@@ -818,6 +869,29 @@ class BrainWorld:
                 tinted["b"] = round(min(1.0, ent["b"] + lb), 3)
                 visible[i] = tinted
 
+        # Synthetic character-creation pillar entities (per `design_seven_pillars`).
+        # Injected after exchange_entities so they pass through the manifest
+        # the same way ordinary entities do. Only Pillar 1 (Name) is interactive
+        # in this build — the others are pre-stubbed in _init_creation_draft so
+        # the draft can finalize on Pillar 1 commit alone. Future sessions add
+        # real pillars and this synthetic injection grows accordingly.
+        if (self.game_state.state == gs.GameStateName.CHARACTER_CREATION
+                and self.character_draft is not None):
+            progress = self.character_draft.progress()
+            if not progress.get("name", False):
+                # Spawn is at (0, -14) facing south (heading 180°). Pillar
+                # at y=-20 sits ~6m in front of the player at first frame so
+                # it's immediately visible without turning around.
+                visible.append({
+                    "id": -1000,
+                    "kind": "pillar_name",
+                    "x": 0.0, "y": -20.0, "z": 0.0,
+                    "sx": 0.6, "sy": 0.6, "sz": 3.0,
+                    "heading": 0.0,
+                    "r": 1.0, "g": 0.7, "b": 0.0,
+                    "collision_radius": 0.6,
+                })
+
         return {
             "camera": {"x": cam_x, "y": cam_y, "z": cam_z,
                        "heading": heading, "pitch": pitch,
@@ -874,8 +948,53 @@ class BrainWorld:
             # phase (HUB / MISSION_SELECT / IN_MISSION / RESULTS). Mutated
             # brain-side via state_transition_request and mission_complete
             # effect; streamed every tick so transitions land within one
-            # manifest cycle.
-            "game_state": gs.to_manifest(self.game_state),
+            # manifest cycle. Picker fields (available_missions,
+            # selected_mission_id) merge in here rather than living on the
+            # immutable GameState type — selection is transient session UI
+            # state, not part of the validated transition graph.
+            "game_state": {
+                **gs.to_manifest(self.game_state),
+                "available_missions": list(self.available_missions),
+                "selected_mission_id": self.selected_mission_id,
+            },
+            # Character creation surface (`design_seven_pillars`, `design_dial_input`).
+            # `dial_prompt` is the active engagement; `pillar_progress` shows
+            # which pillars have sealed; `character_sheet` is the finalized
+            # output once draft is complete. All three are None outside the
+            # CHARACTER_CREATION → HUB transition path.
+            "dial_prompt": (
+                dial_to_manifest(self.active_dial)
+                if self.active_dial is not None
+                else None
+            ),
+            "pillar_progress": (
+                self.character_draft.progress()
+                if self.character_draft is not None
+                else None
+            ),
+            "character_sheet": (
+                {
+                    "name": self.character_sheet.name,
+                    "age": self.character_sheet.age,
+                    "level": self.character_sheet.level,
+                    "background": (
+                        f"{self.character_sheet.class_history[-1].name.title()}"
+                        if self.character_sheet.class_history else "Wanderer"
+                    ),
+                    "stats": {
+                        "DEX": self.character_sheet.dex,
+                        "WIS": self.character_sheet.wis,
+                        "INT": self.character_sheet.int_,
+                        "CHA": self.character_sheet.cha,
+                        "STR": self.character_sheet.str_,
+                        "CON": self.character_sheet.con,
+                    },
+                    "selected_abilities": list(self.character_sheet.selected_abilities),
+                    "verbs_known": list(self.character_sheet.verbs_known),
+                }
+                if self.character_sheet is not None
+                else None
+            ),
             # Bumped each regen_world call. Godot watches for change and
             # re-dispatches spawn + clears entity caches so the world
             # transition lands within one manifest cycle.
@@ -1209,6 +1328,29 @@ def run_server(biome_name, port=9877):
                         print(f"  mission_complete rejected: {e}", flush=True)
                     continue
 
+                if msg.get("cmd") == "mission_select_cycle":
+                    # L6 — cycle the picker selection while in MISSION_SELECT.
+                    # Outside that state the command is meaningless, so reject
+                    # rather than silently mutating selection. Wraps modulo
+                    # available_missions length; missing/unknown current
+                    # selection resets to index 0.
+                    if world.game_state.state != gs.GameStateName.MISSION_SELECT:
+                        print(f"  mission_select_cycle rejected: state={world.game_state.state.value}", flush=True)
+                        continue
+                    if not world.available_missions:
+                        print("  mission_select_cycle rejected: no available missions", flush=True)
+                        continue
+                    delta = int(msg.get("delta", 1))
+                    try:
+                        idx = world.available_missions.index(world.selected_mission_id)
+                    except ValueError:
+                        idx = 0
+                    new_idx = (idx + delta) % len(world.available_missions)
+                    world.selected_mission_id = world.available_missions[new_idx]
+                    last_wake_ids = set()
+                    print(f"  mission picker: -> {world.selected_mission_id} ({new_idx + 1}/{len(world.available_missions)})", flush=True)
+                    continue
+
                 if msg.get("cmd") == "state_transition_request":
                     target_str = str(msg.get("target", ""))
                     try:
@@ -1218,12 +1360,16 @@ def run_server(biome_name, port=9877):
                         continue
                     old = world.game_state
                     try:
-                        # Mission transitions need an id + seed. For L2 testing
-                        # without a picker UI (L6), launching from MISSION_SELECT
-                        # auto-generates both.
+                        # Mission transitions need an id + seed. The id comes
+                        # from the picker's current selection (L6); msg may
+                        # override for tests/headless flows that bypass the
+                        # picker. Falls through to a sensible default if both
+                        # are unset (no available missions).
                         kwargs = {}
                         if target == gs.GameStateName.IN_MISSION:
-                            kwargs["mission_id"] = str(msg.get("mission_id", "anomaly_hunt_01"))
+                            picked = (world.selected_mission_id
+                                      or (world.available_missions[0] if world.available_missions else "anomaly_hunt_01"))
+                            kwargs["mission_id"] = str(msg.get("mission_id", picked))
                             kwargs["mission_seed"] = int(msg.get("mission_seed", random.randint(1, 999_999)))
                         elif target == gs.GameStateName.RESULTS:
                             kwargs["results"] = msg.get("results", {})
@@ -1234,6 +1380,19 @@ def run_server(biome_name, port=9877):
 
                     world.game_state = new_state
                     print(f"  state: {old.state.value} -> {new_state.state.value}", flush=True)
+
+                    # L6 — picker selection lifecycle. Initialize on entering
+                    # MISSION_SELECT (so the player sees a default highlight),
+                    # clear on any path back to HUB or forward to IN_MISSION
+                    # (selection is consumed at launch).
+                    if new_state.state == gs.GameStateName.MISSION_SELECT:
+                        if world.selected_mission_id not in world.available_missions:
+                            world.selected_mission_id = (
+                                world.available_missions[0]
+                                if world.available_missions else None
+                            )
+                    else:
+                        world.selected_mission_id = None
 
                     # Side effects per transition.
                     # Launching: regen world with the mission seed.
@@ -1263,6 +1422,89 @@ def run_server(biome_name, port=9877):
                             print(f"  autosave failed: {e}", flush=True)
 
                     last_wake_ids = set()  # force manifest resend with new state
+                    continue
+
+                if msg.get("cmd") == "engage_pillar":
+                    # Per `design_seven_pillars` + `design_dial_input`: player
+                    # walks up to a pillar in the hub during CHARACTER_CREATION,
+                    # presses F, brain returns the pillar's initial DialPrompt
+                    # via manifest.dial_prompt. Client renders the dial.
+                    if world.game_state.state != gs.GameStateName.CHARACTER_CREATION:
+                        print(f"  engage_pillar rejected: state={world.game_state.state.value}", flush=True)
+                        continue
+                    if world.character_draft is None:
+                        print(f"  engage_pillar rejected: no draft", flush=True)
+                        continue
+                    pillar_id = str(msg.get("pillar", ""))
+                    handler = pillars_registry.get(pillar_id)
+                    if handler is None:
+                        print(f"  engage_pillar rejected: unknown pillar {pillar_id!r}", flush=True)
+                        continue
+                    world.active_dial = handler.initial_prompt(world.character_draft)
+                    last_wake_ids = set()
+                    print(f"  engaged pillar:{pillar_id}", flush=True)
+                    continue
+
+                if msg.get("cmd") == "dial_cancel":
+                    # Player closed the dial without committing (Esc during dial).
+                    # Brain just clears active_dial; player can re-engage the
+                    # same pillar later. The draft is unaffected.
+                    if world.active_dial is not None:
+                        print(f"  dial cancelled: {world.active_dial.source}", flush=True)
+                        world.active_dial = None
+                        last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "dial_response":
+                    # Universal dial commit. Player picked option `answer_idx`
+                    # from the active dial. For narrow-mode dials (binary CAT)
+                    # this may emit a follow-up prompt; for select-mode it
+                    # commits the value via the pillar's apply() and appends
+                    # to the draft. Once the draft is complete, brain finalizes
+                    # the CharacterSheet and transitions CHARACTER_CREATION → HUB.
+                    if world.active_dial is None:
+                        print(f"  dial_response rejected: no active dial", flush=True)
+                        continue
+                    answer_idx = int(msg.get("answer_idx", world.active_dial.default_index))
+                    source = world.active_dial.source
+                    if not source.startswith("pillar:"):
+                        print(f"  dial_response: non-pillar source {source!r} not yet routed", flush=True)
+                        continue
+                    pillar_id = source.split(":", 1)[1]
+                    handler = pillars_registry.get(pillar_id)
+                    if handler is None:
+                        print(f"  dial_response: handler missing for {pillar_id}", flush=True)
+                        world.active_dial = None
+                        continue
+                    if not (0 <= answer_idx < len(world.active_dial.options)):
+                        print(f"  dial_response: answer_idx {answer_idx} out of range", flush=True)
+                        continue
+
+                    follow_up = handler.next_prompt(
+                        world.character_draft, world.active_dial, answer_idx)
+                    if follow_up is not None:
+                        world.active_dial = follow_up
+                        last_wake_ids = set()
+                        continue
+
+                    chosen_value = world.active_dial.options[answer_idx].value
+                    world.character_draft.append(pillar_id, chosen_value)
+                    world.active_dial = None
+                    print(f"  pillar {pillar_id!r} sealed: {chosen_value!r}", flush=True)
+
+                    if world.character_draft.is_complete():
+                        try:
+                            world.character_sheet = world.character_draft.finalize(
+                                pillars_registry.all_handlers())
+                            old_state = world.game_state
+                            world.game_state = gs.transition(
+                                world.game_state, gs.GameStateName.HUB)
+                            print(f"  character sealed: {world.character_sheet.name} (age {world.character_sheet.age})", flush=True)
+                            print(f"  state: {old_state.state.value} -> {world.game_state.state.value}", flush=True)
+                        except Exception as e:
+                            print(f"  finalize failed: {e}", flush=True)
+
+                    last_wake_ids = set()
                     continue
 
                 if msg.get("cmd") == "equip_request":

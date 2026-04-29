@@ -1,0 +1,22 @@
+; Engine configuration for the Fractal Engine demo.
+;
+; This is an isolated Godot 4.x project under experiments/fractal_engine/.
+; It does NOT share resources with the live sanctum godot/ project.
+
+config_version=5
+
+[application]
+
+config/name="Fractal Engine Demo"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.2", "Forward Plus")
+
+[display]
+
+window/size/viewport_width=720
+window/size/viewport_height=720
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+environment/defaults/default_clear_color=Color(0.04, 0.04, 0.06, 1)
