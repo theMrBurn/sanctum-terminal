@@ -62,9 +62,21 @@ class vault:
                         type             TEXT NOT NULL,
                         state            TEXT NOT NULL,
                         objective        TEXT,
-                        provenance_hash  TEXT UNIQUE NOT NULL
+                        provenance_hash  TEXT UNIQUE NOT NULL,
+                        params           TEXT NOT NULL DEFAULT '{}'
                     )
                 """)
+                # Idempotent migration for vault.dbs created before the
+                # params column existed. ALTER TABLE ADD COLUMN raises if
+                # the column already exists, which is the intended
+                # signal — catch and skip.
+                try:
+                    conn.execute(
+                        "ALTER TABLE scenarios "
+                        "ADD COLUMN params TEXT NOT NULL DEFAULT '{}'"
+                    )
+                except sqlite3.OperationalError:
+                    pass
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS objects (
                         id        TEXT PRIMARY KEY,
@@ -206,20 +218,66 @@ class vault:
         Raises on duplicate hash.
         Returns scenario id.
         """
+        params_blob = json.dumps(scenario.get("params", {}) or {})
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO scenarios (id, type, state, objective, provenance_hash) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO scenarios "
+                "(id, type, state, objective, provenance_hash, params) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     scenario["id"],
                     scenario["type"],
                     scenario["state"],
                     scenario.get("objective", ""),
                     scenario["provenance_hash"],
+                    params_blob,
                 ),
             )
             conn.commit()
         return scenario["id"]
+
+    def write_scenario_if_absent(self, scenario: dict) -> bool:
+        """
+        Idempotent variant of write_scenario for replay-safe paths.
+        Uses INSERT OR IGNORE keyed on the UNIQUE provenance_hash, so
+        the same deterministic hash silently no-ops on repeat. Returns
+        True if a new row was inserted, False if a row with this hash
+        already existed.
+
+        Used by core/systems/scenario_ledger.create_pending: brain boot
+        re-derives the same provenance_hash from each vault.entries row,
+        and the journal-derived scenario quietly survives across restart
+        without raising on the duplicate.
+        """
+        params_blob = json.dumps(scenario.get("params", {}) or {})
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO scenarios "
+                "(id, type, state, objective, provenance_hash, params) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    scenario["id"],
+                    scenario["type"],
+                    scenario["state"],
+                    scenario.get("objective", ""),
+                    scenario["provenance_hash"],
+                    params_blob,
+                ),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    @staticmethod
+    def _deserialize_scenario(row) -> dict:
+        """SQLite Row → dict with params JSON deserialized. Defensive
+        on missing/legacy params column (defaults to {})."""
+        d = dict(row)
+        raw = d.get("params") or "{}"
+        try:
+            d["params"] = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except (TypeError, ValueError):
+            d["params"] = {}
+        return d
 
     def scenario_by_id(self, scenario_id: str) -> dict:
         with sqlite3.connect(self.db_path) as conn:
@@ -227,7 +285,7 @@ class vault:
             row = conn.execute(
                 "SELECT * FROM scenarios WHERE id = ?", (scenario_id,)
             ).fetchone()
-        return dict(row) if row else None
+        return self._deserialize_scenario(row) if row else None
 
     def scenario_by_hash(self, provenance_hash: str) -> dict:
         with sqlite3.connect(self.db_path) as conn:
@@ -236,7 +294,7 @@ class vault:
                 "SELECT * FROM scenarios WHERE provenance_hash = ?",
                 (provenance_hash,)
             ).fetchone()
-        return dict(row) if row else None
+        return self._deserialize_scenario(row) if row else None
 
     def scenarios_by_state(self, state: str) -> list:
         with sqlite3.connect(self.db_path) as conn:
@@ -244,7 +302,7 @@ class vault:
             rows = conn.execute(
                 "SELECT * FROM scenarios WHERE state = ?", (state,)
             ).fetchall()
-        return [dict(r) for r in rows]
+        return [self._deserialize_scenario(r) for r in rows]
 
     def update_scenario_state(self, scenario_id: str, state: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
@@ -258,7 +316,7 @@ class vault:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT * FROM scenarios").fetchall()
-        return [dict(r) for r in rows]
+        return [self._deserialize_scenario(r) for r in rows]
 
     def scenario_counts_by_type(self) -> dict:
         with sqlite3.connect(self.db_path) as conn:

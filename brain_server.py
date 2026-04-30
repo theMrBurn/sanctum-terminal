@@ -55,6 +55,7 @@ from core.systems.stamp_world import get_visible as stamp_get_visible
 # the event-sourced draft, and the pillar handler registry.
 from core.systems import pillars as pillars_registry
 from core.systems import quests
+from core.systems import scenario_ledger
 from core.systems.quests import from_journal as quest_from_journal
 from core.systems.quests import rewards as quest_rewards
 from core.systems.quests import tick as quest_tick
@@ -112,6 +113,51 @@ def _journal_persist_entry(raw_note: str) -> int:
     return entry_id
 
 
+def _bridge_entry_to_quest(entry_id: int, raw_note: str, kind_set: set[str]):
+    """Single bridge path used by both the live journal_entry cmd AND
+    boot-time replay. Extracts lexicon terms, writes a PENDING scenario
+    row to vault.scenarios (idempotent — replay re-derives the same
+    deterministic provenance hash), and synthesizes the matching Quest
+    with scenario_id back-reference.
+
+    Returns (quest, scenario_id) on success, None when the entry yields
+    no usable head term (degenerate case — caller skips silently).
+
+    Calls quest_from_entry twice — once to derive the head term + kind
+    match for scenario params, once to rebuild the Quest with
+    scenario_id stamped into predicate_args. quest_from_entry is pure
+    + sub-millisecond, so the double call is cheaper than refactoring
+    _pick_term out of from_journal."""
+    if not raw_note or not raw_note.strip():
+        return None
+    v = _get_vault()
+    terms = journal_lexicon.extract_terms(raw_note, vault=v)
+    preview = quest_from_journal.quest_from_entry(
+        entry_id, raw_note, terms, kind_set)
+    if preview is None:
+        return None
+    head_term = (preview.predicate_args.get("term")
+                 or preview.predicate_args.get("kind", ""))
+    kind_match = preview.predicate == "destroy_kind"
+    params = {
+        "raw_note":   raw_note,
+        "head_term":  head_term,
+        "kind_match": kind_match,
+        "entry_id":   entry_id,
+        "objective":  preview.name,
+    }
+    provenance = scenario_ledger.journal_provenance_hash(entry_id, raw_note)
+    sid = scenario_ledger.create_pending(
+        v, "journal", params, provenance, objective=preview.name)
+    if sid is None:
+        # Vault write failed in a way create_pending couldn't recover —
+        # bail rather than register an orphan Quest.
+        return None
+    quest = quest_from_journal.quest_from_entry(
+        entry_id, raw_note, terms, kind_set, scenario_id=sid)
+    return (quest, sid) if quest is not None else None
+
+
 def _replay_journal_quests(quest_state, kind_set: set[str]) -> int:
     """Boot-time replay: re-register a dynamic Quest for every persisted
     entry so the quest substrate survives brain restart even though the
@@ -146,13 +192,10 @@ def _replay_journal_quests(quest_state, kind_set: set[str]) -> int:
     for row in rows:
         entry_id = int(row["id"])
         raw_note = row["raw_note"] or ""
-        if not raw_note.strip():
+        bridged = _bridge_entry_to_quest(entry_id, raw_note, kind_set)
+        if bridged is None:
             continue
-        terms = journal_lexicon.extract_terms(raw_note, vault=v)
-        quest = quest_from_journal.quest_from_entry(
-            entry_id, raw_note, terms, kind_set)
-        if quest is None:
-            continue
+        quest, _sid = bridged
         if quest.id in completed:
             continue
         quests.register_dynamic(quest)
@@ -197,6 +240,14 @@ def _on_quest_complete(world, quest) -> None:
         detail,
         quest.register,
     )
+    # Flip the persisted scenario row to COMPLETE for journal-derived
+    # quests. Quests without scenario_id (legacy biome-seeded) skip
+    # silently — they'll get scenario rows when full unification lands.
+    sid = quest.predicate_args.get("scenario_id")
+    if sid is not None:
+        scenario_ledger.transition(
+            _get_vault(), sid, scenario_ledger.COMPLETE,
+            state_events=world.state_events)
     print(f"  quest completed: {quest.id} loot={actually_added}", flush=True)
 
 
@@ -1642,10 +1693,24 @@ def run_server(biome_name, port=9877):
                     # the journal overlay (J key, lands client-side in PR 1.3).
                     # Completed quests are read-only (no re-activate via toggle).
                     quest_id = str(msg.get("quest_id", ""))
-                    if quests.get(quest_id) is None:
+                    quest_obj = quests.get(quest_id)
+                    if quest_obj is None:
                         print(f"  journal_toggle_quest rejected: unknown quest {quest_id!r}", flush=True)
                         continue
                     new_state = world.quest_state.toggle_active(quest_id)
+                    # Mirror to vault.scenarios when the quest is journal-
+                    # derived. PENDING ↔ ACTIVE follows the toggle 1:1;
+                    # transition is a no-op when the new ledger state
+                    # equals the existing one. Quests without a
+                    # scenario_id (legacy biome-seeded ones) skip silently.
+                    sid = quest_obj.predicate_args.get("scenario_id")
+                    if sid is not None:
+                        ledger_target = (scenario_ledger.ACTIVE
+                                         if new_state == "active"
+                                         else scenario_ledger.PENDING)
+                        scenario_ledger.transition(
+                            _get_vault(), sid, ledger_target,
+                            state_events=world.state_events)
                     print(f"  journal: {quest_id} -> {new_state}", flush=True)
                     last_wake_ids = set()
                     continue
@@ -1678,14 +1743,17 @@ def run_server(biome_name, port=9877):
                             pass
                         continue
 
-                    # Re-extract terms for the bridge. Cheap (single spaCy
-                    # pass on a ≤1000-char string); avoids smuggling DB
-                    # internals into from_journal which stays I/O-free.
-                    terms = journal_lexicon.extract_terms(
-                        raw_note, vault=_get_vault())
+                    # Single bridge path — also writes a PENDING scenario
+                    # row to vault.scenarios so the persisted ledger
+                    # mirrors the in-memory Quest. Per the J6 design
+                    # conversation, every journal-derived quest gets a
+                    # scenario row; future side-load processes
+                    # (auto-resolve, encounter spawn) consume vault
+                    # directly without touching the Quest substrate.
                     kind_set = set(_kc.all_kinds().keys())
-                    quest = quest_from_journal.quest_from_entry(
-                        entry_id, raw_note, terms, kind_set)
+                    bridged = _bridge_entry_to_quest(
+                        entry_id, raw_note, kind_set)
+                    quest = bridged[0] if bridged is not None else None
 
                     if quest is not None:
                         quests.register_dynamic(quest)
@@ -1710,12 +1778,14 @@ def run_server(biome_name, port=9877):
                     })
                     last_wake_ids = set()
 
+                    sid = (quest.predicate_args.get("scenario_id")
+                           if quest else None)
                     ack_payload = {
                         "journal_entry_ack": {
                             "entry_id": entry_id,
                             "quest_id": quest.id if quest else None,
                             "quest_name": quest.name if quest else None,
-                            "term_count": len(terms),
+                            "scenario_id": sid,
                         }
                     }
                     try:
@@ -1724,7 +1794,8 @@ def run_server(biome_name, port=9877):
                         pass
                     print(
                         f"  journal_entry: id={entry_id} quest="
-                        f"{quest.id if quest else 'none'} terms={len(terms)}",
+                        f"{quest.id if quest else 'none'} "
+                        f"scenario={sid[:8] if sid else 'none'}",
                         flush=True,
                     )
                     continue

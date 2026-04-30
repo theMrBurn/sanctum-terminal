@@ -78,6 +78,8 @@ def quest_from_entry(
     raw_note: str,
     terms: list[dict],
     kind_set: set[str] | None = None,
+    *,
+    scenario_id: str | None = None,
 ) -> Quest | None:
     """Build a Quest from one journal entry.
 
@@ -87,6 +89,11 @@ def quest_from_entry(
     `terms` is the lexicon's extract_terms() output for raw_note.
     `kind_set` is the registered game kinds (for destroy_kind fallback);
     None disables the fallback entirely.
+    `scenario_id` is the persisted vault.scenarios row backing this
+    quest. When supplied, it's stashed in predicate_args so brain-side
+    completion handlers can flip the scenario row's state through
+    scenario_ledger.transition. The Quest -> scenario reference is
+    one-way; scenarios know nothing about Quests.
     """
     if not raw_note or not raw_note.strip():
         return None
@@ -103,6 +110,9 @@ def quest_from_entry(
     else:
         predicate = "journal_followup"
         predicate_args = {"term": term, "birth_entry_id": entry_id}
+
+    if scenario_id is not None:
+        predicate_args["scenario_id"] = scenario_id
 
     return Quest(
         id=f"journal_{entry_id}",

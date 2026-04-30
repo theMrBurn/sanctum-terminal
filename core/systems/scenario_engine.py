@@ -43,7 +43,13 @@ from typing import Callable, Dict, List, Optional, Set
 
 # -- Constants -----------------------------------------------------------------
 
-SCENARIO_TYPES = {"fetch", "escort", "hunt", "key", "switch", "defend", "trade"}
+SCENARIO_TYPES = {
+    "fetch", "escort", "hunt", "key", "switch", "defend", "trade",
+    # Journal-derived: spawned by core/systems/scenario_ledger from a
+    # vault.entries row. Lives in the persisted vault.scenarios ledger;
+    # the in-memory ScenarioEngine is not required to instantiate it.
+    "journal",
+}
 
 
 # -- State ---------------------------------------------------------------------
