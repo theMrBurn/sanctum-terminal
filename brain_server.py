@@ -112,6 +112,57 @@ def _journal_persist_entry(raw_note: str) -> int:
     return entry_id
 
 
+def _replay_journal_quests(quest_state, kind_set: set[str]) -> int:
+    """Boot-time replay: re-register a dynamic Quest for every persisted
+    entry so the quest substrate survives brain restart even though the
+    in-memory registry is fresh.
+
+    Until V3 save lands (PR 2 of project_async_quest_refactor), the
+    `completed` list is empty post-boot, so every replayed quest comes
+    back as available. After V3 lands, the caller should hydrate
+    quest_state.completed from save BEFORE calling this so already-done
+    quests stay out of available.
+
+    Cost: one spaCy pass per entry (~5-10ms each). Today's vault has
+    O(few) entries; once she's been journaling for months we'll need a
+    bound or a persisted Quest table. Flag for future revisit.
+
+    Returns the number of quests replayed."""
+    import sqlite3
+    v = _get_vault()
+    completed = set(quest_state.completed)
+    replayed = 0
+    try:
+        with sqlite3.connect(v.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, raw_note FROM entries ORDER BY id"
+            ).fetchall()
+    except sqlite3.OperationalError:
+        # entries table doesn't exist yet (vault never migrated). Bridge
+        # is a no-op until the first journal_entry cmd triggers _get_vault.
+        return 0
+
+    for row in rows:
+        entry_id = int(row["id"])
+        raw_note = row["raw_note"] or ""
+        if not raw_note.strip():
+            continue
+        terms = journal_lexicon.extract_terms(raw_note, vault=v)
+        quest = quest_from_journal.quest_from_entry(
+            entry_id, raw_note, terms, kind_set)
+        if quest is None:
+            continue
+        if quest.id in completed:
+            continue
+        quests.register_dynamic(quest)
+        if (quest.id not in quest_state.available
+                and quest.id not in quest_state.active):
+            quest_state.available.append(quest.id)
+        replayed += 1
+    return replayed
+
+
 # ── Quest completion side-effects ─────────────────────────────────────
 # Brain-owned per `feedback_brain_owns_config`: the quests module is
 # data-only; reward drops, StateEvent emission, and any save-trigger
@@ -438,6 +489,25 @@ class BrainWorld:
         # (`kind_destroyed`, future `cast_landed` etc.); the per-tick
         # quest evaluator drains it and clears it each frame.
         self.tick_events: list[dict] = []
+
+        # Replay dynamic journal-derived quests from the vault. Closes
+        # the "where'd my quest go" gap surfaced in 2026-04-30 UAT — the
+        # in-memory registry is fresh on every boot, but vault.entries
+        # persists, so we re-synthesize the same Quest deterministically
+        # (raw_note + bridge logic = same id, same predicate, same
+        # head term). Skips silently if the journal schema doesn't
+        # exist yet (legacy vault.db without J1 migration applied).
+        try:
+            replayed = _replay_journal_quests(
+                self.quest_state, set(_kc.all_kinds().keys()))
+            if replayed:
+                print(f"  replayed {replayed} journal quest(s) from vault",
+                      flush=True)
+        except Exception as exc:
+            # Don't kill brain boot on a replay glitch — the live brain
+            # still works without dynamic quests, just loses
+            # cross-restart continuity until next journal_entry.
+            print(f"  journal quest replay skipped: {exc}", flush=True)
 
         if loaded_sheet is not None:
             # Returning player with a sealed sheet — straight to HUB.
