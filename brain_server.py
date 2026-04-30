@@ -54,6 +54,10 @@ from core.systems.stamp_world import get_visible as stamp_get_visible
 # `design_dial_input`, `design_character_draft`. The schema, the dial input shape,
 # the event-sourced draft, and the pillar handler registry.
 from core.systems import pillars as pillars_registry
+from core.systems import quests
+from core.systems.quests import rewards as quest_rewards
+from core.systems.quests import tick as quest_tick
+from core.systems.quests.state import QuestState
 from core.systems.character_draft import CharacterDraft
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
@@ -65,6 +69,30 @@ from core.systems.state_events import (
     SYSTEM as REG_SYSTEM,
 )
 from datetime import date
+
+
+# ── Quest completion side-effects ─────────────────────────────────────
+# Brain-owned per `feedback_brain_owns_config`: the quests module is
+# data-only; reward drops, StateEvent emission, and any save-trigger
+# logic live here. Called by quest_tick.tick() once per resolved quest.
+
+def _on_quest_complete(world, quest) -> None:
+    rolled = quest_rewards.roll(quest.rewards)
+    actually_added: list[str] = []
+    for name in rolled:
+        try:
+            world.player = ps.add_item(world.player, Item(name=name))
+            actually_added.append(name)
+        except ValueError:
+            print(f"  loot drop skipped (inventory full): {name}", flush=True)
+    detail = ", ".join(actually_added) if actually_added else None
+    world.state_events.emit(
+        "quest_completed",
+        f"QUEST COMPLETE — {quest.name.upper()}",
+        detail,
+        quest.register,
+    )
+    print(f"  quest completed: {quest.id} loot={actually_added}", flush=True)
 
 
 # ── Pillar formation geometry ─────────────────────────────────────────
@@ -351,6 +379,24 @@ class BrainWorld:
         # `design_state_events` once memory is saved). Every state change
         # the player should know about emits an event; clients render toasts.
         self.state_events: StateEventBuffer = StateEventBuffer()
+
+        # Quest state — async ambient quest substrate per
+        # `project_async_quest_refactor`. PR 1.2 keeps this in-memory on
+        # BrainWorld; PR 2 (V3 save schema) promotes the persistent fields
+        # onto PlayerState. Until then, quest progress resets each brain
+        # boot (no real loss — substrate isn't player-facing yet).
+        # `available` seeds from the biome's active_classes, mapping each
+        # class name to its `_01` quest id; unknown ids skip silently.
+        available_quest_ids = [
+            f"{cls}_01"
+            for cls in BIOME_EXPEDITIONS.get(biome_name, {}).get("active_classes", [])
+            if quests.get(f"{cls}_01") is not None
+        ]
+        self.quest_state = QuestState(available=list(available_quest_ids))
+        # Per-frame event accumulator. Cmd handlers push entries
+        # (`kind_destroyed`, future `cast_landed` etc.); the per-tick
+        # quest evaluator drains it and clears it each frame.
+        self.tick_events: list[dict] = []
 
         if loaded_sheet is not None:
             # Returning player with a sealed sheet — straight to HUB.
@@ -1381,15 +1427,22 @@ def run_server(biome_name, port=9877):
                     continue
 
                 if msg.get("cmd") == "mission_complete_trigger":
-                    # Godot fires when a mission objective resolves (L3: a
-                    # destructible kind shattering inside IN_MISSION state).
-                    # Brain validates we're actually in a mission, rolls
-                    # loot from kind_config[trigger_kind].mission_loot,
-                    # mutates player inventory, builds results payload, and
-                    # transitions to RESULTS.
-                    if world.game_state.state != gs.GameStateName.IN_MISSION:
-                        continue
+                    # Godot fires when a destructible kind shatters. Per
+                    # `project_async_quest_refactor` the cmd is dual-routed:
+                    # (1) pushed onto world.tick_events so any active quest
+                    #     watching this kind can complete on the next tick;
+                    # (2) the legacy IN_MISSION → RESULTS mission flow still
+                    #     runs (gated by state) until PR 5 collapses the
+                    #     mission state machine.
                     trigger_kind = str(msg.get("trigger_kind", "unknown"))
+                    world.tick_events.append({
+                        "type": "kind_destroyed",
+                        "kind": trigger_kind,
+                    })
+                    if world.game_state.state != gs.GameStateName.IN_MISSION:
+                        # New async path handled above; legacy path is gated
+                        # on IN_MISSION and skipped while ambient.
+                        continue
 
                     # L7 — roll loot from kind_config and add to inventory.
                     # Each entry: a string name (guaranteed) or {name, weight}
@@ -1438,6 +1491,20 @@ def run_server(biome_name, port=9877):
                         print(f"  mission complete: {trigger_kind} -> RESULTS {payload}", flush=True)
                     except ValueError as e:
                         print(f"  mission_complete rejected: {e}", flush=True)
+                    continue
+
+                if msg.get("cmd") == "journal_toggle_quest":
+                    # Async quest substrate per `project_async_quest_refactor`.
+                    # Player toggles a quest between available ↔ active from
+                    # the journal overlay (J key, lands client-side in PR 1.3).
+                    # Completed quests are read-only (no re-activate via toggle).
+                    quest_id = str(msg.get("quest_id", ""))
+                    if quests.get(quest_id) is None:
+                        print(f"  journal_toggle_quest rejected: unknown quest {quest_id!r}", flush=True)
+                        continue
+                    new_state = world.quest_state.toggle_active(quest_id)
+                    print(f"  journal: {quest_id} -> {new_state}", flush=True)
+                    last_wake_ids = set()
                     continue
 
                 if msg.get("cmd") == "mission_select_cycle":
@@ -1980,8 +2047,35 @@ def run_server(biome_name, port=9877):
                     # next completion + leaving + returning.
                     in_hub_last = False
 
+                # Per-frame quest evaluation. Drains world.tick_events,
+                # runs each active quest's predicate, fires _on_quest_complete
+                # for any that resolved this frame. Cleared after so events
+                # don't double-fire next tick.
+                if world.quest_state.active or world.tick_events:
+                    quest_tick.tick(
+                        world,
+                        world.tick_events,
+                        lambda q: _on_quest_complete(world, q),
+                    )
+                world.tick_events.clear()
+
                 manifest = world.get_manifest(
                     cam_x, cam_y, cam_z, heading, pitch, dt)
+
+                # Attach quest substrate to manifest per
+                # `project_async_quest_refactor`. The registry is small and
+                # stable; PR 1.3+ should cache it at connect rather than
+                # ship it every tick. For now (handful of quests) shipping
+                # in-line is simpler and matches the expedition pattern.
+                manifest["quests"] = {
+                    "registry": {
+                        qid: {"name": q.name, "description": q.description}
+                        for qid, q in quests.all_quests().items()
+                    },
+                    "available": list(world.quest_state.available),
+                    "active": list(world.quest_state.active),
+                    "completed": list(world.quest_state.completed),
+                }
 
                 # Attach expedition snapshot to manifest. This is the
                 # render-manifest doctrine: brain owns state, manifest
