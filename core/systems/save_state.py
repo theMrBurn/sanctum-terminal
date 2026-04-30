@@ -37,7 +37,7 @@ from core.systems.player_state import Item, PlayerState
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_SAVE_PATH = _REPO_ROOT / "save" / "player.json"
 _SAVE_PATH_ENV = "SANCTUM_SAVE_PATH"
-_SCHEMA_VERSION = 2  # bumped from 1 — character_sheet field added
+_SCHEMA_VERSION = 3  # bumped from 2 — active_quests + completed_quests added
 
 
 # ── Container for a complete saved game ──────────────────────────────
@@ -87,6 +87,8 @@ def _player_to_dict(player: PlayerState) -> dict[str, Any]:
         ],
         "equipped": player.equipped,
         "completed_missions": list(player.completed_missions),
+        "active_quests": list(player.active_quests),
+        "completed_quests": list(player.completed_quests),
     }
 
 
@@ -106,6 +108,8 @@ def _player_from_dict(p: dict[str, Any]) -> PlayerState:
         inventory=inventory,
         equipped=p.get("equipped"),
         completed_missions=tuple(p.get("completed_missions", [])),
+        active_quests=tuple(p.get("active_quests", [])),
+        completed_quests=tuple(p.get("completed_quests", [])),
     )
 
 
@@ -236,13 +240,22 @@ def load(path: Optional[Path] = None) -> Optional[Saved]:
         # null so the loader treats this as legacy-player-without-sheet.
         # Brain enters CHARACTER_CREATION on next boot to give them a sheet.
         data["character_sheet"] = None
-        data["version"] = _SCHEMA_VERSION
-    elif version != _SCHEMA_VERSION:
+        version = 2
+    if version == 2:
+        # V2 → V3 migration: async quest substrate added active_quests +
+        # completed_quests onto PlayerState. Empty tuples for legacy saves
+        # — the player keeps their progress, gets the new fields blank.
+        # _player_from_dict already defaults missing fields to (), so this
+        # block exists for explicit version stamping rather than data
+        # injection.
+        version = 3
+    if version != _SCHEMA_VERSION:
         print(
-            f"[save] incompatible schema version {version!r} "
+            f"[save] incompatible schema version {data.get('version')!r} "
             f"(expected {_SCHEMA_VERSION}); ignoring save", flush=True
         )
         return None
+    data["version"] = _SCHEMA_VERSION
 
     try:
         return from_dict(data)

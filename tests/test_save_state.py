@@ -66,7 +66,7 @@ def _make_sheet():
 def test_to_dict_v2_includes_player_and_null_sheet_by_default():
     p = _make_player()
     d = save_state.to_dict(p)
-    assert d["version"] == 2
+    assert d["version"] == 3
     assert d["character_sheet"] is None
     pd = d["player"]
     assert pd["name"] == "Test"
@@ -79,7 +79,7 @@ def test_to_dict_with_sheet_includes_identity_fields():
     p = _make_player()
     sheet = _make_sheet()
     d = save_state.to_dict(p, sheet)
-    assert d["version"] == 2
+    assert d["version"] == 3
     sd = d["character_sheet"]
     assert sd["name"] == "themrburn"
     assert sd["birthday"] == [3, 25]
@@ -162,15 +162,18 @@ def test_save_writes_v2_human_readable_json(isolated_save):
     assert "  " in text  # pretty-printed
     assert "\n" in text
     parsed = json.loads(text)
-    assert parsed["version"] == 2
+    assert parsed["version"] == 3
     assert "character_sheet" in parsed  # field exists, even if null
+    assert parsed["player"]["active_quests"] == []
+    assert parsed["player"]["completed_quests"] == []
 
 
 # --- V1 → V2 migration ------------------------------------------------------
 
 def test_load_v1_save_migrates_inline(isolated_save):
     """A V1 save on disk should load successfully with character_sheet=None.
-    Brain treats this as 'legacy player; run pillar 1 to get a sheet.'"""
+    Brain treats this as 'legacy player; run pillar 1 to get a sheet.'
+    V1 → V2 → V3 migration also lands empty quest fields."""
     isolated_save.parent.mkdir(parents=True, exist_ok=True)
     v1_save = {
         "version": 1,
@@ -189,6 +192,58 @@ def test_load_v1_save_migrates_inline(isolated_save):
     assert saved is not None
     assert saved.player.name == "Legacy"
     assert saved.character_sheet is None  # migrated to None
+    assert saved.player.active_quests == ()  # V3 fields default empty
+    assert saved.player.completed_quests == ()
+
+
+# --- V2 → V3 migration ------------------------------------------------------
+
+
+def test_load_v2_save_migrates_to_v3(isolated_save):
+    """V2 saves had no quest fields. Loader injects empty tuples so the
+    legacy save keeps all character + inventory progress and just gains
+    the new async-quest substrate blank."""
+    isolated_save.parent.mkdir(parents=True, exist_ok=True)
+    v2_save = {
+        "version": 2,
+        "player": {
+            "name": "Returning",
+            "hp": 4, "max_hp": 6,
+            "str_save": 12, "dex_save": 14, "wil_save": 8,
+            "slots": 10,
+            "inventory": [{"name": "torch", "slot_cost": 1}],
+            "equipped": "torch",
+            "completed_missions": ["anomaly_hunt_01"],
+        },
+        "character_sheet": None,
+    }
+    isolated_save.write_text(json.dumps(v2_save))
+    saved = save_state.load()
+    assert saved is not None
+    assert saved.player.name == "Returning"
+    assert saved.player.completed_missions == ("anomaly_hunt_01",)  # preserved
+    assert saved.player.active_quests == ()
+    assert saved.player.completed_quests == ()
+
+
+def test_v3_round_trip_persists_quest_fields(isolated_save):
+    """V3 active_quests + completed_quests survive save → load."""
+    p = PlayerState(
+        name="Tester",
+        hp=6, max_hp=6,
+        str_save=10, dex_save=10, wil_save=10,
+        slots=10,
+        inventory=(),
+        equipped=None,
+        completed_missions=(),
+        active_quests=("journal_3", "anomaly_hunt_01"),
+        completed_quests=("journal_1",),
+    )
+    save_state.save(p)
+    saved = save_state.load()
+    assert saved is not None
+    assert saved.player.active_quests == ("journal_3", "anomaly_hunt_01")
+    assert saved.player.completed_quests == ("journal_1",)
 
 
 # --- Defensive load paths ---------------------------------------------------

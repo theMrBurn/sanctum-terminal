@@ -168,6 +168,19 @@ def _replay_journal_quests(quest_state, kind_set: set[str]) -> int:
 # data-only; reward drops, StateEvent emission, and any save-trigger
 # logic live here. Called by quest_tick.tick() once per resolved quest.
 
+def _sync_quest_state_to_player(world) -> None:
+    """V3 save bridge — copy the live quest_state lists onto world.player
+    just before serialization. Keeps the source-of-truth in BrainWorld
+    (where the tick evaluator owns it) and avoids drift between the two
+    representations. Progress dicts intentionally aren't persisted in
+    v1 — kill counts / element sets reset across save+load. Extending
+    that needs a real schema decision."""
+    world.player = world.player._replace(
+        active_quests=tuple(world.quest_state.active),
+        completed_quests=tuple(world.quest_state.completed),
+    )
+
+
 def _on_quest_complete(world, quest) -> None:
     rolled = quest_rewards.roll(quest.rewards)
     actually_added: list[str] = []
@@ -484,7 +497,26 @@ class BrainWorld:
             for cls in BIOME_EXPEDITIONS.get(biome_name, {}).get("active_classes", [])
             if quests.get(f"{cls}_01") is not None
         ]
-        self.quest_state = QuestState(available=list(available_quest_ids))
+        # V3 hydrate: pull persisted active + completed quest lists off
+        # the loaded PlayerState. Both default to () for new/legacy
+        # players. completed first (so seeded available can dedupe
+        # against it below), then active.
+        loaded_completed = (list(loaded_player.completed_quests)
+                            if loaded_player is not None else [])
+        loaded_active = (list(loaded_player.active_quests)
+                         if loaded_player is not None else [])
+        # Strip seeded ids that the player already finished or has active
+        # — re-presenting a completed/active quest under "available" is
+        # confusing and would let them re-toggle a closed loop.
+        seeded_available = [
+            qid for qid in available_quest_ids
+            if qid not in loaded_completed and qid not in loaded_active
+        ]
+        self.quest_state = QuestState(
+            available=seeded_available,
+            active=loaded_active,
+            completed=loaded_completed,
+        )
         # Per-frame event accumulator. Cmd handlers push entries
         # (`kind_destroyed`, future `cast_landed` etc.); the per-tick
         # quest evaluator drains it and clears it each frame.
@@ -1803,6 +1835,7 @@ def run_server(biome_name, port=9877):
                     if (old.state == gs.GameStateName.RESULTS
                             and new_state.state == gs.GameStateName.HUB):
                         try:
+                            _sync_quest_state_to_player(world)
                             written = save_state.save(world.player, world.character_sheet)
                             print(f"  autosave: {written}", flush=True)
                             world.state_events.emit(
@@ -1951,6 +1984,7 @@ def run_server(biome_name, port=9877):
                             # identity (per "real game saves" — the sheet survives
                             # alongside PlayerState).
                             try:
+                                _sync_quest_state_to_player(world)
                                 written = save_state.save(world.player, world.character_sheet)
                                 print(f"  autosave (post-creation): {written}", flush=True)
                                 world.state_events.emit(
