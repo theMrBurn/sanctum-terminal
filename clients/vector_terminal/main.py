@@ -26,6 +26,7 @@ import pyray as rl  # noqa: E402
 from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
+from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import state_events as state_events_renderer  # noqa: E402
 from clients.vector_terminal.collision import resolve_collisions  # noqa: E402
 from clients.vector_terminal.envelope import clamp_to_envelope  # noqa: E402
@@ -68,6 +69,8 @@ def main() -> int:
     noclip = False
     show_hud = True
     show_inventory_modal = False
+    show_journal = False
+    journal_state = journal.JournalState()
     click_pings: list[float] = []         # timestamps; fade over CLICK_PING_DURATION
     interact_flashes: list[tuple[float, float, float, float]] = []  # (t_start, x, y, z) raylib
 
@@ -127,7 +130,26 @@ def main() -> int:
         else:
             last_dial_source = None
 
-        if not dial_active and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE):
+        # Journal overlay — async quest log per `project_async_quest_refactor`.
+        # Open via J anywhere, anytime; toggle quests active/available;
+        # ESC closes from inside (J also closes via the same toggle below).
+        # World does not pause — overlay only suspends ENTER/UP/DOWN/ESC.
+        journal_active = show_journal and not dial_active
+        if journal_active:
+            action, qid = journal.handle_input(last_manifest, journal_state)
+            if action == "close":
+                show_journal = False
+            elif action == "toggle" and qid:
+                client.send({"cmd": "journal_toggle_quest", "quest_id": qid})
+
+        # J toggles the journal regardless of whether it's currently open
+        # (journal_active intercepts ESC + ENTER + UP/DOWN, but J always
+        # cycles the visibility flag). Suspended while a dial is active —
+        # the dial owns the modal foreground.
+        if not dial_active and rl.is_key_pressed(rl.KeyboardKey.KEY_J):
+            show_journal = not show_journal
+
+        if not dial_active and not journal_active and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE):
             break
 
         delta = rl.get_mouse_delta()
@@ -208,7 +230,9 @@ def main() -> int:
         )
 
         if not dial_active:
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER):
+            # ENTER drives state transitions (HUB → MISSION_SELECT, etc.) but
+            # MUST yield to the journal overlay — there ENTER is the toggle.
+            if not journal_active and rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER):
                 state = str(last_manifest.get("game_state", {}).get("state", "HUB"))
                 target = smart_enter_target(state)
                 if target is not None:
@@ -390,6 +414,15 @@ def main() -> int:
             dial_input.draw_dial_overlay(
                 dial_prompt_data,
                 selected_dial_idx,
+                rl.get_screen_width(),
+                rl.get_screen_height(),
+                amber,
+            )
+
+        if show_journal and not dial_active:
+            journal.draw_journal_overlay(
+                last_manifest,
+                journal_state,
                 rl.get_screen_width(),
                 rl.get_screen_height(),
                 amber,
