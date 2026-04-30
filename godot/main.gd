@@ -2122,6 +2122,7 @@ func _create_multimesh_variant(kind: String, ents: Array, variant: int) -> void:
 
 var toast_label: Label
 var toast_timer: float = 0.0
+var picker_label: Label  # persistent menu panel — visible only in MISSION_SELECT
 
 func _show_toast(msg: String) -> void:
 	if toast_label:
@@ -2145,9 +2146,16 @@ func _setup_hud() -> void:
 	toast_label.add_theme_font_size_override("font_size", 16)
 	toast_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.6))
 	toast_label.modulate.a = 0.0
+	picker_label = Label.new()
+	picker_label.name = "Picker"
+	picker_label.position = Vector2(12, 60)
+	picker_label.add_theme_font_size_override("font_size", 18)
+	picker_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.75))
+	picker_label.visible = false
 	var canvas := CanvasLayer.new()
 	canvas.add_child(hud_label)
 	canvas.add_child(toast_label)
+	canvas.add_child(picker_label)
 	add_child(canvas)
 	_update_hud()
 
@@ -3911,6 +3919,12 @@ var _last_state: String = "HUB"
 
 func _check_state_change() -> void:
 	var current: String = String(manifest.get("game_state", {}).get("state", "HUB"))
+	# Picker panel lives entirely off the brain manifest — refresh every
+	# tick while in MISSION_SELECT so the cursor moves the moment the
+	# brain confirms a cycle. Cheap (one Label.text rebuild) and avoids
+	# the bookkeeping a "last selection memo" would need.
+	if current == "MISSION_SELECT":
+		_refresh_picker_panel()
 	if current == _last_state:
 		return
 	var old: String = _last_state
@@ -3940,7 +3954,38 @@ func _enter_hub() -> void:
 
 
 func _enter_mission_select() -> void:
-	_show_toast("MISSION SELECT — [ENTER] launch / [X] cancel")
+	# Picker panel is a persistent menu: shown on entry, refreshed every
+	# tick by _check_state_change, hidden in _exit_mission_select.
+	_refresh_picker_panel()
+	if picker_label:
+		picker_label.visible = true
+
+
+# Renders the brain's picker state (game_state.available_missions +
+# .selected_mission_id) as a multi-line menu panel. Brain owns the data;
+# Godot just renders. Called every tick while in MISSION_SELECT so the
+# cursor updates as soon as the brain confirms a cycle.
+func _refresh_picker_panel() -> void:
+	if picker_label == null:
+		return
+	var gstate: Dictionary = manifest.get("game_state", {})
+	var available: Array = gstate.get("available_missions", [])
+	var sel_v = gstate.get("selected_mission_id", null)
+	var selected: String = String(sel_v) if sel_v != null else ""
+	var lines: PackedStringArray = []
+	lines.append("─── MISSIONS ───")
+	if available.size() == 0:
+		lines.append("  (none available)")
+	else:
+		for m in available:
+			var mid: String = str(m)
+			var caret: String = "> " if mid == selected else "  "
+			lines.append("%s%s" % [caret, mid])
+	lines.append("")
+	lines.append("[D-Pad ↑↓ / ↑↓]  cycle")
+	lines.append("[A / Enter]      launch")
+	lines.append("[B / X]          cancel")
+	picker_label.text = "\n".join(lines)
 
 
 func _enter_in_mission() -> void:
@@ -3960,7 +4005,8 @@ func _enter_results() -> void:
 
 
 func _exit_mission_select() -> void:
-	pass  # nothing to tear down yet
+	if picker_label:
+		picker_label.visible = false
 
 
 func _exit_in_mission() -> void:
@@ -4008,6 +4054,15 @@ func _send_state_transition(target: String) -> void:
 	if not connected:
 		return
 	var msg := JSON.stringify({"cmd": "state_transition_request", "target": target}) + "\n"
+	tcp.put_data(msg.to_utf8_buffer())
+
+
+# L6 — cycle the picker selection. Brain rejects outside MISSION_SELECT;
+# Godot doesn't pre-gate so the brain log is the source of truth on misuse.
+func _send_mission_select_cycle(delta: int) -> void:
+	if not connected:
+		return
+	var msg := JSON.stringify({"cmd": "mission_select_cycle", "delta": delta}) + "\n"
 	tcp.put_data(msg.to_utf8_buffer())
 
 
@@ -5079,6 +5134,34 @@ func _input(event: InputEvent) -> void:
 			and encounter_hud.handle_input(event):
 		return
 
+	# Loop / state-machine controls — action-based so kb + gamepad share
+	# the same handler. open_mission_select is M / Start. state_back is
+	# X / B-button. menu_confirm + menu_nav_up/down only meaningful in
+	# MISSION_SELECT (and confirm in RESULTS for ack), so we gate by the
+	# current brain-reflected state to avoid stealing A from `jump`.
+	if event.is_action_pressed("open_mission_select"):
+		_send_state_transition("MISSION_SELECT")
+		return
+	if event.is_action_pressed("state_back"):
+		_send_state_back()
+		return
+	var current_state := String(manifest.get("game_state", {}).get("state", "HUB"))
+	if current_state == "MISSION_SELECT":
+		if event.is_action_pressed("menu_confirm"):
+			_send_state_transition("IN_MISSION")
+			_show_toast("LAUNCH")
+			return
+		if event.is_action_pressed("menu_nav_up"):
+			_send_mission_select_cycle(-1)
+			return
+		if event.is_action_pressed("menu_nav_down"):
+			_send_mission_select_cycle(1)
+			return
+	elif current_state == "RESULTS":
+		if event.is_action_pressed("menu_confirm"):
+			_send_state_back()
+			return
+
 	# Key bindings — use physical_keycode for layout-independent matching
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
@@ -5153,14 +5236,6 @@ func _input(event: InputEvent) -> void:
 				_send_equip_request("torch_handcrafted")
 			KEY_Q:  # Holster — clear equipped
 				_send_holster_request()
-			KEY_M:  # Open mission select (HUB → MISSION_SELECT)
-				_send_state_transition("MISSION_SELECT")
-				_show_toast("MISSION SELECT")
-			KEY_ENTER, KEY_KP_ENTER:  # Launch mission (MISSION_SELECT → IN_MISSION)
-				_send_state_transition("IN_MISSION")
-				_show_toast("LAUNCH")
-			KEY_X:  # Back / cancel / acknowledge — context-aware return to HUB
-				_send_state_back()
 			KEY_F:  # Use the next consumable in inventory (L8)
 				_send_use_request()
 			KEY_MINUS:  # DEBUG — damage self for testing healing
@@ -5267,16 +5342,22 @@ var rig_neck_standing_y: float = EYE_HEIGHT
 
 func _physics_process_rig(delta: float, crouching: bool) -> void:
 	# Gamepad right-stick look — yaw on rig (so the capsule turns with view),
+	# Freeze player input while a state-machine menu is open (MISSION_SELECT,
+	# RESULTS). Without this the left stick cycles the picker AND moves the
+	# player forward, since menu_nav_up shares axis 1 with move_forward.
+	# Conventional UX: menu blocks gameplay input.
+	var menu_open: bool = _last_state in ["MISSION_SELECT", "RESULTS"]
+
 	# pitch on neck. Additive with mouse look (both write the same nodes).
 	var look_vec := Input.get_vector("look_left", "look_right", "look_up", "look_down")
-	if look_vec.length_squared() > 0.0001:
+	if not menu_open and look_vec.length_squared() > 0.0001:
 		player_rig.rotate_y(-look_vec.x * GAMEPAD_LOOK_SENS * delta)
 		neck.rotate_x(-look_vec.y * GAMEPAD_LOOK_SENS * delta)
 		neck.rotation.x = clampf(neck.rotation.x, PITCH_MIN, PITCH_MAX)
 
 	# Horizontal input. Forward/right derived from the rig's basis (yaw-only),
 	# so sprint direction doesn't tilt when pitching the view down.
-	var input_vec := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var input_vec := Vector2.ZERO if menu_open else Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var basis: Basis = player_rig.global_transform.basis
 	var dir: Vector3 = basis.x * input_vec.x + basis.z * input_vec.y
 	dir.y = 0.0

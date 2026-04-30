@@ -19,9 +19,18 @@ from core.systems.dial_prompt import DialPrompt
 class PillarHandler(Protocol):
     pillar_id: str
 
-    def initial_prompt(self, draft: CharacterDraft) -> DialPrompt:
+    def initial_prompt(
+        self,
+        draft: CharacterDraft,
+        hint: dict | None = None,
+    ) -> DialPrompt:
         """First prompt when player engages the pillar.
-        Default index computed from current draft state (CSP-light)."""
+
+        `hint` carries optional context for re-do flows — e.g.,
+        `{"previous_age": 30}` so the YearsHandler can seed its first
+        pivot near the player's last answer (faster convergence than
+        starting from a blind 40). Handlers ignore unknown hint keys.
+        """
         ...
 
     def next_prompt(self, draft: CharacterDraft,
@@ -65,3 +74,5 @@ from core.systems.pillars import first_path as _first_path  # noqa: E402, F401
 from core.systems.pillars import vow as _vow  # noqa: E402, F401
 from core.systems.pillars import standing as _standing  # noqa: E402, F401
 from core.systems.pillars import mark as _mark  # noqa: E402, F401
+# Reflection is the re-do mechanic, NOT one of REQUIRED_PILLARS.
+from core.systems.pillars import reflection as _reflection  # noqa: E402, F401

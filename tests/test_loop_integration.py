@@ -447,6 +447,96 @@ def test_save_load_persists_across_brain_restart(tmp_path):
         b2.stop()
 
 
+def test_picker_cycles_and_launch_uses_selection():
+    """L6 — picker exposes available_missions, cycle command moves the
+    selection with wrap-around, and launch consumes the current selection
+    as mission_id. Uses cavern biome which exposes 2 active classes
+    (outdoor only has 1, so wrap is observationally a no-op there)."""
+    b = BrainProcess(biome="cavern", port=TEST_PORT)
+    try:
+        client = BrainClient()
+        try:
+            # Baseline at HUB — no selection until MISSION_SELECT is entered.
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["state"] == "HUB"
+            assert m["game_state"]["selected_mission_id"] is None, \
+                "no selection should be active outside MISSION_SELECT"
+            available = m["game_state"]["available_missions"]
+            assert len(available) >= 2, \
+                f"cavern binding should expose 2+ missions for picker UAT, got {available}"
+
+            # Open picker — selection initializes to available[0].
+            client.send({"cmd": "state_transition_request", "target": "MISSION_SELECT"})
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["state"] == "MISSION_SELECT"
+            assert m["game_state"]["selected_mission_id"] == available[0], \
+                f"first selection should default to {available[0]}, got {m['game_state']['selected_mission_id']}"
+
+            # Cycle forward — moves to available[1].
+            client.send({"cmd": "mission_select_cycle", "delta": 1})
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["selected_mission_id"] == available[1]
+
+            # Cycle past end — wraps back to available[0].
+            client.send({"cmd": "mission_select_cycle", "delta": 1})
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["selected_mission_id"] == available[0], \
+                f"cycle should wrap, got {m['game_state']['selected_mission_id']}"
+
+            # Cycle backward — wraps to last entry.
+            client.send({"cmd": "mission_select_cycle", "delta": -1})
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["selected_mission_id"] == available[-1]
+
+            # Launch — brain consumes selected_mission_id, clears it.
+            launched = m["game_state"]["selected_mission_id"]
+            client.send({"cmd": "state_transition_request", "target": "IN_MISSION"})
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["state"] == "IN_MISSION"
+            assert m["game_state"]["mission_id"] == launched, \
+                f"launched mission_id should match picker selection " \
+                f"({launched}), got {m['game_state']['mission_id']}"
+            assert m["game_state"]["selected_mission_id"] is None, \
+                "selection should clear once mission launches"
+        finally:
+            client.close()
+    finally:
+        b.stop()
+
+
+def test_picker_cycle_rejected_outside_mission_select():
+    """Brain only honors mission_select_cycle while in MISSION_SELECT.
+    Outside that state the command is a no-op — selected_mission_id stays
+    None and game_state isn't mutated."""
+    b = BrainProcess(biome="cavern", port=TEST_PORT)
+    try:
+        client = BrainClient()
+        try:
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["state"] == "HUB"
+            assert m["game_state"]["selected_mission_id"] is None
+
+            # Cycle from HUB — brain rejects, selection stays None.
+            client.send({"cmd": "mission_select_cycle", "delta": 1})
+            client.send_camera()
+            m = client.recv_full_manifest()
+            assert m["game_state"]["state"] == "HUB", \
+                "rejected cycle should not change state"
+            assert m["game_state"]["selected_mission_id"] is None, \
+                "selection must stay None outside MISSION_SELECT"
+        finally:
+            client.close()
+    finally:
+        b.stop()
+
+
 def test_repeated_missions_do_not_crash_brain(brain):
     """Run the loop many times — brain should stay responsive, inventory
     should respect slot cap (full inventory triggers ValueError caught

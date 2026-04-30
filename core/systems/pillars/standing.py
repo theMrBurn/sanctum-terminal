@@ -17,7 +17,7 @@ from core.systems.dial_prompt import DialOption, DialPrompt, RITUAL, SELECT
 class StandingHandler:
     pillar_id: str = "standing"
 
-    def initial_prompt(self, draft: CharacterDraft) -> DialPrompt:
+    def initial_prompt(self, draft: CharacterDraft, hint: dict | None = None) -> DialPrompt:
         return DialPrompt(
             source=f"pillar:{self.pillar_id}",
             label="LIFT THE STONES",

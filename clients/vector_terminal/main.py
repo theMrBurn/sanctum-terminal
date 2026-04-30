@@ -265,11 +265,12 @@ def main() -> int:
                 )
                 if target is not None:
                     pillar_id = dial_input.pillar_id_from_kind(str(target.get("kind", "")))
-                    state = str(last_manifest.get("game_state", {}).get("state", ""))
-                    if pillar_id is not None and state == "CHARACTER_CREATION":
-                        # Pillar engagement — brain returns the dial_prompt
-                        # in the next manifest; the dial-active branch above
-                        # processes the input from then on.
+                    if pillar_id is not None:
+                        # Any pillar entity — brain validates which states
+                        # allow which pillars (e.g., reflection from HUB,
+                        # the seven from CHARACTER_CREATION). Brain returns
+                        # the dial_prompt in next manifest; the dial-active
+                        # branch above processes from then on.
                         client.send({"cmd": "engage_pillar", "pillar": pillar_id})
                     else:
                         tx = float(target.get("x", 0.0))
@@ -444,7 +445,19 @@ def _draw_entity(ent: dict, camera) -> None:
         + (py - camera.position.y) ** 2
         + (pz - camera.position.z) ** 2
     )
-    color = _amber(_intensity_for_distance(dist))
+    intensity = _intensity_for_distance(dist)
+    # Honor per-entity color from manifest (brain sets pillar palette, biome
+    # tints, encounter highlights via r/g/b 0-1). Distance falloff modulates
+    # intensity. Default to amber if entity didn't specify color.
+    base_r = float(ent.get("r", cfg.AMBER_RGB[0] / 255.0))
+    base_g = float(ent.get("g", cfg.AMBER_RGB[1] / 255.0))
+    base_b = float(ent.get("b", cfg.AMBER_RGB[2] / 255.0))
+    color = (
+        max(0, min(255, int(base_r * 255 * intensity))),
+        max(0, min(255, int(base_g * 255 * intensity))),
+        max(0, min(255, int(base_b * 255 * intensity))),
+        255,
+    )
     recipe = recipe_for_kind(kind)
     heading = float(ent.get("heading", 0.0))
     _draw_recipe(recipe, px, py, pz, sxw, szw, syw, heading, color)
@@ -473,6 +486,9 @@ def _draw_recipe(
         transformed.append((px + x_rot, py + y, pz + z_rot))
 
     if recipe.faces:
+        # BLACK fills — hides back-faces via depth buffer (opacity) without
+        # competing with edge color. Period-correct CRT vector aesthetic.
+        # Tried dimmed-color fills earlier; they blurred geometry into a mass.
         for a, b, c in recipe.faces:
             ax, ay, az = transformed[a]
             bx, by, bz = transformed[b]

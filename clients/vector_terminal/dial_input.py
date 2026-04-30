@@ -43,9 +43,35 @@ OPTION_FONT_SIZE = 18
 BIAS_FONT_SIZE = 14
 HINT_FONT_SIZE = 14
 
+# Cap the number of option rows drawn at once. Beyond this, the overlay
+# scrolls — selected_idx stays centered and "..." indicators show when
+# more options exist above/below. Sized so 720p has comfortable margins.
+MAX_VISIBLE_OPTIONS = 12
+
+
+def visible_window(option_count: int, selected_idx: int) -> tuple[int, int]:
+    """Return [start, end) slice of options to render.
+
+    For lists at or below MAX_VISIBLE_OPTIONS, returns the full range.
+    Otherwise centers a window of MAX_VISIBLE_OPTIONS around selected_idx,
+    clamped to the list bounds.
+    """
+    if option_count <= MAX_VISIBLE_OPTIONS:
+        return 0, option_count
+    half = MAX_VISIBLE_OPTIONS // 2
+    start = max(0, selected_idx - half)
+    end = start + MAX_VISIBLE_OPTIONS
+    if end > option_count:
+        end = option_count
+        start = end - MAX_VISIBLE_OPTIONS
+    return start, end
+
 
 def panel_height(option_count: int) -> int:
-    return 100 + option_count * PANEL_H_PER_OPTION + 40
+    rows = min(option_count, MAX_VISIBLE_OPTIONS)
+    # Reserve 2 extra row-heights for "..." indicators when scrolling.
+    indicator_rows = 2 if option_count > MAX_VISIBLE_OPTIONS else 0
+    return 100 + (rows + indicator_rows) * PANEL_H_PER_OPTION + 40
 
 
 def draw_dial_overlay(
@@ -83,11 +109,24 @@ def draw_dial_overlay(
                     LABEL_FONT_SIZE, 1.0, color)
     cursor_y += 40
 
-    # Options — selected one highlighted with a leading marker, others dim
-    for i, opt in enumerate(options):
+    # Options — selected one highlighted with a leading marker, others dim.
+    # When the list exceeds MAX_VISIBLE_OPTIONS, render only a window
+    # centered on selected_idx and show "..." indicators above/below.
+    window_start, window_end = visible_window(len(options), selected_idx)
+    if window_start > 0:
+        rl.draw_text_ex(font, "  ...",
+                        rl.Vector2(inner_x, cursor_y),
+                        OPTION_FONT_SIZE, 1.0, _dimmed(color, 0.45))
+        cursor_y += PANEL_H_PER_OPTION
+    for i in range(window_start, window_end):
+        opt = options[i]
         is_selected = (i == selected_idx)
         prefix = "> " if is_selected else "  "
-        text = f"{prefix}[{i + 1}] {opt.get('label', '')}"
+        # Index label uses 1-based numbering matching the [1-9] jump-select
+        # contract for the first 9 options; later entries omit the bracket
+        # since they aren't keyboard-jumpable.
+        idx_label = f"[{i + 1}] " if i < 9 else "    "
+        text = f"{prefix}{idx_label}{opt.get('label', '')}"
         opt_color = color if is_selected else _dimmed(color, 0.55)
         rl.draw_text_ex(font, text,
                         rl.Vector2(inner_x, cursor_y),
@@ -99,6 +138,10 @@ def draw_dial_overlay(
                             rl.Vector2(bias_x, cursor_y + 3),
                             BIAS_FONT_SIZE, 1.0, _dimmed(color, 0.5))
         cursor_y += PANEL_H_PER_OPTION
+    if window_end < len(options):
+        rl.draw_text_ex(font, "  ...",
+                        rl.Vector2(inner_x, cursor_y),
+                        OPTION_FONT_SIZE, 1.0, _dimmed(color, 0.45))
 
     cursor_y += 20
     hint = "[↑/↓] cycle    [ENTER] commit    [ESC] cancel"

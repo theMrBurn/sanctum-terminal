@@ -43,6 +43,7 @@ class GameStateName(str, Enum):
 # Reading: (FROM, TO).
 _ALLOWED_TRANSITIONS = frozenset({
     (GameStateName.CHARACTER_CREATION, GameStateName.HUB),     # all pillars sealed
+    (GameStateName.HUB, GameStateName.CHARACTER_CREATION),     # re-do via Pillar of Reflection
     (GameStateName.HUB, GameStateName.MISSION_SELECT),         # open picker
     (GameStateName.MISSION_SELECT, GameStateName.HUB),         # cancel picker
     (GameStateName.MISSION_SELECT, GameStateName.IN_MISSION),  # launch mission
@@ -106,6 +107,15 @@ def transition(
             f"illegal transition: {current.state.value} -> {target.value}"
         )
 
+    if target == GameStateName.CHARACTER_CREATION:
+        # Re-do flow — Pillar of Reflection. Clear mission context just
+        # in case (defensive; HUB is the only allowed source).
+        return current._replace(
+            state=target,
+            mission_id=None,
+            mission_seed=None,
+            results=None,
+        )
     if target == GameStateName.HUB:
         # Returning to hub clears all mission context (and any character-creation
         # context — once you transition out of CHARACTER_CREATION, the draft

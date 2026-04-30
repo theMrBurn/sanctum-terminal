@@ -1,4 +1,4 @@
-# Palette family alignment audit — walkthrough
+# ok, Palette family alignment audit — walkthrough
 
 **Goal:** verify each kind class's hue family is intentional, not accidental drift. Tag + screenshot per stop, I correlate timestamps to telemetry on your return.
 

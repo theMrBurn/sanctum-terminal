@@ -61,7 +61,7 @@ def draw_hud(manifest: dict, color) -> None:
         name = sheet.get("name", "?")
         level = sheet.get("level", sheet.get("age", "?"))
         background = sheet.get("background", "")
-        fields.append(f"{name.upper()} · LEVEL {level}")
+        fields.append(f"{name.upper()} | LEVEL {level}")
         if background:
             fields.append(f"  {background}")
         stats = sheet.get("stats") or {}
@@ -75,7 +75,7 @@ def draw_hud(manifest: dict, color) -> None:
             fields.append(f"  ABL {_truncate(', '.join(abilities), cfg.HUD_INV_MAX_CHARS)}")
         verbs = sheet.get("verbs_known") or []
         if verbs:
-            fields.append(f"  VRB {' · '.join(verbs)}")
+            fields.append(f"  VRB {' | '.join(verbs)}")
         fields.append("---")
 
     # ── Live status block ──

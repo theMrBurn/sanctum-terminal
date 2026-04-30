@@ -54,7 +54,7 @@ def _options_for(username: str) -> list[DialOption]:
 class NameHandler:
     pillar_id: str = "name"
 
-    def initial_prompt(self, draft: CharacterDraft) -> DialPrompt:
+    def initial_prompt(self, draft: CharacterDraft, hint: dict | None = None) -> DialPrompt:
         username = _resolve_username()
         return DialPrompt(
             source=f"pillar:{self.pillar_id}",

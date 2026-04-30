@@ -65,6 +65,62 @@ from core.systems.state_events import (
     SYSTEM as REG_SYSTEM,
 )
 from datetime import date
+
+
+# ── Pillar formation geometry ─────────────────────────────────────────
+# Per `design_seven_pillars` + `feedback_factor_of_7` + `design_meta_pixel_mote`:
+# all 7 character-creation pillars arrange in a heptagonal ring south of
+# spawn. Player walks among them; sealed pillars disappear so the formation
+# thins as the ritual progresses.
+
+_PILLAR_RING_CENTER = (0.0, -22.0)  # 8m south of spawn at (0, -14) — tight, visible
+_PILLAR_RING_RADIUS = 6.0
+_PILLAR_RING_START_ANGLE = math.pi / 2  # i=0 at top of ring (closest to spawn)
+
+# Display order: starts with Name at the top (closest to spawn), wraps
+# clockwise through the rest. Stub pillars interleave with interactive
+# ones so player tests every input plumbing per session. Reflection is
+# NOT in this list — it's the HUB meta-pillar.
+_PILLAR_RING_ORDER = (
+    "name",        # i=0, north — ritual entry point
+    "days",        # i=1, NE — stub (pre-interactive)
+    "years",       # i=2, NW — interactive (binary-narrow cascade)
+    "first_path",  # i=3, W — stub
+    "vow",         # i=4, SW — stub
+    "standing",    # i=5, SE — stub
+    "mark",        # i=6, E — stub
+)
+
+# Per-pillar color — distinguishes the seven at a glance.
+# Themed: identity-amber, dawn-yellow, growth-green, bronze-relic,
+# pale-ivory-vow, blood-effort-red, mystic-violet.
+_PILLAR_COLORS: dict[str, tuple[float, float, float]] = {
+    "name":       (1.00, 0.70, 0.00),  # amber gold
+    "days":       (1.00, 0.86, 0.31),  # sun yellow
+    "years":      (0.51, 0.78, 0.51),  # sage green
+    "first_path": (0.78, 0.51, 0.20),  # bronze
+    "vow":        (0.86, 0.86, 0.78),  # pale ivory
+    "standing":   (0.78, 0.39, 0.31),  # terracotta
+    "mark":       (0.71, 0.39, 0.90),  # violet
+}
+
+
+def _heptagon_position(i: int) -> tuple[float, float]:
+    """Compute (x, y) in manifest coords for the i-th pillar in the ring."""
+    angle = _PILLAR_RING_START_ANGLE + 2 * math.pi * i / 7
+    cx, cy = _PILLAR_RING_CENTER
+    return (
+        cx + _PILLAR_RING_RADIUS * math.cos(angle),
+        cy + _PILLAR_RING_RADIUS * math.sin(angle),
+    )
+
+
+# Ritual states clear non-pillar entities within this radius of spawn so
+# the heptagonal formation reads cleanly. Mission states (IN_MISSION /
+# RESULTS) keep natural geography for actual gameplay.
+_RITUAL_CLEAR_RADIUS_M = 40.0
+_SPAWN_X = 0.0
+_SPAWN_Y = -14.0
 from core.systems.expedition_engine import ExpeditionEngine
 from core.systems.expedition_data import BIOME_EXPEDITIONS
 from core.systems.encounter_session import EncounterSession
@@ -359,21 +415,15 @@ class BrainWorld:
         self._generate_tile(0, 0)
 
     def _init_creation_draft(self) -> CharacterDraft:
-        """Build a draft pre-stuffed with stub answers for pillars 2-7 so
-        the first interactive session only requires Pillar 1 (Name) to
-        complete and finalize. As real pillar implementations land, the
-        corresponding stub append disappears here; the player then engages
-        the real pillar instead. Per `design_seven_pillars` UAT scope.
+        """Empty draft — player walks all 7 pillars in the heptagonal
+        formation. Stubbed pillars (2/4/5/6/7) commit their placeholder
+        values via single-ENTER on their dial; interactive pillars
+        (1 Name, 3 Years) take their real interaction.
+
+        Every pillar engagement exercises the input plumbing for UAT.
+        Each has its own toast on seal so the ritual feels real.
         """
-        draft = CharacterDraft()
-        today = date.today()
-        draft.append("days", (today.month, today.day))
-        draft.append("years", 30)
-        draft.append("first_path", "rogue")
-        draft.append("vow", "remain")
-        draft.append("standing", ["DEX", "WIS", "CHA"])
-        draft.append("mark", ["Quiet Tread"])
-        return draft
+        return CharacterDraft()
 
     def regen_world(self, new_seed: int) -> None:
         """Wipe cached world state and reset to a fresh seed (L2).
@@ -893,22 +943,62 @@ class BrainWorld:
         # in this build — the others are pre-stubbed in _init_creation_draft so
         # the draft can finalize on Pillar 1 commit alone. Future sessions add
         # real pillars and this synthetic injection grows accordingly.
+        # Ritual canvas clearing — during HUB and CHARACTER_CREATION,
+        # remove non-pillar entities within _RITUAL_CLEAR_RADIUS_M of spawn
+        # so the formation reads cleanly. The synthetic pillar injection
+        # below adds back the colored pillars; everything else (cavern
+        # geometry, walls, mushrooms, etc.) is filtered out near spawn.
+        # Mission states keep all entities for gameplay.
+        if self.game_state.state in (
+            gs.GameStateName.CHARACTER_CREATION,
+            gs.GameStateName.HUB,
+        ):
+            clear_sq = _RITUAL_CLEAR_RADIUS_M * _RITUAL_CLEAR_RADIUS_M
+            visible = [
+                e for e in visible
+                if ((e["x"] - _SPAWN_X) ** 2 + (e["y"] - _SPAWN_Y) ** 2) > clear_sq
+            ]
+
+        # Heptagonal pillar formation per `design_seven_pillars` +
+        # `feedback_factor_of_7` + `design_meta_pixel_mote`. Center sits
+        # ~8m south of spawn (which is at (0, -14, 0) facing south); ring
+        # radius 6 so the formation is visible immediately on connect.
+        # i=0 is the "north" position (closest to spawn) — Pillar of Name
+        # leads, 2m directly in front of the player.
         if (self.game_state.state == gs.GameStateName.CHARACTER_CREATION
                 and self.character_draft is not None):
             progress = self.character_draft.progress()
-            if not progress.get("name", False):
-                # Spawn is at (0, -14) facing south (heading 180°). Pillar
-                # at y=-20 sits ~6m in front of the player at first frame so
-                # it's immediately visible without turning around.
+            for i, pillar_id in enumerate(_PILLAR_RING_ORDER):
+                if progress.get(pillar_id, False):
+                    continue  # sealed pillars disappear from the formation
+                x, y = _heptagon_position(i)
+                r, g, b = _PILLAR_COLORS.get(pillar_id, (1.0, 0.7, 0.0))
                 visible.append({
-                    "id": -1000,
-                    "kind": "pillar_name",
-                    "x": 0.0, "y": -20.0, "z": 0.0,
+                    "id": -1000 - i,
+                    "kind": f"pillar_{pillar_id}",
+                    "x": x, "y": y, "z": 0.0,
                     "sx": 0.6, "sy": 0.6, "sz": 3.0,
                     "heading": 0.0,
-                    "r": 1.0, "g": 0.7, "b": 0.0,
+                    "r": r, "g": g, "b": b,
                     "collision_radius": 0.6,
                 })
+
+        # Pillar of Reflection — meta re-do pillar, lives in HUB at the
+        # heptagonal ring's center. Engaging it transitions back to
+        # CHARACTER_CREATION so the player can walk through identity again.
+        # Cooler hue distinguishes it from the amber creation pillars.
+        if (self.game_state.state == gs.GameStateName.HUB
+                and self.character_sheet is not None):
+            cx, cy = _PILLAR_RING_CENTER
+            visible.append({
+                "id": -1100,
+                "kind": "pillar_reflection",
+                "x": cx, "y": cy, "z": 0.0,
+                "sx": 0.6, "sy": 0.6, "sz": 3.0,
+                "heading": 0.0,
+                "r": 0.7, "g": 0.5, "b": 1.0,
+                "collision_radius": 0.6,
+            })
 
         return {
             "camera": {"x": cam_x, "y": cam_y, "z": cam_z,
@@ -1442,7 +1532,7 @@ def run_server(biome_name, port=9877):
                         # Generic state transition feedback for HUB↔MISSION_SELECT, etc.
                         world.state_events.emit(
                             "state_transition",
-                            f"{old.state.value} → {new_state.state.value}",
+                            f"{old.state.value} -> {new_state.state.value}",
                             None,
                             REG_LOOP,
                         )
@@ -1471,18 +1561,40 @@ def run_server(biome_name, port=9877):
                     # walks up to a pillar in the hub during CHARACTER_CREATION,
                     # presses F, brain returns the pillar's initial DialPrompt
                     # via manifest.dial_prompt. Client renders the dial.
-                    if world.game_state.state != gs.GameStateName.CHARACTER_CREATION:
-                        print(f"  engage_pillar rejected: state={world.game_state.state.value}", flush=True)
-                        continue
-                    if world.character_draft is None:
-                        print(f"  engage_pillar rejected: no draft", flush=True)
-                        continue
                     pillar_id = str(msg.get("pillar", ""))
+                    # Pillar of Reflection is the meta re-do pillar: it lives in
+                    # HUB after a sheet is sealed, not in CHARACTER_CREATION.
+                    is_reflection = pillar_id == "reflection"
+                    if is_reflection:
+                        if world.game_state.state != gs.GameStateName.HUB:
+                            print(f"  engage reflection rejected: state={world.game_state.state.value}", flush=True)
+                            continue
+                        if world.character_sheet is None:
+                            print(f"  engage reflection rejected: no character to reset", flush=True)
+                            continue
+                    else:
+                        if world.game_state.state != gs.GameStateName.CHARACTER_CREATION:
+                            print(f"  engage_pillar rejected: state={world.game_state.state.value}", flush=True)
+                            continue
+                        if world.character_draft is None:
+                            print(f"  engage_pillar rejected: no draft", flush=True)
+                            continue
                     handler = pillars_registry.get(pillar_id)
                     if handler is None:
                         print(f"  engage_pillar rejected: unknown pillar {pillar_id!r}", flush=True)
                         continue
-                    world.active_dial = handler.initial_prompt(world.character_draft)
+                    # Build hint context for re-do flows. When a sheet
+                    # already exists (re-do via Pillar of Reflection), pass
+                    # previous values so handlers can seed defaults closer
+                    # to the player's last answer (faster cascade convergence).
+                    hint: dict | None = None
+                    if world.character_sheet is not None:
+                        hint = {
+                            "previous_age": world.character_sheet.age,
+                            "previous_birthday": world.character_sheet.birthday,
+                        }
+                    world.active_dial = handler.initial_prompt(
+                        world.character_draft, hint=hint)
                     last_wake_ids = set()
                     print(f"  engaged pillar:{pillar_id}", flush=True)
                     continue
@@ -1530,8 +1642,31 @@ def run_server(biome_name, port=9877):
                         continue
 
                     chosen_value = world.active_dial.options[answer_idx].value
-                    world.character_draft.append(pillar_id, chosen_value)
                     world.active_dial = None
+
+                    # Pillar of Reflection special-case: triggers re-do flow
+                    # rather than draft-append. The sentinel value drives state
+                    # transition; we never write _reflection to the draft.
+                    if pillar_id == "reflection":
+                        if chosen_value == "reset":
+                            world.character_draft = world._init_creation_draft()
+                            old_state = world.game_state
+                            world.game_state = gs.transition(
+                                world.game_state, gs.GameStateName.CHARACTER_CREATION)
+                            print(f"  reflection: BEGIN AGAIN — draft reset", flush=True)
+                            print(f"  state: {old_state.state.value} -> {world.game_state.state.value}", flush=True)
+                            world.state_events.emit(
+                                "reflection_reset",
+                                "BEGINNING AGAIN",
+                                "the cavern remembers",
+                                REG_RITUAL,
+                            )
+                        else:
+                            print(f"  reflection: remain", flush=True)
+                        last_wake_ids = set()
+                        continue
+
+                    world.character_draft.append(pillar_id, chosen_value)
                     print(f"  pillar {pillar_id!r} sealed: {chosen_value!r}", flush=True)
 
                     if world.character_draft.is_complete():
