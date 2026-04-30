@@ -55,9 +55,12 @@ from core.systems.stamp_world import get_visible as stamp_get_visible
 # the event-sourced draft, and the pillar handler registry.
 from core.systems import pillars as pillars_registry
 from core.systems import quests
+from core.systems.quests import from_journal as quest_from_journal
 from core.systems.quests import rewards as quest_rewards
 from core.systems.quests import tick as quest_tick
 from core.systems.quests.state import QuestState
+from core.systems.journal import lexicon as journal_lexicon
+from core.vault import vault as Vault
 from core.systems.character_draft import CharacterDraft
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
@@ -69,6 +72,44 @@ from core.systems.state_events import (
     SYSTEM as REG_SYSTEM,
 )
 from datetime import date
+
+
+# ── Journal vault — Permanent Objects bridge ─────────────────────────
+# Lazy module-level singleton. Constructed on first journal_entry cmd;
+# matches the kind_config / state_events pattern (no constructor wiring
+# through BrainWorld). vault._ensure_schema() is idempotent so this is
+# safe to instantiate against an existing data/vault.db.
+
+_VAULT: Vault | None = None
+
+
+def _get_vault() -> Vault:
+    global _VAULT
+    if _VAULT is None:
+        _VAULT = Vault()
+    return _VAULT
+
+
+def _journal_persist_entry(raw_note: str) -> int:
+    """Insert one entry row, return its id. Severity/frequency take
+    schema defaults — the planner UI's structured form lands later.
+    Bridge harness only ever sends raw_note, so this is sufficient."""
+    import sqlite3
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    v = _get_vault()
+    with sqlite3.connect(v.db_path) as conn:
+        cur = conn.execute(
+            "INSERT INTO entries (when_ts, raw_note, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (now, raw_note, now, now),
+        )
+        # Run lexicon update inside the same transaction so terms tie to
+        # the just-inserted entry id.
+        entry_id = cur.lastrowid
+        journal_lexicon.update_lexicon(conn, entry_id, raw_note, vault=v)
+        conn.commit()
+    return entry_id
 
 
 # ── Quest completion side-effects ─────────────────────────────────────
@@ -1507,6 +1548,85 @@ def run_server(biome_name, port=9877):
                     last_wake_ids = set()
                     continue
 
+                if msg.get("cmd") == "journal_entry":
+                    # Permanent Objects bridge — J3-min path.
+                    # Persist raw_note + run lexicon update, then synthesize a
+                    # Quest from the entry and register it dynamically. Push
+                    # a `journal_entry` event onto tick_events so any active
+                    # `journal_followup` quest can fire on the next tick.
+                    # Per `feedback_her_voice` + `design_wont_tolerate`: the
+                    # quest's name + description are verbatim slices of
+                    # raw_note. No paraphrase, no LLM.
+                    raw_note = str(msg.get("raw_note", "")).strip()
+                    if not raw_note:
+                        ack = json.dumps({"journal_entry_error": "empty raw_note"}) + "\n"
+                        try:
+                            client.sendall(ack.encode("utf-8"))
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        continue
+                    try:
+                        entry_id = _journal_persist_entry(raw_note)
+                    except Exception as exc:
+                        print(f"  journal_entry persist failed: {exc}", flush=True)
+                        ack = json.dumps({"journal_entry_error": str(exc)}) + "\n"
+                        try:
+                            client.sendall(ack.encode("utf-8"))
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        continue
+
+                    # Re-extract terms for the bridge. Cheap (single spaCy
+                    # pass on a ≤1000-char string); avoids smuggling DB
+                    # internals into from_journal which stays I/O-free.
+                    terms = journal_lexicon.extract_terms(
+                        raw_note, vault=_get_vault())
+                    kind_set = set(_kc.all_kinds().keys())
+                    quest = quest_from_journal.quest_from_entry(
+                        entry_id, raw_note, terms, kind_set)
+
+                    if quest is not None:
+                        quests.register_dynamic(quest)
+                        if (quest.id not in world.quest_state.available
+                                and quest.id not in world.quest_state.active
+                                and quest.id not in world.quest_state.completed):
+                            world.quest_state.available.append(quest.id)
+                        world.state_events.emit(
+                            "quest_available",
+                            f"NEW QUEST — {quest.name.upper()}",
+                            None,
+                            REG_LOOP,
+                        )
+
+                    # Always push the journal event onto tick_events so any
+                    # already-active journal_followup quest can complete on
+                    # this same entry (the predicate self-skips birth ids).
+                    world.tick_events.append({
+                        "type": "journal_entry",
+                        "entry_id": entry_id,
+                        "raw_note": raw_note,
+                    })
+                    last_wake_ids = set()
+
+                    ack_payload = {
+                        "journal_entry_ack": {
+                            "entry_id": entry_id,
+                            "quest_id": quest.id if quest else None,
+                            "quest_name": quest.name if quest else None,
+                            "term_count": len(terms),
+                        }
+                    }
+                    try:
+                        client.sendall((json.dumps(ack_payload) + "\n").encode("utf-8"))
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    print(
+                        f"  journal_entry: id={entry_id} quest="
+                        f"{quest.id if quest else 'none'} terms={len(terms)}",
+                        flush=True,
+                    )
+                    continue
+
                 if msg.get("cmd") == "mission_select_cycle":
                     # L6 — cycle the picker selection while in MISSION_SELECT.
                     # Outside that state the command is meaningless, so reject
@@ -1962,6 +2082,20 @@ def run_server(biome_name, port=9877):
                 # Camera update — stash, only process the latest after drain
                 latest_cam_msg = msg
 
+            # Per-frame quest evaluation — runs every iteration of the recv
+            # loop, NOT gated on a camera update. Async quests (per
+            # `project_async_quest_refactor`) must fire even when no client
+            # is streaming camera updates: a journal_entry pushed via the
+            # harness, or a queued event from a previous tick, completes
+            # the predicate without waiting for the player to move.
+            if world.quest_state.active or world.tick_events:
+                quest_tick.tick(
+                    world,
+                    world.tick_events,
+                    lambda q: _on_quest_complete(world, q),
+                )
+            world.tick_events.clear()
+
             # Process only the latest camera update (skip stale queued ones)
             if latest_cam_msg is not None:
                 msg = latest_cam_msg
@@ -2047,17 +2181,10 @@ def run_server(biome_name, port=9877):
                     # next completion + leaving + returning.
                     in_hub_last = False
 
-                # Per-frame quest evaluation. Drains world.tick_events,
-                # runs each active quest's predicate, fires _on_quest_complete
-                # for any that resolved this frame. Cleared after so events
-                # don't double-fire next tick.
-                if world.quest_state.active or world.tick_events:
-                    quest_tick.tick(
-                        world,
-                        world.tick_events,
-                        lambda q: _on_quest_complete(world, q),
-                    )
-                world.tick_events.clear()
+                # Per-frame quest evaluation. (Moved out of the camera-gate
+                # below — async quests must evaluate even when no client is
+                # streaming camera updates, e.g. journal_followup firing on
+                # a journal_entry pushed via the harness while Godot is off.)
 
                 manifest = world.get_manifest(
                     cam_x, cam_y, cam_z, heading, pitch, dt)

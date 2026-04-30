@@ -50,6 +50,14 @@ def register(quest: Quest) -> None:
     _REGISTRY[quest.id] = quest
 
 
+def register_dynamic(quest: Quest) -> None:
+    """Runtime registration — idempotent overwrite by id. Used by the
+    journal→quest bridge: the same entry id always maps to the same
+    quest id, so re-running the bridge replaces the existing row instead
+    of raising. Build-time `register()` keeps strict-once semantics."""
+    _REGISTRY[quest.id] = quest
+
+
 def get(quest_id: str) -> Quest | None:
     return _REGISTRY.get(quest_id)
 

@@ -103,6 +103,44 @@ def _destroy_kind(
     return count >= target
 
 
+@register("journal_followup")
+def _journal_followup(
+    world: WorldLike,
+    args: dict,
+    progress: dict,
+    events: list[dict],
+) -> bool:
+    """True when the player logs a new journal entry mentioning `term`.
+
+    The planner-native predicate: a quest born from a journal entry
+    completes when she journals about it again. No game-kind binding
+    required — the act of journaling closes the loop. Match is
+    case-insensitive substring on raw_note (lemma matching is the
+    lexicon module's job; this predicate stays small).
+
+    The bridge skips registration of the entry that BIRTHED the quest
+    (entry_id passed in args) so a quest cannot complete on its own
+    creation event.
+
+    args:
+      term:           str — substring to match (already lowercased)
+      birth_entry_id: int — entry id that created this quest; ignored
+    """
+    term = str(args.get("term", "")).strip().lower()
+    if not term:
+        return False
+    birth = args.get("birth_entry_id")
+    for evt in events:
+        if evt.get("type") != "journal_entry":
+            continue
+        if birth is not None and evt.get("entry_id") == birth:
+            continue
+        raw = str(evt.get("raw_note", "")).lower()
+        if term in raw:
+            return True
+    return False
+
+
 @register("cast_at_kind")
 def _cast_at_kind(
     world: WorldLike,
