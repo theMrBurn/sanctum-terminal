@@ -10,6 +10,8 @@ Contract every agent reads before touching this repo.
 
 Do not chain reads beyond this. Subagents inherit this contract via the spawning prompt.
 
+**Skip the read for trivial work** — typo fixes, single-line questions about a known location, status checks. The scaffold is overhead that earns its keep on multi-file or behavior-bearing changes; for one-shots it's just tax.
+
 ## Hard rules
 - Air-gap: no LLM calls in production paths. Lexicon is gensim/spaCy.
 - Voice: copy echoes the user's wife's writing — never D&D tutorial.
