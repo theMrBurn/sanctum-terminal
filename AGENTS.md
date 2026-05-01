@@ -6,6 +6,7 @@ Contract every agent reads before touching this repo.
 1. AGENTS.md (this file)
 2. The ONE Layer-1 AGENTS.md for the subsystem you're touching
 3. Layer-4 files (`LIVE_STATE.md`, `LIVE_PIPELINE_MAP.md`) only if your task names them
+4. `.claude/audit_framework.md` if the task is audit-shaped (force-multiplier review, architecture or migration audit)
 
 Do not chain reads beyond this. Subagents inherit this contract via the spawning prompt.
 
@@ -41,10 +42,26 @@ Godot reloads manifest automatically; restart on shader edits.
 JSON-line over TCP :9877. Schema bumps require both-end deploy.
 Brain emits raw entity state. Render hints (fade, lighting, scanline) live in clients.
 
+## Subagent vs main-thread
+Spawn a subagent for: 3+ file lookups, multi-source reconciliation, parallel work, surveys.
+Stay main-thread for: targeted edits, single-file tasks, design discussion, iterative work needing screenshots.
+
 ## Subagent briefing pattern
 When spawning Agent (Explore, general-purpose, Plan), the prompt MUST include:
 "Read AGENTS.md and <relevant subsystem>/AGENTS.md before starting. Then: <task>."
 Subagents have no auto-memory. These files are their only durable context.
+For parallel-safe sibling features (per `.claude/feature/<branch>.md`), pass `isolation: "worktree"` to keep changes isolated.
+
+Example briefing (good shape — short, specific, capped):
+"Read AGENTS.md and core/systems/journal/AGENTS.md before starting.
+Then: locate all callers of vault.py public API outside core/systems/journal/.
+Return file:line list. No analysis. Cap response at 50 lines."
+
+## Model routing
+Pass the `model` param when spawning Agent calls. Default inherits from parent.
+- Haiku  — file lookups, grep, status checks, syntax fixes, classification
+- Sonnet — implementation work (code edits, refactors, tests)
+- Opus   — design, planning, audits, multi-file architecture
 
 ## Acceptance criteria taxonomy
 Tag every change with at least one:
