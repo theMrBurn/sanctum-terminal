@@ -56,7 +56,11 @@ godot/manifest.json
 godot/meshes/pre_repair_backup/
 
 # ── Claude Code session data ─────────────────────────────────────────────────
-.claude/
+# .claude/ holds both committable scope (AGENTS scaffolding, audit framework)
+# and personal session state. Ignore only the personal subpaths.
+.claude/projects/
+.claude/settings.local.json
+.claude/worktrees/
 
 # ── Expedition session logs — generated per Godot run, not source ────────────
 # Each completed expedition writes sessions/expedition_<timestamp>.json.

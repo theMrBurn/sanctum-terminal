@@ -1,0 +1,62 @@
+# AGENTS.md
+
+Contract every agent reads before touching this repo.
+
+## Read order
+1. AGENTS.md (this file)
+2. The ONE Layer-1 AGENTS.md for the subsystem you're touching
+3. Layer-4 files (`LIVE_STATE.md`, `LIVE_PIPELINE_MAP.md`) only if your task names them
+
+Do not chain reads beyond this. Subagents inherit this contract via the spawning prompt.
+
+## Hard rules
+- Air-gap: no LLM calls in production paths. Lexicon is gensim/spaCy.
+- Voice: copy echoes the user's wife's writing — never D&D tutorial.
+- No hardcoded tunables: literals controlling behavior live as named consts at file top.
+- kind_config single source: scale/color/collision/recipes live in `config/kind_config.json`.
+- BIOME_REGISTRY single source: never `if biome == ...` in live code.
+- Brain owns config: `core/systems/biome_data.py` is canonical. Godot reads manifest.
+- One change at a time: edit, screenshot, confirm, proceed.
+- No layering: execute the named scope only. No "while I'm here" cleanups.
+- No reverting on first failure: tune the one variable that broke.
+- Plan before code on trajectory shifts.
+- Confirm before fix: present options, let the user pick direction.
+- (Full Won't-tolerate list: see memory pin `design_wont_tolerate`.)
+
+## Live-vs-legacy
+The repo has Panda3D-era files still launchable via `make` targets.
+Refactoring legacy is zero-leverage. See `LIVE_PIPELINE_MAP.md` for the boundary.
+If a file imports `direct.showbase.ShowBase` or `panda3d.*`, it is legacy.
+
+## Process model
+Live procs during a session:
+- `python3 brain_server.py outdoor 9877` — Python brain, TCP :9877
+- Godot 4.4 viewer (`godot/main.tscn`)
+- Optionally: `clients/vector_terminal/main.py`
+
+Restart brain on edits to: `biome_data.py`, lexicon, vault schema.
+Godot reloads manifest automatically; restart on shader edits.
+
+## Wire format
+JSON-line over TCP :9877. Schema bumps require both-end deploy.
+Brain emits raw entity state. Render hints (fade, lighting, scanline) live in clients.
+
+## Subagent briefing pattern
+When spawning Agent (Explore, general-purpose, Plan), the prompt MUST include:
+"Read AGENTS.md and <relevant subsystem>/AGENTS.md before starting. Then: <task>."
+Subagents have no auto-memory. These files are their only durable context.
+
+## Acceptance criteria taxonomy
+Tag every change with at least one:
+- TEST     — pytest path validates it
+- VISUAL   — screenshot UAT, user confirms
+- SCENARIO — runs through brain + client end-to-end
+- MIGRATION — old vault/save loads after schema bump
+
+## Promotion ladder for new doctrine
+correction → feature AGENTS (this branch only)
+           → subsystem AGENTS (recurs in this domain)
+           → root AGENTS      (cross-cutting)
+           → memory pin       (about user/preference, not project rule)
+
+Test: "If memory were deleted, would this rule survive?" Yes → AGENTS file. No → memory pin.
