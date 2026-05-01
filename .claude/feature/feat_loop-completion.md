@@ -14,7 +14,7 @@ This file captures the whole arc, not just remaining scope. The branch name is a
 - **Remaining** — PRs 3-6 below.
 
 ## In-scope
-- **PR 3** — Death-only regen. `_check_death_and_regen(world)` after damage; HP→0 fires StateEvent + regen + HP restore. Active quests survive.
+- **PR 3** — **Consequences engine + reflective-mode state machine + AC predicates + minimal fridge kind + stub rule.** Replaces the original "death-only regen" minimal scope after the 2026-05-01 design conversation that produced `design_reflective_loop`. HP=0 enters reflective mode (the fridge); rule satisfied + commit returns to active. No perma-death (`design_virtual_hallucination`). World regen still HP=0-gated (`design_death_only_regen`), now expressed as one effect in the consequences engine. The reflective rule is consumer #1; quest reward dispatch (already shipped in PR 1) becomes consumer #2 to prove the abstraction.
 - **PR 4** — Vector terminal HUD active-quest rows + ASCII bearing prefix (`[NE]`). Predicates gain `target_position(world) -> (x,y) | None`. The gap user FELT during 2026-04-30 UAT walk.
 - **PR 5** (destructive — last) — Collapse `MISSION_SELECT` / `IN_MISSION` / `RESULTS` from `game_state.py`, brain handlers, Godot UI. Rewrite `tests/test_loop_integration.py`.
 - **PR 6** — Cleanup. Drop `hub_seed`, `mission_loot` (migrate to quest defs), regen call sites, schema validator entry.
@@ -33,6 +33,24 @@ This file captures the whole arc, not just remaining scope. The branch name is a
 - [ ] **SCENARIO** — brain + vector terminal end-to-end: journal entry creates active quest → bearing prefix renders → travel completes predicate → StateEvent toast + passive reward drop → world does NOT regen.
 - [ ] **VISUAL** — HUD active-quest rows render in vector terminal, up to 3 with `+N more`; J overlay still toggles.
 - [ ] PR 5 is sequenced after PRs 3-4 are stable. No skipping.
+
+## Order
+PR 3 → PR 4 → (UAT gate) → PR 5 → PR 6. Confirmed 2026-05-01.
+
+## PR 5 trigger
+PR 5 (destructive collapse) lands only when ALL of these hold:
+- PR 3 passes scenario UAT (death triggers regen, active quests survive)
+- PR 4 passes scenario UAT (bearing prefix renders, journal toggle works)
+- Tests rewritten green for both
+- Two consecutive sessions on this branch without revert
+
+This stops the dual-route in `mission_complete_trigger` from rotting into permanence. Confirmed 2026-05-01.
+
+## UAT bracketing (navigation)
+Clip-through failures (walls cosmetic, FPS collision bug, creatures clipping) **do not count** against PR 3/PR 4 verdict. They're known-deferred and tracked separately. UAT verdict is on quest mechanics + regen behavior + HUD legibility only. Confirmed 2026-05-01.
+
+## Deferred-pile policy
+Everything in the deferred pile stays "deferred" until definitively superseded or shipped. No "abandoned" status — items are alive until proven otherwise. Confirmed 2026-05-01.
 
 ## Hot-reload notes
 - `core/systems/game_state.py`, `save_state.py`, `quests/predicates.py`, `config/quests.json` → brain restart.
