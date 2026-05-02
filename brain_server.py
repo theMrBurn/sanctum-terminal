@@ -61,6 +61,8 @@ from core.systems.quests import rewards as quest_rewards
 from core.systems.quests import tick as quest_tick
 from core.systems.consequences import signals as consequence_signals
 from core.systems.consequences import tick as consequence_tick
+from core.systems.reflective import ReflectiveState
+from core.systems.reflective import state_machine as reflective_sm
 from core.systems.quests.state import QuestState
 from core.systems.journal import lexicon as journal_lexicon
 from core.vault import vault as Vault
@@ -583,6 +585,13 @@ class BrainWorld:
         # what HP=0 (or any future trigger) actually does is in
         # `config/consequences.json`, not hardcoded here.
         self.consequences: list = []
+
+        # Reflective-mode session state (the fridge + magnets). Session-
+        # only; not persisted in V3 save schema. Populated by
+        # state_machine.enter on HP=0 forced entry (via consequence
+        # effect) or voluntary engage_fridge cmd. Cleared by
+        # state_machine.exit. See `design_reflective_loop`.
+        self.reflective: ReflectiveState = ReflectiveState()
 
         # Replay dynamic journal-derived quests from the vault. Closes
         # the "where'd my quest go" gap surfaced in 2026-04-30 UAT — the
@@ -2264,6 +2273,144 @@ def run_server(biome_name, port=9877):
                         client.sendall(ack.encode("utf-8"))
                     except (BrokenPipeError, ConnectionResetError):
                         pass
+                    continue
+
+                # ── Reflective-mode cmd handlers (PR 3.5 step 8) ────
+                # Voluntary entry, magnet placement, commit, abort.
+                # Forced entry (HP=0) goes through the consequences
+                # engine via signals.push_hp_zero — not a cmd handler.
+
+                if msg.get("cmd") == "engage_fridge":
+                    # Voluntary entry from the hub. Player chose to walk
+                    # up and engage the fridge — pure ambient practice
+                    # path. No proximity check on brain side; client UI
+                    # gates affordance per `design_brain_ground_truth`.
+                    if world.game_state.state != gs.GameStateName.HUB:
+                        print(
+                            f"  engage_fridge: ignored — game_state is "
+                            f"{world.game_state.state.value}, not HUB",
+                            flush=True,
+                        )
+                        continue
+                    if not reflective_sm.enter(world, trigger="voluntary"):
+                        print("  engage_fridge: no rules registered, skipped", flush=True)
+                        continue
+                    try:
+                        world.game_state = gs.transition(
+                            world.game_state,
+                            gs.GameStateName.REFLECTIVE,
+                        )
+                    except ValueError as exc:
+                        # Roll back so reflective state stays consistent
+                        # with game_state.
+                        reflective_sm.exit(world)
+                        print(f"  engage_fridge: {exc}", flush=True)
+                        continue
+                    world.state_events.emit(
+                        "reflective_entry",
+                        "REFLECT",
+                        None,
+                        REG_RITUAL,
+                    )
+                    print(
+                        f"  engage_fridge: rule="
+                        f"{world.reflective.current_rule_id} "
+                        f"pool_size={len(world.reflective.magnet_pool)}",
+                        flush=True,
+                    )
+                    last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "place_magnet":
+                    if world.game_state.state != gs.GameStateName.REFLECTIVE:
+                        continue
+                    magnet = str(msg.get("magnet", ""))
+                    placed = reflective_sm.place_magnet(world, magnet)
+                    if not placed:
+                        print(
+                            f"  place_magnet: rejected {magnet!r} "
+                            f"(not in pool or already at limit)",
+                            flush=True,
+                        )
+                    last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "remove_magnet":
+                    if world.game_state.state != gs.GameStateName.REFLECTIVE:
+                        continue
+                    try:
+                        index = int(msg.get("index", -1))
+                    except (TypeError, ValueError):
+                        continue
+                    reflective_sm.remove_magnet(world, index)
+                    last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "commit_reflective":
+                    if world.game_state.state != gs.GameStateName.REFLECTIVE:
+                        continue
+                    trigger = world.reflective.trigger
+                    success = reflective_sm.commit(world)
+                    if success:
+                        # Push trigger-specific event so the consequence
+                        # engine resumes the right chain (resume vs
+                        # voluntary). Both events resolve same tick.
+                        if trigger == "hp_zero":
+                            world.tick_events.append({
+                                "type": "reflective_committed_from_hp_zero",
+                            })
+                        elif trigger == "voluntary":
+                            world.tick_events.append({
+                                "type": "reflective_committed_voluntary",
+                            })
+                        else:
+                            print(
+                                f"  commit_reflective: unknown trigger "
+                                f"{trigger!r}, skipped event push",
+                                flush=True,
+                            )
+                    else:
+                        # AC failed — stay in reflective. attempt_count
+                        # was incremented by sm.commit. V1 emits a
+                        # generic "not yet" StateEvent; voice authoring
+                        # for failure copy is a content-arc follow-up.
+                        world.state_events.emit(
+                            "reflective_attempt_failed",
+                            "NOT YET",
+                            None,
+                            REG_LOOP,
+                        )
+                    last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "abort_reflective":
+                    # V1: only voluntary entry can abort. HP=0 path
+                    # locks until commit (low bar — compose_three).
+                    if world.game_state.state != gs.GameStateName.REFLECTIVE:
+                        continue
+                    if world.reflective.trigger != "voluntary":
+                        print(
+                            "  abort_reflective: ignored — only voluntary "
+                            "entry can abort",
+                            flush=True,
+                        )
+                        continue
+                    reflective_sm.exit(world)
+                    try:
+                        world.game_state = gs.transition(
+                            world.game_state,
+                            gs.GameStateName.HUB,
+                        )
+                    except ValueError as exc:
+                        print(f"  abort_reflective: {exc}", flush=True)
+                        continue
+                    world.state_events.emit(
+                        "reflective_aborted",
+                        "LATER",
+                        None,
+                        REG_SYSTEM,
+                    )
+                    last_wake_ids = set()
                     continue
 
                 # Camera update — stash, only process the latest after drain
