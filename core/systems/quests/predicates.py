@@ -74,6 +74,61 @@ def clear() -> None:
     _REGISTRY.clear()
 
 
+# ── Target-position registry (HUD bearing) ───────────────────────────
+#
+# PR 4: each predicate may optionally register a companion that returns
+# the spatial target the player should move toward to make progress on
+# the predicate's win condition. Brain calls this at manifest build
+# time and feeds the result through `core.systems.bearing` to produce
+# a compass string for the HUD.
+#
+# Predicates that have no spatial target (journal_followup completes
+# by re-journaling, not by walking somewhere) simply omit registration.
+# Brain treats a missing registration the same as a None return value.
+
+
+TargetFn = Callable[
+    ["WorldLike", dict, float, float], "tuple[float, float] | None"
+]
+"""Signature: (world, static_args, player_x, player_y) -> (tx, ty) | None.
+
+Returns the world position the player should head toward, or None if
+the quest currently has no spatial target (e.g. all entities of a
+target kind have been destroyed; player has no progress hook).
+
+`player_x`, `player_y` are passed in so resolvers can pick the NEAREST
+matching entity rather than a fixed one — relevant for kinds that
+appear scattered across the world (clay_pots, etc.).
+"""
+
+
+_TARGETS: dict[str, TargetFn] = {}
+
+
+def register_target(name: str) -> Callable[[TargetFn], TargetFn]:
+    """Decorator: register a target-position resolver alongside a
+    same-named predicate. Idempotent — re-registration overwrites
+    (avoids `clean` fixture pain at the cost of strict-once semantics
+    for resolvers; predicates remain strict-once)."""
+    def decorator(fn: TargetFn) -> TargetFn:
+        _TARGETS[name] = fn
+        return fn
+    return decorator
+
+
+def get_target(name: str) -> TargetFn | None:
+    return _TARGETS.get(name)
+
+
+def all_targets() -> dict[str, TargetFn]:
+    return dict(_TARGETS)
+
+
+def clear_targets() -> None:
+    """Test-only — reset the target registry."""
+    _TARGETS.clear()
+
+
 # ── Built-in predicates ──────────────────────────────────────────────
 
 
@@ -168,3 +223,63 @@ def _cast_at_kind(
                 seen.add(str(element))
     progress["seen"] = sorted(seen)
     return required.issubset(seen)
+
+
+# ── Target-position resolvers (HUD bearing companions) ─────────────
+
+
+def _nearest_entity_of_kind(
+    world: WorldLike,
+    kind: str,
+    player_x: float,
+    player_y: float,
+) -> "tuple[float, float] | None":
+    """Iterate world entities, return (x, y) of the closest one whose
+    `kind` matches. Used by both destroy_kind and cast_at_kind targets.
+
+    `world.entities` is duck-typed: a sequence of dicts with `kind`,
+    `x`, `y`. Brain's BrainWorld satisfies this; tests can pass a
+    minimal fake.
+    """
+    if not kind:
+        return None
+    nearest: tuple[float, float] | None = None
+    nearest_d2 = float("inf")
+    entities = getattr(world, "entities", None) or []
+    # BrainWorld.entities is sometimes a dict {id: dict}; iterate values
+    # if so, items if list-of-dicts.
+    iterable = entities.values() if hasattr(entities, "values") else entities
+    for ent in iterable:
+        if not isinstance(ent, dict):
+            continue
+        if ent.get("kind") != kind:
+            continue
+        try:
+            ex = float(ent.get("x", 0.0))
+            ey = float(ent.get("y", 0.0))
+        except (TypeError, ValueError):
+            continue
+        d2 = (ex - player_x) ** 2 + (ey - player_y) ** 2
+        if d2 < nearest_d2:
+            nearest_d2 = d2
+            nearest = (ex, ey)
+    return nearest
+
+
+@register_target("destroy_kind")
+def _destroy_kind_target(world, args, player_x, player_y):
+    """Nearest entity of the target kind to the player. None if no
+    entities of that kind exist (e.g. all destroyed already)."""
+    return _nearest_entity_of_kind(world, str(args.get("kind", "")), player_x, player_y)
+
+
+@register_target("cast_at_kind")
+def _cast_at_kind_target(world, args, player_x, player_y):
+    """Same as destroy_kind: point at the nearest matching entity.
+    The player still has to walk to it before casting."""
+    return _nearest_entity_of_kind(world, str(args.get("kind", "")), player_x, player_y)
+
+
+# `journal_followup` deliberately has NO target resolver — completion
+# happens by re-journaling, not by walking somewhere. HUD shows the
+# quest name without a bearing prefix in that case.
