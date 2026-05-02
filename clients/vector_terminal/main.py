@@ -29,6 +29,7 @@ from clients.vector_terminal import hud  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
+from clients.vector_terminal import silhouette as silhouette_renderer  # noqa: E402
 from clients.vector_terminal import state_events as state_events_renderer  # noqa: E402
 from clients.vector_terminal.collision import resolve_collisions  # noqa: E402
 from clients.vector_terminal.envelope import clamp_to_envelope  # noqa: E402
@@ -403,7 +404,17 @@ def main() -> int:
         for ent in last_manifest.get("entities", []):
             if class_for(str(ent.get("kind", ""))) in cfg.SKIP_ENTITY_CLASSES:
                 continue
-            _draw_entity(ent, camera)
+            # Per `design_banner_layer_taxonomy` — dispatch on the brain-
+            # assigned render_mode. Outer shells render as silhouettes
+            # projected onto the banner cylinders; atmosphere mode skips
+            # entity rendering (entity contributes to layer tint via
+            # later brain aggregation).
+            render_mode = str(ent.get("render_mode", "geometry"))
+            if render_mode == "geometry":
+                _draw_entity(ent, camera)
+            elif render_mode in ("silhouette", "hint"):
+                silhouette_renderer.draw_silhouette(ent, camera, render_mode)
+            # else: atmosphere mode — skip entity rendering entirely.
 
         amber = (cfg.AMBER_RGB[0], cfg.AMBER_RGB[1], cfg.AMBER_RGB[2], 255)
 
