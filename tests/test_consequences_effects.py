@@ -277,3 +277,168 @@ def test_full_chain_via_engine_tick():
     predicates_module.register_builtins()
     effects_module.register_builtins()
     _defs.load_from_json()
+
+
+# ── enter_reflective ───────────────────────────────────────────────
+
+
+def test_enter_reflective_transitions_state_and_world():
+    """Forced HP=0 path: enter_reflective effect mutates world.reflective
+    AND transitions world.game_state to REFLECTIVE."""
+    from dataclasses import dataclass, field
+    from core.systems import game_state as gs
+    from core.systems.reflective import ReflectiveState
+
+    fn = effects_module.get("enter_reflective")
+    assert fn is not None
+
+    @dataclass
+    class _W:
+        game_state: gs.GameState = field(default_factory=gs.GameState.initial)
+        reflective: ReflectiveState = field(default_factory=ReflectiveState)
+
+    world = _W()
+    fn(world, {"trigger": "hp_zero", "seed": 42}, _instance())
+
+    assert world.reflective.active is True
+    assert world.reflective.trigger == "hp_zero"
+    assert world.game_state.state == gs.GameStateName.REFLECTIVE
+
+
+def test_enter_reflective_voluntary_trigger():
+    from dataclasses import dataclass, field
+    from core.systems import game_state as gs
+    from core.systems.reflective import ReflectiveState
+
+    fn = effects_module.get("enter_reflective")
+
+    @dataclass
+    class _W:
+        game_state: gs.GameState = field(default_factory=gs.GameState.initial)
+        reflective: ReflectiveState = field(default_factory=ReflectiveState)
+
+    world = _W()
+    fn(world, {"trigger": "voluntary", "seed": 0}, _instance())
+
+    assert world.reflective.trigger == "voluntary"
+
+
+def test_enter_reflective_safe_when_no_game_state():
+    """If world has no game_state attr (minimal test fakes), the effect
+    still runs the state machine but skips the transition."""
+    from dataclasses import dataclass, field
+    from core.systems.reflective import ReflectiveState
+
+    fn = effects_module.get("enter_reflective")
+
+    @dataclass
+    class _W:
+        reflective: ReflectiveState = field(default_factory=ReflectiveState)
+
+    world = _W()
+    fn(world, {"seed": 0}, _instance())  # no game_state attr
+    # No exception — and the state machine should have populated.
+    assert world.reflective.active is True
+
+
+def test_enter_reflective_rolls_back_on_illegal_transition():
+    """If game_state is in a state that can't transition to REFLECTIVE
+    (e.g. IN_MISSION), the effect rolls back the reflective state."""
+    from dataclasses import dataclass, field
+    from core.systems import game_state as gs
+    from core.systems.reflective import ReflectiveState
+
+    fn = effects_module.get("enter_reflective")
+
+    @dataclass
+    class _W:
+        game_state: gs.GameState = field(default_factory=lambda: gs.GameState(
+            state=gs.GameStateName.IN_MISSION,
+            mission_id="x",
+            mission_seed=0,
+            results=None,
+        ))
+        reflective: ReflectiveState = field(default_factory=ReflectiveState)
+
+    world = _W()
+    fn(world, {"seed": 0}, _instance())
+
+    assert world.reflective.active is False  # rolled back
+    assert world.game_state.state == gs.GameStateName.IN_MISSION  # unchanged
+
+
+# ── exit_reflective ────────────────────────────────────────────────
+
+
+def test_exit_reflective_resets_state_and_returns_to_hub():
+    from dataclasses import dataclass, field
+    from core.systems import game_state as gs
+    from core.systems.reflective import ReflectiveState
+    from core.systems.reflective import state_machine as sm
+    import random
+
+    enter_fn = effects_module.get("enter_reflective")
+    exit_fn = effects_module.get("exit_reflective")
+
+    @dataclass
+    class _W:
+        game_state: gs.GameState = field(default_factory=gs.GameState.initial)
+        reflective: ReflectiveState = field(default_factory=ReflectiveState)
+
+    world = _W()
+    enter_fn(world, {"trigger": "hp_zero", "seed": 0}, _instance())
+    sm.place_magnet(world, world.reflective.magnet_pool[0])
+    assert world.reflective.active is True
+    assert world.game_state.state == gs.GameStateName.REFLECTIVE
+
+    exit_fn(world, {}, _instance())
+
+    assert world.reflective.active is False
+    assert world.reflective.composed == []
+    assert world.game_state.state == gs.GameStateName.HUB
+
+
+def test_exit_reflective_idempotent():
+    """Calling exit on a world not in reflective is safe."""
+    from dataclasses import dataclass, field
+    from core.systems import game_state as gs
+    from core.systems.reflective import ReflectiveState
+
+    exit_fn = effects_module.get("exit_reflective")
+
+    @dataclass
+    class _W:
+        game_state: gs.GameState = field(default_factory=gs.GameState.initial)
+        reflective: ReflectiveState = field(default_factory=ReflectiveState)
+
+    world = _W()
+    exit_fn(world, {}, _instance())  # not in reflective
+    exit_fn(world, {}, _instance())
+    assert world.reflective.active is False
+    assert world.game_state.state == gs.GameStateName.HUB
+
+
+def test_exit_reflective_no_op_when_no_game_state():
+    from dataclasses import dataclass, field
+    from core.systems.reflective import ReflectiveState
+
+    exit_fn = effects_module.get("exit_reflective")
+
+    @dataclass
+    class _W:
+        reflective: ReflectiveState = field(default_factory=ReflectiveState)
+
+    world = _W()
+    exit_fn(world, {}, _instance())  # no game_state attr
+    assert world.reflective.active is False
+
+
+# ── register_builtins includes new effects ─────────────────────────
+
+
+def test_enter_reflective_registered_on_import():
+    assert effects_module.get("enter_reflective") is not None
+
+
+def test_exit_reflective_registered_on_import():
+    assert effects_module.get("exit_reflective") is not None

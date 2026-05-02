@@ -109,6 +109,72 @@ def _restore_hp(world, args: dict, instance) -> None:
     world.player = player._replace(hp=new_hp)
 
 
+def _enter_reflective(world, args: dict, instance) -> None:
+    """Transition the world into reflective mode (the fridge).
+
+    args:
+      trigger: "hp_zero" | "voluntary" — entry path discriminator.
+               Default "hp_zero" since this effect's primary consumer
+               is the HP=0 consequences chain.
+      seed:    optional int — RNG seed for rule pick + magnet pool.
+               Default: fresh random.
+
+    Mutates `world.reflective` via the reflective state machine, then
+    transitions `world.game_state` HUB → REFLECTIVE. Both happen here
+    in one atomic step so callers don't have to coordinate.
+
+    Imports game_state and reflective state machine lazily to avoid
+    circular imports through brain_server.
+    """
+    import random as _random
+    from core.systems import game_state as _gs
+    from core.systems.reflective import state_machine as _sm
+
+    trigger = str(args.get("trigger", "hp_zero"))
+    seed = args.get("seed")
+    rng = _random.Random(seed) if seed is not None else _random.Random()
+
+    if not _sm.enter(world, trigger=trigger, rng=rng):
+        # No rules registered — fall back gracefully. The hp_zero chain
+        # still ran emit_state_event / regen_world / restore_hp before
+        # this effect, so the player is alive at hub. They just don't
+        # get reflective. Production rules.json must always have at
+        # least one row; tests catch that.
+        return
+
+    if hasattr(world, "game_state"):
+        try:
+            world.game_state = _gs.transition(
+                world.game_state,
+                _gs.GameStateName.REFLECTIVE,
+            )
+        except ValueError:
+            # Illegal transition (e.g. world wasn't in HUB). Bail to
+            # leave the player in their current state rather than
+            # crashing the brain loop. Tests cover the legal path.
+            _sm.exit(world)
+
+
+def _exit_reflective(world, args: dict, instance) -> None:
+    """Transition the world out of reflective mode back to HUB.
+
+    Resets `world.reflective` via the state machine, then transitions
+    `world.game_state` REFLECTIVE → HUB. Idempotent — calling on a
+    world that isn't in reflective mode is a no-op.
+    """
+    from core.systems import game_state as _gs
+    from core.systems.reflective import state_machine as _sm
+
+    _sm.exit(world)
+
+    if hasattr(world, "game_state"):
+        if world.game_state.state == _gs.GameStateName.REFLECTIVE:
+            world.game_state = _gs.transition(
+                world.game_state,
+                _gs.GameStateName.HUB,
+            )
+
+
 def _emit_state_event(world, args: dict, instance) -> None:
     """Push a StateEvent through `world.state_events` for client toast.
 
@@ -142,6 +208,10 @@ def register_builtins() -> None:
         _REGISTRY["restore_hp"] = _restore_hp
     if "emit_state_event" not in _REGISTRY:
         _REGISTRY["emit_state_event"] = _emit_state_event
+    if "enter_reflective" not in _REGISTRY:
+        _REGISTRY["enter_reflective"] = _enter_reflective
+    if "exit_reflective" not in _REGISTRY:
+        _REGISTRY["exit_reflective"] = _exit_reflective
 
 
 # Auto-register on import.
