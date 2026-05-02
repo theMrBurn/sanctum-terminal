@@ -26,6 +26,7 @@ This file captures the whole arc, not just remaining scope. The branch name is a
 - Permanent Objects J4 / J5 / J6.1 / J7 (different subsystem, can run parallel).
 - ExpeditionEngine → quests collapse. Has its own machinery and tests; phase later.
 - Compass strip in HUD (deferred polish — bearing prefix only this branch).
+- **Godot 3D client work** (mission UI deletion, REFLECTIVE state rendering, reflective overlay equivalent) — deferred until Godot revival arc per user 2026-05-01 ("we're not concerned with Godot right now"). Vector terminal is canonical per `design_brain_ground_truth`. PR 5 + PR 6 ship without touching `godot/main.gd`. Godot will need its own bring-up pass when it returns.
 
 ## Definition of done
 - [ ] **TEST** — `test_world_regen.py` enforces death-only behavior. `test_loop_integration.py` rewritten green for 2-state machine.
