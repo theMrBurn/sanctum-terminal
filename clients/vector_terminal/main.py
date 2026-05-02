@@ -27,6 +27,7 @@ from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
+from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
 from clients.vector_terminal import state_events as state_events_renderer  # noqa: E402
 from clients.vector_terminal.collision import resolve_collisions  # noqa: E402
 from clients.vector_terminal.envelope import clamp_to_envelope  # noqa: E402
@@ -71,6 +72,7 @@ def main() -> int:
     show_inventory_modal = False
     show_journal = False
     journal_state = journal.JournalState()
+    reflective_state = reflective_overlay.ReflectiveState()
     click_pings: list[float] = []         # timestamps; fade over CLICK_PING_DURATION
     interact_flashes: list[tuple[float, float, float, float]] = []  # (t_start, x, y, z) raylib
 
@@ -133,8 +135,26 @@ def main() -> int:
         # Journal overlay — async quest log per `project_async_quest_refactor`.
         # Open via J anywhere, anytime; toggle quests active/available;
         # ESC closes from inside (J also closes via the same toggle below).
+        # Reflective overlay takes priority over everything except dial.
+        # When active, it consumes ARROW / ENTER / BKSP / C / ESC so
+        # other handlers don't fight it.
+        reflective_block = last_manifest.get("reflective") or {}
+        reflective_active = bool(reflective_block.get("active")) and not dial_active
+        if reflective_active:
+            action, payload = reflective_overlay.handle_input(
+                last_manifest, reflective_state
+            )
+            if action == "place" and payload is not None:
+                client.send({"cmd": "place_magnet", "magnet": payload["magnet"]})
+            elif action == "remove" and payload is not None:
+                client.send({"cmd": "remove_magnet", "index": payload["index"]})
+            elif action == "commit":
+                client.send({"cmd": "commit_reflective"})
+            elif action == "abort":
+                client.send({"cmd": "abort_reflective"})
+
         # World does not pause — overlay only suspends ENTER/UP/DOWN/ESC.
-        journal_active = show_journal and not dial_active
+        journal_active = show_journal and not dial_active and not reflective_active
         if journal_active:
             action, qid = journal.handle_input(last_manifest, journal_state)
             if action == "close":
@@ -146,10 +166,11 @@ def main() -> int:
         # (journal_active intercepts ESC + ENTER + UP/DOWN, but J always
         # cycles the visibility flag). Suspended while a dial is active —
         # the dial owns the modal foreground.
-        if not dial_active and rl.is_key_pressed(rl.KeyboardKey.KEY_J):
+        if not dial_active and not reflective_active and rl.is_key_pressed(rl.KeyboardKey.KEY_J):
             show_journal = not show_journal
 
-        if not dial_active and not journal_active and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE):
+        if (not dial_active and not journal_active and not reflective_active
+                and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE)):
             break
 
         delta = rl.get_mouse_delta()
@@ -229,7 +250,7 @@ def main() -> int:
             camera.position.z + forward[2],
         )
 
-        if not dial_active:
+        if not dial_active and not reflective_active:
             # ENTER drives state transitions (HUB → MISSION_SELECT, etc.) but
             # MUST yield to the journal overlay — there ENTER is the toggle.
             if not journal_active and rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER):
@@ -288,8 +309,13 @@ def main() -> int:
                     cfg.INTERACT_RADIUS_HEURISTIC,
                 )
                 if target is not None:
-                    pillar_id = dial_input.pillar_id_from_kind(str(target.get("kind", "")))
-                    if pillar_id is not None:
+                    target_kind = str(target.get("kind", ""))
+                    pillar_id = dial_input.pillar_id_from_kind(target_kind)
+                    if target_kind == "fridge":
+                        # Voluntary fridge engagement. Brain validates
+                        # game_state == HUB and refuses if not.
+                        client.send({"cmd": "engage_fridge"})
+                    elif pillar_id is not None:
                         # Any pillar entity — brain validates which states
                         # allow which pillars (e.g., reflection from HUB,
                         # the seven from CHARACTER_CREATION). Brain returns
@@ -419,10 +445,19 @@ def main() -> int:
                 amber,
             )
 
-        if show_journal and not dial_active:
+        if show_journal and not dial_active and not reflective_active:
             journal.draw_journal_overlay(
                 last_manifest,
                 journal_state,
+                rl.get_screen_width(),
+                rl.get_screen_height(),
+                amber,
+            )
+
+        if reflective_active:
+            reflective_overlay.draw_overlay(
+                last_manifest,
+                reflective_state,
                 rl.get_screen_width(),
                 rl.get_screen_height(),
                 amber,
