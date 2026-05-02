@@ -2187,6 +2187,17 @@ OUTDOOR_HORIZON_OBJECTS: list[dict] = [
         "color": [0.9, 0.92, 0.96],
         "seed": 137,
     },
+    {
+        # First wireframe-mesh horizon kind — proves the pipeline.
+        # Built-in `spire` primitive renders as a tower silhouette.
+        # Drop in any OBJ via `obj_path` to swap.
+        "kind": "wireframe_mesh",
+        "mesh": "spire",
+        "azimuth": 240.0,          # southwest
+        "elevation": 4.0,          # near the horizon — landmark feel
+        "size": 4.5,
+        "color": [0.40, 0.42, 0.45],
+    },
 ]
 
 

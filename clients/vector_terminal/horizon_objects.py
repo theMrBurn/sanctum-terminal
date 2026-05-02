@@ -23,9 +23,17 @@ from __future__ import annotations
 
 import math
 import random
+from pathlib import Path
 from typing import Any
 
 import pyray as rl
+
+from core.systems.wireframe_mesh import (
+    WireframeMesh,
+    get_builtin as get_builtin_mesh,
+    load_obj,
+)
+from clients.vector_terminal.wireframe_renderer import draw_wireframe
 
 
 def draw_horizon_objects(manifest: dict, camera, now: float = 0.0) -> None:
@@ -289,6 +297,72 @@ def _draw_stars(
         rl.draw_sphere(rl.Vector3(px, height, pz), size, color)
 
 
+def _draw_wireframe_mesh(
+    obj: dict,
+    cam_x: float,
+    cam_z: float,
+    radius: float,
+    now: float,
+) -> None:
+    """Render an arbitrary wireframe mesh on the cylinder. The mesh is
+    sourced from either a built-in primitive (`mesh: "cube"`) or an
+    OBJ file (`obj_path: "path/to/mesh.obj"` relative to repo root).
+
+    Loaded OBJ meshes are cached (module-global) so the file isn't
+    re-parsed each frame.
+
+    Optional `spin_hz` rotates the mesh around its vertical axis over
+    time — V1 only supports this conceptually; actual rotation
+    requires a matrix transform of the vertices, deferred to V1.1.
+    For now, mesh is rendered static at its world position.
+    """
+    mesh = _resolve_mesh(obj)
+    if mesh is None:
+        return
+
+    azimuth = math.radians(float(obj.get("azimuth", 0.0)))
+    elevation = math.radians(float(obj.get("elevation", 30.0)))
+    scale = float(obj.get("size", 1.0))
+    color = _color(obj.get("color", [0.7, 0.7, 0.7]))
+
+    # Position on cylinder surface.
+    horiz = radius * math.cos(elevation)
+    height = radius * math.sin(elevation)
+    px = cam_x + horiz * math.cos(azimuth)
+    pz = cam_z - horiz * math.sin(azimuth)
+
+    draw_wireframe(mesh, (px, height, pz), scale, color)
+
+
+# Module-global OBJ cache so we don't re-parse a file every frame.
+_OBJ_CACHE: dict[str, WireframeMesh] = {}
+
+
+def _resolve_mesh(obj: dict) -> WireframeMesh | None:
+    """Pick the right WireframeMesh from the object's config.
+    Priority: built-in `mesh` name first, then `obj_path` file."""
+    builtin_name = obj.get("mesh")
+    if builtin_name is not None:
+        return get_builtin_mesh(str(builtin_name))
+
+    obj_path = obj.get("obj_path")
+    if obj_path is not None:
+        path_str = str(obj_path)
+        cached = _OBJ_CACHE.get(path_str)
+        if cached is not None:
+            return cached
+        try:
+            # Repo-root-relative path resolution.
+            full_path = Path(__file__).resolve().parents[2] / path_str
+            mesh = load_obj(full_path)
+        except (FileNotFoundError, ValueError):
+            return None
+        _OBJ_CACHE[path_str] = mesh
+        return mesh
+
+    return None
+
+
 def _color(rgb: Any, alpha: float = 1.0) -> tuple[int, int, int, int]:
     """Convert RGB 0-1 list to raylib RGBA bytes. Defensive on shape."""
     if not isinstance(rgb, (list, tuple)) or len(rgb) < 3:
@@ -307,4 +381,5 @@ _RENDERERS: dict[str, Any] = {
     "lightning_flash": _draw_lightning_flash,
     "mountain_ridge": _draw_mountain_ridge,
     "stars": _draw_stars,
+    "wireframe_mesh": _draw_wireframe_mesh,
 }
