@@ -89,6 +89,55 @@ fundamentally.
 - Real OBJ assets from open-source libraries dropped in — substrate ready
 - Voice authoring for placeholder copy ("REFLECT" / "RESPAWN" / "DONE" / "NOT YET" / "LATER")
 
+## Next session start — edge_skins (1-2 hour slice)
+
+When you come back, **the natural next slice is `core/systems/edge_skins.py`** —
+procedural skin profiles applied to wireframe meshes. Demonstrates
+the wireframe + procedural noise + spectrum integration.
+
+Why this slice:
+- Builds on what's freshly shipped (banner compositing, OBJ pipeline,
+  wireframe_renderer)
+- Uses primitives we already have (smooth_noise, SpectrumEngine,
+  cosine palettes, hash2d)
+- Adds two trivial helpers (Worley noise ~30 LOC, cosine palette ~10 LOC)
+- Closes the "we have wireframe, where are the textures" loop
+- Demonstrable in UAT — apply a skin to the existing `spire` horizon
+  object and see rust/ice/metal patina reading on the edges
+
+Reference doc: `~/Desktop/wireframe_and_texture_resources.txt`
+(URLs, algorithm names, canonical sources, work order, 45-minute
+reading plan if you want background first).
+
+### Slice plan (when ready)
+
+1. **`core/systems/edge_skins.py`** — new module:
+   - `worley_noise(x, y, seed) -> float` (~30 LOC)
+   - `cosine_palette(t, a, b, c, d) -> (r, g, b)` per iquilezles (~10 LOC)
+   - 5 skin profiles, each a function `(edge_a, edge_b, time, seed) -> (color, dash)`:
+     - `rust`     — Worley + brown/orange cosine palette
+     - `ice`      — Perlin FBM + white-blue palette + slow time drift
+     - `metal`    — cosine palette + view-angle modulation
+     - `decay`    — noise threshold → dashed segments
+     - `prismatic` — wraps existing SpectrumEngine.drift
+2. **`clients/vector_terminal/wireframe_renderer.py`** — extend
+   `draw_wireframe` with optional `skin_fn` parameter; calls per edge
+3. **`core/systems/biome_data.py`** — add `skin: "rust"` etc. to a
+   wireframe horizon object (e.g. the spire) for testing
+4. **Tests** — pure-function checks on noise + palette outputs
+5. **UAT** — restart vector, look at the spire on the southwest
+   horizon. Edges should render with the skin's color + dash pattern.
+6. **Acceptance criteria** — TEST + VISUAL: skin profiles produce
+   distinct readable looks; substrate proven for membrane work later.
+
+### One-line resume prompt
+
+```
+read .claude/feature/feat_loop-completion.md "Next session start" then build edge_skins.py per the slice plan
+```
+
+Or shorter: `start edge_skins per feature file`.
+
 The branch is meaningfully bigger than the original 6-PR plan. Naming
 mismatch (the branch says "loop-completion" but holds banner-compositing
 work) is fine per `feedback_artifacts_capture_arcs` — the artifact holds
