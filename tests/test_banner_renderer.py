@@ -13,21 +13,58 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_layer_color_basic():
+def test_layer_color_basic_high_opacity():
+    """Opacity 1.0 * boost 6.0 caps at 1.0 → alpha 255."""
     from clients.vector_terminal.banner import _layer_color
     assert _layer_color([1.0, 0.0, 0.0], 1.0) == (255, 0, 0, 255)
-    assert _layer_color([0.0, 1.0, 0.0], 0.5) == (0, 255, 0, 128)
 
 
-def test_layer_color_clamps_above_one():
+def test_layer_color_alpha_boost_amplifies_low_opacity():
+    """Config opacity 0.05 (typical inner banner layer) gets boosted
+    6x to 0.30, resulting alpha ~76-77. Without the boost it would be
+    ~13 (invisible against black)."""
     from clients.vector_terminal.banner import _layer_color
-    # Defensive: drift values above 1.0 should clamp to 255, not overflow.
-    assert _layer_color([2.0, 5.0, 100.0], 1.0) == (255, 255, 255, 255)
+    result = _layer_color([1.0, 1.0, 1.0], 0.05)
+    # 0.05 * 6 ≈ 0.30, > floor 0.25, so ~0.30 * 255 ≈ 76-77 (float-precision sensitive)
+    assert 75 <= result[3] <= 78
 
 
-def test_layer_color_clamps_below_zero():
+def test_layer_color_alpha_floor_kicks_in_for_near_zero_opacity():
+    """Config opacity 0.02 (outermost-bright layer) below floor; uses
+    floor of 0.25 → alpha 64. Visibility guaranteed."""
     from clients.vector_terminal.banner import _layer_color
-    assert _layer_color([-1.0, -5.0, 0.0], -0.5) == (0, 0, 0, 0)
+    result = _layer_color([1.0, 1.0, 1.0], 0.02)
+    # 0.02 * 6 = 0.12 < floor 0.25, so floor used: 0.25 * 255 = 64
+    assert result[3] == 64
+
+
+def test_layer_color_outermost_layer_caps_at_full_alpha():
+    """Outermost banner layer (opacity 0.21) boosted 6x = 1.26, caps
+    to 1.0 → alpha 255. Outer cylinder reads as solid horizon."""
+    from clients.vector_terminal.banner import _layer_color
+    result = _layer_color([1.0, 1.0, 1.0], 0.21)
+    assert result[3] == 255
+
+
+def test_layer_color_clamps_rgb_above_one():
+    """Defensive: tint values above 1.0 clamp to 255, not overflow."""
+    from clients.vector_terminal.banner import _layer_color
+    result = _layer_color([2.0, 5.0, 100.0], 1.0)
+    assert result[0] == 255 and result[1] == 255 and result[2] == 255
+
+
+def test_layer_color_clamps_rgb_below_zero():
+    """Defensive: negative tint clamps to 0, not negative bytes."""
+    from clients.vector_terminal.banner import _layer_color
+    result = _layer_color([-1.0, -5.0, 0.0], 1.0)
+    assert result[0] == 0 and result[1] == 0
+
+
+def test_layer_color_negative_opacity_uses_floor():
+    """Negative opacity gets floored to 0.25 (visibility minimum)."""
+    from clients.vector_terminal.banner import _layer_color
+    result = _layer_color([1.0, 1.0, 1.0], -0.5)
+    assert result[3] == 64  # floor 0.25 * 255 = 64
 
 
 def test_layer_color_handles_short_tint():
@@ -35,13 +72,14 @@ def test_layer_color_handles_short_tint():
     falls back to gray, doesn't crash."""
     from clients.vector_terminal.banner import _layer_color
     result = _layer_color([0.5], 1.0)
-    assert result == (128, 128, 128, 255)  # gray fallback (round(0.5*255)=128)
+    # tint falls back to (0.5, 0.5, 0.5) gray; alpha = boost(1.0) = 1.0 → 255
+    assert result == (128, 128, 128, 255)
 
 
 def test_layer_color_handles_non_list_tint():
     from clients.vector_terminal.banner import _layer_color
     result = _layer_color(None, 1.0)
-    assert result == (128, 128, 128, 255)  # gray fallback (round(0.5*255)=128)
+    assert result == (128, 128, 128, 255)
 
 
 def test_layer_color_returns_int_tuple():

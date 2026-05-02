@@ -30,6 +30,14 @@ import pyray as rl
 # aesthetic choice later — pin if so).
 _SLICES = 24
 
+# Wireframe needs much higher alpha than filled meshes to be visible
+# against the black background. 6x boost + a 0.25 floor brings the
+# config's 0.02–0.21 range into a 0.25–1.0 visible range. Tint is
+# passed through unmodulated — biome identity preserved, only alpha
+# amplified for the vector-terminal aesthetic.
+_WIREFRAME_ALPHA_BOOST = 6.0
+_WIREFRAME_ALPHA_FLOOR = 0.25
+
 
 def draw_banner_layers(manifest: dict, camera) -> None:
     """Draw all banner cylinders camera-anchored. Call AFTER
@@ -84,10 +92,23 @@ def draw_banner_layers(manifest: dict, camera) -> None:
 
 def _layer_color(tint: Any, opacity: float) -> tuple[int, int, int, int]:
     """Convert config color (RGB 0-1) + opacity to raylib RGBA bytes.
-    Defensive: clamps inputs to [0, 1] in case config drifts."""
+
+    Defensive: clamps inputs to [0, 1] in case config drifts.
+
+    Vector-terminal-specific brightness handling: the brain's banner_layers
+    config (`biome_data.py`) was authored with Godot's filled-mesh
+    rendering in mind, where opacity 0.02 against a colored solid is
+    visible. In wireframe lines against a black background, those alphas
+    read as invisible. We boost wireframe alpha by `_WIREFRAME_ALPHA_BOOST`
+    and apply a floor so even the innermost layer is perceptible.
+
+    Tint passes through unmodulated — the biome's color identity is
+    preserved; only alpha is amplified.
+    """
     def _byte(v: float) -> int:
         return max(0, min(255, int(round(float(v) * 255))))
 
     if not isinstance(tint, (list, tuple)) or len(tint) < 3:
         tint = (0.5, 0.5, 0.5)
-    return (_byte(tint[0]), _byte(tint[1]), _byte(tint[2]), _byte(opacity))
+    boosted_alpha = max(_WIREFRAME_ALPHA_FLOOR, float(opacity) * _WIREFRAME_ALPHA_BOOST)
+    return (_byte(tint[0]), _byte(tint[1]), _byte(tint[2]), _byte(boosted_alpha))
