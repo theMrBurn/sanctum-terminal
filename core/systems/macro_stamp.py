@@ -123,18 +123,32 @@ def terrain_height(x, y):
 
     If a macro stamp is active, reads elevation from the grid.
     Otherwise returns 0.0 (flat).
+
+    Self-derives the containing tile from (x, y) using the entity-
+    placement convention: tile (tx, ty) covers world coords in
+    [tx*ts - half, tx*ts + half), centered on (tx*ts, ty*ts). Same
+    math as `tile_exchange._tile_key`.
+
+    The pre-2026-05-01 implementation read elevation via
+    `(x - origin) % ts` against a module-global origin set once at
+    boot to (0, 0). That misaligned the macro stamp against entity
+    placement: stamp center (cell 3, 3) landed at world (144, 144) —
+    which IS a tile CORNER under our convention — instead of at the
+    tile center. Audit fixed alongside the half-tile tile_key bug.
     """
     if _active_stamp is None:
         return 0.0
 
-    # Convert world coords to tile-local coords
-    ox, oy = _active_tile_origin
-    lx = x - ox
-    ly = y - oy
-
-    # Wrap to tile bounds (handles walking across tile boundaries)
     ts = _active_tile_size
-    lx = lx % ts
-    ly = ly % ts
+    half = ts / 2.0
+
+    # Which tile this position belongs to (closest center).
+    tx = math.floor((x + half) / ts)
+    ty = math.floor((y + half) / ts)
+
+    # Local coords inside the tile: range [0, ts).
+    # World (tx*ts - half) → lx=0; world (tx*ts) → lx=half (stamp center).
+    lx = x - (tx * ts - half)
+    ly = y - (ty * ts - half)
 
     return grid_elevation(_active_stamp, lx, ly, ts)
