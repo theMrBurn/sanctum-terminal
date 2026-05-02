@@ -293,6 +293,42 @@ _PILLAR_COLORS: dict[str, tuple[float, float, float]] = {
 }
 
 
+def _quest_bearings(world, player_x: float, player_y: float) -> dict[str, str]:
+    """Compute compass bearing per active quest with a registered
+    target resolver. Returns a `{qid: "NE"}` map. Active quests whose
+    predicate has no resolver, or whose resolver returns None, are
+    absent from the map — vector terminal HUD shows them without a
+    bearing prefix.
+
+    Per PR 4 of `project_async_quest_refactor` — fills the gap user
+    FELT during 2026-04-30 UAT walk: active quests need direction.
+    """
+    from core.systems.bearing import bearing as _bearing
+    from core.systems.quests import get as get_quest
+    from core.systems.quests import predicates as _quest_predicates
+
+    bearings: dict[str, str] = {}
+    for qid in world.quest_state.active:
+        quest = get_quest(qid)
+        if quest is None:
+            continue
+        resolver = _quest_predicates.get_target(quest.predicate)
+        if resolver is None:
+            continue
+        target = resolver(
+            world,
+            dict(quest.predicate_args),
+            player_x,
+            player_y,
+        )
+        if target is None:
+            continue
+        compass = _bearing((player_x, player_y), target)
+        if compass:
+            bearings[qid] = compass
+    return bearings
+
+
 def _reflective_to_manifest(world) -> dict:
     """Serialize world.reflective for the manifest. Called only when
     world.reflective.active is True. Includes the rule's player-facing
@@ -2590,6 +2626,17 @@ def run_server(biome_name, port=9877):
                 # stable; PR 1.3+ should cache it at connect rather than
                 # ship it every tick. For now (handful of quests) shipping
                 # in-line is simpler and matches the expedition pattern.
+                #
+                # PR 4: bearings map — for each active quest whose
+                # predicate has a target resolver, compute a compass
+                # bearing (E/NE/N/NW/W/SW/S/SE) from the player to the
+                # nearest target. Quests with no resolver, or with no
+                # current target (e.g. all entities of a kind already
+                # destroyed), are absent from the map. Vector terminal
+                # HUD prefixes active-quest rows with `[NE]` etc.
+                bearings_map = _quest_bearings(
+                    world, cam_x, cam_y,
+                )
                 manifest["quests"] = {
                     "registry": {
                         qid: {"name": q.name, "description": q.description}
@@ -2598,6 +2645,7 @@ def run_server(biome_name, port=9877):
                     "available": list(world.quest_state.available),
                     "active": list(world.quest_state.active),
                     "completed": list(world.quest_state.completed),
+                    "bearings": bearings_map,
                 }
 
                 # Attach expedition snapshot to manifest. This is the
