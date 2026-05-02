@@ -26,6 +26,7 @@ import pyray as rl  # noqa: E402
 from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
+from clients.vector_terminal import banner  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
 from clients.vector_terminal import state_events as state_events_renderer  # noqa: E402
@@ -392,6 +393,11 @@ def main() -> int:
         if cfg.DRAW_CEILING_GRID and biome == "cavern":
             _draw_ceiling_grid(camera, cfg.CAVERN_CEILING_HEIGHT)
         _draw_envelope_ring(last_manifest.get("playable_envelope", {}), camera)
+
+        # Banner compositing — 7 camera-anchored cylinders per
+        # `design_banner_compositing`. Drawn before entities so the
+        # cylinders sit behind world geometry.
+        banner.draw_banner_layers(last_manifest, camera)
 
         for ent in last_manifest.get("entities", []):
             if class_for(str(ent.get("kind", ""))) in cfg.SKIP_ENTITY_CLASSES:
