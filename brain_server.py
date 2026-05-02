@@ -1260,6 +1260,23 @@ class BrainWorld:
                 "collision_radius": 0.6,
             })
 
+            # Fridge — voluntary reflective practice + forced HP=0 entry.
+            # Spawned in HUB only, also gated on a finalized character
+            # sheet (no fridge while still in CHARACTER_CREATION). Per
+            # `design_reflective_loop`. Pale fridge palette; refine
+            # after first VISUAL UAT — V1 spawn position is arbitrary,
+            # promotion to a real `place_in_context()` primitive lands
+            # later when more interactables need contextual placement.
+            visible.append({
+                "id": -1200,
+                "kind": "fridge",
+                "x": cx + 4.0, "y": cy - 14.0, "z": 0.0,
+                "sx": 0.7, "sy": 0.4, "sz": 1.4,
+                "heading": 0.0,
+                "r": 0.85, "g": 0.88, "b": 0.90,
+                "collision_radius": 0.7,
+            })
+
         return {
             "camera": {"x": cam_x, "y": cam_y, "z": cam_z,
                        "heading": heading, "pitch": pitch,
