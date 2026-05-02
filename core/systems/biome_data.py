@@ -2137,6 +2137,16 @@ OUTDOOR_HORIZON_OBJECTS: list[dict] = [
         "color": [0.92, 0.94, 0.98],
     },
     {
+        "kind": "sun",
+        # Opposite the moon — feels late-evening dual sky.
+        "azimuth": 110.0,
+        "elevation": 22.0,
+        "size": 3.2,
+        "color": [1.0, 0.78, 0.42],   # warm low-sun
+        # drift_hz: 0 = static. Bind to chrono later.
+        "drift_hz": 0.0,
+    },
+    {
         "kind": "mountain_ridge",
         # Ridge anchored south-southeast, broad horizon coverage
         "azimuth": 180.0,
@@ -2146,6 +2156,27 @@ OUTDOOR_HORIZON_OBJECTS: list[dict] = [
         "min_height": 8.0,
         "color": [0.16, 0.20, 0.18],
         "seed": 42,
+    },
+    {
+        "kind": "aurora",
+        # Drifting band across the northern sky
+        "azimuth": 270.0,          # north (-z direction in raylib)
+        "spread": 180.0,
+        "elevation": 60.0,
+        "point_count": 28,
+        "drift_hz": 0.04,          # slow roll, ~25s cycle
+        "color": [0.20, 0.78, 0.55],
+        "size": 0.55,
+    },
+    {
+        "kind": "lightning_flash",
+        # Distant storm flicker on the eastern horizon
+        "azimuth": 60.0,
+        "elevation": 45.0,
+        "size": 4.5,
+        "color": [0.85, 0.92, 1.0],
+        "flash_hz": 1.0 / 7.0,     # ~7s between flashes (factor of 7)
+        "flash_duration": 0.22,
     },
     {
         "kind": "stars",

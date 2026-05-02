@@ -402,11 +402,12 @@ def main() -> int:
         # breathing oscillation in demo mode.
         banner.draw_banner_layers(last_manifest, camera, now)
 
-        # Distance-only horizon objects — moon, mountain ridges, stars
-        # per `design_banner_layer_taxonomy`. Camera-anchored, render
-        # on the outermost banner cylinder. Authored per-biome in
-        # BIOME_REGISTRY.horizon_objects.
-        horizon_renderer.draw_horizon_objects(last_manifest, camera)
+        # Distance-only horizon objects — moon, sun, aurora, lightning,
+        # mountain ridges, stars per `design_banner_layer_taxonomy`.
+        # Camera-anchored, render on the outermost banner cylinder.
+        # `now` drives chrono kinds (aurora drift, lightning flashes,
+        # sun drift). Static kinds (moon, ridge, stars) ignore it.
+        horizon_renderer.draw_horizon_objects(last_manifest, camera, now)
 
         for ent in last_manifest.get("entities", []):
             if class_for(str(ent.get("kind", ""))) in cfg.SKIP_ENTITY_CLASSES:

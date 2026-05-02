@@ -28,11 +28,16 @@ from typing import Any
 import pyray as rl
 
 
-def draw_horizon_objects(manifest: dict, camera) -> None:
+def draw_horizon_objects(manifest: dict, camera, now: float = 0.0) -> None:
     """Render all horizon objects in the manifest. Call AFTER the
     banner cylinder is drawn (so objects sit visually on it) and
     BEFORE entity rendering (so world entities can occlude them
-    when close)."""
+    when close).
+
+    `now` is monotonic seconds — chrono-driven kinds (aurora drift,
+    lightning flash, sun rise) read it. Static kinds (moon, mountain
+    ridge, stars) ignore it.
+    """
     objects: list[dict] = manifest.get("horizon_objects") or []
     if not objects:
         return
@@ -49,7 +54,7 @@ def draw_horizon_objects(manifest: dict, camera) -> None:
         renderer = _RENDERERS.get(kind)
         if renderer is None:
             continue
-        renderer(obj, cam_x, cam_z, radius)
+        renderer(obj, cam_x, cam_z, radius, now)
 
 
 def _outermost_layer_radius(manifest: dict) -> float:
@@ -68,6 +73,7 @@ def _draw_moon(
     cam_x: float,
     cam_z: float,
     radius: float,
+    now: float,
 ) -> None:
     """Bright disc at the configured azimuth/elevation on the cylinder."""
     azimuth = math.radians(float(obj.get("azimuth", 0.0)))
@@ -86,11 +92,125 @@ def _draw_moon(
     rl.draw_sphere(rl.Vector3(px, height, pz), size, color)
 
 
+def _draw_sun(
+    obj: dict,
+    cam_x: float,
+    cam_z: float,
+    radius: float,
+    now: float,
+) -> None:
+    """Warm-colored sphere on the cylinder. Optional `drift_hz` arg
+    moves it across the sky over time (rises east, sets west). Default
+    drift_hz=0 = static placement.
+
+    Future: bind drift_hz to manifest's chrono state so the sun arc
+    matches actual time-of-day. For now, drift is just visual demo.
+    """
+    base_azimuth = math.radians(float(obj.get("azimuth", 90.0)))
+    elevation = math.radians(float(obj.get("elevation", 45.0)))
+    size = float(obj.get("size", 3.0))
+    color = _color(obj.get("color", [1.0, 0.85, 0.55]))
+    drift_hz = float(obj.get("drift_hz", 0.0))
+
+    azimuth = base_azimuth + 2.0 * math.pi * drift_hz * now
+
+    horiz = radius * math.cos(elevation)
+    height = radius * math.sin(elevation)
+    px = cam_x + horiz * math.cos(azimuth)
+    pz = cam_z - horiz * math.sin(azimuth)
+
+    rl.draw_sphere(rl.Vector3(px, height, pz), size, color)
+
+
+def _draw_aurora(
+    obj: dict,
+    cam_x: float,
+    cam_z: float,
+    radius: float,
+    now: float,
+) -> None:
+    """Drifting color band across the upper cylinder. Hue cycles per
+    angular position with a time-driven phase shift, giving the band
+    a slow rolling shimmer.
+    """
+    azimuth_center = math.radians(float(obj.get("azimuth", 0.0)))
+    spread = math.radians(float(obj.get("spread", 220.0)))
+    elevation = math.radians(float(obj.get("elevation", 65.0)))
+    point_count = int(obj.get("point_count", 28))
+    drift_hz = float(obj.get("drift_hz", 0.05))
+    base_color = obj.get("color", [0.18, 0.85, 0.55])
+    size = float(obj.get("size", 0.5))
+
+    if point_count <= 0 or spread <= 0:
+        return
+
+    horiz = radius * math.cos(elevation)
+    height = radius * math.sin(elevation)
+    half_spread = spread / 2.0
+    drift_phase = 2.0 * math.pi * drift_hz * now
+
+    for i in range(point_count):
+        t = i / max(1, point_count - 1)
+        angle = azimuth_center - half_spread + t * spread
+        hue_phase = t * 2.0 * math.pi + drift_phase
+        # Cycle channels around base_color with the phase so colors
+        # roll across the band over time.
+        r = base_color[0] + 0.35 * math.sin(hue_phase)
+        g = base_color[1] + 0.30 * math.sin(hue_phase + 2.0)
+        b = base_color[2] + 0.40 * math.sin(hue_phase + 4.0)
+        c = _color([r, g, b])
+        px = cam_x + horiz * math.cos(angle)
+        pz = cam_z - horiz * math.sin(angle)
+        rl.draw_sphere(rl.Vector3(px, height, pz), size, c)
+
+
+def _draw_lightning_flash(
+    obj: dict,
+    cam_x: float,
+    cam_z: float,
+    radius: float,
+    now: float,
+) -> None:
+    """Periodic bright pulse at fixed azimuth. Brightness ramps from 1
+    to 0 over `flash_duration` seconds within each `flash_hz` cycle.
+    Outside the flash window the renderer no-ops.
+    """
+    azimuth = math.radians(float(obj.get("azimuth", 60.0)))
+    elevation = math.radians(float(obj.get("elevation", 50.0)))
+    size = float(obj.get("size", 5.0))
+    color_base = obj.get("color", [0.85, 0.92, 1.0])
+    # Default ~7s between flashes (factor of 7).
+    flash_hz = float(obj.get("flash_hz", 1.0 / 7.0))
+    flash_duration = float(obj.get("flash_duration", 0.25))
+
+    if flash_hz <= 0 or flash_duration <= 0:
+        return
+
+    cycle_position = (now * flash_hz) % 1.0
+    flash_window = flash_duration * flash_hz  # fraction of cycle
+    if cycle_position > flash_window:
+        return  # quiet between flashes
+
+    # Brightness ramps 1 → 0 across the flash window.
+    intensity = 1.0 - (cycle_position / flash_window)
+
+    horiz = radius * math.cos(elevation)
+    height = radius * math.sin(elevation)
+    px = cam_x + horiz * math.cos(azimuth)
+    pz = cam_z - horiz * math.sin(azimuth)
+
+    # Size pulses with brightness — short bright stab.
+    pulse_size = size * (0.4 + 0.6 * intensity)
+    color = _color(color_base, intensity)
+    rl.draw_sphere(rl.Vector3(px, height, pz), pulse_size, color)
+
+
 def _draw_mountain_ridge(
     obj: dict,
     cam_x: float,
     cam_z: float,
     radius: float,
+    now: float,
 ) -> None:
     """Series of triangular silhouettes along the bottom band of the
     cylinder. Determinstic per `seed` so the ridge is stable."""
@@ -145,6 +265,7 @@ def _draw_stars(
     cam_x: float,
     cam_z: float,
     radius: float,
+    now: float,
 ) -> None:
     """Scattered points across the upper cylinder. Deterministic."""
     count = int(obj.get("count", 49))
@@ -181,6 +302,9 @@ def _color(rgb: Any, alpha: float = 1.0) -> tuple[int, int, int, int]:
 
 _RENDERERS: dict[str, Any] = {
     "moon": _draw_moon,
+    "sun": _draw_sun,
+    "aurora": _draw_aurora,
+    "lightning_flash": _draw_lightning_flash,
     "mountain_ridge": _draw_mountain_ridge,
     "stars": _draw_stars,
 }

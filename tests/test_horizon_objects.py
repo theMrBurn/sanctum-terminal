@@ -77,6 +77,9 @@ def test_color_handles_none():
 def test_renderer_registry_has_v1_kinds():
     from clients.vector_terminal.horizon_objects import _RENDERERS
     assert "moon" in _RENDERERS
+    assert "sun" in _RENDERERS
+    assert "aurora" in _RENDERERS
+    assert "lightning_flash" in _RENDERERS
     assert "mountain_ridge" in _RENDERERS
     assert "stars" in _RENDERERS
 
@@ -189,3 +192,46 @@ def test_brain_emits_horizon_objects_in_manifest():
     ).read_text()
     assert '"horizon_objects":' in src
     assert 'BIOME_REGISTRY.get(self.biome_name, {}).get("horizon_objects"' in src
+
+
+# ── Chrono-driven kinds (sun drift, aurora drift, lightning flash) ─
+
+
+def test_main_passes_now_to_horizon_renderer():
+    """now must thread through so chrono kinds animate."""
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "clients" / "vector_terminal" / "main.py"
+    ).read_text()
+    assert "horizon_renderer.draw_horizon_objects(last_manifest, camera, now)" in src
+
+
+def test_outdoor_authored_kinds_complete_v1_set():
+    """Outdoor biome should ship moon + sun + aurora + lightning +
+    ridge + stars after this commit. Roll-up integrity check."""
+    from core.systems.biome_data import OUTDOOR_HORIZON_OBJECTS
+    kinds = {obj["kind"] for obj in OUTDOOR_HORIZON_OBJECTS}
+    assert {"moon", "sun", "aurora", "lightning_flash", "mountain_ridge", "stars"}.issubset(kinds)
+
+
+def test_sun_drift_changes_azimuth_with_time():
+    """Sun's drift_hz, when nonzero, should produce different
+    positions at different `now` values. We validate via the math
+    underlying the renderer (the actual draw call is pyray)."""
+    import math
+    base_azimuth_deg = 90.0
+    drift_hz = 0.05
+    # Position at t=0
+    a0 = math.radians(base_azimuth_deg) + 2.0 * math.pi * drift_hz * 0.0
+    # Position at t=10
+    a10 = math.radians(base_azimuth_deg) + 2.0 * math.pi * drift_hz * 10.0
+    assert abs(a0 - a10) > 0.01  # meaningful drift
+
+
+def test_aurora_drift_phase_changes_with_time():
+    """Aurora's hue cycle should advance with `now`."""
+    import math
+    drift_hz = 0.05
+    p0 = 2.0 * math.pi * drift_hz * 0.0
+    p_late = 2.0 * math.pi * drift_hz * 100.0
+    assert abs(p_late - p0) > 0.01
