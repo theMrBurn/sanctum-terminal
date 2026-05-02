@@ -109,8 +109,47 @@ def draw_hud(manifest: dict, color) -> None:
         f"MSG {_truncate(str(msg), cfg.HUD_MSG_MAX_CHARS)}",
     ])
 
+    # ── Active quest rows (PR 4) ─────────────────────────────────
+    # `[NE] Quest Name` — bearing prefix for quests whose predicate
+    # has a target in the world. Quests without a target (journal_followup,
+    # or destroy_kind with all entities gone) render without prefix.
+    # Cap at 3 rows + "+N more" overflow line; full list in J overlay.
+    quest_rows = _build_active_quest_rows(manifest)
+    if quest_rows:
+        fields.append("---")
+        fields.extend(quest_rows)
+
     for i, text in enumerate(fields):
         _draw(text, x, y + i * line, color)
+
+
+def _build_active_quest_rows(manifest: dict, max_rows: int = 3) -> list[str]:
+    """Compose HUD row strings for the manifest's active quests.
+
+    Reads `manifest.quests.{active, registry, bearings}` and produces
+    `[NE] Quest Name` rows (or just "Quest Name" when no bearing).
+    Up to `max_rows`; if more, appends a `+N more` summary line.
+    """
+    quests_block = manifest.get("quests") or {}
+    active: list = list(quests_block.get("active") or [])
+    if not active:
+        return []
+    registry: dict = quests_block.get("registry") or {}
+    bearings: dict = quests_block.get("bearings") or {}
+
+    rows: list[str] = []
+    for qid in active[:max_rows]:
+        meta = registry.get(qid) or {}
+        name = str(meta.get("name", qid))
+        bearing = str(bearings.get(qid, ""))
+        if bearing:
+            rows.append(f"[{bearing}] {_truncate(name, cfg.HUD_OBJECTIVE_MAX_CHARS)}")
+        else:
+            rows.append(f"     {_truncate(name, cfg.HUD_OBJECTIVE_MAX_CHARS)}")
+    overflow = len(active) - max_rows
+    if overflow > 0:
+        rows.append(f"     +{overflow} more")
+    return rows
 
 
 def draw_encounter_panel(manifest: dict, color) -> None:
