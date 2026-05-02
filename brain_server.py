@@ -1372,6 +1372,11 @@ class BrainWorld:
             "entities": visible,
             "planes": self.planes,
             "banner_layers": BIOME_REGISTRY.get(self.biome_name, {}).get("banner_layers", []),
+            # Per `design_banner_layer_taxonomy` 2026-05-02 — distance-
+            # only horizon concepts (moon, mountain ridge silhouettes,
+            # stars, etc.) authored per biome. Vector terminal renders
+            # via per-kind functions in horizon_objects.py.
+            "horizon_objects": BIOME_REGISTRY.get(self.biome_name, {}).get("horizon_objects", []),
             "biome": self.biome_name,
             # Atmosphere config streamed so Godot's _update_atmosphere can
             # parameterize off data instead of biome-name branches.

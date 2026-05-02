@@ -2104,6 +2104,61 @@ OUTDOOR_BANNER_LAYERS = [
 ]
 
 
+# -- Horizon objects — distance-only banner-rendered concepts ------------------
+#
+# Per `design_banner_layer_taxonomy` (2026-05-02): distance-only kinds
+# don't have world entity counterparts. They render purely on the banner
+# cylinders at configured angular positions. Brain ships these per-biome
+# in the manifest; vector terminal renders via per-kind renderer
+# functions in `clients/vector_terminal/horizon_objects.py`.
+#
+# Each entry has:
+#   kind:       renderer to invoke (must match a function in horizon_objects.py)
+#   azimuth:    degrees from world +x (0=east, 90=north, etc.)
+#   elevation:  degrees above horizon (0=horizon level, 90=zenith)
+#   size:       arbitrary scale value, interpreted per renderer
+#   color:      RGB 0-1, also interpreted per renderer
+#   plus per-kind keys (spread, ridge_count, drift_hz, etc.)
+#
+# Authoring is CRUD: add a new horizon concept = new row + new renderer
+# function. No engine changes.
+
+CAVERN_HORIZON_OBJECTS: list[dict] = [
+    # Cavern's horizon is its ceiling and the dim edges of perception.
+    # Authored sparse — let the projection banner + tint do most of the work.
+]
+
+OUTDOOR_HORIZON_OBJECTS: list[dict] = [
+    {
+        "kind": "moon",
+        "azimuth": 320.0,
+        "elevation": 28.0,
+        "size": 2.5,
+        "color": [0.92, 0.94, 0.98],
+    },
+    {
+        "kind": "mountain_ridge",
+        # Ridge anchored south-southeast, broad horizon coverage
+        "azimuth": 180.0,
+        "spread": 220.0,           # degrees of cylinder this ridge spans
+        "ridge_count": 21,         # peaks (factor of 7)
+        "max_height": 18.0,
+        "min_height": 8.0,
+        "color": [0.16, 0.20, 0.18],
+        "seed": 42,
+    },
+    {
+        "kind": "stars",
+        "count": 49,               # 7×7 stars
+        "min_elevation": 25.0,     # degrees
+        "max_elevation": 75.0,
+        "size": 0.4,
+        "color": [0.9, 0.92, 0.96],
+        "seed": 137,
+    },
+]
+
+
 # -- Render shell system (Design Law #14 extension) ---------------------------
 #
 # Seven concentric cylindrical shells at factor-of-7 radii from the observer.
@@ -2324,6 +2379,7 @@ BIOME_REGISTRY = {
         "flourish_pools": CAVERN_FLOURISH_POOLS,
         "tissue_kinds": TISSUE_KINDS_CAVERN,
         "banner_layers": CAVERN_BANNER_LAYERS,
+        "horizon_objects": CAVERN_HORIZON_OBJECTS,
         "macro_stamps": [MACRO_STAMP_CAVERN_CHAMBER, MACRO_STAMP_CAVERN_CORRIDOR],
         "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
         # World-gen tunables
@@ -2406,6 +2462,7 @@ BIOME_REGISTRY = {
         "flourish_pools": OUTDOOR_FLOURISH_POOLS,
         "tissue_kinds": TISSUE_KINDS_OUTDOOR,
         "banner_layers": OUTDOOR_BANNER_LAYERS,
+        "horizon_objects": OUTDOOR_HORIZON_OBJECTS,
         "macro_stamps": [MACRO_STAMP_OUTDOOR_CLEARING],
         "tile_prefetch_radius": 2,  # 5x5 grid — entities loaded before wake needs them
         # Endless procedural by default — matches cavern's boilerplate.

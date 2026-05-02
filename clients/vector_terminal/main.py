@@ -27,6 +27,7 @@ from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
+from clients.vector_terminal import horizon_objects as horizon_renderer  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
 from clients.vector_terminal import silhouette as silhouette_renderer  # noqa: E402
@@ -400,6 +401,12 @@ def main() -> int:
         # cylinders sit behind world geometry. `now` drives the
         # breathing oscillation in demo mode.
         banner.draw_banner_layers(last_manifest, camera, now)
+
+        # Distance-only horizon objects — moon, mountain ridges, stars
+        # per `design_banner_layer_taxonomy`. Camera-anchored, render
+        # on the outermost banner cylinder. Authored per-biome in
+        # BIOME_REGISTRY.horizon_objects.
+        horizon_renderer.draw_horizon_objects(last_manifest, camera)
 
         for ent in last_manifest.get("entities", []):
             if class_for(str(ent.get("kind", ""))) in cfg.SKIP_ENTITY_CLASSES:
