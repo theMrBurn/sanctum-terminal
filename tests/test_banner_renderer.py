@@ -160,6 +160,50 @@ def test_breathing_returns_to_phase_after_full_cycle():
     ) < 1e-9
 
 
+def test_tension_compression_zero_budget_no_change():
+    """Zero tension = full distance (multiplier 1.0)."""
+    from clients.vector_terminal.banner import _tension_compression
+    assert _tension_compression({"tension_budget": 0.0}) == 1.0
+
+
+def test_tension_compression_missing_budget_no_change():
+    """Manifest without tension_budget = no compression."""
+    from clients.vector_terminal.banner import _tension_compression
+    assert _tension_compression({}) == 1.0
+
+
+def test_tension_compression_subtle_at_normal_tension():
+    """Typical mid-tension (0.5) bends horizon ~2% inward."""
+    from clients.vector_terminal.banner import (
+        _tension_compression,
+        _TENSION_COMPRESSION_FACTOR,
+    )
+    expected = 1.0 - 0.5 * _TENSION_COMPRESSION_FACTOR
+    assert abs(_tension_compression({"tension_budget": 0.5}) - expected) < 1e-9
+
+
+def test_tension_compression_bends_at_overshoot():
+    """At max overshoot (1.5), horizon bends 6% inward — visible but
+    still subtle."""
+    from clients.vector_terminal.banner import _tension_compression
+    result = _tension_compression({"tension_budget": 1.5})
+    # 1.0 - 1.5 * 0.04 = 0.94
+    assert 0.93 < result < 0.95
+
+
+def test_tension_compression_negative_budget_clamps():
+    """Defensive: negative tension shouldn't expand the horizon."""
+    from clients.vector_terminal.banner import _tension_compression
+    assert _tension_compression({"tension_budget": -1.0}) == 1.0
+
+
+def test_tension_compression_floor_at_half():
+    """Hard floor: even with huge tension drift, distance stays ≥ 50%
+    of base. Prevents the horizon from collapsing onto the player."""
+    from clients.vector_terminal.banner import _tension_compression
+    assert _tension_compression({"tension_budget": 100.0}) == 0.5
+
+
 def test_banner_module_no_op_on_missing_layers():
     """Manifest without banner_layers (older brain, tests, transitional
     states) should return without error — we just won't render

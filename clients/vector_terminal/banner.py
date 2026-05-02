@@ -53,6 +53,15 @@ _DEMO_OUTERMOST_ONLY = True
 _OSCILLATION_HZ = 1.0 / 7.0
 _OSCILLATION_DEPTH = 0.20
 
+# Tension compression — as `manifest.tension_budget` rises (0.0 normal,
+# up to 1.5 overshoot), the horizon bends inward subtly. Reads as
+# "every so slight progress toward the mountains" per user 2026-05-01
+# intent: the world converges as tension builds. 0.04 factor = 4%
+# bend per unit budget, so at budget=1.5 the cylinder is at ~94% of
+# its base radius. Below player threshold of conscious awareness;
+# registers as tonal shift, not a visible jump.
+_TENSION_COMPRESSION_FACTOR = 0.04
+
 
 def draw_banner_layers(manifest: dict, camera, now: float = 0.0) -> None:
     """Draw banner cylinders camera-anchored. Call AFTER `begin_mode_3d`
@@ -87,6 +96,7 @@ def draw_banner_layers(manifest: dict, camera, now: float = 0.0) -> None:
         sorted_layers = sorted_layers[:1]
 
     osc_multiplier = _breathing_alpha_multiplier(now)
+    tension_compression = _tension_compression(manifest)
 
     for layer in sorted_layers:
         distance = float(layer.get("distance", 0.0))
@@ -96,6 +106,10 @@ def draw_banner_layers(manifest: dict, camera, now: float = 0.0) -> None:
 
         if distance <= 0.0 or height <= 0.0 or opacity <= 0.0:
             continue
+
+        # Tension bends the horizon inward — subtle "world converging"
+        # cue. Below conscious threshold; registers as tonal shift.
+        effective_distance = distance * tension_compression
 
         # Apply breathing oscillation to alpha multiplier — gentle pulse
         # makes the cylinder feel atmospheric rather than static.
@@ -108,8 +122,8 @@ def draw_banner_layers(manifest: dict, camera, now: float = 0.0) -> None:
         # so it translates with the player.
         rl.draw_cylinder_wires(
             position,
-            distance,
-            distance,
+            effective_distance,
+            effective_distance,
             height,
             _SLICES,
             color,
@@ -123,6 +137,22 @@ def _breathing_alpha_multiplier(now: float) -> float:
     return 1.0 + _OSCILLATION_DEPTH * math.sin(
         now * 2.0 * math.pi * _OSCILLATION_HZ
     )
+
+
+def _tension_compression(manifest: dict) -> float:
+    """Distance multiplier from current tension. 1.0 = no compression
+    (zero tension); below 1.0 = horizon bent inward.
+
+    Subtle: at max tension overshoot (1.5), multiplier ≈ 0.94 (6% bend).
+    Below conscious-perception threshold but registers as tonal shift.
+    Pure function for testability.
+    """
+    budget = float(manifest.get("tension_budget", 0.0))
+    # Clamp negative budgets defensively (shouldn't happen, but
+    # protects against multiplier going > 1).
+    if budget < 0.0:
+        budget = 0.0
+    return max(0.5, 1.0 - budget * _TENSION_COMPRESSION_FACTOR)
 
 
 def _layer_color(tint: Any, opacity: float) -> tuple[int, int, int, int]:
