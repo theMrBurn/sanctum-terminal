@@ -2340,12 +2340,14 @@ BIOME_REGISTRY = {
             "sun_enabled": False,
             "aerial_perspective": 0.0,
         },
-        # Playable envelope — set very far so the cavern reads as endless.
-        # Procedural tile generation supplies content out to arbitrary
-        # distance; only actual entity geometry (spikes, boulders) should
-        # ever stop the player. 500m gives the soft pullback a chance to
-        # act only at truly-wandered-off distances.
-        "playable_radius": 500.0,
+        # Playable envelope — set to 0 to disable the dome clamp entirely.
+        # Per `design_endless_biomes` ("Never cap playable_radius") and the
+        # 2026-05-01 endless-walk decision: the bubble-within-a-bubble
+        # illusion uses RENDER_SHELLS + BANNER_LAYERS to fake the horizon,
+        # not a hard envelope. Tile_exchange supplies procedural content
+        # to arbitrary distance; LRU cache caps memory growth.
+        # `clamp_to_envelope` no-ops when radius <= 0 (see envelope.py:25).
+        "playable_radius": 0.0,
         "playable_softness": 0.5,
         "exchange": {
             "delivery_budget": 350,
@@ -2401,7 +2403,9 @@ BIOME_REGISTRY = {
         # Endless procedural by default — matches cavern's boilerplate.
         # Area-authoring (clearings, named landmarks) is a refinement layer
         # ON TOP, not a replacement for endless. See design_endless_biomes.
-        "playable_radius": 500.0,
+        # 2026-05-01: dome cap retired in favor of bubble-within-a-bubble
+        # via RENDER_SHELLS + BANNER_LAYERS. radius=0 disables clamp.
+        "playable_radius": 0.0,
         "playable_softness": 0.5,
         # World-gen tunables
         "node_spacing_range": (20.0, 24.0),
