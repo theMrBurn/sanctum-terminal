@@ -60,6 +60,7 @@ from core.systems.quests import from_journal as quest_from_journal
 from core.systems.quests import rewards as quest_rewards
 from core.systems.quests import tick as quest_tick
 from core.systems.consequences import signals as consequence_signals
+from core.systems.consequences import tick as consequence_tick
 from core.systems.quests.state import QuestState
 from core.systems.journal import lexicon as journal_lexicon
 from core.vault import vault as Vault
@@ -573,6 +574,15 @@ class BrainWorld:
         # (`kind_destroyed`, future `cast_landed` etc.); the per-tick
         # quest evaluator drains it and clears it each frame.
         self.tick_events: list[dict] = []
+
+        # Live consequence instances on this world. The consequences
+        # engine spawns instances when triggers fire, advances them
+        # per tick, and removes them on resolution. Per
+        # `design_reflective_loop` and `feedback_iterate_then_formalize`,
+        # consequences hold dynamic resolution state — the shape of
+        # what HP=0 (or any future trigger) actually does is in
+        # `config/consequences.json`, not hardcoded here.
+        self.consequences: list = []
 
         # Replay dynamic journal-derived quests from the vault. Closes
         # the "where'd my quest go" gap surfaced in 2026-04-30 UAT — the
@@ -2271,6 +2281,13 @@ def run_server(biome_name, port=9877):
                     world.tick_events,
                     lambda q: _on_quest_complete(world, q),
                 )
+            # Consequences engine — runs AFTER quest_tick so quests
+            # observe their events first; runs BEFORE tick_events.clear()
+            # so consequence triggers (e.g. hp_zero) see the same
+            # accumulator. Per `design_reflective_loop` /
+            # `design_virtual_hallucination` — HP=0 routes through this
+            # engine, regens the world, restores HP, no perma-death.
+            consequence_tick.tick(world, world.tick_events)
             world.tick_events.clear()
 
             # Process only the latest camera update (skip stale queued ones)

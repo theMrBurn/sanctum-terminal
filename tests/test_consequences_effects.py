@@ -267,9 +267,13 @@ def test_full_chain_via_engine_tick():
     # Instance was resolved + removed.
     assert world.consequences == []
 
-    # Cleanup so subsequent tests aren't polluted.
+    # Cleanup so subsequent tests aren't polluted. Restore both the
+    # built-ins AND the JSON-loaded config rows (e.g. hp_zero_respawn)
+    # that other test modules expect.
+    from core.systems.consequences import definitions as _defs
     clear_registry()
     predicates_module.clear()
     effects_module.clear()
     predicates_module.register_builtins()
     effects_module.register_builtins()
+    _defs.load_from_json()

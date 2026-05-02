@@ -1,4 +1,31 @@
 {
   "schema_version": 1,
-  "consequences": []
+  "consequences": [
+    {
+      "id": "hp_zero_respawn",
+      "trigger": {"predicate": "hp_zero"},
+      "resolution": {
+        "predicate": null,
+        "effects": [
+          {
+            "name": "emit_state_event",
+            "args": {
+              "kind": "respawn",
+              "label": "RESPAWN",
+              "register": "tense"
+            }
+          },
+          {
+            "name": "regen_world",
+            "args": {"reseed": "random"}
+          },
+          {
+            "name": "restore_hp",
+            "args": {"to": "full"}
+          }
+        ]
+      },
+      "one_shot": true
+    }
+  ]
 }
