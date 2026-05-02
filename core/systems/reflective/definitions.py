@@ -1,25 +1,31 @@
-"""Reflective-mode JSON loaders — rules + (later) magnet pools.
+"""Reflective-mode JSON loaders — rules + magnet pools.
 
 Auto-loads on import (same pattern as `core.systems.quests.definitions`
 and `core.systems.consequences.definitions`).
 
-Step 2 of PR 3.5 ships rule loading via `config/reflective/rules.json`.
-Step 3 will add magnet pool loading via `config/reflective/magnets.json`
-into the same module.
+Two configs:
+  - `config/reflective/rules.json` — rule registry rows
+  - `config/reflective/magnets.json` — magnet pool sources (connectives,
+    thematic, wildcards)
 
-Tests that need a clean registry call `rules.clear()` first, then
-`load_rules_from_json(custom_path)` against a tmp file.
+Tests that need a clean state call `rules.clear()` (and/or set the
+magnet pool config explicitly) first, then `load_rules_from_json()`
+or `load_magnets_from_json()` against a tmp file.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from core.systems.reflective import rules
+from core.systems.reflective import magnets, rules
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 RULES_PATH = _REPO_ROOT / "config" / "reflective" / "rules.json"
+MAGNETS_PATH = _REPO_ROOT / "config" / "reflective" / "magnets.json"
+
+
+# ── Rules loader ──────────────────────────────────────────────────
 
 
 def load_rules_from_json(path: Path = RULES_PATH) -> None:
@@ -28,8 +34,7 @@ def load_rules_from_json(path: Path = RULES_PATH) -> None:
     Idempotent only if `rules.clear()` was called first; duplicate
     ids raise per the registry's strict-once semantics.
 
-    Missing file is a no-op — early-bringup safety so tests / scripts
-    that import the package before the config exists don't blow up.
+    Missing file is a no-op — early-bringup safety.
     """
     if not path.exists():
         return
@@ -50,5 +55,28 @@ def _row_to_rule(row: dict) -> rules.Rule:
     )
 
 
+# ── Magnets loader ────────────────────────────────────────────────
+
+
+def load_magnets_from_json(path: Path = MAGNETS_PATH) -> None:
+    """Read the magnets JSON config and install it as the active pool
+    config. Idempotent — replaces whatever was set previously.
+
+    Missing file leaves the existing pool config in place (which
+    starts empty on first import). Tests can pass a tmp_path to
+    install custom pools.
+    """
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    config = magnets.PoolConfig(
+        connectives=tuple(data.get("connectives", [])),
+        thematic=tuple(data.get("thematic", [])),
+        wildcards=tuple(data.get("wildcards", [])),
+    )
+    magnets.set_pool_config(config)
+
+
 # Auto-load on import.
 load_rules_from_json()
+load_magnets_from_json()
