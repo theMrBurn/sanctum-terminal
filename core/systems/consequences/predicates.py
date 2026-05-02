@@ -92,12 +92,63 @@ def _hp_zero(
     return False
 
 
+def _reflective_committed_from_hp_zero(
+    world: WorldLike,
+    args: dict,
+    progress: dict,
+    events: list[dict],
+) -> bool:
+    """True when the player committed a successful poem AFTER the
+    HP=0 forced entry path. Brain's commit_reflective cmd handler
+    emits this event on AC success when world.reflective.trigger ==
+    'hp_zero'.
+
+    Drives the second-half of the HP=0 chain: exit reflective + regen
+    world + restore HP + emit RESPAWN. See `reflective_commit_resume`
+    in config/consequences.json.
+
+    args: none.
+    """
+    for evt in events:
+        if evt.get("type") == "reflective_committed_from_hp_zero":
+            return True
+    return False
+
+
+def _reflective_committed_voluntary(
+    world: WorldLike,
+    args: dict,
+    progress: dict,
+    events: list[dict],
+) -> bool:
+    """True when the player committed a successful poem from a
+    voluntary entry (walked up to the fridge in hub). Brain's
+    commit_reflective cmd handler emits this event when
+    world.reflective.trigger == 'voluntary'.
+
+    Drives the voluntary commit chain: exit reflective + emit
+    REFLECTIVE_COMPLETE. No regen, no HP restore — voluntary entry
+    doesn't have a respawn payload. See `reflective_commit_voluntary`
+    in config/consequences.json.
+
+    args: none.
+    """
+    for evt in events:
+        if evt.get("type") == "reflective_committed_voluntary":
+            return True
+    return False
+
+
 def register_builtins() -> None:
     """(Re)-register built-in predicates. Idempotent. Module import
     auto-calls this. Tests with a `clean` fixture call this in teardown
     so subsequent tests see the built-ins."""
     if "hp_zero" not in _REGISTRY:
         _REGISTRY["hp_zero"] = _hp_zero
+    if "reflective_committed_from_hp_zero" not in _REGISTRY:
+        _REGISTRY["reflective_committed_from_hp_zero"] = _reflective_committed_from_hp_zero
+    if "reflective_committed_voluntary" not in _REGISTRY:
+        _REGISTRY["reflective_committed_voluntary"] = _reflective_committed_voluntary
 
 
 # Auto-register on import.
