@@ -284,6 +284,15 @@ def main() -> int:
             if rl.is_key_pressed(rl.KeyboardKey.KEY_BACKSLASH):
                 noclip = not noclip
 
+            # K = damage_self debug. Each press deals 99 damage, sufficient
+            # to push HP to 0 in one tap — exposes the forced reflective
+            # chain end-to-end (REFLECT toast → fridge UI → commit →
+            # respawn chain → regen world + restore HP). Per
+            # `design_virtual_hallucination`: HP=0 is just a respawn
+            # condition, never perma-death framing.
+            if rl.is_key_pressed(rl.KeyboardKey.KEY_K):
+                client.send({"cmd": "damage_self", "amount": 99})
+
             # Backspace = abort to HUB. Brain validates IN_MISSION → HUB
             # so this only does anything when we're actually in a mission.
             # Always-a-way-home navigation per the UAT-driven design directive.

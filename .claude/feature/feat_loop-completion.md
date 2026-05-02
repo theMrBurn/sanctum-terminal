@@ -77,13 +77,17 @@ fundamentally.
 - `feedback_artifacts_capture_arcs` — labels lag, artifacts hold truth.
 - `feedback_coordinate_convention_class` (this session) — coord-convention bug class lessons.
 
+**Late-session UAT pass (2026-05-02):**
+- ✅ **PR 4 HUD bearing UAT** — journal toggle works (J open/close, ENTER on AVAILABLE row activates quest, deselects). Active quests render with bearing prefix in HUD beneath the MSG line. Bearings update with player position.
+- ✅ **PR 3.5 HP=0 forced reflective UAT** — K key (debug `damage_self {amount: 99}`) added in vector terminal main.py. K → HP→0 → REFLECT toast → fridge UI opens → place magnets → C commit → RESPAWN → fresh world + HP full. The whole consequence chain fires end-to-end: hp_zero predicate → enter_reflective effect + emit_state_event → game_state HUB→REFLECTIVE → reflective_commit_resume chain on commit (exit_reflective + emit RESPAWN + regen_world + restore_hp) → back to HUB.
+
 **What's still ahead (loop NOT closed):**
-- PR 4 — HUD bearing UAT pending (substrate shipped at `22d77ba`)
 - PR 5 — destructive collapse of MISSION_SELECT/IN_MISSION/RESULTS (no progress)
 - PR 6 — cleanup (no progress)
 - Banner compositing inner layers (Layer 1 HUD migration, Layer 5 beacons, etc.) — substrate ready, content arc separate
 - Effect migration tier (Tier 3 — approaching weather, smoke columns growing) — designed not built
 - Real OBJ assets from open-source libraries dropped in — substrate ready
+- Voice authoring for placeholder copy ("REFLECT" / "RESPAWN" / "DONE" / "NOT YET" / "LATER")
 
 The branch is meaningfully bigger than the original 6-PR plan. Naming
 mismatch (the branch says "loop-completion" but holds banner-compositing
