@@ -396,8 +396,9 @@ def main() -> int:
 
         # Banner compositing — 7 camera-anchored cylinders per
         # `design_banner_compositing`. Drawn before entities so the
-        # cylinders sit behind world geometry.
-        banner.draw_banner_layers(last_manifest, camera)
+        # cylinders sit behind world geometry. `now` drives the
+        # breathing oscillation in demo mode.
+        banner.draw_banner_layers(last_manifest, camera, now)
 
         for ent in last_manifest.get("entities", []):
             if class_for(str(ent.get("kind", ""))) in cfg.SKIP_ENTITY_CLASSES:

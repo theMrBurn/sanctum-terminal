@@ -124,6 +124,42 @@ def test_banner_called_before_entity_draw():
     assert banner_pos < entity_pos
 
 
+def test_breathing_at_zero_is_one():
+    """At t=0, sin(0)=0, multiplier = 1.0 (no modulation)."""
+    from clients.vector_terminal.banner import _breathing_alpha_multiplier
+    assert abs(_breathing_alpha_multiplier(0.0) - 1.0) < 1e-9
+
+
+def test_breathing_oscillates_within_depth():
+    """Multiplier stays within [1-depth, 1+depth] across the cycle."""
+    from clients.vector_terminal.banner import (
+        _breathing_alpha_multiplier,
+        _OSCILLATION_DEPTH,
+    )
+    samples = [_breathing_alpha_multiplier(t) for t in range(0, 30)]
+    for v in samples:
+        assert (1.0 - _OSCILLATION_DEPTH) <= v <= (1.0 + _OSCILLATION_DEPTH)
+
+
+def test_breathing_period_is_factor_of_seven():
+    """Per `feedback_factor_of_7`: cycle should be 7 seconds."""
+    from clients.vector_terminal.banner import _OSCILLATION_HZ
+    period = 1.0 / _OSCILLATION_HZ
+    assert abs(period - 7.0) < 1e-9
+
+
+def test_breathing_returns_to_phase_after_full_cycle():
+    """After one cycle (1/_OSCILLATION_HZ seconds), back to t=0 value."""
+    from clients.vector_terminal.banner import (
+        _breathing_alpha_multiplier,
+        _OSCILLATION_HZ,
+    )
+    period = 1.0 / _OSCILLATION_HZ
+    assert abs(
+        _breathing_alpha_multiplier(0.0) - _breathing_alpha_multiplier(period)
+    ) < 1e-9
+
+
 def test_banner_module_no_op_on_missing_layers():
     """Manifest without banner_layers (older brain, tests, transitional
     states) should return without error — we just won't render
