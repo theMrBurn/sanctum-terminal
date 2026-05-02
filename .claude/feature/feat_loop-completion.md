@@ -45,6 +45,51 @@ HP=0 forced path **not validated organically** — no damage source exists in V1
 
 PR 3.5 is functionally shipped. The loop is live.
 
+## Session arc — 2026-05-01 → 2026-05-02 (unplanned major expansion)
+
+After PR 3.5 UAT passed, the session pivoted into a much larger arc that
+wasn't in the original 6-PR plan. The branch now holds all of it; loop
+closure (PR 5 + 6) still ahead but the FEEL of "the world" changed
+fundamentally.
+
+**Bugs found and fixed:**
+- `affe27f` — tile_exchange `_tile_key` half-offset (blank world past 144m). Coord-convention divergence between `_tile_key` (floor) and entity placement (centered).
+- `1ba4b92` — macro_stamp `_active_tile_origin` global never re-set per tile (silent z-offset on terrain). Same coord-convention shape.
+- Both pinned by cross-reference tests (`test_tile_key_alignment.py`, `test_terrain_height_alignment.py`) so divergence becomes a test failure.
+
+**Architectural pivot — endless walk:**
+- `a7c8749` — `playable_radius=0` retired the dome cap.
+- Endless walk became the LOAD-BEARING primitive once we realized it's the substrate the consequences engine + the gameplay loop both ride on.
+
+**Banner compositing — new universal primitive:**
+- `33a6539` → `b7a705d` → `6d9800c` — banner cylinder rendering, demo mode, breathing oscillation, tension-driven horizon compression.
+- `2cb48a8` — distance-only horizon kinds (moon, mountain ridge, stars) authored per-biome.
+- `5ecf2ab` — silhouette mode reverted (binary geometry↔silhouette switch was disruptive).
+- `ee30e90` — sun + aurora + lightning_flash + chrono `now` threading.
+- `e3fbe1c` — OBJ wireframe pipeline + 5 built-in primitives + spire on horizon. **The content multiplier — any open-source 3D asset becomes ingestible.**
+
+**New memory pins (durable across sessions):**
+- `design_virtual_hallucination` — no perma-death; player-offline is the only encoded death.
+- `design_reflective_loop` — fridge + magnets, AC-gated return, Wario Ware DNA.
+- `design_engagement_primitive` — engagement-event distinct from game primitive.
+- `design_banner_compositing` — 7-layer universal camera-relative system.
+- `design_banner_layer_taxonomy` — concrete object/effect taxonomy.
+- `feedback_artifacts_capture_arcs` — labels lag, artifacts hold truth.
+- `feedback_coordinate_convention_class` (this session) — coord-convention bug class lessons.
+
+**What's still ahead (loop NOT closed):**
+- PR 4 — HUD bearing UAT pending (substrate shipped at `22d77ba`)
+- PR 5 — destructive collapse of MISSION_SELECT/IN_MISSION/RESULTS (no progress)
+- PR 6 — cleanup (no progress)
+- Banner compositing inner layers (Layer 1 HUD migration, Layer 5 beacons, etc.) — substrate ready, content arc separate
+- Effect migration tier (Tier 3 — approaching weather, smoke columns growing) — designed not built
+- Real OBJ assets from open-source libraries dropped in — substrate ready
+
+The branch is meaningfully bigger than the original 6-PR plan. Naming
+mismatch (the branch says "loop-completion" but holds banner-compositing
+work) is fine per `feedback_artifacts_capture_arcs` — the artifact holds
+truth, the label lags.
+
 ## PR 5 trigger
 PR 5 (destructive collapse) lands only when ALL of these hold:
 - PR 3 passes scenario UAT (death triggers regen, active quests survive)

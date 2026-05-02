@@ -21,9 +21,12 @@ Do not chain reads beyond this. Subagents inherit this contract via the spawning
 - Brain owns config: `core/systems/biome_data.py` is canonical. Godot reads manifest.
 - One change at a time: edit, screenshot, confirm, proceed.
 - No layering: execute the named scope only. No "while I'm here" cleanups.
-- No reverting on first failure: tune the one variable that broke.
+- No reverting on first failure: tune the one variable that broke. (But reverting IS valid after UAT exposes a wrong implementation — see `feedback_coordinate_convention_class`.)
 - Plan before code on trajectory shifts.
 - Confirm before fix: present options, let the user pick direction.
+- Coord math pairs: when adding code that does coordinate math (tile keys, distance, projection), search the codebase for the OTHER side of the convention and write a cross-reference test pinning them together. Two silent bugs shipped before 2026-05-01 UAT caught this. See `feedback_coordinate_convention_class`.
+- Vector terminal first: the canonical client per `design_brain_ground_truth`. Godot is paused; treat its rendering as reference, not parity target. Banner compositing, HUD, overlays all land in vector terminal first. Godot hooks come at the end if/when needed.
+- Banner compositing as universal primitive: every camera-relative visual (HUD, particles, beacons, atmosphere, horizon objects) goes through the 7-layer banner system per `design_banner_compositing`. Don't add new ad-hoc overlay subsystems — assign a layer + role.
 - (Full Won't-tolerate list: see memory pin `design_wont_tolerate`.)
 
 ## Live-vs-legacy
