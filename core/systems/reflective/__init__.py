@@ -56,3 +56,6 @@ class ReflectiveState:
 # Trigger auto-registration of built-in AC predicates by importing the
 # module — same pattern as `core.systems.quests.__init__`.
 from core.systems.reflective import ac_predicates as _ac_predicates  # noqa: E402, F401
+
+# Trigger JSON-driven loading of rules (and later magnet pools).
+from core.systems.reflective import definitions as _definitions  # noqa: E402, F401

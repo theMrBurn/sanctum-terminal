@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "compose_three",
+      "name": "Compose",
+      "instructions": "Place three magnets. Press commit when ready.",
+      "ac_predicates": ["min_magnet_count"],
+      "ac_args": {
+        "min_magnet_count": {"count": 3}
+      }
+    }
+  ]
+}
