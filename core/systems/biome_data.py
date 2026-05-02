@@ -2127,12 +2127,17 @@ RENDER_SHELLS = [
     {"radius": 14, "mode": "geometry",   "kind_classes": ["structural", "emissive", "scatter", "ground_cover", "atmosphere", "life"]},
     {"radius": 21, "mode": "geometry",   "kind_classes": ["structural", "emissive", "scatter", "ground_cover", "atmosphere"]},
     {"radius": 28, "mode": "geometry",   "kind_classes": ["structural", "emissive", "ground_cover", "atmosphere"]},
-    # Outer shells transition entities from full geometry to projected
-    # silhouettes onto the banner cylinders, and finally to atmospheric
-    # tint contribution only. Per `design_banner_layer_taxonomy` 2026-05-02.
-    {"radius": 35, "mode": "silhouette", "kind_classes": ["structural", "emissive", "atmosphere"]},
-    {"radius": 42, "mode": "silhouette", "kind_classes": ["structural", "emissive"]},
-    {"radius": 49, "mode": "atmosphere", "kind_classes": ["structural"]},
+    {"radius": 35, "mode": "geometry",   "kind_classes": ["structural", "emissive", "atmosphere"]},
+    {"radius": 42, "mode": "geometry",   "kind_classes": ["structural", "emissive"]},
+    {"radius": 49, "mode": "geometry",   "kind_classes": ["structural"]},
+    # 2026-05-02: reverted outer-shell silhouette/atmosphere modes —
+    # the binary geometry↔silhouette switch produced a disruptive pop-in
+    # at shell boundaries. Silhouette projection still works as a
+    # primitive (`clients/vector_terminal/silhouette.py`) and remains
+    # available for kinds that need explicit silhouette-only rendering
+    # (distant mountains, sky elements). Smooth-blend LOD between
+    # geometry and silhouette is a future task — see
+    # `design_banner_layer_taxonomy` Tier 1 followup.
 ]
 
 # Every entity kind maps to a render class. The class determines which shells

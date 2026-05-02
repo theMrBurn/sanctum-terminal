@@ -79,17 +79,14 @@ def test_main_dispatches_render_mode():
 # ── RENDER_SHELLS modes updated ───────────────────────────────────
 
 
-def test_outer_shells_use_silhouette_or_atmosphere_mode():
-    """Per design_banner_layer_taxonomy — outer 3 shells are no longer
-    geometry. They should be silhouette or atmosphere."""
+def test_render_shells_all_geometry():
+    """2026-05-02: outer-shell silhouette/atmosphere modes reverted —
+    binary geometry↔silhouette switch produced disruptive pop-in.
+    All shells are geometry until smooth-blend LOD lands. Silhouette
+    primitive still available for explicit-silhouette kinds."""
     from core.systems.biome_data import RENDER_SHELLS
-    # Inner 4 shells (radii 7-28m) stay geometry.
-    for shell in RENDER_SHELLS[:4]:
+    for shell in RENDER_SHELLS:
         assert shell["mode"] == "geometry"
-    # Outer 3 shells (radii 35, 42, 49) shift to silhouette / atmosphere.
-    assert RENDER_SHELLS[4]["mode"] == "silhouette"
-    assert RENDER_SHELLS[5]["mode"] == "silhouette"
-    assert RENDER_SHELLS[6]["mode"] == "atmosphere"
 
 
 def test_shell_radii_match_silhouette_module():
