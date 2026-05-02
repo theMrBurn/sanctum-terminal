@@ -36,7 +36,7 @@ from core.systems.world_gen import generate_tile
 from core.systems.tension_cycle import TensionCycle
 from core.systems.plane_exchange import classify_all_entities, CAVERN_EXCHANGE_NODES
 from core.systems.chronometer import Chronometer
-from core.systems.ambient_life import SpectrumEngine, set_active_biome
+from core.systems.spectrum import SpectrumEngine, set_active_biome
 from core.systems import player_state as ps
 from core.systems.player_state import PlayerState, Item
 from core.systems import game_state as gs

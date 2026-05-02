@@ -27,7 +27,7 @@ from core.systems.biome_data import BIOME_REGISTRY, RENDER_SHELLS, KIND_RENDER_C
 from core.systems.spatial_wake import WakeChain, WAKE_CHAINS
 from core.systems.world_gen import generate_tile
 from core.systems.macro_stamp import terrain_height, set_active_stamp
-from core.systems.ambient_life import set_active_biome
+from core.systems.spectrum import set_active_biome
 from core.systems import kind_config as _kc
 
 

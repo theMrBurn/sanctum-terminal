@@ -35,13 +35,18 @@ from core.systems.glow_decal import make_glow_decal, get_glow_texture, make_ligh
 
 
 # -- Biome state (set by cavern.py at init) ------------------------------------
-_active_biome = "cavern"
-
-
-def set_active_biome(biome):
-    """Called by cavern.py to configure biome-dependent builders."""
-    global _active_biome
-    _active_biome = biome
+# Single source of truth lives in `core.systems.spectrum`. This module
+# re-exports the API for legacy / tooling consumers that still import
+# from ambient_life directly. The live brain pipeline imports straight
+# from `core.systems.spectrum` to avoid pulling panda3d in via this
+# file's module-top imports.
+from core.systems.spectrum import (  # noqa: E402
+    set_active_biome,
+    SPECTRUM_PROFILES,
+    OUTDOOR_SPECTRUM_PROFILES,
+    SpectrumEngine,
+)
+import core.systems.spectrum as _spectrum_module  # noqa: E402
 
 
 # -- Behavior definitions -----------------------------------------------------
@@ -480,160 +485,12 @@ def overlap_z(parent_h, child_h):
 
 
 # -- Spectrum system -----------------------------------------------------------
-# Polyrhythmic hue drift + prismatic facet offsets.
-# One class handles both: spectrum_drift for the whole entity,
-# prismatic_offset for per-shard variation within a cluster.
-#
-# Config-as-code: swap the frequency table and you get a different biome feel.
+# Moved to `core/systems/spectrum.py` (panda3d-free) so the live brain
+# pipeline doesn't pull panda3d via this module's top-level imports.
+# SPECTRUM_PROFILES, OUTDOOR_SPECTRUM_PROFILES, SpectrumEngine, and
+# set_active_biome are re-exported at module top for legacy callers.
+# New spectrum profiles or engine changes go in `spectrum.py`.
 
-SPECTRUM_PROFILES = {
-    "fungus": {
-        "base_hue": (0.22, 0.06, 0.30),
-        "drift_range": 0.18,
-        "channels": [
-            {"freq": 0.017, "amp": 1.0},    # ~60s full cycle
-            {"freq": 0.011, "amp": 0.6},    # ~90s, polyrhythmic offset
-            {"freq": 0.007, "amp": 0.3},    # ~140s, deep slow drift
-        ],
-    },
-    "crystal": {
-        "base_hue": (0.15, 0.18, 0.35),
-        "drift_range": 0.12,
-        "channels": [
-            {"freq": 0.013, "amp": 1.0},    # ~77s cycle
-            {"freq": 0.0087, "amp": 0.5},   # ~115s
-            {"freq": 0.0053, "amp": 0.25},  # ~188s
-        ],
-        "prismatic": True,                   # per-shard facet offsets
-        "facet_spread": 0.12,                # ±12% channel offset per shard
-    },
-    "moss": {
-        "base_hue": (0.08, 0.35, 0.06),
-        "drift_range": 0.10,
-        "channels": [
-            {"freq": 0.009, "amp": 1.0},    # ~111s — slowest, most organic
-            {"freq": 0.006, "amp": 0.4},    # ~167s
-        ],
-    },
-    "ceiling_moss": {
-        "base_hue": (0.80, 0.55, 0.15),
-        "drift_range": 0.08,
-        "channels": [
-            {"freq": 0.012, "amp": 1.0},
-            {"freq": 0.0073, "amp": 0.5},
-        ],
-    },
-}
-
-# -- Outdoor spectrum profiles — same drift engine, PNW palette ----------------
-# Bioluminescence → natural light. Slower drift = weather/wind, not metabolism.
-OUTDOOR_SPECTRUM_PROFILES = {
-    "fungus": {  # giant_fungus → large bush / rhododendron
-        "base_hue": (0.12, 0.28, 0.08),    # forest green
-        "drift_range": 0.08,                 # subtle — wind, not glow
-        "channels": [
-            {"freq": 0.008, "amp": 1.0},    # ~125s — breeze cycle
-            {"freq": 0.005, "amp": 0.4},    # ~200s — slow sway
-        ],
-    },
-    "crystal": {  # crystal_cluster → flowering shrub / wildflower
-        "base_hue": (0.35, 0.20, 0.12),    # warm flower
-        "drift_range": 0.10,
-        "channels": [
-            {"freq": 0.010, "amp": 1.0},    # ~100s
-            {"freq": 0.006, "amp": 0.5},    # ~167s
-        ],
-        "prismatic": True,                   # per-petal color variation
-        "facet_spread": 0.08,
-    },
-    "moss": {  # moss_patch → natural ground moss
-        "base_hue": (0.06, 0.22, 0.04),    # deep natural green
-        "drift_range": 0.05,                 # almost static — moss doesn't move
-        "channels": [
-            {"freq": 0.004, "amp": 1.0},    # ~250s — moisture cycle
-        ],
-    },
-    "sunlight": {  # outdoor-only — dappled sun on forest floor
-        "base_hue": (0.45, 0.38, 0.15),    # warm gold
-        "drift_range": 0.12,                 # cloud shadows passing
-        "channels": [
-            {"freq": 0.015, "amp": 1.0},    # ~67s — cloud drift
-            {"freq": 0.009, "amp": 0.6},    # ~111s — canopy sway
-            {"freq": 0.004, "amp": 0.3},    # ~250s — time of day
-        ],
-    },
-}
-
-
-class SpectrumEngine:
-    """Polyrhythmic hue drift + prismatic facet offsets.
-
-    Each bio-lit entity gets a phase (from seed) and drifts through
-    a color gradient on overlapping sine waves. No two entities sync.
-
-    Prismatic mode (crystals): per-shard offsets on top of the drift,
-    so facets shimmer independently while the cluster moves as a family.
-
-    LUT mode: pre-computed 256-entry sine table. Zero trig at runtime.
-    Saturn/PS1 trick — index into a table instead of calling sin().
-    """
-    # Pre-computed sine LUT — 256 entries covering 0..2π
-    _SIN_LUT = [math.sin(i * 2.0 * math.pi / 256.0) for i in range(256)]
-
-    @staticmethod
-    def phase_for_seed(seed):
-        """Deterministic phase offset from entity seed — desynchronizes all entities."""
-        return (seed * 0.618033) % (2.0 * math.pi)  # golden ratio scatter
-
-    @staticmethod
-    def drift(profile_name, elapsed, seed):
-        """Calculate hue shift for an entity at a given time.
-
-        Returns (r_shift, g_shift, b_shift) to ADD to base colorScale.
-        Uses LUT lookup instead of math.sin() — zero trig per frame.
-        """
-        profile = biome_config("spectrum").get(profile_name)
-        if not profile:
-            return (0, 0, 0)
-        phase = SpectrumEngine.phase_for_seed(seed)
-        lut = SpectrumEngine._SIN_LUT
-        total = 0.0
-        for ch in profile["channels"]:
-            # LUT index: map continuous angle to 0-255
-            idx = int((elapsed * ch["freq"] + phase * 0.15915494) * 256.0) & 0xFF
-            total += lut[idx] * ch["amp"]
-        # Normalize to [-1, 1] range then scale by drift_range
-        max_amp = sum(ch["amp"] for ch in profile["channels"])
-        if max_amp > 0:
-            total /= max_amp
-        dr = profile["drift_range"]
-        # Shift each channel differently for organic color movement
-        r_shift = total * dr
-        g_shift = total * dr * 0.7   # green shifts less — keeps warmth
-        b_shift = total * dr * 1.2   # blue shifts more — cool/warm oscillation
-        return (r_shift, g_shift, b_shift)
-
-    @staticmethod
-    def prismatic_offset(seed, shard_index, profile_name="crystal"):
-        """Per-shard color offset for prismatic crystals.
-
-        Shard 0 (king) stays true. Others shift ± on one channel.
-        Returns (r_off, g_off, b_off) to ADD to shard colorScale.
-        """
-        profile = biome_config("spectrum").get(profile_name, {})
-        if shard_index == 0 or not profile.get("prismatic"):
-            return (0, 0, 0)
-        spread = profile.get("facet_spread", 0.10)
-        rng = random.Random(seed + shard_index * 73)
-        # Pick one dominant channel to shift — reads as prismatic refraction
-        channel = rng.randint(0, 2)
-        amount = rng.uniform(-spread, spread)
-        offsets = [0.0, 0.0, 0.0]
-        offsets[channel] = amount
-        # Subtle complementary shift on another channel
-        other = (channel + 1) % 3
-        offsets[other] = -amount * 0.3
-        return tuple(offsets)
 
 MATERIAL_RATIOS = {
     "stone_heavy":  0.80,   # finer than base — dense packed mineral
@@ -976,8 +833,14 @@ BIOME_REGISTRY = {
 
 
 def biome_config(key):
-    """Look up biome-specific config. Falls back to cavern."""
-    return BIOME_REGISTRY.get(_active_biome, BIOME_REGISTRY["cavern"])[key]
+    """Look up biome-specific config. Falls back to cavern.
+
+    Reads the active biome from `core.systems.spectrum` — single
+    source of truth after the spectrum extraction. Legacy callers
+    that import biome_config still go through this same path.
+    """
+    biome = _spectrum_module._active_biome
+    return BIOME_REGISTRY.get(biome, BIOME_REGISTRY["cavern"])[key]
 
 
 # -- Entity builders ----------------------------------------------------------
