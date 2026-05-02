@@ -54,7 +54,7 @@ class FakeWorld:
 @pytest.fixture
 def clean():
     """Each test gets fresh registries. Teardown restores built-in
-    predicates so non-fixture tests still see them."""
+    predicates AND effect handlers so non-fixture tests still see them."""
     clear_registry()
     predicates_module.clear()
     effects_module.clear()
@@ -63,6 +63,7 @@ def clean():
     predicates_module.clear()
     predicates_module.register_builtins()
     effects_module.clear()
+    effects_module.register_builtins()
 
 
 # ── Registry ──────────────────────────────────────────────────────

@@ -63,3 +63,86 @@ def all_effects() -> dict[str, EffectFn]:
 def clear() -> None:
     """Test-only — reset the registry."""
     _REGISTRY.clear()
+
+
+# ── Built-in effect handlers ────────────────────────────────────────
+
+
+def _regen_world(world, args: dict, instance) -> None:
+    """Reseed and wipe cached world state.
+
+    args:
+      reseed: "random" — pick a fresh int seed via random.randint
+              <int>    — use this seed exactly
+
+    Per `design_death_only_regen` and `design_virtual_hallucination`:
+    the procedural expedition regenerates; the hub stays authored;
+    quests, character, and vault persist (handled elsewhere — this
+    effect only mutates world tiles/entities/spawns).
+    """
+    import random as _random
+
+    reseed = args.get("reseed", "random")
+    if reseed == "random":
+        new_seed = _random.randint(0, 2**31 - 1)
+    else:
+        new_seed = int(reseed)
+    world.regen_world(new_seed)
+
+
+def _restore_hp(world, args: dict, instance) -> None:
+    """Reset player HP after respawn.
+
+    args:
+      to: "full" — set hp to max_hp
+          <int>  — set hp to this exact value (clamped to max_hp)
+
+    Mutates world.player via PlayerState._replace — PlayerState is a
+    NamedTuple, so we never edit fields in place.
+    """
+    target = args.get("to", "full")
+    player = world.player
+    if target == "full":
+        new_hp = player.max_hp
+    else:
+        new_hp = min(int(target), player.max_hp)
+    world.player = player._replace(hp=new_hp)
+
+
+def _emit_state_event(world, args: dict, instance) -> None:
+    """Push a StateEvent through `world.state_events` for client toast.
+
+    args:
+      kind:     str — routing key (e.g. "respawn")
+      label:    str — short ALL-CAPS top line
+      detail:   str | None — optional second line
+      register: str — pacing hint (loop / system / tense / ritual / discovery)
+
+    No-op if world has no state_events buffer (defensive — tests can
+    pass minimal world fakes that don't bother with the buffer).
+    """
+    buffer = getattr(world, "state_events", None)
+    if buffer is None:
+        return
+    buffer.emit(
+        kind=str(args.get("kind", "consequence")),
+        label=str(args.get("label", "")),
+        detail=args.get("detail"),
+        register=str(args.get("register", "system")),
+    )
+
+
+def register_builtins() -> None:
+    """(Re)-register built-in effect handlers. Idempotent. Module
+    import auto-calls this. Tests with a `clean` fixture call this in
+    teardown so subsequent tests see the built-ins."""
+    if "regen_world" not in _REGISTRY:
+        _REGISTRY["regen_world"] = _regen_world
+    if "restore_hp" not in _REGISTRY:
+        _REGISTRY["restore_hp"] = _restore_hp
+    if "emit_state_event" not in _REGISTRY:
+        _REGISTRY["emit_state_event"] = _emit_state_event
+
+
+# Auto-register on import.
+register_builtins()
