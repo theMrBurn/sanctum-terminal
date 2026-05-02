@@ -30,17 +30,27 @@ from typing import Any, NamedTuple, Optional
 # --- States -----------------------------------------------------------------
 
 class GameStateName(str, Enum):
-    """The five canonical loop states. Stored as strings so manifest
-    serialization is direct (json.dumps friendly)."""
+    """Canonical loop states. Stored as strings so manifest
+    serialization is direct (json.dumps friendly).
+
+    REFLECTIVE was added in PR 3.5 alongside the consequences engine
+    + fridge / magnet substrate per `design_reflective_loop`. PR 5's
+    destructive collapse drops MISSION_SELECT / IN_MISSION / RESULTS
+    rows; REFLECTIVE survives the collapse — leave its rows alone.
+    """
     CHARACTER_CREATION = "CHARACTER_CREATION"  # at hub, doing the 7-pillar ritual
     HUB = "HUB"                     # at staging area, free exploration
     MISSION_SELECT = "MISSION_SELECT"  # picker open, choosing a mission
     IN_MISSION = "IN_MISSION"       # out in a procedural instance
     RESULTS = "RESULTS"             # post-mission summary screen
+    REFLECTIVE = "REFLECTIVE"       # at the fridge, composing under a rule
 
 
 # Allowed transitions. Anything not in this set raises ValueError.
 # Reading: (FROM, TO).
+#
+# REFLECTIVE rows added in PR 3.5. PR 5's collapse drops the MISSION_*
+# rows but MUST preserve (HUB, REFLECTIVE) and (REFLECTIVE, HUB).
 _ALLOWED_TRANSITIONS = frozenset({
     (GameStateName.CHARACTER_CREATION, GameStateName.HUB),     # all pillars sealed
     (GameStateName.HUB, GameStateName.CHARACTER_CREATION),     # re-do via Pillar of Reflection
@@ -50,6 +60,8 @@ _ALLOWED_TRANSITIONS = frozenset({
     (GameStateName.IN_MISSION, GameStateName.RESULTS),         # mission complete
     (GameStateName.IN_MISSION, GameStateName.HUB),             # abort/escape
     (GameStateName.RESULTS, GameStateName.HUB),                # acknowledge results
+    (GameStateName.HUB, GameStateName.REFLECTIVE),             # engage fridge (forced or voluntary)
+    (GameStateName.REFLECTIVE, GameStateName.HUB),             # commit / abort back to hub
 })
 
 
@@ -128,6 +140,11 @@ def transition(
             results=None,
         )
     if target == GameStateName.MISSION_SELECT:
+        return current._replace(state=target)
+    if target == GameStateName.REFLECTIVE:
+        # Reflective mode is brain-side state; the dataclass sits on
+        # BrainWorld.reflective. game_state.GameState only flags that
+        # we're currently in REFLECTIVE so clients can branch render.
         return current._replace(state=target)
     if target == GameStateName.IN_MISSION:
         if mission_id is None:

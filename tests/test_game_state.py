@@ -163,3 +163,72 @@ def test_transition_does_not_mutate_input():
     _ = transition(gs, GameStateName.MISSION_SELECT)
     assert gs.state == GameStateName.HUB
     assert gs.mission_id is None
+
+
+# --- REFLECTIVE state (PR 3.5 step 5) --------------------------------------
+
+
+def test_reflective_state_is_in_enum():
+    """REFLECTIVE was added alongside the consequences engine + fridge
+    substrate per design_reflective_loop. Survives PR 5's collapse."""
+    assert GameStateName.REFLECTIVE.value == "REFLECTIVE"
+
+
+def test_hub_to_reflective_allowed():
+    """Walking up to fridge (voluntary) or routed via consequences engine
+    (forced HP=0) — both transitions land here."""
+    gs = transition(GameState.initial(), GameStateName.REFLECTIVE)
+    assert gs.state == GameStateName.REFLECTIVE
+
+
+def test_reflective_to_hub_allowed():
+    """Commit or abort returns the player to HUB."""
+    gs = transition(GameState.initial(), GameStateName.REFLECTIVE)
+    gs = transition(gs, GameStateName.HUB)
+    assert gs.state == GameStateName.HUB
+
+
+def test_reflective_clears_mission_context():
+    """Returning HUB after reflective wipes mission_id/seed/results
+    same as any other HUB transition."""
+    gs = transition(GameState.initial(), GameStateName.REFLECTIVE)
+    gs = transition(gs, GameStateName.HUB)
+    assert gs.mission_id is None
+    assert gs.mission_seed is None
+    assert gs.results is None
+
+
+def test_illegal_transitions_to_reflective():
+    """Only HUB can enter REFLECTIVE — never directly from
+    CHARACTER_CREATION, MISSION_SELECT, IN_MISSION, RESULTS."""
+    forbidden_sources = [
+        GameStateName.CHARACTER_CREATION,
+        GameStateName.MISSION_SELECT,
+        GameStateName.IN_MISSION,
+        GameStateName.RESULTS,
+    ]
+    for src in forbidden_sources:
+        gs = GameState(state=src, mission_id=None, mission_seed=None, results=None)
+        with pytest.raises(ValueError, match="illegal transition"):
+            transition(gs, GameStateName.REFLECTIVE)
+
+
+def test_illegal_transitions_from_reflective():
+    """REFLECTIVE only exits to HUB — never directly to MISSION_SELECT
+    or IN_MISSION etc."""
+    gs = transition(GameState.initial(), GameStateName.REFLECTIVE)
+    forbidden_targets = [
+        GameStateName.CHARACTER_CREATION,
+        GameStateName.MISSION_SELECT,
+        GameStateName.IN_MISSION,
+        GameStateName.RESULTS,
+    ]
+    for tgt in forbidden_targets:
+        with pytest.raises(ValueError, match="illegal transition"):
+            transition(gs, tgt)
+
+
+def test_reflective_round_trips_via_manifest():
+    gs = transition(GameState.initial(), GameStateName.REFLECTIVE)
+    restored = from_manifest(to_manifest(gs))
+    assert restored == gs
