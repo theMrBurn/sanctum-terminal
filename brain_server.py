@@ -779,8 +779,15 @@ class BrainWorld:
 
 
     def _tile_key(self, cam_x, cam_y):
-        return (int(math.floor(cam_x / self.tile_size)),
-                int(math.floor(cam_y / self.tile_size)))
+        # Match TileExchange._tile_key — pick the tile whose center is
+        # closest to (cam_x, cam_y). Entity placement uses
+        # (lx - half + tx*tile_size) so tile (tx, ty) is centered on
+        # (tx*tile_size, ty*tile_size). Floor-bucketing produces a
+        # half-tile offset bug; see tile_exchange.py for the regression
+        # this fixes (2026-05-01).
+        half = self.tile_size / 2.0
+        return (int(math.floor((cam_x + half) / self.tile_size)),
+                int(math.floor((cam_y + half) / self.tile_size)))
 
     def _generate_tile(self, tx, ty):
         if (tx, ty) in self.loaded_tiles:

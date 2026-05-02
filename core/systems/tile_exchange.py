@@ -211,8 +211,24 @@ class TileExchange:
     # -- Tile key ---------------------------------------------------------------
 
     def _tile_key(self, cam_x: float, cam_y: float) -> Tuple[int, int]:
-        return (int(math.floor(cam_x / self.tile_size)),
-                int(math.floor(cam_y / self.tile_size)))
+        """Return the tile whose CENTER is closest to (cam_x, cam_y).
+
+        Entity placement convention: tile (tx, ty) entities are
+        generated with `x = lx - half + tx * tile_size` (see
+        `_generate_tile`), so tile (0, 0) entities live in world
+        coords x ∈ [-half, half), centered on the origin. This lookup
+        must match — picking tile by `floor(cam / tile_size)` produces
+        a half-tile offset where the cam ends up "in" tile (0, 0)
+        even though its actual entities are in tile (0, 1).
+
+        Pre-2026-05-01 this returned `floor(cam/tile_size)` which mis-
+        matched entity placement and produced the "blank world past
+        the origin stamp" regression — tile coverage windows skipped
+        the tile the player was actually in.
+        """
+        half = self.tile_size / 2.0
+        return (int(math.floor((cam_x + half) / self.tile_size)),
+                int(math.floor((cam_y + half) / self.tile_size)))
 
     # -- Prefetch ordering ------------------------------------------------------
 
@@ -626,9 +642,15 @@ class TileExchange:
         render_horizon_sq = render_horizon * render_horizon
         all_ents = []
         for (tx, ty), roster in self._tile_cache.items():
-            # Quick tile-level distance check
-            tile_cx = (tx + 0.5) * self.tile_size
-            tile_cy = (ty + 0.5) * self.tile_size
+            # Quick tile-level distance check.
+            # Entity placement (see _generate_tile) centers tile (tx, ty)
+            # at world (tx*tile_size, ty*tile_size). Earlier versions used
+            # `(tx + 0.5) * tile_size` which mis-modelled that center and
+            # produced 144m skips at half-tile-aligned camera positions
+            # — the "blank world past origin stamp" regression fixed
+            # 2026-05-01.
+            tile_cx = tx * self.tile_size
+            tile_cy = ty * self.tile_size
             tile_dx = tile_cx - cam_x
             tile_dy = tile_cy - cam_y
             tile_dist_sq = tile_dx * tile_dx + tile_dy * tile_dy
