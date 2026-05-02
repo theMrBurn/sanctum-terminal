@@ -293,6 +293,36 @@ _PILLAR_COLORS: dict[str, tuple[float, float, float]] = {
 }
 
 
+def _reflective_to_manifest(world) -> dict:
+    """Serialize world.reflective for the manifest. Called only when
+    world.reflective.active is True. Includes the rule's player-facing
+    instructions resolved from the rule registry.
+
+    Per `design_brain_ground_truth`: brain ships truth (rule id, pool,
+    composed list, attempt count). Vector terminal owns rendering
+    (fridge background, magnet tray layout, canvas, key bindings).
+    """
+    from core.systems.reflective import rules as _rules
+
+    state = world.reflective
+    rule = _rules.get(state.current_rule_id)
+    rule_block = None
+    if rule is not None:
+        rule_block = {
+            "id": rule.id,
+            "name": rule.name,
+            "instructions": rule.instructions,
+        }
+    return {
+        "active": True,
+        "trigger": state.trigger,
+        "rule": rule_block,
+        "magnet_pool": list(state.magnet_pool),
+        "composed": list(state.composed),
+        "attempt_count": state.attempt_count,
+    }
+
+
 def _heptagon_position(i: int) -> tuple[float, float]:
     """Compute (x, y) in manifest coords for the i-th pillar in the ring."""
     angle = _PILLAR_RING_START_ANGLE + 2 * math.pi * i / 7
@@ -1351,6 +1381,14 @@ class BrainWorld:
             # Clients track watermark by event id; first connect syncs to
             # the latest id (no historical toast spam).
             "state_events": state_events_to_manifest(self.state_events),
+            # Reflective-mode surface — populated only while a session
+            # is active. Vector terminal renders the fridge UI off this.
+            # Per `design_reflective_loop` — the fridge is a state, not
+            # a screen, but the surface gives the client everything it
+            # needs to draw the moment.
+            "reflective": (
+                _reflective_to_manifest(self) if self.reflective.active else None
+            ),
             "dial_prompt": (
                 dial_to_manifest(self.active_dial)
                 if self.active_dial is not None
