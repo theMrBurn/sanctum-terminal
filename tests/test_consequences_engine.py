@@ -53,13 +53,15 @@ class FakeWorld:
 
 @pytest.fixture
 def clean():
-    """Each test gets fresh registries. Auto-load fires again on demand."""
+    """Each test gets fresh registries. Teardown restores built-in
+    predicates so non-fixture tests still see them."""
     clear_registry()
     predicates_module.clear()
     effects_module.clear()
     yield
     clear_registry()
     predicates_module.clear()
+    predicates_module.register_builtins()
     effects_module.clear()
 
 
@@ -383,6 +385,37 @@ def test_json_loader_empty_consequences_list(tmp_path, clean):
     json_path.write_text(json.dumps({"schema_version": 1, "consequences": []}))
     definitions.load_from_json(json_path)
     assert all_consequences() == {}
+
+
+def test_hp_zero_predicate_returns_false_with_no_events():
+    """The hp_zero built-in predicate matches on tick_event presence only."""
+    fn = predicates_module.get("hp_zero")
+    assert fn is not None
+    assert fn(FakeWorld(), {}, {}, []) is False
+
+
+def test_hp_zero_predicate_matches_on_event():
+    fn = predicates_module.get("hp_zero")
+    events = [{"type": "hp_zero"}]
+    assert fn(FakeWorld(), {}, {}, events) is True
+
+
+def test_hp_zero_predicate_ignores_other_events():
+    fn = predicates_module.get("hp_zero")
+    events = [
+        {"type": "kind_destroyed", "kind": "clay_pot"},
+        {"type": "journal_entry", "raw_note": "x"},
+    ]
+    assert fn(FakeWorld(), {}, {}, events) is False
+
+
+def test_hp_zero_predicate_survives_clean_fixture():
+    """Built-in predicates re-register after a `clean` fixture cycle."""
+    # The `clean` fixture clears the predicate registry, but step 2's
+    # built-ins live in the module body — re-importing reinstates them.
+    # This test runs WITHOUT the fixture so the auto-loaded built-ins
+    # are still present.
+    assert predicates_module.get("hp_zero") is not None
 
 
 def test_default_config_loads_clean():

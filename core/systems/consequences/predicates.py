@@ -63,3 +63,42 @@ def all_predicates() -> dict[str, PredicateFn]:
 def clear() -> None:
     """Test-only — reset the registry."""
     _REGISTRY.clear()
+
+
+# ── Built-in predicates ──────────────────────────────────────────────
+
+
+def _hp_zero(
+    world: WorldLike,
+    args: dict,
+    progress: dict,
+    events: list[dict],
+) -> bool:
+    """True when a `hp_zero` event was pushed onto tick_events this frame.
+
+    The brain pushes the event from `signals.push_hp_zero(world)`
+    whenever `world.player.hp <= 0` after a damage mutator. One
+    detection site per damage path; the predicate just reads the event
+    accumulator.
+
+    Per `design_virtual_hallucination`: this is JUST a respawn
+    condition — no perma-death framing in the code identifier or path.
+
+    args: none.
+    """
+    for evt in events:
+        if evt.get("type") == "hp_zero":
+            return True
+    return False
+
+
+def register_builtins() -> None:
+    """(Re)-register built-in predicates. Idempotent. Module import
+    auto-calls this. Tests with a `clean` fixture call this in teardown
+    so subsequent tests see the built-ins."""
+    if "hp_zero" not in _REGISTRY:
+        _REGISTRY["hp_zero"] = _hp_zero
+
+
+# Auto-register on import.
+register_builtins()

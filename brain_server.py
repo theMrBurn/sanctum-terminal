@@ -59,6 +59,7 @@ from core.systems import scenario_ledger
 from core.systems.quests import from_journal as quest_from_journal
 from core.systems.quests import rewards as quest_rewards
 from core.systems.quests import tick as quest_tick
+from core.systems.consequences import signals as consequence_signals
 from core.systems.quests.state import QuestState
 from core.systems.journal import lexicon as journal_lexicon
 from core.vault import vault as Vault
@@ -1616,6 +1617,7 @@ def run_server(biome_name, port=9877):
                     amt = int(msg.get("amount", 2))
                     old_hp = world.player.hp
                     world.player = ps.take_damage(world.player, amt)
+                    consequence_signals.push_hp_zero(world)
                     print(f"  damage_self: hp {old_hp} -> {world.player.hp}", flush=True)
                     last_wake_ids = set()
                     continue
