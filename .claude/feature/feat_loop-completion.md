@@ -37,6 +37,13 @@ This file captures the whole arc, not just remaining scope. The branch name is a
 ## Order
 PR 3 → PR 4 → (UAT gate) → PR 5 → PR 6. Confirmed 2026-05-01.
 
+## PR 3.5 UAT outcome (2026-05-01)
+Voluntary path validated end-to-end: walk to fridge → F engage → arrows + ENTER place magnets → C commit → DONE toast → back to HUB. Brain logs clean (`engage_fridge: rule=compose_three pool_size=31`, no errors).
+
+HP=0 forced path **not validated organically** — no damage source exists in V1 beyond the `damage_self` debug cmd, and there's no key binding for it in vector terminal. The substrate is identical to the voluntary path (one extra consequence row routes the entry); we'll debug if it fails once an organic damage path lands (combat, environmental hazards). Per user 2026-05-01: "we can debug if it fails when hooked to an HP zero event."
+
+PR 3.5 is functionally shipped. The loop is live.
+
 ## PR 5 trigger
 PR 5 (destructive collapse) lands only when ALL of these hold:
 - PR 3 passes scenario UAT (death triggers regen, active quests survive)
