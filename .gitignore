@@ -42,6 +42,9 @@ tests/mock_exports/
 .trunk/out/
 *.log
 
+# ── macOS noise ───────────────────────────────────────────────────────────────
+.DS_Store
+
 # ── Reference model packs (CC0, downloaded locally) ──────────────────────────
 assets/kenney/
 
