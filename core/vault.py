@@ -909,3 +909,38 @@ class vault:
                 (str(instance_id),),
             ).fetchall()
         return [self._deserialize_run(r) for r in rows]
+
+    def runs_peak_metric(
+        self,
+        instance_id: str,
+        metric: str,
+        profile_name: str | None = None,
+    ) -> tuple[float, str | None]:
+        """Aggregate query — return (peak_value, run_id) for a numeric
+        metric across runs. profile_name optionally filters.
+
+        Walks runs in Python rather than relying on SQLite JSON1
+        (some Python builds ship without the json1 extension). This is
+        fine at V1 scale; if vault.runs grows large, swap to a
+        json_extract query.
+        """
+        rows = self.runs_by_instance(instance_id)
+        peak = float("-inf")
+        peak_run: str | None = None
+        for r in rows:
+            if profile_name is not None and r.get("profile_name") != profile_name:
+                continue
+            metrics = r.get("metrics") or {}
+            v = metrics.get(metric)
+            if v is None:
+                continue
+            try:
+                vf = float(v)
+            except (TypeError, ValueError):
+                continue
+            if vf > peak:
+                peak = vf
+                peak_run = r.get("run_id")
+        if peak == float("-inf"):
+            return 0.0, None
+        return peak, peak_run

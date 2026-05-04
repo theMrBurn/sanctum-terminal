@@ -132,6 +132,32 @@ def handle_volley_serve(msg: dict, vault) -> dict:
     }
 
 
+def handle_console_exec(msg: dict, vault) -> dict:
+    """Run one console command line through the volley_console parser.
+
+    Required payload: line (str). Returns ack with output lines.
+    """
+    payload = msg.get("payload") or {}
+    line = payload.get("line")
+    if line is None or not isinstance(line, str):
+        return {"ok": False, "cmd": "console_exec",
+                "reason": "missing or non-string line"}
+
+    from core.systems import make_brain_registry
+    from core.systems import volley_console
+    try:
+        spec = make_brain_registry.get("ping_pong")
+    except LookupError:
+        return {"ok": False, "cmd": "console_exec",
+                "reason": "ping_pong make-brain not active"}
+
+    try:
+        output = volley_console.execute(line, vault, spec.handler)
+    except Exception as exc:                  # noqa: BLE001 — surface any parser error
+        return {"ok": False, "cmd": "console_exec", "reason": str(exc)}
+    return {"ok": True, "cmd": "console_exec", "output": list(output)}
+
+
 def handle_volley_reset_rally(msg: dict, vault) -> dict:
     """Discard active ball + rally counter. Match state preserved."""
     from core.systems import make_brain_registry

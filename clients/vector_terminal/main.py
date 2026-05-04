@@ -30,6 +30,7 @@ from clients.vector_terminal import ball as ball_renderer  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
 from clients.vector_terminal import build_mode  # noqa: E402
 from clients.vector_terminal import chamber as chamber_renderer  # noqa: E402
+from clients.vector_terminal import console as volley_console  # noqa: E402
 from clients.vector_terminal import horizon_objects as horizon_renderer  # noqa: E402
 from clients.vector_terminal import input_map  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
@@ -101,6 +102,10 @@ def main() -> int:
     paddle_history: list[tuple[tuple[float, float, float], float]] = []
     PADDLE_ARM_LENGTH = 0.7
     PADDLE_HISTORY_LEN = 5
+
+    # Volley console — backtick-toggled overlay for live profile tuning.
+    # Per `feat_make-brain-ping-pong.md` PR 7.
+    console_state = volley_console.ConsoleState()
 
     client = ManifestClient(cfg.BRAIN_HOST, cfg.BRAIN_PORT)
     try:
@@ -179,6 +184,22 @@ def main() -> int:
             elif action == "abort":
                 client.send({"cmd": "abort_reflective"})
 
+        # Volley console — backtick toggles open/close. Trumps everything
+        # else so the user can dismiss it from any state. ESC also closes.
+        if input_map.pressed("console_toggle"):
+            volley_console.toggle(console_state)
+        if console_state.open:
+            volley_console.consume_chars(console_state)
+            if rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE):
+                volley_console.close(console_state)
+            else:
+                submitted = volley_console.handle_editing(console_state)
+                if submitted is not None and submitted.strip():
+                    client.send({
+                        "cmd": "console_exec",
+                        "payload": {"line": submitted.strip()},
+                    })
+
         # World does not pause — overlay only suspends ENTER/UP/DOWN/ESC.
         journal_active = show_journal and not dial_active and not reflective_active
         if journal_active:
@@ -192,7 +213,9 @@ def main() -> int:
         # (journal_active intercepts ESC + ENTER + UP/DOWN, but J always
         # cycles the visibility flag). Suspended while a dial is active —
         # the dial owns the modal foreground.
-        if not dial_active and not reflective_active and input_map.pressed("journal_toggle"):
+        if (not dial_active and not reflective_active
+                and not console_state.open
+                and input_map.pressed("journal_toggle")):
             show_journal = not show_journal
 
         # B toggles BUILD mode (vector-workroom PR 4). Biome-gated: silent
@@ -201,6 +224,7 @@ def main() -> int:
         # `build_mode.handle_input`. ESC is the inside-BUILD exit.
         if (not build_state.active
                 and not dial_active and not journal_active and not reflective_active
+                and not console_state.open
                 and input_map.pressed("build_toggle")):
             build_mode.toggle_build(build_state, last_manifest, camera, yaw)
 
@@ -239,7 +263,7 @@ def main() -> int:
                 client.send(cmd)
 
         delta = rl.get_mouse_delta()
-        if not dial_active and not build_state.active:
+        if not dial_active and not build_state.active and not console_state.open:
             yaw -= delta.x * cfg.MOUSE_SENS
             pitch -= delta.y * cfg.MOUSE_SENS
             pitch = max(-math.pi / 2 + 0.01, min(math.pi / 2 - 0.01, pitch))
@@ -256,7 +280,7 @@ def main() -> int:
         right = (-cy, 0.0, sy_)
 
         mx = mz = 0.0
-        if not dial_active and not build_state.active:
+        if not dial_active and not build_state.active and not console_state.open:
             if input_map.held("move_forward"):
                 mx += flat_forward[0]
                 mz += flat_forward[2]
@@ -297,6 +321,7 @@ def main() -> int:
         # standing on the current floor (any walkable surface).
         if (not dial_active
                 and not build_state.active
+                and not console_state.open
                 and input_map.pressed("jump")
                 and abs(camera.position.y - floor_y) < 0.05):
             vy = cfg.JUMP_VELOCITY
@@ -352,10 +377,11 @@ def main() -> int:
         if len(paddle_history) > PADDLE_HISTORY_LEN:
             paddle_history.pop(0)
 
-        if not dial_active and not reflective_active and not build_state.active:
+        if (not dial_active and not reflective_active and not build_state.active
+                and not console_state.open and not journal_active):
             # ENTER drives state transitions (HUB → MISSION_SELECT, etc.) but
             # MUST yield to the journal overlay — there ENTER is the toggle.
-            if not journal_active and input_map.pressed("confirm"):
+            if input_map.pressed("confirm"):
                 state = str(last_manifest.get("game_state", {}).get("state", "HUB"))
                 target = smart_enter_target(state)
                 if target is not None:
@@ -579,6 +605,21 @@ def main() -> int:
         for msg in client.poll():
             if msg.get("unchanged"):
                 continue
+            # Command acks carry a "cmd" field. console_exec acks feed the
+            # overlay scrollback; other acks pass silently for now (their
+            # side effects show up in the next manifest).
+            cmd_ack = msg.get("cmd")
+            if cmd_ack == "console_exec":
+                if msg.get("ok"):
+                    output = msg.get("output") or []
+                    volley_console.append_output(console_state, output)
+                else:
+                    volley_console.append_output(
+                        console_state, [f"err: {msg.get('reason', '?')}"]
+                    )
+                continue
+            if cmd_ack:
+                continue                       # other acks: silent (PR 7 scope)
             is_first_manifest = not last_manifest
             last_manifest = msg
             if is_first_manifest or revision.observe(msg.get("world_revision")):
@@ -695,6 +736,16 @@ def main() -> int:
                 hud.draw_build_overlay(
                     build_mode.hud_lines(build_state, last_manifest), amber,
                 )
+
+        # Volley console — drawn last so it sits over the HUD when open.
+        # Backdrop already sets its own alpha, so it composes cleanly.
+        volley_console.render(
+            console_state,
+            rl.get_screen_width(),
+            rl.get_screen_height(),
+            amber,
+            None,
+        )
 
         # Click-ping rings at screen center — 2D, drawn after end_mode_3d.
         click_pings = [t for t in click_pings if now - t < cfg.CLICK_PING_DURATION]

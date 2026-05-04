@@ -118,10 +118,12 @@ class PingPongHandler:
         # Ball state — None when no ball in play. Brain ticks on_tick(dt)
         # only when self.ball is not None.
         self.ball: MotionVector | None = None
-        # Solver is rebuilt whenever active_profile changes; a value of
-        # None forces lazy construction on next on_tick / on_serve.
+        # Solver is rebuilt whenever active_profile changes OR the row's
+        # updated_at advances (console setter just mutated it). A value
+        # of None forces lazy construction on next on_tick / on_serve.
         self._solver: BallisticsSolver | None = None
         self._solver_profile: str | None = None
+        self._solver_updated_at: str | None = None
         self._session_time: float = 0.0
         # Match state — tennis scoring per AC PR 6. wall_rally mode:
         # rally length crossing the long_rally_threshold awards a player
@@ -129,6 +131,17 @@ class PingPongHandler:
         self.match: volley_scoring.MatchState = volley_scoring.new_match("wall_rally")
         self.rally_contacts: int = 0
         self.last_rally_outcome: dict | None = None    # for HUD/state events
+        # Per-rally peak telemetry — observed during on_tick + on_strike,
+        # rolled into the active run's metrics on rally end. Per AC PR 8.
+        self._rally_max_v: float = 0.0
+        # Active vault.runs row for this session. Opened on first serve,
+        # closed on reset_match / match_winner. None until first serve.
+        self._run_id: str | None = None
+        self._run_metrics: dict = {"rallies": [], "peak_max_v": 0.0,
+                                   "peak_rally_length": 0}
+        # State events emitted by the handler. Drained by the brain
+        # manifest builder via drain_state_events(). Per AC PR 8.
+        self._state_events: list[dict] = []
 
     # -- profile bootstrapping ---------------------------------------------
 
@@ -151,8 +164,17 @@ class PingPongHandler:
     # -- solver -----------------------------------------------------------
 
     def _ensure_solver(self) -> BallisticsSolver:
-        """Lazily build / rebuild the solver for the active profile."""
-        if self._solver is not None and self._solver_profile == self.active_profile:
+        """Lazily build / rebuild the solver for the active profile.
+
+        Cache key is `(profile_name, profile.updated_at)` so a console
+        setter that mutates the profile params triggers an immediate
+        rebuild on the next solver call. Per AC PR 7.
+        """
+        row = self.vault.profile_load(INSTANCE_ID, self.active_profile)
+        updated_at = row["updated_at"] if row else None
+        if (self._solver is not None
+                and self._solver_profile == self.active_profile
+                and self._solver_updated_at == updated_at):
             return self._solver
         params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
         walls = chamber_walls(
@@ -161,6 +183,7 @@ class PingPongHandler:
         )
         self._solver = BallisticsSolver(BallisticsParams.from_profile(params), walls)
         self._solver_profile = self.active_profile
+        self._solver_updated_at = updated_at
         return self._solver
 
     # -- ball lifecycle ---------------------------------------------------
@@ -172,8 +195,13 @@ class PingPongHandler:
         press creates the ball; second press is the rally swing (PR 5).
         Resets rally contact counter so the next miss/score event
         scores fairly. Match state preserved (use volley_reset_match
-        for a fresh match).
+        for a fresh match). Opens a vault.runs row on the first serve
+        of the session (PR 8 telemetry).
         """
+        # Open a run on first serve (vault.runs lifecycle, PR 8).
+        if self._run_id is None:
+            self._run_id = self.vault.run_start(INSTANCE_ID, self.active_profile)
+            self._emit_event("make_brain_started", run_id=self._run_id)
         params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
         offset = params.get("serve_offset") or [0.0, 1.6, 1.5]
         # Profile serve_offset is (lateral, vertical_eye_height, forward).
@@ -186,6 +214,8 @@ class PingPongHandler:
             timestamp=self._session_time,
         )
         self.rally_contacts = 0
+        self._rally_max_v = 0.0
+        self._emit_event("rally_started", profile=self.active_profile)
         return self.ball
 
     def clear_ball(self) -> None:
@@ -248,6 +278,10 @@ class PingPongHandler:
         solver = self._ensure_solver()
         new_state, contacts = solver.step(self.ball, dt, substeps=substeps)
         self.ball = new_state
+        # Track peak speed for run telemetry (PR 8)
+        speed = (new_state.vel[0]**2 + new_state.vel[1]**2 + new_state.vel[2]**2) ** 0.5
+        if speed > self._rally_max_v:
+            self._rally_max_v = speed
         # Out-of-bounds resolution. Ball y past the back-line ends the
         # rally regardless of velocity.
         params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
@@ -271,8 +305,39 @@ class PingPongHandler:
             "rally_contacts": self.rally_contacts,
             "threshold":      threshold,
         }
+        # Append rally to run metrics + emit state events (PR 8 telemetry).
+        rally_record = {
+            "winner":   winner,
+            "contacts": self.rally_contacts,
+            "max_v":    round(self._rally_max_v, 3),
+            "profile":  self.active_profile,
+        }
+        self._run_metrics["rallies"].append(rally_record)
+        if self._rally_max_v > self._run_metrics.get("peak_max_v", 0.0):
+            self._run_metrics["peak_max_v"] = round(self._rally_max_v, 3)
+        if self.rally_contacts > self._run_metrics.get("peak_rally_length", 0):
+            self._run_metrics["peak_rally_length"] = self.rally_contacts
+            self._emit_event("peak_recorded",
+                             metric="rally_length", value=self.rally_contacts)
+        self._emit_event("rally_ended", winner=winner,
+                         contacts=self.rally_contacts,
+                         max_v=round(self._rally_max_v, 3))
+        self._emit_event("score_changed",
+                         points=list(self.match.points),
+                         games=list(self.match.games),
+                         sets_won=list(self.match.sets_won))
+        # Match end → close the run.
+        if self.match.match_winner is not None:
+            self._close_run(terminal_state=(
+                "won" if self.match.match_winner == "player" else "lost"
+            ))
+        else:
+            # Persist incremental metrics so the row reflects in-progress
+            # state if the brain crashes mid-match.
+            self._persist_run_metrics()
         self.ball = None
         self.rally_contacts = 0
+        self._rally_max_v = 0.0
 
     # -- match-level reset hooks ----------------------------------------
 
@@ -280,14 +345,72 @@ class PingPongHandler:
         """Discard active ball + rally counter; preserve match state."""
         self.ball = None
         self.rally_contacts = 0
+        self._rally_max_v = 0.0
         self.last_rally_outcome = None
 
     def reset_match(self) -> None:
-        """Hard reset — fresh match, no ball, no rally."""
+        """Hard reset — fresh match, no ball, no rally. Closes the
+        active run as 'aborted' (PR 8)."""
+        if self._run_id is not None:
+            self._close_run(terminal_state="aborted")
         self.ball = None
         self.rally_contacts = 0
+        self._rally_max_v = 0.0
         self.last_rally_outcome = None
         self.match = volley_scoring.new_match("wall_rally")
+        self._run_metrics = {"rallies": [], "peak_max_v": 0.0,
+                             "peak_rally_length": 0}
+
+    # -- run lifecycle internals ------------------------------------------
+
+    def _close_run(self, terminal_state: str) -> None:
+        """Persist final metrics + close the vault.runs row."""
+        if self._run_id is None:
+            return
+        self.vault.run_end(
+            INSTANCE_ID, self._run_id,
+            terminal_state=terminal_state,
+            metrics=self._run_metrics,
+        )
+        self._emit_event("make_brain_ended", run_id=self._run_id,
+                         terminal_state=terminal_state)
+        self._run_id = None
+
+    def _persist_run_metrics(self) -> None:
+        """Update the open run row's metrics_json so an in-progress run
+        is recoverable if the brain crashes. No terminal_state set."""
+        if self._run_id is None:
+            return
+        # vault.run_end sets ended_at + terminal_state; we want a
+        # metrics-only update, so we write directly with run_end's API
+        # using terminal_state=None (which keeps the row "open" per the
+        # vault contract — but ended_at gets stamped regardless). To
+        # avoid stamping ended_at mid-match, do a raw SQL update.
+        import json as _json, sqlite3 as _sqlite
+        with _sqlite.connect(self.vault.db_path) as conn:
+            conn.execute(
+                "UPDATE runs SET metrics_json = ? "
+                "WHERE instance_id = ? AND run_id = ? AND ended_at IS NULL",
+                (_json.dumps(self._run_metrics), INSTANCE_ID, self._run_id),
+            )
+            conn.commit()
+
+    # -- state events -----------------------------------------------------
+
+    def _emit_event(self, kind: str, **payload) -> None:
+        import time as _time
+        self._state_events.append({
+            "kind":      kind,
+            "timestamp": _time.time(),
+            **payload,
+        })
+
+    def drain_state_events(self) -> list[dict]:
+        """Brain manifest builder calls this each tick; events flow into
+        the manifest's volley_state_events list."""
+        out = self._state_events
+        self._state_events = []
+        return out
 
     # -- manifest --------------------------------------------------------
 
@@ -326,6 +449,11 @@ class PingPongHandler:
             "rally_contacts": self.rally_contacts,
             "last_rally":     self.last_rally_outcome,
         }
+        # Telemetry preview — peaks observed during the open run, useful
+        # for the HUD before vault.runs_peak_* aggregates run on demand.
+        keys["run_metrics"] = dict(self._run_metrics)
+        # Drain queued state events for client consumption (PR 8).
+        keys["volley_state_events"] = self.drain_state_events()
         return keys
 
 
