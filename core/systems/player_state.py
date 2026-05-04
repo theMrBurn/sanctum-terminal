@@ -34,18 +34,12 @@ class PlayerState(NamedTuple):
     # must also be present in inventory — equip() enforces. Streams to the
     # manifest so Godot can render the camera-parented composite primitive.
     equipped: Optional[str] = None
-    # Mission IDs the player has completed, in order. Append-only; survives
-    # save/load. Used for progression gates (e.g. "you can launch
-    # `deeper_anomaly` once `anomaly_hunt_01` has been done"). L7's mission
-    # complete handler appends; L5 persists.
-    completed_missions: Tuple[str, ...] = ()
     # Async quest substrate (project_async_quest_refactor PR 2 / V3 save).
     # active_quests carries the Skyrim-style multi-active list; the brain
     # syncs this from BrainWorld.quest_state at save time. completed_quests
     # is append-only and survives across boots so dynamic-quest replay can
-    # filter already-done ids out of available. Both coexist with
-    # `completed_missions` until PR 5 collapses the legacy mission state
-    # machine — destructive cleanup lives in PR 6.
+    # filter already-done ids out of available. The legacy `completed_missions`
+    # tuple was removed in PR 6 (2026-05-02) — quest IDs are the new spine.
     active_quests: Tuple[str, ...] = ()
     completed_quests: Tuple[str, ...] = ()
 
@@ -65,7 +59,6 @@ class PlayerState(NamedTuple):
             slots=slots,
             inventory=(),
             equipped=None,
-            completed_missions=(),
             active_quests=(),
             completed_quests=(),
         )

@@ -36,6 +36,53 @@ import math
 # -- Default cycle configs -----------------------------------------------------
 # Swap these per scenario for different pacing feels.
 
+WORKROOM_CYCLE = {
+    # Workroom is the authoring sandbox — no tension dynamics, no fog
+    # ramp, no budget pressure. The cycle stays in `open` forever; the
+    # other states exist only because TensionCycle expects the full set.
+    # See `.claude/feature/feat_vector-workroom.md` for context.
+    "budget_max": 1,
+    "open": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 0.0,
+        "budget_ceiling": 1.0,
+    },
+    "building": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.1,    # never reachable
+        "budget_ceiling": 1.2,
+    },
+    "tension": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.3,
+        "budget_ceiling": 1.4,
+    },
+    "tunnel": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.5,
+        "budget_ceiling": 1.6,
+    },
+    "dump": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.7,
+        "budget_ceiling": 1.8,
+        "hold_seconds": 0.0,
+    },
+    "rebirth": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.9,
+        "budget_ceiling": 2.0,
+        "hold_seconds": 0.0,
+    },
+}
+
+
 CAVERN_CYCLE = {
     # Thresholds calibrated for real entity counts (~11K start, ~19K explored).
     # Budget = entity_count / budget_max.

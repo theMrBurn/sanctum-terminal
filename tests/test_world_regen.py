@@ -152,34 +152,27 @@ def test_different_seeds_produce_different_content(world):
 
 
 # --- hub_seed preservation --------------------------------------------------
-
-def test_hub_seed_unchanged_by_regen(world):
-    """regen_world updates base_seed but must NOT touch hub_seed.
-    hub_seed is the canonical anchor for RESULTS → HUB transitions."""
-    original_hub = world.hub_seed
-    world.regen_world(11111)
-    world.regen_world(22222)
-    world.regen_world(33333)
-    assert world.hub_seed == original_hub, \
-        f"hub_seed should be immutable through regens (was {original_hub}, now {world.hub_seed})"
+#
+# PR 6 (2026-05-02) dropped `hub_seed` from BrainWorld — there's no
+# RESULTS → HUB anchor to preserve. World regen is now strictly HP=0 /
+# reflective-commit gated (`design_death_only_regen`). The two tests
+# below were rewritten to reflect that — same regen primitive, different
+# call site convention.
 
 
-def test_regen_to_hub_seed_restores_hub_world(world):
-    """After mission regen + return-to-hub regen, content matches initial hub."""
-    initial = sorted(
-        (e["kind"], round(e["x"], 1), round(e["y"], 1))
-        for e in world.entities.values()
-    )
-
-    # Simulate: launch mission with random seed
+def test_regen_with_same_seed_is_deterministic(world):
+    """Same seed in → same entity layout out. Foundation for the
+    reflective-commit respawn path: brain derives a deterministic new
+    seed from session state, regens with it, world is reproducible."""
     world.regen_world(54321)
-    # Return to hub
-    world.regen_world(world.hub_seed)
-
-    after_return = sorted(
+    snapshot_a = sorted(
         (e["kind"], round(e["x"], 1), round(e["y"], 1))
         for e in world.entities.values()
     )
-
-    assert initial == after_return, \
-        "hub world should be restored after mission round-trip"
+    world.regen_world(54321)
+    snapshot_b = sorted(
+        (e["kind"], round(e["x"], 1), round(e["y"], 1))
+        for e in world.entities.values()
+    )
+    assert snapshot_a == snapshot_b, \
+        "regen with the same seed should reproduce the world layout"

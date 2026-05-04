@@ -47,7 +47,7 @@ def _make_player() -> PlayerState:
             Item(name="pot_shard", slot_cost=2),
         ),
         equipped="torch_handcrafted",
-        completed_missions=("anomaly_hunt_01", "deeper_anomaly"),
+        completed_quests=("scout_intro", "deep_dive"),
         hp=4,
     )
     return p
@@ -72,7 +72,9 @@ def test_to_dict_v2_includes_player_and_null_sheet_by_default():
     assert pd["name"] == "Test"
     assert pd["hp"] == 4
     assert pd["equipped"] == "torch_handcrafted"
-    assert pd["completed_missions"] == ["anomaly_hunt_01", "deeper_anomaly"]
+    assert pd["completed_quests"] == ["scout_intro", "deep_dive"]
+    # Legacy `completed_missions` field dropped in PR 6.
+    assert "completed_missions" not in pd
 
 
 def test_to_dict_with_sheet_includes_identity_fields():
@@ -164,8 +166,9 @@ def test_save_writes_v2_human_readable_json(isolated_save):
     parsed = json.loads(text)
     assert parsed["version"] == 3
     assert "character_sheet" in parsed  # field exists, even if null
+    # _make_player seeds two completed quests; active is empty.
     assert parsed["player"]["active_quests"] == []
-    assert parsed["player"]["completed_quests"] == []
+    assert parsed["player"]["completed_quests"] == ["scout_intro", "deep_dive"]
 
 
 # --- V1 → V2 migration ------------------------------------------------------
@@ -200,9 +203,9 @@ def test_load_v1_save_migrates_inline(isolated_save):
 
 
 def test_load_v2_save_migrates_to_v3(isolated_save):
-    """V2 saves had no quest fields. Loader injects empty tuples so the
-    legacy save keeps all character + inventory progress and just gains
-    the new async-quest substrate blank."""
+    """V2 saves had `completed_missions`. Post PR 6 the field is dropped
+    on load — quest progress is the new spine. The legacy save still
+    loads (other fields preserved); completed_missions silently ignored."""
     isolated_save.parent.mkdir(parents=True, exist_ok=True)
     v2_save = {
         "version": 2,
@@ -221,9 +224,10 @@ def test_load_v2_save_migrates_to_v3(isolated_save):
     saved = save_state.load()
     assert saved is not None
     assert saved.player.name == "Returning"
-    assert saved.player.completed_missions == ("anomaly_hunt_01",)  # preserved
     assert saved.player.active_quests == ()
     assert saved.player.completed_quests == ()
+    # completed_missions silently dropped — no attribute on PlayerState.
+    assert not hasattr(saved.player, "completed_missions")
 
 
 def test_v3_round_trip_persists_quest_fields(isolated_save):
@@ -235,14 +239,13 @@ def test_v3_round_trip_persists_quest_fields(isolated_save):
         slots=10,
         inventory=(),
         equipped=None,
-        completed_missions=(),
-        active_quests=("journal_3", "anomaly_hunt_01"),
+        active_quests=("journal_3", "scout_intro"),
         completed_quests=("journal_1",),
     )
     save_state.save(p)
     saved = save_state.load()
     assert saved is not None
-    assert saved.player.active_quests == ("journal_3", "anomaly_hunt_01")
+    assert saved.player.active_quests == ("journal_3", "scout_intro")
     assert saved.player.completed_quests == ("journal_1",)
 
 

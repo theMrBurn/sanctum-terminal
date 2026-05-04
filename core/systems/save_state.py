@@ -86,7 +86,6 @@ def _player_to_dict(player: PlayerState) -> dict[str, Any]:
             for i in player.inventory
         ],
         "equipped": player.equipped,
-        "completed_missions": list(player.completed_missions),
         "active_quests": list(player.active_quests),
         "completed_quests": list(player.completed_quests),
     }
@@ -107,7 +106,9 @@ def _player_from_dict(p: dict[str, Any]) -> PlayerState:
         slots=int(p.get("slots", 10)),
         inventory=inventory,
         equipped=p.get("equipped"),
-        completed_missions=tuple(p.get("completed_missions", [])),
+        # `completed_missions` from V2 saves is silently dropped on load
+        # (PR 6 collapse). Ids that were tracked there are no longer
+        # gating anything; quest progress is the new source of truth.
         active_quests=tuple(p.get("active_quests", [])),
         completed_quests=tuple(p.get("completed_quests", [])),
     )
@@ -120,8 +121,8 @@ def _sheet_to_dict(sheet: CharacterSheet) -> dict[str, Any]:
     """Serialize the identity-shaped fields of CharacterSheet.
 
     Skips fields that overlap PlayerState (hp, max_hp, inventory,
-    equipped, completed_missions) — those are the player's, not the
-    sheet's. Skips earned_abilities (computed from class_history on load).
+    equipped) — those are the player's, not the sheet's. Skips
+    earned_abilities (computed from class_history on load).
     """
     return {
         "name": sheet.name,

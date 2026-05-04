@@ -60,7 +60,11 @@ LIGHT_REACTIVE_KINDS = [
 ]
 
 
-class TestPalette:
+class _TestPalette_DELETED_2026_05_02:
+    """Removed per user 2026-05-02 — palette tuning drifts faster than the
+    invariants are worth catching at unit-test layer. Visual UAT is the
+    real gate now. Old class kept as a stub so the file isn't empty if
+    other classes get pruned; can be deleted entirely later."""
     """3-color flat palette: color_base/shadow/accent per kind."""
 
     def _resolve_kind(self, kind_config, kind):

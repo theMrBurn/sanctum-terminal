@@ -1,21 +1,25 @@
-"""Game loop state machine — DRG / Persona / SMT-style mission flow.
+"""Game loop state machine — async-quest model.
 
-The spine of the gameplay loop. Player enters at HUB, chooses a mission
-(MISSION_SELECT), launches into a procedural instance (IN_MISSION),
-completes it and sees a summary (RESULTS), then returns to HUB. Each
-transition is validated against an allowed-set so illegal jumps raise
-loudly rather than silently corrupting state.
+The current model is:
 
-Brain-authoritative per `feedback_brain_owns_config`. Godot reads
-manifest.game_state every update and renders accordingly. State
-transitions are triggered either by:
+  - CHARACTER_CREATION ↔ HUB   (7-pillar ritual, then return on re-do)
+  - HUB ↔ REFLECTIVE           (fridge engagement / forced HP=0 path)
 
-  - Player intent (Godot sends a state_transition_request command)
-  - Internal events (encounter or expedition handlers fire mission_complete)
+Free exploration + async quests stack on persistent world; world regen
+only fires on HP=0 reflective commit (`design_death_only_regen`). Each
+transition is validated against `_ALLOWED_TRANSITIONS` so illegal jumps
+raise loudly.
 
-State-specific fields (mission_id, mission_seed, results) carry the
-context each state needs. Transition handlers update them atomically
-with the state change.
+Brain-authoritative per `feedback_brain_owns_config`. Vector terminal
+reads `manifest.game_state` every update and renders accordingly.
+Transitions are triggered by player intent (`state_transition_request`,
+`engage_pillar`, `engage_fridge`) or internal events (HP=0 →
+reflective).
+
+History — PRs 5 and 6 (2026-05-02) collapsed the legacy DRG-style
+5-state mission loop (HUB → MISSION_SELECT → IN_MISSION → RESULTS →
+HUB) plus its mission_id / mission_seed / results context fields.
+Async quests via `project_async_quest_refactor` are the new spine.
 
 Doctrine: pure data + rules. Immutability via NamedTuple — every
 operation returns a new GameState. No I/O. Side effects (world regen,
@@ -33,33 +37,21 @@ class GameStateName(str, Enum):
     """Canonical loop states. Stored as strings so manifest
     serialization is direct (json.dumps friendly).
 
-    REFLECTIVE was added in PR 3.5 alongside the consequences engine
-    + fridge / magnet substrate per `design_reflective_loop`. PR 5's
-    destructive collapse drops MISSION_SELECT / IN_MISSION / RESULTS
-    rows; REFLECTIVE survives the collapse — leave its rows alone.
+    PR 5 (2026-05-02) dropped MISSION_SELECT / IN_MISSION / RESULTS —
+    the 5-state DRG-style loop became a 2-state machine + REFLECTIVE.
+    Free exploration replaces "in a mission instance"; async quests
+    layer on top of persistent world (`project_async_quest_refactor`).
     """
     CHARACTER_CREATION = "CHARACTER_CREATION"  # at hub, doing the 7-pillar ritual
     HUB = "HUB"                     # at staging area, free exploration
-    MISSION_SELECT = "MISSION_SELECT"  # picker open, choosing a mission
-    IN_MISSION = "IN_MISSION"       # out in a procedural instance
-    RESULTS = "RESULTS"             # post-mission summary screen
     REFLECTIVE = "REFLECTIVE"       # at the fridge, composing under a rule
 
 
 # Allowed transitions. Anything not in this set raises ValueError.
 # Reading: (FROM, TO).
-#
-# REFLECTIVE rows added in PR 3.5. PR 5's collapse drops the MISSION_*
-# rows but MUST preserve (HUB, REFLECTIVE) and (REFLECTIVE, HUB).
 _ALLOWED_TRANSITIONS = frozenset({
     (GameStateName.CHARACTER_CREATION, GameStateName.HUB),     # all pillars sealed
     (GameStateName.HUB, GameStateName.CHARACTER_CREATION),     # re-do via Pillar of Reflection
-    (GameStateName.HUB, GameStateName.MISSION_SELECT),         # open picker
-    (GameStateName.MISSION_SELECT, GameStateName.HUB),         # cancel picker
-    (GameStateName.MISSION_SELECT, GameStateName.IN_MISSION),  # launch mission
-    (GameStateName.IN_MISSION, GameStateName.RESULTS),         # mission complete
-    (GameStateName.IN_MISSION, GameStateName.HUB),             # abort/escape
-    (GameStateName.RESULTS, GameStateName.HUB),                # acknowledge results
     (GameStateName.HUB, GameStateName.REFLECTIVE),             # engage fridge (forced or voluntary)
     (GameStateName.REFLECTIVE, GameStateName.HUB),             # commit / abort back to hub
 })
@@ -68,109 +60,42 @@ _ALLOWED_TRANSITIONS = frozenset({
 # --- State container --------------------------------------------------------
 
 class GameState(NamedTuple):
-    """Loop state + mission context. Immutable; transitions return new
-    instances. Mission-specific fields are None when not relevant
-    (clearer than sentinel values like "" or 0).
+    """Loop state container. Immutable; transitions return new instances.
+
+    Post PR 6: just `state`. The legacy mission_id / mission_seed /
+    results ghost fields were dropped — async quests carry per-quest
+    context on `world.quest_state`, and reflective context lives on
+    `world.reflective`. The state machine itself is just an enum tag.
     """
     state: GameStateName
-    mission_id: Optional[str]      # set when IN_MISSION or RESULTS
-    mission_seed: Optional[int]    # procedural seed for the active instance
-    results: Optional[dict]        # loot/xp/time payload when RESULTS
 
     @classmethod
     def initial(cls) -> "GameState":
-        """Default starting state — player at hub, no mission active."""
-        return cls(
-            state=GameStateName.HUB,
-            mission_id=None,
-            mission_seed=None,
-            results=None,
-        )
+        """Default starting state — player at hub."""
+        return cls(state=GameStateName.HUB)
 
     @classmethod
     def fresh_character(cls) -> "GameState":
         """Brand-new player — no save file, run the 7-pillar ritual at hub."""
-        return cls(
-            state=GameStateName.CHARACTER_CREATION,
-            mission_id=None,
-            mission_seed=None,
-            results=None,
-        )
+        return cls(state=GameStateName.CHARACTER_CREATION)
 
 
 # --- Transitions ------------------------------------------------------------
 
-def transition(
-    current: GameState,
-    target: GameStateName,
-    *,
-    mission_id: Optional[str] = None,
-    mission_seed: Optional[int] = None,
-    results: Optional[dict] = None,
-) -> GameState:
+def transition(current: GameState, target: GameStateName) -> GameState:
     """Validate + perform a state transition.
 
-    Raises ValueError if (current.state, target) isn't in the allowed set,
-    or if a target requires context (e.g., IN_MISSION needs mission_id)
-    that wasn't supplied. Returns a new GameState; current is unchanged.
+    Raises ValueError if (current.state, target) isn't in the allowed
+    set. Returns a new GameState; current is unchanged.
     """
     if (current.state, target) not in _ALLOWED_TRANSITIONS:
         raise ValueError(
             f"illegal transition: {current.state.value} -> {target.value}"
         )
-
-    if target == GameStateName.CHARACTER_CREATION:
-        # Re-do flow — Pillar of Reflection. Clear mission context just
-        # in case (defensive; HUB is the only allowed source).
-        return current._replace(
-            state=target,
-            mission_id=None,
-            mission_seed=None,
-            results=None,
-        )
-    if target == GameStateName.HUB:
-        # Returning to hub clears all mission context (and any character-creation
-        # context — once you transition out of CHARACTER_CREATION, the draft
-        # has been finalized). World regen that backs this transition lives
-        # in BrainWorld; here we just mark the state as fresh.
-        return current._replace(
-            state=target,
-            mission_id=None,
-            mission_seed=None,
-            results=None,
-        )
-    if target == GameStateName.MISSION_SELECT:
-        return current._replace(state=target)
-    if target == GameStateName.REFLECTIVE:
-        # Reflective mode is brain-side state; the dataclass sits on
-        # BrainWorld.reflective. game_state.GameState only flags that
-        # we're currently in REFLECTIVE so clients can branch render.
-        return current._replace(state=target)
-    if target == GameStateName.IN_MISSION:
-        if mission_id is None:
-            raise ValueError("IN_MISSION transition requires mission_id")
-        return current._replace(
-            state=target,
-            mission_id=mission_id,
-            mission_seed=mission_seed,
-            results=None,
-        )
-    if target == GameStateName.RESULTS:
-        # results may be {} for now — handlers can fill it in. Forcing
-        # non-None makes downstream consumers' .get() calls safer.
-        return current._replace(
-            state=target,
-            results=results if results is not None else {},
-        )
-
-    raise ValueError(f"unknown target state: {target!r}")
+    return GameState(state=target)
 
 
 # --- Predicates -------------------------------------------------------------
-
-def is_in_mission(gs: GameState) -> bool:
-    return gs.state == GameStateName.IN_MISSION
-
 
 def is_at_hub(gs: GameState) -> bool:
     return gs.state == GameStateName.HUB
@@ -179,27 +104,14 @@ def is_at_hub(gs: GameState) -> bool:
 # --- Serialization ----------------------------------------------------------
 
 def to_manifest(gs: GameState) -> dict[str, Any]:
-    """Serialize for streaming to Godot via manifest.game_state.
-
-    All fields surface so Godot can render UI / gate input based on the
-    current phase. results is passed through as-is — handlers that
-    populate it own its shape.
-    """
-    return {
-        "state": gs.state.value,
-        "mission_id": gs.mission_id,
-        "mission_seed": gs.mission_seed,
-        "results": gs.results,
-    }
+    """Serialize for streaming via manifest.game_state. Just the state
+    tag now — per-quest / per-reflective context lives on its own
+    manifest blocks (`quests`, `reflective`)."""
+    return {"state": gs.state.value}
 
 
 def from_manifest(data: dict[str, Any]) -> GameState:
-    """Inverse of to_manifest — reconstruct GameState from a manifest
-    dict. Used at brain boot to load a save file's persisted state.
-    """
-    return GameState(
-        state=GameStateName(data["state"]),
-        mission_id=data.get("mission_id"),
-        mission_seed=data.get("mission_seed"),
-        results=data.get("results"),
-    )
+    """Inverse of to_manifest. Tolerant of legacy V2 manifests that
+    carried mission_id / mission_seed / results — they're silently
+    dropped on read."""
+    return GameState(state=GameStateName(data["state"]))

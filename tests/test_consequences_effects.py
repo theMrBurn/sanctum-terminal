@@ -343,7 +343,9 @@ def test_enter_reflective_safe_when_no_game_state():
 
 def test_enter_reflective_rolls_back_on_illegal_transition():
     """If game_state is in a state that can't transition to REFLECTIVE
-    (e.g. IN_MISSION), the effect rolls back the reflective state."""
+    (e.g. CHARACTER_CREATION), the effect rolls back the reflective state.
+    Post PR 5 collapse, IN_MISSION no longer exists; CHARACTER_CREATION
+    is now the test fixture for "wrong source state."""
     from dataclasses import dataclass, field
     from core.systems import game_state as gs
     from core.systems.reflective import ReflectiveState
@@ -353,10 +355,7 @@ def test_enter_reflective_rolls_back_on_illegal_transition():
     @dataclass
     class _W:
         game_state: gs.GameState = field(default_factory=lambda: gs.GameState(
-            state=gs.GameStateName.IN_MISSION,
-            mission_id="x",
-            mission_seed=0,
-            results=None,
+            state=gs.GameStateName.CHARACTER_CREATION,
         ))
         reflective: ReflectiveState = field(default_factory=ReflectiveState)
 
@@ -364,7 +363,7 @@ def test_enter_reflective_rolls_back_on_illegal_transition():
     fn(world, {"seed": 0}, _instance())
 
     assert world.reflective.active is False  # rolled back
-    assert world.game_state.state == gs.GameStateName.IN_MISSION  # unchanged
+    assert world.game_state.state == gs.GameStateName.CHARACTER_CREATION  # unchanged
 
 
 # ── exit_reflective ────────────────────────────────────────────────

@@ -480,6 +480,12 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
     spawns = []
     solid_positions = []
 
+    # Authoring-sandbox biomes (workroom) opt out of procedural generation
+    # entirely by shipping an empty density list. Bail before any roster
+    # construction so empty room_beacons / stamps / tissue don't crash.
+    if not biome and not registry.get("stamps") and not registry.get("authored_slots"):
+        return ("standard", spawns)
+
     # Tile variant roll
     variants = registry["tile_variants"]
     variant_names = list(variants.keys())
@@ -517,7 +523,12 @@ def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
 
     # Beacon roster — feature cluster pools for formation column beacons.
     # LRU-cycled so adjacent formations get different beacon types.
-    beacon_roster = RosterPool(registry["room_beacons"], seed=seed + 54321)
+    # Defensive: biomes that opt out of procedural anchors (e.g. workroom)
+    # ship empty room_beacons. Construction guard avoids ValueError; the
+    # downstream call site is inside a code path that only fires when
+    # density has produced an anchor, so None never gets `.next()` called.
+    _beacons = registry.get("room_beacons") or []
+    beacon_roster = RosterPool(_beacons, seed=seed + 54321) if _beacons else None
 
     # Stamp roster — authored compositions replacing single-anchor nodes.
     # ~25% of non-formation nodes get a stamp instead of a random anchor roll.

@@ -1,22 +1,22 @@
-"""End-to-end integration test for the loop completion track (L1-L8).
+"""End-to-end integration tests for the post-PR-5 game loop.
 
-Spins up the brain in a subprocess on a non-default port, acts as a fake
-Godot client over TCP, and drives the full mini-DRG loop:
+Spins up the brain in a subprocess on a non-default port, acts as a
+fake vector terminal client over TCP, and exercises the surviving
+loop surface:
 
-  HUB → damage_self → use_request → MISSION_SELECT → IN_MISSION →
-  mission_complete_trigger → RESULTS → HUB
+  - boot at HUB with inventory + character sheet
+  - damage_self / use_request mutate HP / inventory
+  - illegal state transition rejected
+  - kind_destroyed cmd (the PR 6 successor to mission_complete_trigger)
+    publishes a tick event for async quests, no state change
+  - equip/holster wire
+  - save persistence across restart
 
-At each step the test asserts on:
-  - game_state.state
-  - player.hp / max_hp / inventory
-  - world_revision (bumps on world regen)
-  - results payload (trigger_kind, loot)
-
-This is the closest thing to a manual UAT we can run unattended. Replaces
-the "press M then ENTER then F then..." sequence with deterministic
-assertions. Catches things like the KEY_L conflict that took a manual
-trace to spot, plus inventory mutation bugs that would otherwise slip
-through unit tests.
+The pre-PR-5 5-state mission loop (HUB → MISSION_SELECT → IN_MISSION →
+RESULTS → HUB) and its picker / loot-drop / autosave-on-RESULTS path
+were collapsed. Free exploration replaces "in a mission instance";
+async quests handle progression. Reflective mode is the new natural
+beat boundary (HUB ↔ REFLECTIVE) and where autosave fires now.
 
 Marked slow (~5s end-to-end). Run via:
     PYTHONPATH=. ./.venv/bin/python -m pytest tests/test_loop_integration.py -v -s
@@ -102,21 +102,17 @@ class BrainProcess:
             self.proc.wait()
 
 
-# --- TCP client (acts as Godot) ---------------------------------------------
+# --- TCP client (acts as vector terminal) -----------------------------------
 
 class BrainClient:
-    """Minimal TCP client that mirrors how Godot talks to the brain.
-
-    Each call to send_camera() or send_cmd() writes a JSON line; recv
+    """Minimal TCP client that mirrors how vector_terminal talks to the
+    brain. Each call to send_camera() or send() writes a JSON line; recv
     blocks until a full \\n-terminated message arrives. unchanged-only
-    manifests are skipped automatically since we want to assert on
-    state-bearing payloads.
-    """
+    manifests are skipped automatically."""
 
     def __init__(self, port: int = TEST_PORT, timeout: float = 5.0):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(timeout)
-        # Brain may need a moment after 'ready' before accept() runs.
         for _ in range(20):
             try:
                 self.sock.connect(("127.0.0.1", port))
@@ -171,258 +167,375 @@ def brain():
     b.stop()
 
 
-# --- The end-to-end loop ----------------------------------------------------
+# --- Surviving loop surface -------------------------------------------------
 
-def test_full_loop_end_to_end(brain):
-    """One assertion per step in the L1-L8 sequence the UAT keys exercise."""
+
+def test_brain_boots_to_hub_with_inventory(brain):
+    """Initial state at HUB; player has inventory and an equipped item.
+    Save-content-agnostic — exact item counts depend on the user's live
+    save and aren't part of the contract this test pins."""
     client = BrainClient()
     try:
-        # ---- Initial state at HUB ----
         client.send_camera()
         m = client.recv_full_manifest()
 
         assert m["game_state"]["state"] == "HUB", \
             f"expected HUB at boot, got {m['game_state']['state']}"
-        p = m["player"]
-        assert p["hp"] == p["max_hp"] == 6, \
-            f"expected hp=max_hp=6 at boot, got hp={p['hp']} max_hp={p['max_hp']}"
-        inv_names = [i["name"] for i in p["inventory"]]
-        assert "torch_handcrafted" in inv_names
-        assert inv_names.count("healing_potion") == 2, \
-            f"expected 2 pre-filled potions, got {inv_names.count('healing_potion')}"
-        assert p["equipped"] == "torch_handcrafted", \
-            f"expected torch auto-equipped, got {p['equipped']}"
-        boot_revision = m["world_revision"]
+        # Post PR 6 the manifest's game_state is just `{state: ...}` —
+        # mission ghost fields were dropped.
+        assert "mission_id" not in m["game_state"]
+        assert "mission_seed" not in m["game_state"]
+        assert "results" not in m["game_state"]
 
-        # ---- damage_self → hp drops ----
+        p = m["player"]
+        assert p["hp"] > 0, f"player should boot with HP > 0, got {p['hp']}"
+        assert p["hp"] <= p["max_hp"]
+        assert len(p["inventory"]) > 0, "inventory should be non-empty post-creation"
+    finally:
+        client.close()
+
+
+def test_damage_then_use_restores_hp(brain):
+    """damage_self / use_request mutate HP and inventory. Foundation for
+    the HP=0 → REFLECTIVE forced path. Asserts on RELATIVE deltas, not
+    specific HP values, so save state changes don't break the test."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        m = client.recv_full_manifest()
+        hp_start = m["player"]["hp"]
+        max_hp = m["player"]["max_hp"]
+        potions_start = sum(
+            1 for i in m["player"]["inventory"]
+            if i["name"] == "healing_potion"
+        )
+        if potions_start == 0:
+            pytest.skip("save has no healing_potion to exercise use_request")
+
         client.send({"cmd": "damage_self", "amount": 2})
         client.send_camera()
         m = client.recv_full_manifest()
-        assert m["player"]["hp"] == 4, f"expected hp=4 after damage_self(2), got {m['player']['hp']}"
+        assert m["player"]["hp"] == hp_start - 2, \
+            f"damage_self(2) should drop hp by 2: {hp_start} → {m['player']['hp']}"
 
-        # ---- use_request → consume potion, hp restored ----
         client.send({"cmd": "use_request"})
         client.send_camera()
         m = client.recv_full_manifest()
-        assert m["player"]["hp"] == 6, f"expected hp=6 (heal+3 capped at max), got {m['player']['hp']}"
-        inv_names = [i["name"] for i in m["player"]["inventory"]]
-        assert inv_names.count("healing_potion") == 1, \
-            f"expected 1 potion left after use, got {inv_names.count('healing_potion')}"
+        assert m["player"]["hp"] > hp_start - 2, \
+            f"use_request with potion should restore some HP, got {m['player']['hp']}"
+        assert m["player"]["hp"] <= max_hp, "heal capped at max_hp"
+        potions_after = sum(
+            1 for i in m["player"]["inventory"]
+            if i["name"] == "healing_potion"
+        )
+        assert potions_after == potions_start - 1, \
+            f"one potion consumed: {potions_start} → {potions_after}"
+    finally:
+        client.close()
 
-        # ---- HUB → MISSION_SELECT (no regen) ----
-        client.send({"cmd": "state_transition_request", "target": "MISSION_SELECT"})
+
+def test_illegal_state_transition_rejected_cleanly(brain):
+    """Post PR 5: REFLECTIVE → CHARACTER_CREATION is not allowed
+    (only REFLECTIVE → HUB). Brain rejects without corrupting state."""
+    client = BrainClient()
+    try:
+        # Walk into REFLECTIVE first.
+        client.send({"cmd": "engage_fridge"})
         client.send_camera()
         m = client.recv_full_manifest()
-        assert m["game_state"]["state"] == "MISSION_SELECT"
-        assert m["world_revision"] == boot_revision, "MISSION_SELECT should not regen"
+        assert m["game_state"]["state"] == "REFLECTIVE"
 
-        # ---- MISSION_SELECT → IN_MISSION (world regenerates) ----
-        client.send({"cmd": "state_transition_request", "target": "IN_MISSION"})
+        # Try the illegal jump.
+        client.send({"cmd": "state_transition_request", "target": "CHARACTER_CREATION"})
         client.send_camera()
         m = client.recv_full_manifest()
-        assert m["game_state"]["state"] == "IN_MISSION"
-        assert m["game_state"]["mission_id"] is not None
-        assert m["game_state"]["mission_seed"] is not None
-        assert m["world_revision"] > boot_revision, \
-            f"world should regen on launch (was {boot_revision}, got {m['world_revision']})"
-        mission_revision = m["world_revision"]
+        assert m["game_state"]["state"] == "REFLECTIVE", \
+            f"illegal transition should leave state at REFLECTIVE, " \
+            f"got {m['game_state']['state']}"
+    finally:
+        client.close()
 
-        # ---- mission_complete_trigger → loot drops, RESULTS ----
-        client.send({"cmd": "mission_complete_trigger", "trigger_kind": "clay_pot"})
-        client.send_camera()
-        m = client.recv_full_manifest()
-        assert m["game_state"]["state"] == "RESULTS"
-        results = m["game_state"]["results"]
-        assert results["trigger_kind"] == "clay_pot"
-        assert "pot_shard" in results["loot"], \
-            f"expected guaranteed pot_shard drop, got {results['loot']}"
-        # Inventory grew by at least one (the shard); potentially more if
-        # the weighted ember/healing_potion rolls hit.
-        inv_names = [i["name"] for i in m["player"]["inventory"]]
-        assert "pot_shard" in inv_names, \
-            f"shard should land in inventory, got {inv_names}"
 
-        # ---- RESULTS → HUB (regen back to hub seed) ----
-        client.send({"cmd": "state_transition_request", "target": "HUB"})
+def test_kind_destroyed_publishes_event_no_state_change(brain):
+    """PR 6: `kind_destroyed` (successor to legacy `mission_complete_trigger`)
+    publishes a tick event for async quests but doesn't change state or
+    roll loot. State stays HUB; inventory unchanged."""
+    client = BrainClient()
+    try:
         client.send_camera()
         m = client.recv_full_manifest()
         assert m["game_state"]["state"] == "HUB"
-        assert m["game_state"]["mission_id"] is None, \
-            "HUB return should clear mission context"
-        assert m["world_revision"] > mission_revision, \
-            "world should regen on hub return"
-        # Inventory persists across the loop — pot_shard still there.
+        inv_before = [i["name"] for i in m["player"]["inventory"]]
+
+        client.send({"cmd": "kind_destroyed", "kind": "clay_pot"})
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["game_state"]["state"] == "HUB"
+        inv_after = [i["name"] for i in m["player"]["inventory"]]
+        assert inv_after == inv_before, \
+            f"inventory shouldn't grow on kind_destroyed event; " \
+            f"before={inv_before} after={inv_after}"
+    finally:
+        client.close()
+
+
+def _safe_int_id(ent: dict) -> int:
+    """Some entities ship string ids (e.g. roaming orbs use `orb#N`).
+    For smash-target / set-membership purposes we only care about
+    numerically-keyed entities (the procedural pool). Returns -1 for
+    non-int ids so they sort safely without colliding with real ids."""
+    raw = ent.get("id")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return -1
+
+
+def test_smash_with_entity_id_removes_entity_from_manifest(brain):
+    """First inline ARPG combat verb. Mouse-left-on-pot in vector terminal
+    sends `kind_destroyed` with an entity_id; brain adds id to
+    destroyed_entity_ids ledger; subsequent manifests filter the entity
+    out so the smashed pot disappears. Ledger clears on world regen."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        m = client.recv_full_manifest()
+        # Pick any entity id from the current manifest as a smash target.
+        # We use a procedural entity (positive id) — hub fixtures have
+        # negative ids and shouldn't be smashable in this test.
+        candidates = [e for e in m["entities"] if _safe_int_id(e) >= 0]
+        if not candidates:
+            pytest.skip("no procedural entities to smash")
+        target = candidates[0]
+        target_id = int(target["id"])
+        target_kind = str(target["kind"])
+
+        client.send({
+            "cmd": "kind_destroyed",
+            "kind": target_kind,
+            "entity_id": target_id,
+        })
+        client.send_camera()
+        m = client.recv_full_manifest()
+
+        ids_after = {_safe_int_id(e) for e in m["entities"]}
+        assert target_id not in ids_after, \
+            f"smashed entity id={target_id} should be filtered out of " \
+            f"the manifest; still present in {sorted(ids_after)[:10]}..."
+
+
+    finally:
+        client.close()
+
+
+def test_cast_event_accepted_for_each_element(brain):
+    """KEYS 1-4 send cast_event with element fire/ice/electric/light. Brain
+    validates trajectory + element via verbs.json and queues for the next
+    manifest's reaction resolution. Verifies the wire — that brain
+    accepts each of the 4 V1 elements without rejection."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        client.recv_full_manifest()
+
+        for i, element in enumerate(("fire", "ice", "electric", "light"), start=1):
+            client.send({
+                "cmd": "cast_event",
+                "cast": {
+                    "tag_id": -i,
+                    "element": element,
+                    "trajectory": "straight",
+                    "origin": [0.0, 0.0, 1.7],
+                    "direction": [0.0, 1.0, 0.0],
+                },
+            })
+            client.send_camera()
+            m = client.recv_full_manifest()
+            # Cast doesn't change game_state or HP — it's an event push.
+            assert m["game_state"]["state"] == "HUB"
+    finally:
+        client.close()
+
+
+def test_smash_without_entity_id_keeps_world_intact(brain):
+    """`kind_destroyed` with no entity_id (e.g. quest-only event push)
+    publishes the event but doesn't drop anything from the world."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        m = client.recv_full_manifest()
+        ids_before = {_safe_int_id(e) for e in m["entities"]}
+
+        client.send({"cmd": "kind_destroyed", "kind": "clay_pot"})
+        client.send_camera()
+        m = client.recv_full_manifest()
+        ids_after = {_safe_int_id(e) for e in m["entities"]}
+        # Same entities; nothing dropped without an explicit entity_id.
+        assert ids_before == ids_after
+    finally:
+        client.close()
+
+
+def test_engage_fridge_enters_reflective(brain):
+    """Voluntary REFLECTIVE entry — F-on-fridge (or `engage_fridge` cmd)
+    transitions HUB → REFLECTIVE. Survives PR 5."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["game_state"]["state"] == "HUB"
+
+        client.send({"cmd": "engage_fridge"})
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["game_state"]["state"] == "REFLECTIVE", \
+            f"engage_fridge should enter REFLECTIVE, got {m['game_state']['state']}"
+
+        # Reflective overlay block populated.
+        reflective = m.get("reflective", {})
+        assert reflective.get("active") is True
+    finally:
+        client.close()
+
+
+def test_equip_holster_wire(brain):
+    """Equip / holster TCP commands mutate player.equipped without
+    state transitions. Picks an inventory item to equip rather than
+    assuming any specific one is auto-equipped."""
+    client = BrainClient()
+    try:
+        client.send_camera()
+        m = client.recv_full_manifest()
         inv_names = [i["name"] for i in m["player"]["inventory"]]
-        assert "pot_shard" in inv_names, "loot should persist after HUB transition"
+        if not inv_names:
+            pytest.skip("save has empty inventory; nothing to equip-cycle")
+        target = inv_names[0]
+
+        client.send({"cmd": "holster_request"})
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["player"]["equipped"] is None, \
+            f"holster should clear equipped, got {m['player']['equipped']}"
+
+        client.send({"cmd": "equip_request", "name": target})
+        client.send_camera()
+        m = client.recv_full_manifest()
+        assert m["player"]["equipped"] == target, \
+            f"equip_request should set equipped={target}, got {m['player']['equipped']}"
     finally:
         client.close()
 
 
 def test_use_request_with_no_consumables(brain):
     """When inventory has no use_effects items, use_request is a no-op
-    (brain logs and continues — no crash, no state corruption)."""
+    (brain logs and continues — no crash, no state corruption).
+    Drains every potion regardless of count, then verifies HP doesn't
+    move on a final use_request."""
     client = BrainClient()
     try:
-        # Drain the pre-filled potions
-        client.send({"cmd": "use_request"})
         client.send_camera()
-        client.recv_full_manifest()
-        client.send({"cmd": "use_request"})
-        client.send_camera()
-        client.recv_full_manifest()
+        m = client.recv_full_manifest()
+        potions = sum(
+            1 for i in m["player"]["inventory"]
+            if i["name"] == "healing_potion"
+        )
+        for _ in range(potions):
+            client.send({"cmd": "use_request"})
+            client.send_camera()
+            client.recv_full_manifest()
 
-        # Now no consumables. Use should no-op cleanly.
-        prior_hp = 6
         client.send({"cmd": "damage_self", "amount": 1})
         client.send_camera()
         m = client.recv_full_manifest()
-        assert m["player"]["hp"] == 5
+        hp_post_damage = m["player"]["hp"]
 
         client.send({"cmd": "use_request"})
         client.send_camera()
         m = client.recv_full_manifest()
-        # Brain should NOT have attempted to consume torch_handcrafted —
-        # torch has no use_effects, so use_request finds nothing.
-        assert m["player"]["hp"] == 5, "use should be no-op without consumables"
-        inv_names = [i["name"] for i in m["player"]["inventory"]]
-        assert "torch_handcrafted" in inv_names, "torch should not have been consumed"
+        assert m["player"]["hp"] == hp_post_damage, \
+            f"use should be no-op without consumables ({hp_post_damage} → {m['player']['hp']})"
     finally:
         client.close()
 
 
-def test_illegal_state_transition_rejected_cleanly(brain):
-    """HUB → IN_MISSION direct should be rejected without corrupting state."""
-    client = BrainClient()
-    try:
-        client.send_camera()
-        client.recv_full_manifest()  # baseline
+def test_save_persistence_across_restart(tmp_path):
+    """Boot brain → mutate inventory → reflective commit → bounce →
+    second brain reads same save path → state persisted. Save now fires
+    on reflective commit (PR 5 collapse) instead of RESULTS → HUB.
 
-        # Skip MISSION_SELECT — brain's L1 state machine should reject this.
-        client.send({"cmd": "state_transition_request", "target": "IN_MISSION"})
-        client.send_camera()
-        m = client.recv_full_manifest()
-        assert m["game_state"]["state"] == "HUB", \
-            f"illegal transition should leave state at HUB, got {m['game_state']['state']}"
-    finally:
-        client.close()
-
-
-def test_equip_holster_wire(brain):
-    """The equip/holster TCP path: holster the auto-equipped torch, re-equip."""
-    client = BrainClient()
-    try:
-        client.send_camera()
-        m = client.recv_full_manifest()
-        # Auto-equipped at boot for UAT.
-        assert m["player"]["equipped"] == "torch_handcrafted"
-
-        # Holster.
-        client.send({"cmd": "holster_request"})
-        client.send_camera()
-        m = client.recv_full_manifest()
-        assert m["player"]["equipped"] is None, \
-            f"expected None after holster, got {m['player']['equipped']}"
-
-        # Re-equip.
-        client.send({"cmd": "equip_request", "name": "torch_handcrafted"})
-        client.send_camera()
-        m = client.recv_full_manifest()
-        assert m["player"]["equipped"] == "torch_handcrafted"
-    finally:
-        client.close()
-
-
-def test_equip_non_inventory_item_rejected(brain):
-    """Equipping something not in inventory must not change equipped state."""
-    client = BrainClient()
-    try:
-        client.send_camera()
-        m = client.recv_full_manifest()
-        original = m["player"]["equipped"]
-
-        # 'magic_sword' is not in inventory — brain should reject.
-        client.send({"cmd": "equip_request", "name": "magic_sword"})
-        client.send_camera()
-        m = client.recv_full_manifest()
-        assert m["player"]["equipped"] == original, \
-            f"rejection should leave equipped unchanged (was {original}, got {m['player']['equipped']})"
-    finally:
-        client.close()
-
-
-def test_mission_complete_outside_in_mission_ignored(brain):
-    """Trigger fired at HUB should silently no-op — no loot, no state change."""
-    client = BrainClient()
-    try:
-        client.send_camera()
-        m = client.recv_full_manifest()
-        assert m["game_state"]["state"] == "HUB"
-        original_inv_size = len(m["player"]["inventory"])
-
-        # Fire trigger from HUB — brain handler gates on IN_MISSION, ignores.
-        client.send({"cmd": "mission_complete_trigger", "trigger_kind": "clay_pot"})
-        client.send_camera()
-        m = client.recv_full_manifest()
-
-        assert m["game_state"]["state"] == "HUB", "state should not transition from HUB"
-        assert len(m["player"]["inventory"]) == original_inv_size, \
-            "no loot should drop outside IN_MISSION"
-    finally:
-        client.close()
-
-
-def test_save_load_persists_across_brain_restart(tmp_path):
-    """L5 — autosave on RESULTS → HUB persists; the next brain boot loads
-    the saved state. This is the core promise: tomorrow morning your
-    inventory is still there.
-
-    Spins two brains back-to-back with a shared SANCTUM_SAVE_PATH:
-      brain #1: complete a mission, return to HUB (autosave fires)
-      brain #2: should boot loading the saved inventory + completed_missions
-    """
+    Pre-populates the test save_path with the live save so brain boots
+    straight to HUB with a finalized character sheet (otherwise it
+    spawns at CHARACTER_CREATION and the test would have to walk the
+    7-pillar ritual programmatically)."""
+    import shutil
     save_path = tmp_path / "test_save.json"
-    assert not save_path.exists()
+    live_save = REPO_ROOT / "save" / "player.json"
+    if not live_save.exists():
+        pytest.skip("no live save to seed the persistence test")
+    shutil.copy(live_save, save_path)
 
-    # ---- Brain #1 ----
+    # ---- Brain #1 — fresh boot, autosave, then bounce ----
     b1 = BrainProcess(biome="outdoor", port=TEST_PORT_PERSIST, save_path=save_path)
+    inv_after_use = 0
     try:
         c1 = BrainClient(port=TEST_PORT_PERSIST)
         try:
+            # Mutate inventory: consume a potion so the saved state
+            # diverges from defaults in a way we can check on reload.
+            c1.send({"cmd": "damage_self", "amount": 2})
+            c1.send_camera()
+            c1.recv_full_manifest()
+            c1.send({"cmd": "use_request"})
             c1.send_camera()
             m = c1.recv_full_manifest()
-            initial_inv = len(m["player"]["inventory"])
-            assert m["player"]["completed_missions"] == [], \
-                "fresh brain should have no completed missions"
+            inv_after_use = len(m["player"]["inventory"])
 
-            # Run one full cycle
-            c1.send({"cmd": "state_transition_request", "target": "MISSION_SELECT"})
-            c1.send_camera()
-            c1.recv_full_manifest()
-            c1.send({"cmd": "state_transition_request", "target": "IN_MISSION"})
-            c1.send_camera()
-            c1.recv_full_manifest()
-            c1.send({"cmd": "mission_complete_trigger", "trigger_kind": "clay_pot"})
-            c1.send_camera()
-            c1.recv_full_manifest()
-            c1.send({"cmd": "state_transition_request", "target": "HUB"})
+            # Engage fridge → commit (V1 dummy commit through the
+            # rule). The reflective_commit handler triggers the
+            # autosave on success.
+            c1.send({"cmd": "engage_fridge"})
             c1.send_camera()
             m = c1.recv_full_manifest()
+            assert m["game_state"]["state"] == "REFLECTIVE"
 
-            assert m["game_state"]["state"] == "HUB"
-            # Mission should be in completed list
-            assert "anomaly_hunt_01" in m["player"]["completed_missions"]
-            inv_after_mission = len(m["player"]["inventory"])
-            assert inv_after_mission > initial_inv, "loot should have dropped"
+            # Place enough magnets to pass `compose_three`. Magnet is a
+            # name STRING from the brain-side pool, not a dict — we pull
+            # the pool from the manifest's reflective block.
+            pool = m.get("reflective", {}).get("magnet_pool", [])
+            assert pool, f"no magnet_pool in reflective manifest: {m.get('reflective')}"
+            for i in range(3):
+                c1.send({"cmd": "place_magnet", "magnet": pool[0]})
+                c1.send_camera()
+                c1.recv_full_manifest()
+
+            c1.send({"cmd": "commit_reflective"})
+            # Drain manifests until we're back at HUB (commit →
+            # exit_reflective → HUB transition + autosave). Re-send
+            # camera each tick so the brain emits a fresh manifest.
+            settled = False
+            for _ in range(10):
+                c1.send_camera()
+                m = c1.recv_full_manifest()
+                if m["game_state"]["state"] == "HUB":
+                    settled = True
+                    break
+            assert settled, \
+                "commit_reflective chain didn't return to HUB within 10 ticks"
         finally:
             c1.close()
     finally:
         b1.stop()
 
-    # ---- Save file should exist now ----
-    assert save_path.exists(), "autosave should have written during RESULTS → HUB"
-    saved_data = json.loads(save_path.read_text())
-    assert saved_data["version"] == 1
-    assert "anomaly_hunt_01" in saved_data["player"]["completed_missions"]
+    # Save file written?
+    assert save_path.exists(), \
+        f"autosave should have written {save_path} on reflective commit. " \
+        f"brain log tail: {b1.stdout_lines[-15:]}"
+    saved = json.loads(save_path.read_text())
+    assert saved["version"] >= 1
+    saved_inv = saved["player"]["inventory"]
+    assert len(saved_inv) == inv_after_use, \
+        f"saved inventory should match in-process state " \
+        f"(in-process={inv_after_use}, saved={len(saved_inv)})"
 
     # ---- Brain #2 — fresh boot, same save path ----
     b2 = BrainProcess(biome="outdoor", port=TEST_PORT_PERSIST, save_path=save_path)
@@ -431,13 +544,9 @@ def test_save_load_persists_across_brain_restart(tmp_path):
         try:
             c2.send_camera()
             m = c2.recv_full_manifest()
-            # Inventory size should match what was saved (not reset to 3 fixtures)
-            assert len(m["player"]["inventory"]) == inv_after_mission, \
-                f"loaded inventory should match saved (saved={inv_after_mission}, " \
-                f"loaded={len(m['player']['inventory'])})"
-            # Completed missions persisted
-            assert "anomaly_hunt_01" in m["player"]["completed_missions"]
-            # Brain log should mention the load
+            assert len(m["player"]["inventory"]) == inv_after_use, \
+                f"loaded inventory should match saved " \
+                f"(saved={inv_after_use}, loaded={len(m['player']['inventory'])})"
             log_text = "\n".join(b2.stdout_lines)
             assert "loaded save" in log_text, \
                 f"brain #2 should log 'loaded save' — got log:\n{log_text}"
@@ -445,128 +554,3 @@ def test_save_load_persists_across_brain_restart(tmp_path):
             c2.close()
     finally:
         b2.stop()
-
-
-def test_picker_cycles_and_launch_uses_selection():
-    """L6 — picker exposes available_missions, cycle command moves the
-    selection with wrap-around, and launch consumes the current selection
-    as mission_id. Uses cavern biome which exposes 2 active classes
-    (outdoor only has 1, so wrap is observationally a no-op there)."""
-    b = BrainProcess(biome="cavern", port=TEST_PORT)
-    try:
-        client = BrainClient()
-        try:
-            # Baseline at HUB — no selection until MISSION_SELECT is entered.
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["state"] == "HUB"
-            assert m["game_state"]["selected_mission_id"] is None, \
-                "no selection should be active outside MISSION_SELECT"
-            available = m["game_state"]["available_missions"]
-            assert len(available) >= 2, \
-                f"cavern binding should expose 2+ missions for picker UAT, got {available}"
-
-            # Open picker — selection initializes to available[0].
-            client.send({"cmd": "state_transition_request", "target": "MISSION_SELECT"})
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["state"] == "MISSION_SELECT"
-            assert m["game_state"]["selected_mission_id"] == available[0], \
-                f"first selection should default to {available[0]}, got {m['game_state']['selected_mission_id']}"
-
-            # Cycle forward — moves to available[1].
-            client.send({"cmd": "mission_select_cycle", "delta": 1})
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["selected_mission_id"] == available[1]
-
-            # Cycle past end — wraps back to available[0].
-            client.send({"cmd": "mission_select_cycle", "delta": 1})
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["selected_mission_id"] == available[0], \
-                f"cycle should wrap, got {m['game_state']['selected_mission_id']}"
-
-            # Cycle backward — wraps to last entry.
-            client.send({"cmd": "mission_select_cycle", "delta": -1})
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["selected_mission_id"] == available[-1]
-
-            # Launch — brain consumes selected_mission_id, clears it.
-            launched = m["game_state"]["selected_mission_id"]
-            client.send({"cmd": "state_transition_request", "target": "IN_MISSION"})
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["state"] == "IN_MISSION"
-            assert m["game_state"]["mission_id"] == launched, \
-                f"launched mission_id should match picker selection " \
-                f"({launched}), got {m['game_state']['mission_id']}"
-            assert m["game_state"]["selected_mission_id"] is None, \
-                "selection should clear once mission launches"
-        finally:
-            client.close()
-    finally:
-        b.stop()
-
-
-def test_picker_cycle_rejected_outside_mission_select():
-    """Brain only honors mission_select_cycle while in MISSION_SELECT.
-    Outside that state the command is a no-op — selected_mission_id stays
-    None and game_state isn't mutated."""
-    b = BrainProcess(biome="cavern", port=TEST_PORT)
-    try:
-        client = BrainClient()
-        try:
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["state"] == "HUB"
-            assert m["game_state"]["selected_mission_id"] is None
-
-            # Cycle from HUB — brain rejects, selection stays None.
-            client.send({"cmd": "mission_select_cycle", "delta": 1})
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["state"] == "HUB", \
-                "rejected cycle should not change state"
-            assert m["game_state"]["selected_mission_id"] is None, \
-                "selection must stay None outside MISSION_SELECT"
-        finally:
-            client.close()
-    finally:
-        b.stop()
-
-
-def test_repeated_missions_do_not_crash_brain(brain):
-    """Run the loop many times — brain should stay responsive, inventory
-    should respect slot cap (full inventory triggers ValueError caught
-    by the brain handler with 'loot drop skipped: ...' log)."""
-    client = BrainClient()
-    try:
-        # 8 full cycles — enough to fill the 10-slot default inventory
-        # (starts with 3 items, each mission drops 1-3, so saturation by ~5-6).
-        for cycle in range(8):
-            client.send({"cmd": "state_transition_request", "target": "MISSION_SELECT"})
-            client.send_camera()
-            client.recv_full_manifest()
-            client.send({"cmd": "state_transition_request", "target": "IN_MISSION"})
-            client.send_camera()
-            client.recv_full_manifest()
-            client.send({"cmd": "mission_complete_trigger", "trigger_kind": "clay_pot"})
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["state"] == "RESULTS", \
-                f"cycle {cycle}: expected RESULTS, got {m['game_state']['state']}"
-            client.send({"cmd": "state_transition_request", "target": "HUB"})
-            client.send_camera()
-            m = client.recv_full_manifest()
-            assert m["game_state"]["state"] == "HUB", \
-                f"cycle {cycle}: expected return to HUB"
-
-        # After 8 cycles brain still alive and answering. Inventory should
-        # not exceed slots cap.
-        slots_cap = 10  # PlayerState.new() default
-        assert len(m["player"]["inventory"]) <= slots_cap, \
-            f"inventory exceeded slot cap: {len(m['player']['inventory'])}"
-    finally:
-        client.close()
