@@ -36,6 +36,53 @@ import math
 # -- Default cycle configs -----------------------------------------------------
 # Swap these per scenario for different pacing feels.
 
+WORKROOM_CYCLE = {
+    # Workroom is the authoring sandbox — no tension dynamics, no fog
+    # ramp, no budget pressure. The cycle stays in `open` forever; the
+    # other states exist only because TensionCycle expects the full set.
+    # See `.claude/feature/feat_vector-workroom.md` for context.
+    "budget_max": 1,
+    "open": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 0.0,
+        "budget_ceiling": 1.0,
+    },
+    "building": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.1,    # never reachable
+        "budget_ceiling": 1.2,
+    },
+    "tension": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.3,
+        "budget_ceiling": 1.4,
+    },
+    "tunnel": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.5,
+        "budget_ceiling": 1.6,
+    },
+    "dump": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.7,
+        "budget_ceiling": 1.8,
+        "hold_seconds": 0.0,
+    },
+    "rebirth": {
+        "fog": (200.0, 400.0),
+        "ambient": (0.55, 0.55, 0.60),
+        "budget_floor": 1.9,
+        "budget_ceiling": 2.0,
+        "hold_seconds": 0.0,
+    },
+}
+
+
 CAVERN_CYCLE = {
     # Thresholds calibrated for real entity counts (~11K start, ~19K explored).
     # Budget = entity_count / budget_max.
@@ -194,6 +241,23 @@ class TensionCycle:
         self._set_state("open")
         self._lerp_t = 1.0
 
+    def toggle(self):
+        """Toggle the cycle on/off. B key."""
+        if self._active:
+            self.disembark()
+        else:
+            self.board()
+
+    def force_advance(self):
+        """Manually advance to the next state. For live tuning.
+        Skips budget thresholds — steps through the full cycle by hand."""
+        if not self._active:
+            self.board()
+            return
+        idx = STATE_ORDER.index(self._state)
+        next_idx = (idx + 1) % len(STATE_ORDER)
+        self._set_state(STATE_ORDER[next_idx])
+
     def force_state(self, state_name):
         """Force a specific state immediately. Scenario override."""
         if state_name in self._config:
@@ -209,6 +273,9 @@ class TensionCycle:
         env = self._envelope
         bmax = max_entities if max_entities is not None else self._config.get("budget_max", 25000)
         budget = entity_count / max(1, bmax)
+        # Dissociation pressure — staring into the void pushes budget up
+        budget += getattr(self, '_dissociation_pressure', 0.0)
+        budget = min(budget, 1.5)  # allow overshoot but cap
         env.budget = budget
 
         if not self._active:

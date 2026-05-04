@@ -1,0 +1,942 @@
+"""
+core/systems/world_gen.py
+
+Shared world generation — honeycomb placement + density scatter.
+
+Zero Panda3D imports. Called by both cavern.py (Panda3D renderer)
+and renderer_bridge.py (wgpu renderer). Single source of truth.
+
+Output: list of (kind, (x, y), heading, seed) tuples per tile.
+"""
+
+import math
+import random
+
+from core.systems.biome_data import (
+    HARD_OBJECTS, BIOME_REGISTRY, FORMATION_ARCHETYPES,
+    FLOURISH_COUNT_RANGE, FLOURISH_RADIUS_RANGE,
+)
+from core.systems import kind_config as _kc
+
+# VISUAL_RADII — spawn keep-out uses this (kind_config.visual_radius × sv
+# mean). Replaces the old HARD_OBJECTS walking-margin values that were
+# 3-4× too wide for silhouette keep-out.
+_VISUAL_RADII = {k: float(v.get("visual_radius", 0.0))
+                 for k, v in _kc.all_kinds().items()}
+
+_VR_MEAN_SV = 1.3  # matches _make_entity sv mean across stamp/tile paths
+
+
+def _keepout_radius(kind: str) -> float:
+    """Per-kind keep-out radius for procedural placement. Uses visual_radius
+    (geometry hull) with sv mean applied so stamp-time rejection matches
+    runtime silhouette. Falls back to HARD_OBJECTS for kinds without
+    visual_radius (doorframe stays 0 to preserve walk-through)."""
+    vr = _VISUAL_RADII.get(kind, 0.0)
+    if vr > 0.0:
+        return vr * _VR_MEAN_SV
+    return float(HARD_OBJECTS.get(kind, 0.0))
+
+
+from core.systems.frame_composer import FrameComposer, FRAMING_CONFIG
+from core.systems.roster_pool import RosterPool
+
+
+# Kinds that get base aprons — populated from kind_config.json at module load.
+# Mirrors the "base_apron": true flag in kind config.
+_BASE_APRON_KINDS = {"boulder", "mega_column", "column", "buttress",
+                     "stalagmite", "bone_pile"}
+_BASE_APRON_HEAVY = {"mega_column", "buttress"}  # larger anchors get denser apron
+
+
+def _emit_landmark_beacon(anchor_x, anchor_y, spawns, rng):
+    """Attach a filament (tall emissive stalk) adjacent to an architectural landmark.
+
+    Every mega_column / formation column gets one. Makes each landmark
+    function as a waypoint visible from neighboring landmarks through fog.
+    Wayfinding reference: Oblivion's distant firelight-through-opening.
+    """
+    # Offset 1.5-2.5m from landmark center — reads as "growing beside" not "on top of"
+    angle = rng.uniform(0, 360)
+    offset = rng.uniform(1.5, 2.5)
+    fx = anchor_x + math.cos(math.radians(angle)) * offset
+    fy = anchor_y + math.sin(math.radians(angle)) * offset
+    spawns.append(("filament", (fx, fy),
+                   rng.uniform(0, 360), rng.randint(0, 99999), None))
+
+
+def _emit_breadcrumb_trail(x1, y1, x2, y2, spawns, rng, count=3):
+    """Place small fireflies along a line between two landmarks.
+
+    Creates a visible trail the eye follows unconsciously. Subtle enough to
+    feel natural (drifting bioluminescence), bright enough to read.
+    """
+    for i in range(1, count + 1):
+        t = i / (count + 1)
+        # Slight perpendicular jitter so it's not a dead-straight line
+        dx = x2 - x1
+        dy = y2 - y1
+        perp_x = -dy
+        perp_y = dx
+        plen = math.sqrt(perp_x * perp_x + perp_y * perp_y)
+        if plen > 0.01:
+            perp_x /= plen
+            perp_y /= plen
+        jitter = rng.uniform(-1.2, 1.2)
+        fx = x1 + dx * t + perp_x * jitter
+        fy = y1 + dy * t + perp_y * jitter
+        spawns.append(("firefly", (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999), None))
+
+
+def _emit_reward_cluster(center_x, center_y, spawns, rng, count=6):
+    """Dense firefly burst at the end of a breadcrumb trail — the payoff.
+
+    Placed AT a landmark (mega_column, formation column) after a trail arrives.
+    Read as: "you followed the lights and found something." Tag 12 mechanic.
+    """
+    for _ in range(count):
+        angle = rng.uniform(0, 360)
+        radius = rng.uniform(1.2, 2.8)
+        fx = center_x + math.cos(math.radians(angle)) * radius
+        fy = center_y + math.sin(math.radians(angle)) * radius
+        spawns.append(("firefly", (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999), None))
+
+
+def _emit_ceiling_cluster(anchor_x, anchor_y, spawns, rng):
+    """Spawn ceiling_moss colony above a ground anchor using spore-spread model.
+
+    Fungal spore dispersal: dense colony at the source (directly above the
+    column), density and scale fall off with distance. The host surface
+    (column touching ceiling) is the inoculation point. Spores drift
+    outward, settle on the nearest high surface, grow largest near the host.
+
+    Ring 0: primary mass directly above anchor (scale 1.0)
+    Ring 1: 2-3 mid blobs at 1.5-3m (scale 0.55-0.75) — active growth front
+    Ring 2: 1-2 small outliers at 3-5m (scale 0.3-0.5) — spore settlement edge
+    """
+    # Ring 0 — primary colony at inoculation point (tagged as colony center
+    # so the brain can prefer it for beacon allocation)
+    spawns.append(("ceiling_moss", (anchor_x, anchor_y),
+                   rng.uniform(0, 360), rng.randint(0, 99999),
+                   {"colony_center": True}))
+
+    # Ring 1 — active growth front, clustered near host
+    for _ in range(rng.randint(2, 3)):
+        angle = rng.uniform(0, 360)
+        dist = rng.uniform(1.5, 3.0)
+        fx = anchor_x + math.cos(math.radians(angle)) * dist
+        fy = anchor_y + math.sin(math.radians(angle)) * dist
+        scale = round(rng.uniform(0.55, 0.75), 3)
+        spawns.append(("ceiling_moss", (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999),
+                       {"scale_mult": scale}))
+
+    # Ring 2 — spore settlement fringe, smaller and sparser
+    for _ in range(rng.randint(1, 2)):
+        angle = rng.uniform(0, 360)
+        dist = rng.uniform(3.0, 5.0)
+        fx = anchor_x + math.cos(math.radians(angle)) * dist
+        fy = anchor_y + math.sin(math.radians(angle)) * dist
+        scale = round(rng.uniform(0.3, 0.5), 3)
+        spawns.append(("ceiling_moss", (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999),
+                       {"scale_mult": scale}))
+
+
+def _emit_fungus_satellites(center_x, center_y, spawns, solid_positions, rng):
+    """Spawn 3-5 smaller giant_fungus satellites around a main placement.
+
+    Implements the user's fungus sketch: 1 main stalk + surrounding smaller
+    fungi. Matches how crystal_cluster reads. Called after each giant_fungus
+    density scatter placement.
+    """
+    count = rng.randint(3, 5)
+    for _ in range(count):
+        angle = rng.uniform(0, 360)
+        dist = rng.uniform(1.8, 3.2)
+        fx = center_x + math.cos(math.radians(angle)) * dist
+        fy = center_y + math.sin(math.radians(angle)) * dist
+        # Satellites are scaled down 0.45-0.65x via meta field
+        spawns.append(("giant_fungus", (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999),
+                       {"scale_mult": round(rng.uniform(0.45, 0.65), 3)}))
+
+
+def _stage_spawn_composition(spawns, solid_positions, rng, tile_center_x, tile_center_y):
+    """Deliberate spawn composition — non-blocking elements only.
+
+    Previous version placed a mega_column at 8m which violated the 10m spawn
+    clearance and caused clipping. Foreground silhouette now comes from the
+    NATURAL honeycomb via spawn heading logic (see _compute_spawn_heading).
+
+    This function only places tiny/zero-collision cues visible in the spawn frame:
+    - Distant filament beacon (0.08m collision, 28m away — pull cue)
+    - Crystal cluster (2m collision, 22m away — color promise via Decal pool)
+    - Breadcrumb fireflies (0 collision — path suggestion)
+    """
+    # Distant pull cue: filament beacon at 28m, offset 18° LEFT from heading 0
+    pull_angle_deg = -18.0  # degrees left of north
+    pull_dist = 28.0
+    pull_x = tile_center_x + math.sin(math.radians(pull_angle_deg)) * pull_dist
+    pull_y = tile_center_y + math.cos(math.radians(pull_angle_deg)) * pull_dist
+    spawns.append(("filament", (pull_x, pull_y),
+                   rng.uniform(0, 360), rng.randint(0, 99999),
+                   {"spawn_staging": "distance_pull"}))
+
+    # Color promise: small crystal cluster near the pull cue, slightly closer
+    color_angle_deg = -22.0
+    color_dist = 22.0
+    color_x = tile_center_x + math.sin(math.radians(color_angle_deg)) * color_dist
+    color_y = tile_center_y + math.cos(math.radians(color_angle_deg)) * color_dist
+    spawns.append(("crystal_cluster", (color_x, color_y),
+                   rng.uniform(0, 360), rng.randint(0, 99999),
+                   {"spawn_staging": "color_promise"}))
+    solid_positions.append((color_x, color_y, 2.0))
+
+    # Breadcrumb fireflies between spawn and the pull cue (non-blocking path hint)
+    _emit_breadcrumb_trail(tile_center_x, tile_center_y, pull_x, pull_y,
+                           spawns, rng, count=4)
+
+
+def _emit_base_apron(anchor_kind, anchor_x, anchor_y, spawns, solid_positions, rng):
+    """Tight scatter of rubble/gravel at the base of an erosion-eligible anchor.
+
+    Forms a visible skirt connecting rock to ground — cheats the concave flare
+    that erosion would produce. Placement radius 0.4-1.2m is tight enough that
+    the eye reads it as "the anchor's own eroded debris," not scattered flourish.
+
+    Driven by kind_config.json "base_apron" flag (config-as-code).
+    """
+    if anchor_kind not in _BASE_APRON_KINDS:
+        return
+    # Apron counts kept small — the point is to CHEAT the concave base read,
+    # not to carpet the ground. Denser flourish was causing path clutter.
+    if anchor_kind in _BASE_APRON_HEAVY:
+        count = rng.randint(3, 5)
+    else:
+        count = rng.randint(2, 3)
+    # Mix: mostly rubble with some cave_gravel
+    kinds_mix = ["rubble", "rubble", "cave_gravel", "cave_gravel", "rubble"]
+    for i in range(count):
+        flourish_kind = kinds_mix[i % len(kinds_mix)]
+        angle = rng.uniform(0, 360)
+        # Tight ring 0.3-1.0m — apron hugs anchor base, doesn't spill into walking corridors
+        radius = rng.uniform(0.3, 1.0)
+        fx = anchor_x + math.cos(math.radians(angle)) * radius
+        fy = anchor_y + math.sin(math.radians(angle)) * radius
+        # Apron pieces have tiny clearance, skip collision check (they're ground-huggers)
+        spawns.append((flourish_kind, (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999), None))
+
+
+def _emit_cluster(archetype, center_x, center_y, spawns, solid_positions, rng):
+    """Place a cluster of same-kind entities around a center point.
+
+    Clusters read as one composition element: spore-pod trio, stalagmite pair,
+    boulder pile, etc. Each member places within the spread radius with slight
+    angle variation, so they feel grouped but not stacked.
+    """
+    kind = archetype["kind"]
+    count = archetype["count"]
+    spread = archetype["spread"]
+    z_off = archetype.get("z_offset", 0.0)
+    # Own keep-out from kind_config.visual_radius × mean sv — represents
+    # the geometry hull, not the HARD_OBJECTS walking-margin. Small-kind
+    # floor of 0.3 ensures ground cover still reserves a spawn footprint.
+    clearance = max(_keepout_radius(kind), 0.3)
+    placed = 0
+    # First member at center (or near it if overhead cluster with z_offset)
+    angles = [i * (360.0 / count) + rng.uniform(-25, 25) for i in range(count)]
+    for i, angle in enumerate(angles):
+        # First member close to center, others radiate out
+        dist = 0.0 if i == 0 else rng.uniform(spread * 0.5, spread)
+        cx = center_x + math.cos(math.radians(angle)) * dist
+        cy = center_y + math.sin(math.radians(angle)) * dist
+        # Always check against existing solids — no-own-clearance kinds still
+        # need to avoid spike hulls. Minkowski sum (clearance + sc) is
+        # spike-dominant when own clearance is tiny.
+        too_close = False
+        for sx, sy, sc in solid_positions:
+            if (cx - sx) ** 2 + (cy - sy) ** 2 < (clearance + sc) ** 2:
+                too_close = True
+                break
+        if too_close:
+            continue
+        solid_positions.append((cx, cy, clearance))
+        meta = {"cluster_z_offset": z_off} if z_off > 0 else None
+        spawns.append((kind, (cx, cy),
+                       rng.uniform(0, 360), rng.randint(0, 99999), meta))
+        placed += 1
+    return placed
+
+
+def _emit_flourishes(anchor_kind, anchor_x, anchor_y, spawns, solid_positions,
+                     flourish_pools, rng):
+    """Scatter flourish entities OUTSIDE the anchor's walking margin.
+
+    Draws from the affinity-schema FLOURISH_POOLS[anchor_kind] recipe:
+    weighted-random draws across `pool` with per-entry `max` caps, gated
+    by `spawn_chance`, count in [1, max_total], placement in the recipe's
+    `radius_range` clamped above the anchor's walking-margin clearance.
+
+    Mirrors COMPANION_SPAWNS shape so adjacent anchors get varied mixes
+    instead of the LRU rotation that produced "grass ring around every
+    boulder" artifacts.
+    """
+    recipe = flourish_pools.get(anchor_kind)
+    if not recipe or "pool" not in recipe:
+        return
+    if rng.random() >= float(recipe.get("spawn_chance", 1.0)):
+        return
+
+    pool = recipe["pool"]
+    if not pool:
+        return
+
+    radius_range = recipe.get("radius_range", list(FLOURISH_RADIUS_RANGE))
+    r_near_recipe = float(radius_range[0])
+    r_far_recipe = float(radius_range[1])
+
+    # Clamp the near band above the anchor's walking margin so flourishes
+    # never land inside the walkable corridor. anchor_clearance + 0.5m was
+    # the legacy safety floor — preserved as a minimum.
+    anchor_clearance = HARD_OBJECTS.get(anchor_kind, 1.5)
+    min_radius = max(r_near_recipe, anchor_clearance + 0.5)
+    max_radius = max(r_far_recipe, min_radius + 0.3)
+
+    max_total = int(recipe.get("max_total", FLOURISH_COUNT_RANGE[1]))
+    target_count = rng.randint(1, max(1, max_total))
+    weights = [float(p.get("weight", 1.0)) for p in pool]
+    placed: dict[str, int] = {}
+
+    for _ in range(target_count):
+        eligible = [
+            (i, p) for i, p in enumerate(pool)
+            if placed.get(p["kind"], 0) < int(p.get("max", 1))
+        ]
+        if not eligible:
+            break
+        elig_weights = [weights[i] for i, _ in eligible]
+        elig_total = sum(elig_weights)
+        if elig_total <= 0.0:
+            break
+        pick_v = rng.uniform(0.0, elig_total)
+        accum = 0.0
+        chosen = eligible[0][1]
+        for (i, p), w in zip(eligible, elig_weights):
+            accum += w
+            if pick_v <= accum:
+                chosen = p
+                break
+        flourish_kind = chosen["kind"]
+
+        angle = rng.uniform(0, 360)
+        radius = rng.uniform(min_radius, max_radius)
+        fx = anchor_x + math.cos(math.radians(angle)) * radius
+        fy = anchor_y + math.sin(math.radians(angle)) * radius
+        # Always keep-out against solids — flourishes are companions that
+        # must not spawn inside spike visual hulls. 0.3m floor registers a
+        # small footprint so the next flourish doesn't overlap this one.
+        f_clearance = max(_keepout_radius(flourish_kind), 0.3)
+        too_close = False
+        for sx, sy, sc in solid_positions:
+            ddx, ddy = fx - sx, fy - sy
+            if ddx * ddx + ddy * ddy < (f_clearance + sc) ** 2:
+                too_close = True
+                break
+        if too_close:
+            continue
+        placed[flourish_kind] = placed.get(flourish_kind, 0) + 1
+        solid_positions.append((fx, fy, f_clearance))
+        spawns.append((flourish_kind, (fx, fy),
+                       rng.uniform(0, 360), rng.randint(0, 99999), None))
+
+
+def _emit_anchor_stamp(anchor_kind, anchor_x, anchor_y, anchor_stamps,
+                       spawns, solid_positions, rng):
+    """Fill slots around a structural anchor from config-driven pools.
+
+    The anchor is already placed. This adds composed members radiating
+    from it — flanking geometry, ground cover, emissive accents.
+    Variety = pool_picks × count_range × angle × scale_range.
+    """
+    cfg = anchor_stamps.get(anchor_kind)
+    if not cfg:
+        return 0
+    if rng.random() > cfg["frequency"]:
+        return 0
+
+    placed = 0
+    for slot in cfg["slots"]:
+        count = rng.randint(slot["count"][0], slot["count"][1])
+        for _ in range(count):
+            kind = rng.choice(slot["pool"])
+            angle = rng.uniform(0, 360)
+            dist = rng.uniform(slot["dist"][0], slot["dist"][1])
+            fx = anchor_x + math.cos(math.radians(angle)) * dist
+            fy = anchor_y + math.sin(math.radians(angle)) * dist
+
+            clearance = HARD_OBJECTS.get(kind, 0) if slot.get("hard") else 0
+            if clearance > 0:
+                too_close = False
+                for sx, sy, sc in solid_positions:
+                    ddx, ddy = fx - sx, fy - sy
+                    if ddx * ddx + ddy * ddy < (clearance + sc) ** 2:
+                        too_close = True
+                        break
+                if too_close:
+                    continue
+                solid_positions.append((fx, fy, clearance))
+
+            meta = None
+            if slot.get("scale"):
+                s = round(rng.uniform(slot["scale"][0], slot["scale"][1]), 3)
+                meta = {"stamp_scale_mult": s}
+            spawns.append((kind, (fx, fy),
+                           rng.uniform(0, 360), rng.randint(0, 99999), meta))
+            placed += 1
+    return placed
+
+
+def _emit_stamp(stamp, center_x, center_y, spawns, solid_positions, rng):
+    """Place all members of a stamp composition at a honeycomb node.
+
+    Each member is offset from center. Hard members get collision reservations.
+    Returns the number of members successfully placed (0 if the footprint
+    collides with existing solids).
+    """
+    # Pre-check: is the footprint clear of existing hard objects?
+    footprint = stamp["footprint"]
+    for sx, sy, sc in solid_positions:
+        dx, dy = center_x - sx, center_y - sy
+        if dx * dx + dy * dy < (footprint + sc) ** 2:
+            return 0  # footprint overlaps — skip this stamp entirely
+
+    # Random rotation so stamps don't all face the same way
+    rot_deg = rng.uniform(0, 360)
+    rot_rad = math.radians(rot_deg)
+    cos_r, sin_r = math.cos(rot_rad), math.sin(rot_rad)
+
+    placed = 0
+    for member in stamp["members"]:
+        # Rotate offset
+        mdx = member["dx"] * cos_r - member["dy"] * sin_r
+        mdy = member["dx"] * sin_r + member["dy"] * cos_r
+        mx = center_x + mdx
+        my = center_y + mdy
+
+        kind = member["kind"]
+        clearance = HARD_OBJECTS.get(kind, 0) if member.get("hard") else 0
+
+        # Collision check for hard members against existing solids
+        if clearance > 0:
+            too_close = False
+            for sx, sy, sc in solid_positions:
+                ddx, ddy = mx - sx, my - sy
+                if ddx * ddx + ddy * ddy < (clearance + sc) ** 2:
+                    too_close = True
+                    break
+            if too_close:
+                continue
+            solid_positions.append((mx, my, clearance))
+
+        meta = None
+        if member.get("scale_mult") is not None:
+            meta = {"stamp_scale_mult": member["scale_mult"]}
+        spawns.append((kind, (mx, my),
+                       rng.uniform(0, 360), rng.randint(0, 99999), meta))
+        placed += 1
+
+    # Reserve the footprint center so other stamps / formations respect it
+    if placed > 0:
+        solid_positions.append((center_x, center_y, footprint))
+
+    return placed
+
+
+def generate_tile(seed, biome_name="cavern", tile_size=288.0, biome=None,
+                  is_spawn_tile=False, macro_stamp=None):
+    """Generate a tile layout with honeycomb path network.
+
+    Scatter node points across the tile — these are walkable clearings.
+    Hard objects cluster BETWEEN nodes (forming walls/dividers).
+    Soft objects cluster NEAR nodes (visible as you walk through).
+
+    Returns (variant_name, spawns) where spawns is a list of
+    (kind, (x, y), heading, seed, meta) tuples.
+    Coordinate system: (0, 0) to (tile_size, tile_size).
+    """
+    # Registry is the single source — `density`, `tile_variants`, and
+    # everything else below flow from here. Caller can still pass `biome`
+    # explicitly to force an override (tests, ad-hoc generation).
+    registry = BIOME_REGISTRY.get(biome_name, BIOME_REGISTRY["cavern"])
+    if biome is None:
+        biome = registry["density"]
+    tile = tile_size
+    tile_area = tile * tile
+    rng = random.Random(seed)
+    spawns = []
+    solid_positions = []
+
+    # Authoring-sandbox biomes (workroom) opt out of procedural generation
+    # entirely by shipping an empty density list. Bail before any roster
+    # construction so empty room_beacons / stamps / tissue don't crash.
+    if not biome and not registry.get("stamps") and not registry.get("authored_slots"):
+        return ("standard", spawns)
+
+    # Tile variant roll
+    variants = registry["tile_variants"]
+    variant_names = list(variants.keys())
+    variant_weights = [variants[v]["weight"] for v in variant_names]
+    variant_name = rng.choices(variant_names, weights=variant_weights, k=1)[0]
+    # Spawn tile should never be sparse — player's first frame must be populated.
+    # Re-roll once if sparse lands on spawn.
+    if is_spawn_tile and variant_name == "sparse":
+        variant_name = "standard"
+    variant = variants[variant_name]
+    density_mult = variant.get("density_mult", 1.0)
+    density_boost = variant.get("boost", {})
+
+    # Honeycomb nodes = mega_column positions. Columns ARE the lattice.
+    # Cavern 16-20m: leaves 6-10m walking corridor after 2.5m anchor radii
+    # and 2-3m buttress reach. Outdoor 20-24m for wider meadow spacing.
+    spacing_min, spacing_max = registry["node_spacing_range"]
+    node_spacing = rng.uniform(spacing_min, spacing_max)
+    nodes = []
+
+    # Formation roster — every 3rd mega_column spawns an integrated geological formation
+    # (column peak + buttress arms as one silhouette). RosterPool cycles through recipes.
+    formation_roster = RosterPool(FORMATION_ARCHETYPES, seed=seed)
+    mega_column_count = 0
+
+    # Landmark positions — tracked for post-loop breadcrumb trail emission
+    landmark_positions = []
+
+    # Affinity-schema flourish pools — weighted draws with per-entry caps.
+    # Migrated 2026-04-21 from RosterPool LRU rotation (mirrors COMPANION_SPAWNS).
+    flourish_pools = registry["flourish_pools"]
+
+    # Anchor stamp configs — programmatic compositions around structural anchors
+    anchor_stamp_cfg = registry["anchor_stamps"]
+
+    # Beacon roster — feature cluster pools for formation column beacons.
+    # LRU-cycled so adjacent formations get different beacon types.
+    # Defensive: biomes that opt out of procedural anchors (e.g. workroom)
+    # ship empty room_beacons. Construction guard avoids ValueError; the
+    # downstream call site is inside a code path that only fires when
+    # density has produced an anchor, so None never gets `.next()` called.
+    _beacons = registry.get("room_beacons") or []
+    beacon_roster = RosterPool(_beacons, seed=seed + 54321) if _beacons else None
+
+    # Stamp roster — authored compositions replacing single-anchor nodes.
+    # ~25% of non-formation nodes get a stamp instead of a random anchor roll.
+    stamp_source = registry["stamps"]
+    stamp_roster = RosterPool(stamp_source, seed=seed + 11111) if stamp_source else None
+
+    # Stamp spatial awareness — track placed stamp centers + names.
+    # Minimum separation: 2x node_spacing (~32-40m) between any two stamps.
+    # Same-name dedup radius: 3x node_spacing (~48-60m) so you don't see
+    # two crystal_grottos within walking distance.
+    stamp_centers = []  # list of (x, y, name)
+    STAMP_MIN_DIST = node_spacing * 2.0
+    STAMP_DEDUP_DIST = node_spacing * 3.0
+
+    # Stamp affinity — tile variant biases which stamps appear.
+    # Preferred stamps get 3x weight. Non-preferred still appear.
+    stamp_affinity_src = registry["stamp_affinity"]
+    stamp_affinity = stamp_affinity_src.get(variant_name, {})
+
+    node_index = 0
+
+    # Radial density gradient — composition complexity scales with distance
+    # from tile center (spawn point). Center = clearing, edges = dense.
+    # On non-spawn tiles this is uniform (1.0 everywhere).
+    tile_cx = tile * 0.5
+    tile_cy = tile * 0.5
+    tile_max_dist = tile * 0.5  # corner distance for normalization
+
+    # Macro stamp grid lookup — if a macro stamp is provided, use its
+    # per-cell density as the composition factor. Otherwise fall back to
+    # the radial distance factor (spawn tiles sparse at center, dense at edge).
+    _ms = macro_stamp
+    _ms_cell_size = tile / 7.0 if macro_stamp else 0
+
+    def _radial_factor(x, y):
+        """Composition density factor at position (x, y).
+
+        With macro stamp: reads the 7x7 density grid cell.
+        Without: 0.0 at center → 1.0 at tile edge (spawn tiles only).
+        """
+        if _ms:
+            col = max(0, min(6, int(x / _ms_cell_size)))
+            row = max(0, min(6, int(y / _ms_cell_size)))
+            return _ms["density"][row][col]
+        if not is_spawn_tile:
+            return 1.0
+        dx, dy = x - tile_cx, y - tile_cy
+        d = (dx * dx + dy * dy) ** 0.5
+        return min(d / (tile_max_dist * 0.7), 1.0)
+
+    ny = node_spacing * 0.5
+    row = 0
+    while ny < tile:
+        nx = node_spacing * 0.5 + (node_spacing * 0.5 if row % 2 else 0)
+        while nx < tile:
+            jx = nx + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
+            jy = ny + rng.uniform(-node_spacing * 0.15, node_spacing * 0.15)
+            nodes.append((jx, jy))
+
+            node_index += 1
+
+            # Radial density — scales composition complexity from center outward
+            rf = _radial_factor(jx, jy)
+
+            # Stamp roll — frequency scales with radial factor.
+            # Center of spawn: 5% chance. Edges: 25%. Non-spawn tiles: 25%.
+            stamp_chance = 0.05 + rf * 0.20
+            if stamp_roster and rng.random() < stamp_chance:
+                # Affinity-weighted selection: preferred stamps get 3x weight
+                if stamp_affinity:
+                    weights = [3.0 if s["name"] in stamp_affinity else 1.0
+                               for s in stamp_source]
+                    stamp = rng.choices(stamp_source, weights=weights, k=1)[0]
+                else:
+                    stamp = stamp_roster.next()
+                # Spatial check — skip if too close to existing stamp
+                too_close = False
+                for sx, sy, sname in stamp_centers:
+                    dx, dy = jx - sx, jy - sy
+                    dist_sq = dx * dx + dy * dy
+                    if dist_sq < STAMP_MIN_DIST * STAMP_MIN_DIST:
+                        too_close = True
+                        break
+                    if sname == stamp["name"] and dist_sq < STAMP_DEDUP_DIST * STAMP_DEDUP_DIST:
+                        too_close = True
+                        break
+                if not too_close:
+                    stamp_placed = _emit_stamp(stamp, jx, jy, spawns,
+                                               solid_positions, rng)
+                    if stamp_placed > 0:
+                        stamp_centers.append((jx, jy, stamp["name"]))
+                        nx += node_spacing
+                        continue  # stamp placed — skip single-anchor roll
+
+            roll = rng.random()
+            # Radial bias: near spawn center, suppress mega_columns (→ simpler scene).
+            # mega_column threshold: 15% at full distance, 3% near center.
+            mega_threshold = 0.03 + rf * 0.12
+            if roll < mega_threshold:
+                anchor = "mega_column"
+                # Formation probability also scales with distance — no formations near spawn center
+                formation_chance = 3 if rf > 0.4 else 999  # every 3rd at distance, never near center
+                if mega_column_count % formation_chance == 0:
+                    formation = formation_roster.next()
+                    col_cfg = formation["column"]
+                    # Column may be offset from the node center (e.g. cliff_back)
+                    col_ox = col_cfg.get("offset_distance", 0.0)
+                    col_oa = math.radians(col_cfg.get("offset_angle", 0.0))
+                    col_x = jx + math.cos(col_oa) * col_ox
+                    col_y = jy + math.sin(col_oa) * col_ox
+                    col_scale = col_cfg.get("scale_mult", 1.0)
+                    # Spawn the column with formation-specific scale
+                    spawns.append((
+                        col_cfg["kind"], (col_x, col_y),
+                        rng.uniform(0, 360), rng.randint(0, 99999),
+                        {"formation_scale_mult": col_scale,
+                         "formation": formation["name"]}
+                    ))
+                    solid_positions.append((col_x, col_y, 5.0 * col_scale))
+                    # Base apron at the formation column peak
+                    _emit_base_apron(col_cfg["kind"], col_x, col_y, spawns, solid_positions, rng)
+                    # Landmark beacon — filament adjacent to column for wayfinding
+                    _emit_landmark_beacon(col_x, col_y, spawns, rng)
+                    landmark_positions.append((col_x, col_y))
+                    # Spawn the arms — but ONLY if the parent column is floor-attached.
+                    # Stalactite columns (ceiling) can't have buttresses leaning on them.
+                    # Uses the same hash the brain/Godot use for inversion.
+                    parent_hash = abs(math.sin(col_x * 2.71 + col_y * 5.43))
+                    parent_is_stalactite = parent_hash < 0.40
+                    for arm in formation["arms"]:
+                        if parent_is_stalactite:
+                            continue  # skip — no buttresses on ceiling columns
+                        arm_rad = math.radians(arm["offset_angle"])
+                        bx = jx + math.cos(arm_rad) * arm["offset_distance"]
+                        by = jy + math.sin(arm_rad) * arm["offset_distance"]
+                        # Heading points the arm's LEAN direction back at node center
+                        lean_heading = (arm["offset_angle"] + 180.0) % 360.0
+                        buttress_seed = rng.randint(0, 99999)
+                        spawns.append((
+                            "buttress", (bx, by), lean_heading, buttress_seed,
+                            {
+                                "lean_angle": arm["lean_angle"],
+                                "scale_x": arm["scale_x"],
+                                "scale_y": arm["scale_y"],
+                                "scale_z": arm["scale_z"],
+                                "parent_column": (jx, jy),
+                                "formation": formation["name"],
+                            }
+                        ))
+                        solid_positions.append((bx, by, 2.5))
+                        # Base apron at the buttress arm foot
+                        _emit_base_apron("buttress", bx, by, spawns, solid_positions, rng)
+                        # Flourishes near each buttress arm (ground density variation)
+                        _emit_flourishes("buttress", bx, by, spawns, solid_positions,
+                                         flourish_pools, rng)
+                    # Flourishes near the formation column peak
+                    _emit_flourishes("mega_column", col_x, col_y, spawns, solid_positions,
+                                     flourish_pools, rng)
+                    # Beacon at the formation base — one guaranteed light source
+                    # per formation creates a visible landmark without walling off space.
+                    # Placed 3m off the column center in the direction opposite the main arms.
+                    beacon = beacon_roster.next()
+                    beacon_x = jx + math.cos(col_oa + math.pi) * 3.0
+                    beacon_y = jy + math.sin(col_oa + math.pi) * 3.0
+                    _emit_cluster(beacon, beacon_x, beacon_y, spawns, solid_positions, rng)
+                    # Ceiling mold colony — only biomes with a ceiling plane
+                    if not parent_is_stalactite and registry["has_ceiling"]:
+                        _emit_ceiling_cluster(col_x, col_y, spawns, rng)
+                    mega_column_count += 1
+                    nx += node_spacing
+                    continue  # skip the default anchor spawn — formation replaced it
+                else:
+                    solid_positions.append((jx, jy, 5.0))
+                mega_column_count += 1
+            elif roll < 0.30:
+                anchor = "column"
+                solid_positions.append((jx, jy, 3.0))
+            elif roll < 0.50:
+                anchor = "crystal_cluster"
+                solid_positions.append((jx, jy, 2.0))
+            elif roll < 0.70:
+                anchor = "giant_fungus"
+                solid_positions.append((jx, jy, 2.0))
+            elif roll < 0.85:
+                anchor = "boulder"
+                solid_positions.append((jx, jy, 3.0))
+            else:
+                anchor = "moss_patch"
+            spawns.append((anchor, (jx, jy),
+                           rng.uniform(0, 360), rng.randint(0, 99999), None))
+            # Base apron — tight erosion debris at anchor foot (concave cheat)
+            _emit_base_apron(anchor, jx, jy, spawns, solid_positions, rng)
+            # Landmark beacon — every mega_column gets a filament waypoint
+            if anchor == "mega_column":
+                _emit_landmark_beacon(jx, jy, spawns, rng)
+                landmark_positions.append((jx, jy))
+            # Flourish emission — eye-tricking density variation near anchors
+            _emit_flourishes(anchor, jx, jy, spawns, solid_positions,
+                             flourish_pools, rng)
+            # Fungus cluster: main stalk + 3-5 satellites (matches user's sketch)
+            if anchor == "giant_fungus":
+                _emit_fungus_satellites(jx, jy, spawns, solid_positions, rng)
+            # Ceiling mold — scales with radial factor (no mold near spawn center).
+            # Biomes without a ceiling plane set ceiling_mold_chance=0.0.
+            ceiling_chance = registry["ceiling_mold_chance"] * rf
+            if registry["has_ceiling"] and anchor in ("mega_column", "column", "stalagmite") and rng.random() < ceiling_chance:
+                _emit_ceiling_cluster(jx, jy, spawns, rng)
+            # Anchor stamp — frequency also scales with distance from center
+            if rf > 0.2:  # no anchor stamps in the innermost 20% of spawn tile
+                _emit_anchor_stamp(anchor, jx, jy, anchor_stamp_cfg,
+                                   spawns, solid_positions, rng)
+            nx += node_spacing
+        ny += node_spacing * 0.87
+        row += 1
+
+    # Spawn corridor — clear the forward view, frame with flanking geometry.
+    # NO node at tile center (player spawns here, don't wall them in).
+    # Place nodes in a broken ring that opens toward heading 0 (north in
+    # brain-space), creating a natural corridor the player looks down.
+    # Flanking nodes at ±60-120° create the "something around the corner"
+    # silhouettes. Forward nodes pushed to 1.5-2x spacing for depth.
+    cx, cy = tile * 0.5, tile * 0.5
+    spawn_corridor_angles = [
+        # Flanking left/right — close, creates corridor walls
+        (-70, 0.9),  (-110, 0.9),
+        # Rear — behind the player, not immediately visible
+        (150, 0.8), (-150, 0.8), (180, 1.0),
+        # Forward — PUSHED BACK for depth perspective
+        (-25, 1.8), (25, 1.8),
+        # Mid-forward — staggered depth for parallax
+        (-40, 1.3), (40, 1.3),
+    ]
+    for angle_deg, dist_mult in spawn_corridor_angles:
+        angle = angle_deg + rng.uniform(-8, 8)
+        dist = node_spacing * dist_mult * rng.uniform(0.9, 1.1)
+        nodes.append((
+            cx + math.cos(math.radians(angle)) * dist,
+            cy + math.sin(math.radians(angle)) * dist,
+        ))
+
+    path_radius = rng.uniform(6.0, 10.0)
+
+    # Breadcrumb trails between landmarks — wayfinding visual thread.
+    # For each landmark, find up to 2 nearest neighbors within a visibility
+    # radius and place 3 fireflies along the connecting line. The eye follows
+    # the chain of small lights from landmark to landmark.
+    BREADCRUMB_MAX_DIST = node_spacing * 1.8  # ~28-36m at new spacing, within fog visibility
+    trail_seen = set()  # dedupe (i, j) == (j, i)
+    landmarks_with_reward = set()  # only one reward cluster per landmark
+    for i, (x1, y1) in enumerate(landmark_positions):
+        # Find nearest 2 neighbors within max distance
+        neighbors = []
+        for j, (x2, y2) in enumerate(landmark_positions):
+            if i == j:
+                continue
+            dx, dy = x2 - x1, y2 - y1
+            d = math.sqrt(dx * dx + dy * dy)
+            if d < BREADCRUMB_MAX_DIST:
+                neighbors.append((d, j, x2, y2))
+        neighbors.sort(key=lambda n: n[0])
+        for _, j, x2, y2 in neighbors[:2]:
+            pair = (min(i, j), max(i, j))
+            if pair in trail_seen:
+                continue
+            trail_seen.add(pair)
+            _emit_breadcrumb_trail(x1, y1, x2, y2, spawns, rng, count=5)
+            # Reward cluster at BOTH endpoints (Tag 12 mechanic) — the payoff
+            # for following a breadcrumb trail to a landmark
+            if i not in landmarks_with_reward:
+                _emit_reward_cluster(x1, y1, spawns, rng, count=rng.randint(6, 9))
+                landmarks_with_reward.add(i)
+            if j not in landmarks_with_reward:
+                _emit_reward_cluster(x2, y2, spawns, rng, count=rng.randint(6, 9))
+                landmarks_with_reward.add(j)
+
+    # FrameComposer pass — compose directed views between hex node pairs.
+    frame_cfg = FRAMING_CONFIG.get(biome_name, FRAMING_CONFIG.get("cavern"))
+    composer = FrameComposer(seed=seed)
+    max_neighbor_dist = node_spacing * 2.0
+    frame_rng = random.Random(seed + 777)
+    for i in range(len(nodes)):
+        if frame_rng.random() > 0.30:
+            continue
+        n1x, n1y = nodes[i]
+        best_j, best_d = -1, 9999.0
+        for j in range(len(nodes)):
+            if j == i:
+                continue
+            dx, dy = nodes[j][0] - n1x, nodes[j][1] - n1y
+            d = math.sqrt(dx * dx + dy * dy)
+            if d < best_d and d < max_neighbor_dist:
+                best_d = d
+                best_j = j
+        if best_j < 0:
+            continue
+        n2x, n2y = nodes[best_j]
+        frames = composer.compose_along_path(
+            node_a=(n1x, n1y), node_b=(n2x, n2y), config=frame_cfg)
+        for fp in frames:
+            fx, fy = fp["pos"]
+            kind = fp["kind"]
+            clearance = HARD_OBJECTS.get(kind, 0)
+            too_close = False
+            for sx, sy, sc in solid_positions:
+                if (fx - sx) ** 2 + (fy - sy) ** 2 < (clearance + sc) ** 2:
+                    too_close = True
+                    break
+            if too_close:
+                continue
+            spawns.append((kind, (fx, fy), fp["heading"], rng.randint(0, 99999), None))
+            if clearance > 0:
+                solid_positions.append((fx, fy, clearance))
+
+    def _dist_to_nearest_node(x, y):
+        min_d = 9999.0
+        for nx, ny in nodes:
+            dx, dy = x - nx, y - ny
+            d = math.sqrt(dx * dx + dy * dy)
+            if d < min_d:
+                min_d = d
+        return min_d
+
+    # Density scatter — skip kinds placed via honeycomb anchor roll
+    DENSITY_SKIP = ("mega_column", "column", "crystal_cluster", "giant_fungus")
+    for kind, density, clearance, margin in biome:
+        if kind in DENSITY_SKIP:
+            continue
+        effective_density = density * density_mult * density_boost.get(kind, 1.0)
+        base_count = effective_density * tile_area / 1000.0
+        count = max(0, int(rng.uniform(base_count * 0.7, base_count * 1.3)))
+        is_hard = kind in HARD_OBJECTS
+
+        for _ in range(count):
+            placed = False
+            for _attempt in range(8 if is_hard else 3):
+                x = rng.uniform(margin, tile - margin)
+                y = rng.uniform(margin, tile - margin)
+                d = _dist_to_nearest_node(x, y)
+
+                if is_hard:
+                    if d < path_radius:
+                        continue
+                    if d > path_radius * 2.5 and rng.random() < 0.6:
+                        continue
+                else:
+                    if d > path_radius * 1.5 and rng.random() < 0.7:
+                        continue
+
+                if clearance > 0:
+                    too_close = False
+                    for sx, sy, sc in solid_positions:
+                        ddx, ddy = x - sx, y - sy
+                        if ddx * ddx + ddy * ddy < (clearance + sc) ** 2:
+                            too_close = True
+                            break
+                    if too_close:
+                        continue
+                    solid_positions.append((x, y, clearance))
+                placed = True
+                break
+            if not placed:
+                if len(nodes) >= 2:
+                    n1 = nodes[rng.randint(0, len(nodes) - 1)]
+                    n2 = nodes[rng.randint(0, len(nodes) - 1)]
+                    x = (n1[0] + n2[0]) * 0.5 + rng.uniform(-3, 3)
+                    y = (n1[1] + n2[1]) * 0.5 + rng.uniform(-3, 3)
+                else:
+                    x = rng.uniform(margin, tile - margin)
+                    y = rng.uniform(margin, tile - margin)
+                x = max(margin, min(tile - margin, x))
+                y = max(margin, min(tile - margin, y))
+
+            spawns.append((kind, (x, y),
+                           rng.uniform(0, 360), rng.randint(0, 99999), None))
+            # Base apron for hard-anchor density scatter (boulder, stalagmite, etc.)
+            if is_hard:
+                _emit_base_apron(kind, x, y, spawns, solid_positions, rng)
+
+    # Spawn clearance — world origin (0, 0) becomes (tile/2, tile/2) in local
+    # coords after the `- half` transform. Remove any HARD anchor within 10m
+    # of tile center so the player spawns in a proper walkable bubble, not
+    # right against the first ring of anchors. Soft kinds (rubble, gravel,
+    # fireflies, moss) remain — they don't block navigation.
+    SPAWN_CLEARANCE_RADIUS = 10.0
+    cx_spawn = tile * 0.5
+    cy_spawn = tile * 0.5
+    # Filter hard anchors AND visually-enclosing landmarks (filaments, fungi, crystals)
+    # from the spawn bubble. User framing: "make the dome transparent" — any
+    # tall or clustered visible element that would form walls/enclosure at spawn
+    # gets filtered so the player's first frame is actually open.
+    HARD_KIND_SET = set(HARD_OBJECTS.keys())
+    VISUAL_LANDMARK_KINDS = {"filament", "giant_fungus", "crystal_cluster"}
+    FILTER_KINDS = HARD_KIND_SET | VISUAL_LANDMARK_KINDS
+    filtered = []
+    for spawn in spawns:
+        kind = spawn[0]
+        sx, sy = spawn[1]
+        if kind in FILTER_KINDS:
+            dx = sx - cx_spawn
+            dy = sy - cy_spawn
+            if dx * dx + dy * dy < SPAWN_CLEARANCE_RADIUS * SPAWN_CLEARANCE_RADIUS:
+                continue  # drop this landmark — inside spawn safety zone
+        filtered.append(spawn)
+
+    # Spawn staging — deliberate composition at world origin, placed AFTER
+    # the clearance filter so it doesn't get stripped. Only on the center tile.
+    # This is the first concrete instance of the passive pull loop design principle.
+    if is_spawn_tile:
+        _stage_spawn_composition(filtered, solid_positions, rng, cx_spawn, cy_spawn)
+
+    return variant_name, filtered

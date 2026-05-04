@@ -279,7 +279,12 @@ class TestScenarioArray:
 
     def test_seven_scenario_types_defined(self):
         from core.systems.scenario_engine import SCENARIO_TYPES
-        assert set(SCENARIO_TYPES) == {"fetch", "escort", "hunt", "key", "switch", "defend", "trade"}
+        # Original seven plus the journal-derived type added when
+        # scenario_ledger started persisting journal-bridge rows.
+        assert set(SCENARIO_TYPES) == {
+            "fetch", "escort", "hunt", "key", "switch", "defend", "trade",
+            "journal",
+        }
 
     def test_create_fetch_scenario(self):
         from core.systems.scenario_engine import ScenarioEngine, ScenarioState

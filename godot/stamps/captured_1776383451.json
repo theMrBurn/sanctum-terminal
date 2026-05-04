@@ -1,0 +1,216 @@
+{
+  "members": [
+    {
+      "dx": -4.9,
+      "dy": -11.6,
+      "hard": false,
+      "kind": "filament",
+      "scale_mult": 0.9
+    },
+    {
+      "dx": -4.1,
+      "dy": -9.3,
+      "hard": false,
+      "kind": "filament",
+      "scale_mult": 0.93
+    },
+    {
+      "dx": -5.1,
+      "dy": -13.9,
+      "hard": false,
+      "kind": "filament",
+      "scale_mult": 0.69
+    },
+    {
+      "dx": -2.8,
+      "dy": -11.4,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.76
+    },
+    {
+      "dx": -6.6,
+      "dy": -11.2,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.82
+    },
+    {
+      "dx": 8.3,
+      "dy": -11.4,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.65
+    },
+    {
+      "dx": 5.7,
+      "dy": -11.4,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.83
+    },
+    {
+      "dx": 10.0,
+      "dy": -11.0,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.59
+    },
+    {
+      "dx": 10.3,
+      "dy": -9.7,
+      "hard": false,
+      "kind": "leaf_pile",
+      "scale_mult": 0.65
+    },
+    {
+      "dx": 7.9,
+      "dy": -14.6,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.79
+    },
+    {
+      "dx": 10.9,
+      "dy": -10.0,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.8
+    },
+    {
+      "dx": 6.8,
+      "dy": -13.8,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.69
+    },
+    {
+      "dx": 7.5,
+      "dy": -9.7,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.75
+    },
+    {
+      "dx": 5.8,
+      "dy": -11.6,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.77
+    },
+    {
+      "dx": -17.2,
+      "dy": 3.6,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.65
+    },
+    {
+      "dx": -0.2,
+      "dy": 5.1,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.92
+    },
+    {
+      "dx": 14.7,
+      "dy": 3.7,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.74
+    },
+    {
+      "dx": -10.4,
+      "dy": 13.3,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.69
+    },
+    {
+      "dx": -4.7,
+      "dy": 14.7,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.63
+    },
+    {
+      "dx": 9.3,
+      "dy": 17.6,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.76
+    },
+    {
+      "dx": 14.2,
+      "dy": -8.5,
+      "hard": true,
+      "kind": "column",
+      "scale_mult": 0.91
+    },
+    {
+      "dx": -7.1,
+      "dy": -2.1,
+      "hard": true,
+      "kind": "column",
+      "scale_mult": 0.65
+    },
+    {
+      "dx": -13.2,
+      "dy": 7.0,
+      "hard": true,
+      "kind": "crystal_cluster",
+      "scale_mult": 0.75
+    },
+    {
+      "dx": -14.7,
+      "dy": 12.1,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.85
+    },
+    {
+      "dx": -3.4,
+      "dy": 14.1,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.6
+    },
+    {
+      "dx": -2.9,
+      "dy": 13.6,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.82
+    },
+    {
+      "dx": -2.1,
+      "dy": 13.1,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.79
+    },
+    {
+      "dx": 7.7,
+      "dy": 12.1,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.73
+    },
+    {
+      "dx": 7.8,
+      "dy": 12.4,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.67
+    },
+    {
+      "dx": 6.3,
+      "dy": -10.8,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.77
+    }
+  ],
+  "name": "captured_1776383451",
+  "weight": 1
+}

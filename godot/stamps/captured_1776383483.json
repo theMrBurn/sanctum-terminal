@@ -1,0 +1,650 @@
+{
+  "members": [
+    {
+      "dx": -13.7,
+      "dy": -14.0,
+      "hard": false,
+      "kind": "leaf_pile",
+      "scale_mult": 0.87
+    },
+    {
+      "dx": -11.8,
+      "dy": -14.9,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.76
+    },
+    {
+      "dx": 1.7,
+      "dy": -14.8,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.76
+    },
+    {
+      "dx": 1.0,
+      "dy": -16.9,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.69
+    },
+    {
+      "dx": -1.3,
+      "dy": -15.9,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.73
+    },
+    {
+      "dx": -0.2,
+      "dy": -12.5,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.7
+    },
+    {
+      "dx": 3.5,
+      "dy": -12.4,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.71
+    },
+    {
+      "dx": 2.6,
+      "dy": -16.4,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.59
+    },
+    {
+      "dx": 3.2,
+      "dy": -15.1,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.76
+    },
+    {
+      "dx": 3.7,
+      "dy": -13.8,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.9
+    },
+    {
+      "dx": -6.1,
+      "dy": 0.4,
+      "hard": true,
+      "kind": "mega_column",
+      "scale_mult": 0.59
+    },
+    {
+      "dx": -6.5,
+      "dy": 0.5,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.93
+    },
+    {
+      "dx": -6.5,
+      "dy": 0.1,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.81
+    },
+    {
+      "dx": -6.7,
+      "dy": -0.4,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.64
+    },
+    {
+      "dx": -6.3,
+      "dy": 1.2,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.85
+    },
+    {
+      "dx": -4.8,
+      "dy": -0.4,
+      "hard": false,
+      "kind": "filament",
+      "scale_mult": 0.9
+    },
+    {
+      "dx": -0.3,
+      "dy": 4.4,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.61
+    },
+    {
+      "dx": -8.7,
+      "dy": 6.0,
+      "hard": false,
+      "kind": "twig_scatter",
+      "scale_mult": 0.66
+    },
+    {
+      "dx": -6.1,
+      "dy": 0.4,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.74
+    },
+    {
+      "dx": -8.6,
+      "dy": 0.5,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.77
+    },
+    {
+      "dx": -4.7,
+      "dy": 1.5,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.93
+    },
+    {
+      "dx": -4.5,
+      "dy": -1.6,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.76
+    },
+    {
+      "dx": -4.5,
+      "dy": -3.4,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.82
+    },
+    {
+      "dx": -6.4,
+      "dy": 4.9,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.85
+    },
+    {
+      "dx": -8.0,
+      "dy": -1.8,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.6
+    },
+    {
+      "dx": -8.0,
+      "dy": -2.6,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.68
+    },
+    {
+      "dx": 11.3,
+      "dy": -1.9,
+      "hard": true,
+      "kind": "column",
+      "scale_mult": 0.8
+    },
+    {
+      "dx": 11.9,
+      "dy": -1.6,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.84
+    },
+    {
+      "dx": 11.5,
+      "dy": -1.0,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.86
+    },
+    {
+      "dx": 12.8,
+      "dy": 3.6,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.65
+    },
+    {
+      "dx": 11.6,
+      "dy": -7.0,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.81
+    },
+    {
+      "dx": 10.0,
+      "dy": -0.8,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.67
+    },
+    {
+      "dx": 13.5,
+      "dy": -0.9,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.86
+    },
+    {
+      "dx": -13.3,
+      "dy": 13.1,
+      "hard": true,
+      "kind": "giant_fungus",
+      "scale_mult": 0.86
+    },
+    {
+      "dx": -12.4,
+      "dy": 15.1,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.96
+    },
+    {
+      "dx": 0.4,
+      "dy": 13.8,
+      "hard": true,
+      "kind": "mega_column",
+      "scale_mult": 0.92
+    },
+    {
+      "dx": 0.1,
+      "dy": 14.3,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.7
+    },
+    {
+      "dx": 0.5,
+      "dy": 14.5,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.68
+    },
+    {
+      "dx": 0.4,
+      "dy": 13.0,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.64
+    },
+    {
+      "dx": 0.7,
+      "dy": 13.8,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.92
+    },
+    {
+      "dx": 1.9,
+      "dy": 14.6,
+      "hard": false,
+      "kind": "filament",
+      "scale_mult": 0.64
+    },
+    {
+      "dx": 1.8,
+      "dy": 14.5,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.75
+    },
+    {
+      "dx": 2.1,
+      "dy": 14.7,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.71
+    },
+    {
+      "dx": 3.4,
+      "dy": 15.5,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.61
+    },
+    {
+      "dx": 2.5,
+      "dy": 14.5,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.94
+    },
+    {
+      "dx": 1.3,
+      "dy": 9.8,
+      "hard": false,
+      "kind": "twig_scatter",
+      "scale_mult": 0.83
+    },
+    {
+      "dx": 5.3,
+      "dy": 12.1,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.61
+    },
+    {
+      "dx": 3.5,
+      "dy": 15.8,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.89
+    },
+    {
+      "dx": 4.5,
+      "dy": 15.6,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.83
+    },
+    {
+      "dx": 4.2,
+      "dy": 15.3,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.75
+    },
+    {
+      "dx": 4.0,
+      "dy": 16.4,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.8
+    },
+    {
+      "dx": 4.3,
+      "dy": 15.9,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.87
+    },
+    {
+      "dx": 9.0,
+      "dy": 16.5,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.95
+    },
+    {
+      "dx": -1.6,
+      "dy": 12.3,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.79
+    },
+    {
+      "dx": -2.0,
+      "dy": 12.8,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.73
+    },
+    {
+      "dx": -1.3,
+      "dy": 12.7,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.65
+    },
+    {
+      "dx": -2.5,
+      "dy": 12.4,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.96
+    },
+    {
+      "dx": 2.5,
+      "dy": 9.9,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.58
+    },
+    {
+      "dx": -3.0,
+      "dy": 12.1,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.66
+    },
+    {
+      "dx": -3.6,
+      "dy": 12.1,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.76
+    },
+    {
+      "dx": -3.0,
+      "dy": 11.0,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.87
+    },
+    {
+      "dx": -2.6,
+      "dy": 11.6,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.95
+    },
+    {
+      "dx": -3.7,
+      "dy": 12.0,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.77
+    },
+    {
+      "dx": -0.8,
+      "dy": 15.5,
+      "hard": false,
+      "kind": "twig_scatter",
+      "scale_mult": 0.77
+    },
+    {
+      "dx": -0.7,
+      "dy": 14.4,
+      "hard": false,
+      "kind": "moss_patch",
+      "scale_mult": 0.66
+    },
+    {
+      "dx": 7.5,
+      "dy": 13.8,
+      "hard": false,
+      "kind": "bone_pile",
+      "scale_mult": 0.61
+    },
+    {
+      "dx": -2.6,
+      "dy": 13.8,
+      "hard": false,
+      "kind": "filament",
+      "scale_mult": 0.92
+    },
+    {
+      "dx": -3.5,
+      "dy": 15.1,
+      "hard": false,
+      "kind": "filament",
+      "scale_mult": 0.63
+    },
+    {
+      "dx": -3.3,
+      "dy": 12.9,
+      "hard": false,
+      "kind": "filament",
+      "scale_mult": 0.66
+    },
+    {
+      "dx": 0.4,
+      "dy": 13.8,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.87
+    },
+    {
+      "dx": 1.9,
+      "dy": 14.0,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.85
+    },
+    {
+      "dx": 1.4,
+      "dy": 12.3,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.88
+    },
+    {
+      "dx": 2.3,
+      "dy": 12.4,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.86
+    },
+    {
+      "dx": 0.2,
+      "dy": 17.8,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.86
+    },
+    {
+      "dx": -1.5,
+      "dy": 10.9,
+      "hard": false,
+      "kind": "ceiling_moss",
+      "scale_mult": 0.65
+    },
+    {
+      "dx": 18.6,
+      "dy": 0.5,
+      "hard": true,
+      "kind": "stalagmite",
+      "scale_mult": 0.8
+    },
+    {
+      "dx": 18.4,
+      "dy": 0.1,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.83
+    },
+    {
+      "dx": 18.1,
+      "dy": 0.6,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.64
+    },
+    {
+      "dx": -6.8,
+      "dy": -13.6,
+      "hard": true,
+      "kind": "stalagmite",
+      "scale_mult": 0.7
+    },
+    {
+      "dx": -5.9,
+      "dy": -13.9,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.83
+    },
+    {
+      "dx": -6.3,
+      "dy": -12.8,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.62
+    },
+    {
+      "dx": 11.7,
+      "dy": 14.2,
+      "hard": true,
+      "kind": "stalagmite",
+      "scale_mult": 0.9
+    },
+    {
+      "dx": 12.1,
+      "dy": 13.9,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.94
+    },
+    {
+      "dx": 12.4,
+      "dy": 14.9,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.95
+    },
+    {
+      "dx": 10.8,
+      "dy": 14.2,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.72
+    },
+    {
+      "dx": 0.9,
+      "dy": -7.1,
+      "hard": true,
+      "kind": "stalagmite",
+      "scale_mult": 0.88
+    },
+    {
+      "dx": 0.9,
+      "dy": -7.4,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.68
+    },
+    {
+      "dx": 0.3,
+      "dy": -7.4,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.84
+    },
+    {
+      "dx": -1.4,
+      "dy": 13.2,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.77
+    },
+    {
+      "dx": 10.6,
+      "dy": 6.3,
+      "hard": false,
+      "kind": "grass_tuft",
+      "scale_mult": 0.7
+    },
+    {
+      "dx": 7.5,
+      "dy": -18.2,
+      "hard": false,
+      "kind": "rubble",
+      "scale_mult": 0.65
+    },
+    {
+      "dx": -13.9,
+      "dy": 12.3,
+      "hard": false,
+      "kind": "cave_gravel",
+      "scale_mult": 0.76
+    }
+  ],
+  "name": "captured_1776383483",
+  "weight": 1
+}

@@ -1,0 +1,97 @@
+{
+  "_comment": "Attack/spell definitions. Loaded by core.systems.attack_lib. Formulas: dice=[num,sides], stat=actor attribute to add (str_/dex/wil/null), const=flat bonus. target_stat: attribute on target the hit roll must meet.",
+
+  "strike": {
+    "verb": "attack", "element": "physical",
+    "hit_formula":    {"dice": [1, 20], "stat": "str_", "const": 0},
+    "damage_formula": {"dice": [1, 6],  "stat": "str_", "const": 0},
+    "target_stat": "defense",
+    "status": null
+  },
+  "heavy_strike": {
+    "verb": "skill", "element": "physical",
+    "hit_formula":    {"dice": [1, 20], "stat": "str_", "const": -2},
+    "damage_formula": {"dice": [2, 6],  "stat": "str_", "const": 0},
+    "target_stat": "defense",
+    "status": null
+  },
+
+  "fire_bolt": {
+    "verb": "magic", "element": "fire",
+    "hit_formula":    {"dice": [1, 20], "stat": "wil", "const": 0},
+    "damage_formula": {"dice": [1, 6],  "stat": "wil", "const": 0},
+    "target_stat": "wil",
+    "status": null
+  },
+  "ice_shard": {
+    "verb": "magic", "element": "ice",
+    "hit_formula":    {"dice": [1, 20], "stat": "wil", "const": 0},
+    "damage_formula": {"dice": [1, 6],  "stat": "wil", "const": 0},
+    "target_stat": "wil",
+    "status": null
+  },
+  "electric_arc": {
+    "verb": "magic", "element": "electric",
+    "hit_formula":    {"dice": [1, 20], "stat": "wil", "const": 0},
+    "damage_formula": {"dice": [1, 8],  "stat": "wil", "const": 0},
+    "target_stat": "wil",
+    "status": null
+  },
+  "light_beam": {
+    "verb": "magic", "element": "light",
+    "hit_formula":    {"dice": [1, 20], "stat": "wil", "const": 0},
+    "damage_formula": {"dice": [1, 4],  "stat": "wil", "const": 2},
+    "target_stat": "wil",
+    "status": null
+  },
+
+  "rat_bite": {
+    "verb": "attack", "element": "physical",
+    "hit_formula":    {"dice": [1, 20], "stat": "str_", "const": 0},
+    "damage_formula": {"dice": [1, 3],  "stat": null,   "const": 1},
+    "target_stat": "defense",
+    "status": null
+  },
+  "rat_ice_bite": {
+    "verb": "attack", "element": "ice",
+    "hit_formula":    {"dice": [1, 20], "stat": "str_", "const": 0},
+    "damage_formula": {"dice": [1, 3],  "stat": null,   "const": 2},
+    "target_stat": "defense",
+    "status": null
+  },
+  "rat_fire_bite": {
+    "verb": "attack", "element": "fire",
+    "hit_formula":    {"dice": [1, 20], "stat": "str_", "const": 0},
+    "damage_formula": {"dice": [1, 3],  "stat": null,   "const": 2},
+    "target_stat": "defense",
+    "status": null
+  },
+  "bat_nip": {
+    "verb": "attack", "element": "physical",
+    "hit_formula":    {"dice": [1, 20], "stat": "dex",  "const": 0},
+    "damage_formula": {"dice": [1, 2],  "stat": null,   "const": 0},
+    "target_stat": "defense",
+    "status": null
+  },
+  "spider_venom": {
+    "verb": "attack", "element": "physical",
+    "hit_formula":    {"dice": [1, 20], "stat": "str_", "const": 0},
+    "damage_formula": {"dice": [1, 4],  "stat": null,   "const": 1},
+    "target_stat": "defense",
+    "status": "poison"
+  },
+  "slime_splash": {
+    "verb": "attack", "element": "physical",
+    "hit_formula":    {"dice": [1, 20], "stat": "str_", "const": 0},
+    "damage_formula": {"dice": [1, 3],  "stat": null,   "const": 0},
+    "target_stat": "defense",
+    "status": null
+  },
+  "beetle_mandibles": {
+    "verb": "attack", "element": "physical",
+    "hit_formula":    {"dice": [1, 20], "stat": "str_", "const": 1},
+    "damage_formula": {"dice": [1, 6],  "stat": "str_", "const": 0},
+    "target_stat": "defense",
+    "status": null
+  }
+}

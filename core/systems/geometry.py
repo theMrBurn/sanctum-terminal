@@ -1601,7 +1601,8 @@ def make_ring(w, h, d, color, segments=16):
 
 # -- Rock (noise-displaced sphere with flat base) -----------------------------
 
-def make_rock(w, h, d, color, rings=8, segments=10, seed=0, roughness=0.3):
+def make_rock(w, h, d, color, rings=8, segments=10, seed=0, roughness=0.3,
+              erosion=None):
     """Irregular rock — displaced sphere with flattened base.
 
     Unlike make_sphere, vertices are displaced by seeded noise so no two
@@ -1609,10 +1610,26 @@ def make_rock(w, h, d, color, rings=8, segments=10, seed=0, roughness=0.3):
 
     w/h/d = approximate radii per axis.
     roughness = 0.0 (smooth sphere) to 1.0 (very jagged).
+    erosion = optional dict with flare/groove params for column-style shapes:
+        flare_ratio: base width multiplier (e.g. 1.6 = 60% wider at ground)
+        flare_height_frac: what fraction of height gets the flare (0.25 = bottom 25%)
+        grooves: list of (angle, depth) for vertical erosion channels
+        groove_width: angular width of each groove in radians
     """
     rng = random.Random(seed)
     fmt = GeomVertexFormat.getV3c4()
     r, g, b = color
+
+    # Unpack erosion params if provided
+    flare_ratio = 1.0
+    flare_height_frac = 0.0
+    grooves = []
+    groove_width = 0.4
+    if erosion:
+        flare_ratio = erosion.get("flare_ratio", 1.0)
+        flare_height_frac = erosion.get("flare_height_frac", 0.0)
+        grooves = erosion.get("grooves", [])
+        groove_width = erosion.get("groove_width", 0.4)
 
     # Pre-compute displaced vertex positions on a sphere grid
     # Each vertex gets a seeded noise offset
@@ -1647,6 +1664,36 @@ def make_rock(w, h, d, color, rings=8, segments=10, seed=0, roughness=0.3):
             # Flatten bottom hemisphere — squash Z below equator
             if sz < 0:
                 sz *= 0.2  # squash to 20% — creates flat base
+
+            # -- Erosion: base flare --
+            # height_t: 0.0 at bottom (sz<=0), 1.0 at top (sz=h)
+            if flare_ratio > 1.0 and h > 0.01:
+                height_t = max(0.0, sz) / h  # 0 at base, 1 at top
+                if height_t < flare_height_frac:
+                    # Cosine ease from flare_ratio down to 1.0
+                    flare_t = 1.0 - (height_t / flare_height_frac)
+                    flare = 1.0 + (flare_ratio - 1.0) * (0.5 + 0.5 * math.cos(math.pi * (1.0 - flare_t)))
+                    sx *= flare
+                    sy *= flare
+
+            # -- Erosion: vertical grooves --
+            # Carve inward channels at specific angles along the stem
+            for g_angle, g_depth in grooves:
+                # How close is this vertex's angle to the groove angle?
+                angle_diff = abs(theta - g_angle)
+                if angle_diff > math.pi:
+                    angle_diff = 2.0 * math.pi - angle_diff
+                if angle_diff < groove_width:
+                    # Smooth groove profile (deepest at center)
+                    groove_t = 1.0 - (angle_diff / groove_width)
+                    groove_t = groove_t * groove_t  # quadratic falloff
+                    # Only carve the stem, not the flared base
+                    height_t = max(0.0, sz) / max(h, 0.01)
+                    stem_mask = min(1.0, height_t / max(flare_height_frac, 0.01))
+                    carve = g_depth * groove_t * stem_mask
+                    if radius_here > 0.01:
+                        sx -= (sx / radius_here) * carve * radius_here
+                        sy -= (sy / radius_here) * carve * radius_here
 
             ring_row.append((sx, sy, sz))
         positions.append(ring_row)

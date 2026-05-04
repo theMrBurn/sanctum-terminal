@@ -24,17 +24,29 @@ from panda3d.core import (
     SamplerState,
 )
 from core.systems.geometry import make_box, make_sphere, make_bevel_box, make_pebble_cluster, make_rock
+# Companion recipes — single source of truth lives in biome_data so the
+# brain pipeline (tile_exchange / world_gen) and the legacy spawn() path
+# both read the same affinity recipes. ambient_life used to define a
+# duplicate dict; removed in the affinity-driven refactor.
+from core.systems.biome_data import (
+    COMPANION_SPAWNS, OUTDOOR_COMPANION_SPAWNS,
+)
 from core.systems.glow_decal import make_glow_decal, get_glow_texture, make_light_shaft, get_shaft_texture, make_glow_halo
 
 
 # -- Biome state (set by cavern.py at init) ------------------------------------
-_active_biome = "cavern"
-
-
-def set_active_biome(biome):
-    """Called by cavern.py to configure biome-dependent builders."""
-    global _active_biome
-    _active_biome = biome
+# Single source of truth lives in `core.systems.spectrum`. This module
+# re-exports the API for legacy / tooling consumers that still import
+# from ambient_life directly. The live brain pipeline imports straight
+# from `core.systems.spectrum` to avoid pulling panda3d in via this
+# file's module-top imports.
+from core.systems.spectrum import (  # noqa: E402
+    set_active_biome,
+    SPECTRUM_PROFILES,
+    OUTDOOR_SPECTRUM_PROFILES,
+    SpectrumEngine,
+)
+import core.systems.spectrum as _spectrum_module  # noqa: E402
 
 
 # -- Behavior definitions -----------------------------------------------------
@@ -464,183 +476,21 @@ def overlap_z(parent_h, child_h):
     return parent_h * (1.0 - OVERLAP_FACTOR) - child_h * 0.1
 
 
-# Companion spawns — objects that cluster near other objects.
-# When a base object spawns, also spawn N companions at random positions around it.
-# Grass grows near boulders, columns, moss. Not near crystals (too harsh).
-COMPANION_SPAWNS = {
-    "boulder":    {"grass_tuft": 1, "radius": 4.0},
-    "column":     {"grass_tuft": 1, "radius": 5.0},
-    "moss_patch": {"grass_tuft": 1, "radius": 2.0},
-    "dead_log":   {"grass_tuft": 1, "radius": 2.5},
-    "stalagmite": {"grass_tuft": 1, "radius": 3.0},
-}
-
-# Outdoor: anchor objects pull PNW ecosystem companions
-# Companion counts reduced — each costs a tick slot. Density table handles volume.
-OUTDOOR_COMPANION_SPAWNS = {
-    "mega_column": {"moss_patch": 1, "grass_tuft": 1, "radius": 8.0},   # Doug fir base
-    "column":      {"grass_tuft": 1, "radius": 4.0},                    # tree trunk base
-    "boulder":     {"grass_tuft": 1, "radius": 4.0},                    # fern understory
-    "dead_log":    {"moss_patch": 1, "radius": 3.0},                    # nurse log
-    "giant_fungus": {"grass_tuft": 1, "radius": 3.5},                   # bush ground cover
-}
+# Companion spawns moved to biome_data.COMPANION_SPAWNS / OUTDOOR_COMPANION_SPAWNS
+# with the affinity-driven recipe shape (pool + weights + spawn_chance +
+# radius_range). Consumed via biome_config("companions") inside spawn().
+# These two top-level dicts used to live here as a duplicate source — they
+# were never read at this scope (the consumer always went through
+# biome_config) so removing them is dead-code cleanup.
 
 
 # -- Spectrum system -----------------------------------------------------------
-# Polyrhythmic hue drift + prismatic facet offsets.
-# One class handles both: spectrum_drift for the whole entity,
-# prismatic_offset for per-shard variation within a cluster.
-#
-# Config-as-code: swap the frequency table and you get a different biome feel.
+# Moved to `core/systems/spectrum.py` (panda3d-free) so the live brain
+# pipeline doesn't pull panda3d via this module's top-level imports.
+# SPECTRUM_PROFILES, OUTDOOR_SPECTRUM_PROFILES, SpectrumEngine, and
+# set_active_biome are re-exported at module top for legacy callers.
+# New spectrum profiles or engine changes go in `spectrum.py`.
 
-SPECTRUM_PROFILES = {
-    "fungus": {
-        "base_hue": (0.22, 0.06, 0.30),
-        "drift_range": 0.18,
-        "channels": [
-            {"freq": 0.017, "amp": 1.0},    # ~60s full cycle
-            {"freq": 0.011, "amp": 0.6},    # ~90s, polyrhythmic offset
-            {"freq": 0.007, "amp": 0.3},    # ~140s, deep slow drift
-        ],
-    },
-    "crystal": {
-        "base_hue": (0.15, 0.18, 0.35),
-        "drift_range": 0.12,
-        "channels": [
-            {"freq": 0.013, "amp": 1.0},    # ~77s cycle
-            {"freq": 0.0087, "amp": 0.5},   # ~115s
-            {"freq": 0.0053, "amp": 0.25},  # ~188s
-        ],
-        "prismatic": True,                   # per-shard facet offsets
-        "facet_spread": 0.12,                # ±12% channel offset per shard
-    },
-    "moss": {
-        "base_hue": (0.08, 0.35, 0.06),
-        "drift_range": 0.10,
-        "channels": [
-            {"freq": 0.009, "amp": 1.0},    # ~111s — slowest, most organic
-            {"freq": 0.006, "amp": 0.4},    # ~167s
-        ],
-    },
-    "ceiling_moss": {
-        "base_hue": (0.80, 0.55, 0.15),
-        "drift_range": 0.08,
-        "channels": [
-            {"freq": 0.012, "amp": 1.0},
-            {"freq": 0.0073, "amp": 0.5},
-        ],
-    },
-}
-
-# -- Outdoor spectrum profiles — same drift engine, PNW palette ----------------
-# Bioluminescence → natural light. Slower drift = weather/wind, not metabolism.
-OUTDOOR_SPECTRUM_PROFILES = {
-    "fungus": {  # giant_fungus → large bush / rhododendron
-        "base_hue": (0.12, 0.28, 0.08),    # forest green
-        "drift_range": 0.08,                 # subtle — wind, not glow
-        "channels": [
-            {"freq": 0.008, "amp": 1.0},    # ~125s — breeze cycle
-            {"freq": 0.005, "amp": 0.4},    # ~200s — slow sway
-        ],
-    },
-    "crystal": {  # crystal_cluster → flowering shrub / wildflower
-        "base_hue": (0.35, 0.20, 0.12),    # warm flower
-        "drift_range": 0.10,
-        "channels": [
-            {"freq": 0.010, "amp": 1.0},    # ~100s
-            {"freq": 0.006, "amp": 0.5},    # ~167s
-        ],
-        "prismatic": True,                   # per-petal color variation
-        "facet_spread": 0.08,
-    },
-    "moss": {  # moss_patch → natural ground moss
-        "base_hue": (0.06, 0.22, 0.04),    # deep natural green
-        "drift_range": 0.05,                 # almost static — moss doesn't move
-        "channels": [
-            {"freq": 0.004, "amp": 1.0},    # ~250s — moisture cycle
-        ],
-    },
-    "sunlight": {  # outdoor-only — dappled sun on forest floor
-        "base_hue": (0.45, 0.38, 0.15),    # warm gold
-        "drift_range": 0.12,                 # cloud shadows passing
-        "channels": [
-            {"freq": 0.015, "amp": 1.0},    # ~67s — cloud drift
-            {"freq": 0.009, "amp": 0.6},    # ~111s — canopy sway
-            {"freq": 0.004, "amp": 0.3},    # ~250s — time of day
-        ],
-    },
-}
-
-
-class SpectrumEngine:
-    """Polyrhythmic hue drift + prismatic facet offsets.
-
-    Each bio-lit entity gets a phase (from seed) and drifts through
-    a color gradient on overlapping sine waves. No two entities sync.
-
-    Prismatic mode (crystals): per-shard offsets on top of the drift,
-    so facets shimmer independently while the cluster moves as a family.
-
-    LUT mode: pre-computed 256-entry sine table. Zero trig at runtime.
-    Saturn/PS1 trick — index into a table instead of calling sin().
-    """
-    # Pre-computed sine LUT — 256 entries covering 0..2π
-    _SIN_LUT = [math.sin(i * 2.0 * math.pi / 256.0) for i in range(256)]
-
-    @staticmethod
-    def phase_for_seed(seed):
-        """Deterministic phase offset from entity seed — desynchronizes all entities."""
-        return (seed * 0.618033) % (2.0 * math.pi)  # golden ratio scatter
-
-    @staticmethod
-    def drift(profile_name, elapsed, seed):
-        """Calculate hue shift for an entity at a given time.
-
-        Returns (r_shift, g_shift, b_shift) to ADD to base colorScale.
-        Uses LUT lookup instead of math.sin() — zero trig per frame.
-        """
-        profile = biome_config("spectrum").get(profile_name)
-        if not profile:
-            return (0, 0, 0)
-        phase = SpectrumEngine.phase_for_seed(seed)
-        lut = SpectrumEngine._SIN_LUT
-        total = 0.0
-        for ch in profile["channels"]:
-            # LUT index: map continuous angle to 0-255
-            idx = int((elapsed * ch["freq"] + phase * 0.15915494) * 256.0) & 0xFF
-            total += lut[idx] * ch["amp"]
-        # Normalize to [-1, 1] range then scale by drift_range
-        max_amp = sum(ch["amp"] for ch in profile["channels"])
-        if max_amp > 0:
-            total /= max_amp
-        dr = profile["drift_range"]
-        # Shift each channel differently for organic color movement
-        r_shift = total * dr
-        g_shift = total * dr * 0.7   # green shifts less — keeps warmth
-        b_shift = total * dr * 1.2   # blue shifts more — cool/warm oscillation
-        return (r_shift, g_shift, b_shift)
-
-    @staticmethod
-    def prismatic_offset(seed, shard_index, profile_name="crystal"):
-        """Per-shard color offset for prismatic crystals.
-
-        Shard 0 (king) stays true. Others shift ± on one channel.
-        Returns (r_off, g_off, b_off) to ADD to shard colorScale.
-        """
-        profile = biome_config("spectrum").get(profile_name, {})
-        if shard_index == 0 or not profile.get("prismatic"):
-            return (0, 0, 0)
-        spread = profile.get("facet_spread", 0.10)
-        rng = random.Random(seed + shard_index * 73)
-        # Pick one dominant channel to shift — reads as prismatic refraction
-        channel = rng.randint(0, 2)
-        amount = rng.uniform(-spread, spread)
-        offsets = [0.0, 0.0, 0.0]
-        offsets[channel] = amount
-        # Subtle complementary shift on another channel
-        other = (channel + 1) % 3
-        offsets[other] = -amount * 0.3
-        return tuple(offsets)
 
 MATERIAL_RATIOS = {
     "stone_heavy":  0.80,   # finer than base — dense packed mineral
@@ -983,8 +833,14 @@ BIOME_REGISTRY = {
 
 
 def biome_config(key):
-    """Look up biome-specific config. Falls back to cavern."""
-    return BIOME_REGISTRY.get(_active_biome, BIOME_REGISTRY["cavern"])[key]
+    """Look up biome-specific config. Falls back to cavern.
+
+    Reads the active biome from `core.systems.spectrum` — single
+    source of truth after the spectrum extraction. Legacy callers
+    that import biome_config still go through this same path.
+    """
+    biome = _spectrum_module._active_biome
+    return BIOME_REGISTRY.get(biome, BIOME_REGISTRY["cavern"])[key]
 
 
 # -- Entity builders ----------------------------------------------------------
@@ -1321,7 +1177,7 @@ def build_boulder(parent, seed=0):
             color = _cavern_color("stone", rng, 0.03)
             slab = root.attachNewNode(make_rock(
                 slab_w, slab_h, sd * 0.5, color,
-                rings=5, segments=8, seed=seed + si * 31,
+                rings=8, segments=10, seed=seed + si * 31,
                 roughness=rng.uniform(0.25, 0.45),
             ))
             slab.setPos(rng.uniform(-0.3, 0.3), rng.uniform(-0.2, 0.2), z)
@@ -1333,7 +1189,7 @@ def build_boulder(parent, seed=0):
         color = _cavern_color("stone", rng, 0.03)
         mass = root.attachNewNode(make_rock(
             base_width * 0.5, total_height * 0.5 * vis_compensate, base_depth * 0.5, color,
-            rings=6, segments=8, seed=seed,
+            rings=10, segments=12, seed=seed,
             roughness=rng.uniform(0.30, 0.50),  # higher roughness = eroded character
         ))
         mass.setPos(0, 0, 0)
@@ -1353,42 +1209,186 @@ def build_boulder(parent, seed=0):
     return root
 
 
-def build_grass_tuft(parent, seed=0):
-    """Cave grass clump — dense cluster of blades from multiple growth points.
+def _build_mushroom_cap(radius, dome_h, top_color, under_color,
+                        segments=14, rings=6, seed=0, rng=None):
+    """Mushroom cap — convex dome top, concave gill underside, thin rim.
 
-    3-4 sub-clumps packed together, each with its own blade fan.
-    No gaps — reads as a thick patch of cave sedge, not scattered sticks.
-    Similar density pattern to crystal satellites or fungus clusters.
+    Cross-section is eye-shaped. Top surface curves upward from rim to
+    center peak. Underside curves downward (concave) from rim to stem hole.
+    Rim edge is thin and extends well past the stem. Two separate surfaces
+    so the underside can be darker (gill shadow).
+    """
+    from panda3d.core import (GeomVertexFormat, GeomVertexData,
+                              GeomVertexWriter, GeomTriangles, Geom, GeomNode)
+    if rng is None:
+        rng = random.Random(seed)
+    fmt = GeomVertexFormat.getV3c4()
+    # Total verts: top dome + underside = 2 × (rings+1) × (segments+1)
+    n_verts = 2 * (rings + 1) * (segments + 1)
+    vdata = GeomVertexData("mushcap", fmt, Geom.UHStatic)
+    vdata.setNumRows(n_verts)
+    vw = GeomVertexWriter(vdata, "vertex")
+    cw = GeomVertexWriter(vdata, "color")
+    tris = GeomTriangles(Geom.UHStatic)
+
+    tr, tg, tb = top_color
+    ur, ug, ub = under_color
+    rim_droop = dome_h * rng.uniform(0.2, 0.5)  # how much rim droops below center
+
+    def _add_surface(z_func, color_r, color_g, color_b, vi_start, flip=False):
+        """Generate one surface (top or underside) as a radial mesh."""
+        vi = vi_start
+        for ri in range(rings + 1):
+            t = ri / rings  # 0=center, 1=rim
+            r = radius * t
+            for si in range(segments + 1):
+                angle = 2.0 * math.pi * si / segments
+                x = r * math.cos(angle)
+                y = r * math.sin(angle)
+                z = z_func(t)
+                # Slight noise for organic feel
+                noise = rng.uniform(-0.02, 0.02) * dome_h
+                vw.addData3(x, y, z + noise)
+                shade = 0.8 + 0.2 * (1.0 - t)  # brighter at center
+                cw.addData4(color_r * shade, color_g * shade, color_b * shade, 1.0)
+                vi += 1
+        # Triangulate
+        for ri in range(rings):
+            for si in range(segments):
+                row = segments + 1
+                a = vi_start + ri * row + si
+                b = a + 1
+                c = a + row
+                d = c + 1
+                if flip:
+                    tris.addVertices(a, c, b)
+                    tris.addVertices(b, c, d)
+                else:
+                    tris.addVertices(a, b, c)
+                    tris.addVertices(b, d, c)
+        return vi
+
+    # Top dome: center peaks at dome_h, rim droops to -rim_droop.
+    # Smooth cosine curve for natural dome shape.
+    def top_z(t):
+        return dome_h * math.cos(t * math.pi * 0.5) - rim_droop * t * t
+
+    # Underside: concave, center is at 0 (stem hole), rim meets top rim.
+    # Curves downward then back up to rim edge.
+    def under_z(t):
+        rim_z = top_z(1.0)
+        return rim_z * t * t - dome_h * 0.15 * (1.0 - t)  # concave scoop
+
+    vi = 0
+    vi = _add_surface(top_z, tr, tg, tb, vi, flip=False)
+    vi = _add_surface(under_z, ur, ug, ub, vi, flip=True)
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    gn = GeomNode("mushcap")
+    gn.addGeom(geom)
+    return gn
+
+
+def _make_crossed_quad(w, h, color, seed=0, crosses=3):
+    """Paired grass blades — criss-cross pattern side by side.
+
+    Each "cross" is a PAIR of blades placed next to each other,
+    leaning in opposite directions at mirrored angles. Not intersecting
+    at center like a Christmas tree — offset and fanning outward like
+    real grass clumps. Each blade is a tapered quad (wide base, pointed tip).
+    ~12 verts per pair.
+    """
+    from panda3d.core import (GeomVertexFormat, GeomVertexData,
+                              GeomVertexWriter, GeomTriangles, Geom, GeomNode)
+    rng = random.Random(seed)
+    fmt = GeomVertexFormat.getV3c4()
+    r, g, b = color
+    # Each cross = 2 blades (a mirrored pair), each blade = 2 tris = 6 verts
+    vdata = GeomVertexData("xgrass", fmt, Geom.UHStatic)
+    vdata.setNumRows(crosses * 12)
+    vw = GeomVertexWriter(vdata, "vertex")
+    cw = GeomVertexWriter(vdata, "color")
+    tris = GeomTriangles(Geom.UHStatic)
+    vi = 0
+
+    for ci in range(crosses):
+        # Base angle for this pair — spread evenly with jitter
+        base_angle = math.pi * ci / crosses + rng.uniform(-0.4, 0.4)
+        # Blade dimensions
+        blade_h = h * rng.uniform(0.7, 1.0)
+        hw = w * 0.5  # half-width at base
+        taper = rng.uniform(0.05, 0.15)  # narrow pointed tip
+        tw = hw * taper
+        # Lean angle — how far each blade tips from vertical
+        lean = rng.uniform(0.15, 0.40)  # radians, moderate lean
+        # Spacing — how far apart the two blades sit
+        spacing = w * rng.uniform(0.8, 1.5)
+
+        for side in (-1, 1):  # mirror pair
+            angle = base_angle + side * rng.uniform(0.3, 0.6)
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            # Offset from center — blades sit side by side, not on top
+            ox = cos_a * spacing * side * 0.5
+            oy = sin_a * spacing * side * 0.5
+            # Lean: tip leans outward from pair center
+            lean_x = cos_a * lean * blade_h * side
+            lean_y = sin_a * lean * blade_h * side
+            # Per-blade brightness variation
+            shade = rng.uniform(0.80, 1.0)
+            cr, cg, cb = r * shade, g * shade, b * shade
+            # Quad verts: base is perpendicular to blade direction
+            perp_x, perp_y = -sin_a, cos_a
+            bl = (ox - perp_x * hw, oy - perp_y * hw, 0.0)
+            br = (ox + perp_x * hw, oy + perp_y * hw, 0.0)
+            tr = (ox + perp_x * tw + lean_x, oy + perp_y * tw + lean_y, blade_h)
+            tl = (ox - perp_x * tw + lean_x, oy - perp_y * tw + lean_y, blade_h)
+            for px, py, pz in (bl, br, tr, bl, tr, tl):
+                vw.addData3(px, py, pz)
+                h_frac = pz / max(blade_h, 0.01)
+                cw.addData4(cr * (0.7 + 0.3 * h_frac),
+                            cg * (0.7 + 0.3 * h_frac),
+                            cb * (0.7 + 0.3 * h_frac), 1.0)
+                tris.addVertex(vi)
+                vi += 1
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    gn = GeomNode("xgrass")
+    gn.addGeom(geom)
+    return gn
+
+
+def build_grass_tuft(parent, seed=0):
+    """Cave grass — crossed billboard quads for cheap wide coverage.
+
+    Each scatter point is 2-3 crossed quads (~18 verts) instead of
+    hundreds of make_rock blades. Walk-by parallax from the intersection
+    angles. Dome profile: center crosses tall, edge crosses shorter.
+    ~100 verts per instance covers ~1.2m diameter.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"grass_{seed}")
-    # Multiple growth points packed together — no gaps
-    clump_count = rng.randint(3, 4)
-    for ci in range(clump_count):
-        clump_angle = rng.uniform(0, 360)
-        clump_dist = rng.uniform(0.0, 0.08)  # tight packing
-        cx = math.cos(math.radians(clump_angle)) * clump_dist
-        cy = math.sin(math.radians(clump_angle)) * clump_dist
-        blade_count = rng.randint(4, 8)
-        max_h = rng.uniform(0.15, 0.35)
-        for i in range(blade_count):
-            rank = i / blade_count
-            h = max_h * rng.uniform(0.4, 1.0 - rank * 0.3)
-            w = rng.uniform(0.006, 0.014)
-            color = _cavern_color("dead_organic", rng, 0.03)
-            blade = root.attachNewNode(make_rock(
-                w * 0.5, h * 0.4, w * 0.15, color,
-                rings=3, segments=3, seed=seed + ci * 100 + i * 19,
-                roughness=rng.uniform(0.1, 0.25),
-            ))
-            angle = rng.uniform(0, 360)
-            dist = rng.uniform(0.01, 0.05)
-            blade.setPos(cx + math.cos(math.radians(angle)) * dist,
-                         cy + math.sin(math.radians(angle)) * dist, h * 0.5)
-            blade.setH(angle + rng.uniform(-40, 40))
-            blade.setP(rng.uniform(-30, 30))
-            blade.setR(rng.uniform(-20, 20))
-        blade.setTwoSided(True)
+    patch_radius = 0.6
+    cross_count = rng.randint(8, 12)
+    for ci in range(cross_count):
+        angle = rng.uniform(0, 360)
+        dist = rng.uniform(0.0, patch_radius)
+        cx = math.cos(math.radians(angle)) * dist
+        cy = math.sin(math.radians(angle)) * dist
+        # Dome profile
+        edge_t = dist / patch_radius
+        dome_scale = 1.0 - edge_t * 0.6
+        dome_sink = edge_t * edge_t * -0.03
+        h = rng.uniform(0.12, 0.30) * dome_scale
+        w = rng.uniform(0.04, 0.08)
+        color = _cavern_color("dead_organic", rng, 0.03)
+        crosses = rng.choice([2, 3, 3])  # most get 3 crosses
+        cross = root.attachNewNode(_make_crossed_quad(
+            w, h, color, seed=seed + ci * 71, crosses=crosses))
+        cross.setPos(cx, cy, dome_sink)
+        cross.setH(rng.uniform(0, 360))
+        cross.setTwoSided(True)
     tex = get_material_texture("dry_organic", seed=seed)
     ts = TextureStage("mat")
     ts.setMode(TextureStage.MModulate)
@@ -1626,32 +1626,65 @@ def build_stalagmite(parent, seed=0):
 
 
 def build_column(parent, seed=0):
-    """Massive cave column — single connected make_rock per profile.
+    """Cave column — flared base, eroded stem, 1/3 connect floor-to-ceiling.
 
-    No multi-section gaps. One tall rock with roughness providing
-    the surface variation that reads as geological character.
-    Profiles control the width/depth/height ratios.
+    Profiles: pillar (standard), curtain (thin wall), connected (floor-to-ceiling),
+    broken (short stump). Connected columns reuse the same geometry stretched
+    tall enough to reach ceiling — primitive inversion, not a new mesh.
+
+    Erosion: per-ring radius modulation creates vertical grooves and bulges
+    that read as water-carved channels at close range and irregular silhouette
+    at distance. Base flare uses cosine falloff from ground level.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"column_{seed}")
 
-    profile = rng.choice(["pillar", "pillar", "curtain", "broken"])  # hourglass removed — gap source
-    total_height = rng.uniform(12.0, 20.0)
+    # 1/3 connected (floor-to-ceiling), rest split between pillar/curtain/broken
+    profile = rng.choice(["pillar", "pillar", "curtain", "broken",
+                          "connected", "connected", "connected"])
     base_radius = rng.uniform(1.5, 3.0)
 
-    if profile == "pillar":
+    if profile == "connected":
+        total_height = rng.uniform(22.0, 30.0)  # tall enough to reach ceiling
+        w = base_radius * 1.1
+        d = base_radius * rng.uniform(0.7, 1.0)
+        roughness = rng.uniform(0.20, 0.35)
+    elif profile == "pillar":
+        total_height = rng.uniform(12.0, 20.0)
         w = base_radius
         d = base_radius * rng.uniform(0.7, 1.0)
         roughness = rng.uniform(0.25, 0.45)
     elif profile == "curtain":
+        total_height = rng.uniform(12.0, 20.0)
         w = base_radius * rng.uniform(1.5, 2.5)
         d = base_radius * 0.3  # thin wall
         roughness = rng.uniform(0.15, 0.30)
     elif profile == "broken":
-        total_height *= rng.uniform(0.3, 0.5)
+        total_height = rng.uniform(12.0, 20.0) * rng.uniform(0.3, 0.5)
         w = base_radius
         d = base_radius * rng.uniform(0.6, 0.9)
         roughness = rng.uniform(0.35, 0.55)  # jagged top
+
+    # -- Base flare: widen the bottom 25% of the column --
+    # Stored as tag so make_rock can apply per-ring radius scaling.
+    # flare_ratio: how much wider the base is vs the stem (1.6 = 60% wider)
+    flare_ratio = rng.uniform(1.4, 1.8)
+    flare_height_frac = 0.25  # bottom quarter gets the flare
+
+    # -- Erosion grooves: per-segment angular modulation --
+    # 3-5 vertical channels carved into the stem
+    num_grooves = rng.randint(3, 5)
+    groove_angles = [rng.uniform(0, 2 * 3.14159) for _ in range(num_grooves)]
+    groove_depths = [rng.uniform(0.08, 0.15) for _ in range(num_grooves)]
+    groove_width = rng.uniform(0.3, 0.5)  # angular width of each groove
+
+    # Pack erosion params into a tag for make_rock_column
+    erosion = {
+        "flare_ratio": flare_ratio,
+        "flare_height_frac": flare_height_frac,
+        "grooves": list(zip(groove_angles, groove_depths)),
+        "groove_width": groove_width,
+    }
 
     mineral_bases = [
         (0.11, 0.11, 0.13),
@@ -1662,17 +1695,16 @@ def build_column(parent, seed=0):
     sv = rng.uniform(-0.02, 0.02)
     color = (base_color[0] + sv, base_color[1] + sv * 0.7, base_color[2] + sv * 0.5)
 
-    # Single connected rock — height compensated for bottom squash
     col = root.attachNewNode(make_rock(
         w, total_height * 0.5 * 1.6, d, color,
-        rings=10, segments=8, seed=seed,
+        rings=14, segments=12, seed=seed,
         roughness=roughness,
+        erosion=erosion,
     ))
     col.setPos(0, 0, 0)
     col.setTwoSided(True)
 
-    # Store actual width for collision scaling (curtains are wider than default)
-    root.setPythonTag("base_radius", max(w, d))
+    root.setPythonTag("base_radius", max(w, d) * flare_ratio)
 
     tex = get_material_texture("stone_light", seed=seed)
     ts = TextureStage("mat")
@@ -1719,7 +1751,7 @@ def build_mega_column(parent, seed=0):
 
     col = root.attachNewNode(make_rock(
         base_radius, render_height * 0.5 * 1.6, base_radius * depth_scale, color,
-        rings=8, segments=8, seed=seed, roughness=rng.uniform(0.2, 0.35),
+        rings=16, segments=14, seed=seed, roughness=rng.uniform(0.2, 0.35),
     ))
     col.setPos(0, 0, 0)
     col.setTwoSided(True)
@@ -1828,7 +1860,7 @@ def build_giant_fungus(parent, seed=0):
                 sy = math.sin(math.radians(angle)) * dist
             spire = root.attachNewNode(make_rock(
                 sr, sh * 0.45, sr * rng.uniform(0.6, 0.9), glow_color,
-                rings=5, segments=6, seed=seed + si * 41,
+                rings=8, segments=10, seed=seed + si * 41,
                 roughness=rng.uniform(0.20, 0.35),  # bulbous, not sharp
             ))
             spire.setPos(sx, sy, 0)
@@ -1848,44 +1880,70 @@ def build_giant_fungus(parent, seed=0):
             waist_r = base_r * rng.uniform(0.7, 0.9)
             cap_r = base_r * rng.uniform(0.4, 0.6)
 
-        # Bottom — stocky base, grounded
-        bottom_h = total_h * 0.4
+        # Stem — concave profile: wide base, pinched waist, flares at cap.
+        # Like a wine glass stem. Proportional to cap width (3x old).
+        stem_r = base_r * rng.uniform(0.9, 1.3)  # fat base, proportional to cap
+        stem_h = total_h * 0.7
+        lean_angle = rng.uniform(-8, 8)
+
+        # Bottom section — wide, grounded, flares outward at ground contact
+        bottom_r = stem_r * rng.uniform(1.1, 1.4)
+        bottom_h = stem_h * 0.4
         bottom = root.attachNewNode(make_rock(
-            base_r, bottom_h * 0.45, base_r * 0.85, stem_color,
-            rings=5, segments=7, seed=seed, roughness=rng.uniform(0.15, 0.25),
+            bottom_r, bottom_h * 0.45, bottom_r * 0.85, stem_color,
+            rings=8, segments=8, seed=seed, roughness=rng.uniform(0.10, 0.20),
         ))
         bottom.setPos(0, 0, 0)
+        bottom.setR(lean_angle)
         bottom.setTwoSided(True)
         bottom.setTexGen(ts, TexGenAttrib.MWorldPosition)
         bottom.setTexture(ts, tex)
         bottom.setTexScale(ts, sc, sc)
 
-        # Waist — overlaps into bottom via contact system
-        waist_h = total_h * 0.3
+        # Waist — pinched narrow section (concave profile)
+        waist_r_actual = stem_r * rng.uniform(0.5, 0.7)  # pinch
+        waist_h = stem_h * 0.3
         waist_z = overlap_z(bottom_h, waist_h)
         waist = root.attachNewNode(make_rock(
-            waist_r, waist_h * 0.45, waist_r * 0.8, glow_color,
-            rings=4, segments=6, seed=seed + 33, roughness=rng.uniform(0.12, 0.22),
+            waist_r_actual, waist_h * 0.45, waist_r_actual * 0.9, stem_color,
+            rings=6, segments=8, seed=seed + 33, roughness=rng.uniform(0.08, 0.15),
         ))
         waist.setPos(0, 0, waist_z)
+        waist.setR(lean_angle)
         waist.setTwoSided(True)
         waist.setTexGen(ts, TexGenAttrib.MWorldPosition)
         waist.setTexture(ts, tex)
         waist.setTexScale(ts, sc, sc)
-        waist.setLightOff()
-        waist.setColorScale(1.5, 0.5, 2.0, 1.0)
 
-        # Cap — sits directly on top of waist, overlapping into it
-        cap_h = total_h * 0.30  # taller cap, less disc-like
-        cap_z = waist_z + waist_h * 0.15  # physically inside waist top
-        cap = root.attachNewNode(make_rock(
-            cap_r, cap_h * 0.5, cap_r * 0.9, glow_color,
-            rings=4, segments=6, seed=seed + 99, roughness=rng.uniform(0.08, 0.18),
+        # Flare — widens again where stem meets cap underside
+        flare_r = stem_r * rng.uniform(0.8, 1.1)
+        flare_h = stem_h * 0.3
+        flare_z = waist_z + waist_h * 0.25
+        flare = root.attachNewNode(make_rock(
+            flare_r, flare_h * 0.45, flare_r * 1.1, glow_color,
+            rings=6, segments=8, seed=seed + 55, roughness=rng.uniform(0.10, 0.18),
         ))
-        cap.setPos(0, 0, cap_z)
-        cap.setTwoSided(True)
-        cap.setLightOff()
-        cap.setColorScale(2.0, 0.7, 2.5, 1.0)
+        flare.setPos(0, 0, flare_z)
+        flare.setR(lean_angle)
+        flare.setTwoSided(True)
+        flare.setLightOff()
+        flare.setColorScale(1.5, 0.5, 2.0, 1.0)
+
+        # Cap — convex dome on top, concave gill underneath, thin sharp rim.
+        # Cross-section is eye-shaped: top curves up, underside curves down,
+        # rim extends well past stem. Built as custom geometry, not make_rock.
+        cap_r_wide = base_r * rng.uniform(2.2, 3.5)
+        cap_dome_h = total_h * rng.uniform(0.12, 0.20)
+        cap_z = flare_z + flare_h * 0.65  # sit on TOP of stem — stem must be visible below
+        cap_node = _build_mushroom_cap(
+            cap_r_wide, cap_dome_h, glow_color, stem_color,
+            segments=14, rings=6, seed=seed + 99, rng=rng,
+        )
+        cap_np = root.attachNewNode(cap_node)
+        cap_np.setPos(0, 0, cap_z)
+        cap_np.setTwoSided(True)
+        cap_np.setLightOff()
+        cap_np.setColorScale(2.0, 0.7, 2.5, 1.0)
 
         # Satellites — lean outward from base, stems touching ground
         for ci in range(rng.randint(2, 5)):
@@ -1940,7 +1998,7 @@ def build_moss_patch(parent, seed=0):
         color = (0.06, 0.40 + green_v + rng.uniform(-0.03, 0.03), 0.08)
         blob = root.attachNewNode(make_rock(
             r, h, r * rng.uniform(0.7, 1.0), color,
-            rings=3, segments=4, seed=seed + i * 17, roughness=0.15,
+            rings=6, segments=8, seed=seed + i * 17, roughness=0.15,
         ))
         blob.setPos(rng.uniform(-1.0, 1.0), rng.uniform(-1.0, 1.0), rng.uniform(0, 0.03))
         blob.setH(rng.uniform(0, 360))
@@ -2266,10 +2324,11 @@ def build_ceiling_moss(parent, seed=0):
 
 
 def build_hanging_vine(parent, seed=0):
-    """Thin vine draping downward — single tapered rock, not dashed segments.
+    """Hanging vine — multi-segment spiral drape from ceiling.
 
+    5-8 segments with cumulative twist create a natural corkscrew.
+    Each segment is a small make_rock, positioned along a helical path.
     Dark organic, barely visible until backlit by bioluminescence.
-    Slight lean gives it a natural droop.
     """
     rng = random.Random(seed)
     root = parent.attachNewNode(f"vine_{seed}")
@@ -2278,15 +2337,37 @@ def build_hanging_vine(parent, seed=0):
     vine_length = rng.uniform(hang_height * 0.4, hang_height * 0.6)
     w = rng.uniform(0.03, 0.08)
     color = (0.05, 0.06, 0.04)
+    segments = rng.randint(5, 8)
+    seg_len = vine_length / segments
 
-    vine = root.attachNewNode(make_rock(
-        w, vine_length * 0.5, w * rng.uniform(0.5, 0.8), color,
-        rings=4, segments=4, seed=seed, roughness=rng.uniform(0.15, 0.30),
-    ))
-    vine.setPos(rng.uniform(-0.5, 0.5), rng.uniform(-0.5, 0.5), hang_height - vine_length * 0.5)
-    vine.setR(rng.uniform(-12, 12))
-    vine.setP(rng.uniform(-8, 8))
-    vine.setTwoSided(True)
+    # Spiral parameters — how tightly it corkscrews
+    spiral_radius = rng.uniform(0.05, 0.15)
+    spiral_rate = rng.uniform(1.5, 3.0)  # turns over the vine length
+    base_angle = rng.uniform(0, 360)
+
+    for i in range(segments):
+        t = i / segments  # 0 at top, 1 at bottom
+        z = hang_height - i * seg_len
+        # Helical offset — spiral around the vertical axis
+        angle_rad = math.radians(base_angle + t * 360 * spiral_rate)
+        # Radius increases toward bottom (gravity sag)
+        r_here = spiral_radius * (1.0 + t * 0.5)
+        sx = math.cos(angle_rad) * r_here
+        sy = math.sin(angle_rad) * r_here
+
+        # Each segment slightly thinner toward the tip
+        seg_w = w * (1.0 - t * 0.4)
+        seg = root.attachNewNode(make_rock(
+            seg_w, seg_len * 0.4, seg_w * rng.uniform(0.5, 0.8), color,
+            rings=3, segments=3, seed=seed + i * 17,
+            roughness=rng.uniform(0.15, 0.30),
+        ))
+        seg.setPos(sx, sy, z)
+        # Tilt each segment to follow the spiral direction
+        seg.setH(math.degrees(angle_rad) + rng.uniform(-20, 20))
+        seg.setR(rng.uniform(-18, 18))
+        seg.setP(rng.uniform(-12, 12))
+        seg.setTwoSided(True)
 
     tex = get_material_texture("dry_organic", seed=seed)
     ts = TextureStage("mat")
@@ -2295,7 +2376,7 @@ def build_hanging_vine(parent, seed=0):
     root.setTexture(ts, tex)
     sc = _mat_scale("dry_organic")
     root.setTexScale(ts, sc, sc)
-    root.setColorScale(0.45, 0.50, 0.40, 1.0)  # dark but slightly green-shifted
+    root.setColorScale(0.45, 0.50, 0.40, 1.0)
     return root
 
 
@@ -2406,10 +2487,19 @@ def build_filament(parent, seed=0):
     color = (0.06, 0.06, 0.07)
     thickness = rng.uniform(0.003, 0.008)
 
+    # Each segment dangles from the previous — cumulative drift + rotation
+    # creates a chain-sag effect, not a rigid pole.
+    drift_x, drift_y = 0.0, 0.0
     for i in range(segments):
         seg = root.attachNewNode(make_box(thickness, thickness, seg_len * 0.45, color))
         z = hang_z - i * seg_len
-        seg.setPos(rng.uniform(-0.03, 0.03), rng.uniform(-0.03, 0.03), z)
+        # Progressive drift — each segment swings further from vertical
+        drift_x += rng.uniform(-0.08, 0.08)
+        drift_y += rng.uniform(-0.08, 0.08)
+        seg.setPos(drift_x, drift_y, z)
+        # Each segment tilts slightly from the one above — dangle effect
+        seg.setR(rng.uniform(-15, 15))
+        seg.setP(rng.uniform(-15, 15))
         seg.setTwoSided(True)
 
     # Occasional mineral bead — tiny bright point on the strand
@@ -2747,17 +2837,52 @@ class AmbientManager:
         self._spatial.insert(eid, pos[0], pos[1], chain_index=chain_idx)
         self._hibernated_n += 1  # spawns asleep
 
-        # Companion spawns — biome-aware ecosystem clustering
-        companions = biome_config("companions").get(kind, {})
-        if companions:
+        # Companion spawns — affinity-driven ecosystem clustering. Each
+        # anchor declares a weighted POOL of possible companions; we roll
+        # spawn_chance, then pick 1..max_total members from the pool with
+        # weighted random selection. Adjacent anchors get varied mixes
+        # instead of identical scatter — emergent placement variety.
+        # See biome_data.COMPANION_SPAWNS for schema.
+        recipe = biome_config("companions").get(kind, {})
+        if recipe and "pool" in recipe:
             comp_rng = random.Random(seed + 55555)
-            for comp_kind, comp_count in companions.items():
-                if comp_kind == "radius":
-                    continue
-                r = companions.get("radius", 3.0)
-                for ci in range(comp_count):
+            if comp_rng.random() < float(recipe.get("spawn_chance", 1.0)):
+                pool = recipe["pool"]
+                radius_range = recipe.get("radius_range", [2.0, 3.0])
+                r_near = float(radius_range[0])
+                r_far = float(radius_range[1])
+                max_total = int(recipe.get("max_total", 2))
+                # Weighted-random rolls: target K = random(1, max_total)
+                # picks from the pool, with each pool entry's `max` capping
+                # how many of that kind can land in this single anchor.
+                target_count = comp_rng.randint(1, max_total)
+                weights = [float(p.get("weight", 1.0)) for p in pool]
+                placed: dict[str, int] = {}
+                ci = 0
+                for _ in range(target_count):
+                    # Pool of candidates that haven't hit their per-kind max
+                    eligible = [
+                        (i, p) for i, p in enumerate(pool)
+                        if placed.get(p["kind"], 0) < int(p.get("max", 1))
+                    ]
+                    if not eligible:
+                        break
+                    elig_weights = [weights[i] for i, _ in eligible]
+                    elig_total = sum(elig_weights)
+                    if elig_total <= 0.0:
+                        break
+                    pick_v = comp_rng.uniform(0.0, elig_total)
+                    accum = 0.0
+                    chosen = eligible[0][1]
+                    for (i, p), w in zip(eligible, elig_weights):
+                        accum += w
+                        if pick_v <= accum:
+                            chosen = p
+                            break
+                    comp_kind = chosen["kind"]
+                    placed[comp_kind] = placed.get(comp_kind, 0) + 1
                     angle = comp_rng.uniform(0, 360)
-                    dist = comp_rng.uniform(r * 0.3, r)
+                    dist = comp_rng.uniform(r_near, r_far)
                     cx = pos[0] + math.cos(math.radians(angle)) * dist
                     cy = pos[1] + math.sin(math.radians(angle)) * dist
                     cz = pos[2]
@@ -2767,6 +2892,7 @@ class AmbientManager:
                                heading=comp_rng.uniform(0, 360),
                                seed=seed + 60000 + ci,
                                height_fn=height_fn, chunk_key=chunk_key)
+                    ci += 1
 
         return entity
 

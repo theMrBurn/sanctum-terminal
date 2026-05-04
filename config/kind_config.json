@@ -1,0 +1,2751 @@
+{
+  "_global": {
+    "world_grain": {
+      "grain_scale": 0.35,
+      "grain_strength": 0.45,
+      "normal_strength": 0.5
+    },
+    "surface_library": {
+      "default": {
+        "albedo": "res://stone_128.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.45,
+        "grain_strength": 0.55,
+        "normal_strength": 1.5
+      },
+      "stone_rough": {
+        "albedo": "res://stone_128.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.45,
+        "grain_strength": 0.55,
+        "normal_strength": 1.5
+      },
+      "stone_weathered": {
+        "albedo": "res://stone_128.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.45,
+        "grain_strength": 0.55,
+        "normal_strength": 1.5
+      },
+      "organic_soft": {
+        "albedo": "res://stone_128.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.4,
+        "grain_strength": 0.5,
+        "normal_strength": 1.2
+      },
+      "mineral_fine": {
+        "albedo": "res://noise_64.png",
+        "normal": "res://world_grain_normal.png",
+        "grain_scale": 0.1,
+        "grain_strength": 0.2,
+        "normal_strength": 0.2
+      }
+    },
+    "outline": {
+      "mode": 2,
+      "thickness": 2.5,
+      "edge_threshold": 0.015,
+      "line_color": [
+        0.85,
+        0.8,
+        0.75
+      ],
+      "line_opacity": 0.9,
+      "gap_frequency": 12.0,
+      "gap_width": 0.3,
+      "depth_weight": 1.2,
+      "normal_weight": 1.5,
+      "lum_weight": 0.3
+    },
+    "environment": {
+      "ambient_energy": 0.08,
+      "fog_density_mult": 2.5,
+      "bloom_intensity": 0.8,
+      "bloom_threshold": 0.4,
+      "ssao_intensity": 2.0,
+      "desaturation": 0.5,
+      "contrast": 1.1
+    },
+    "reaction_patterns": {
+      "emission_pulse": {
+        "type": "emission_pulse",
+        "duration": 1.2,
+        "peak_energy": 4.0,
+        "color_tint": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "fire_pulse": {
+        "type": "emission_pulse",
+        "duration": 1.4,
+        "peak_energy": 5.0,
+        "color_tint": [
+          1.0,
+          0.45,
+          0.2
+        ]
+      },
+      "ice_pulse": {
+        "type": "emission_pulse",
+        "duration": 1.6,
+        "peak_energy": 3.5,
+        "color_tint": [
+          0.55,
+          0.8,
+          1.0
+        ]
+      },
+      "electric_pulse": {
+        "type": "emission_pulse",
+        "duration": 0.7,
+        "peak_energy": 6.5,
+        "color_tint": [
+          0.8,
+          0.85,
+          1.0
+        ]
+      },
+      "reveal_glow": {
+        "type": "emission_pulse",
+        "duration": 2.4,
+        "peak_energy": 2.2,
+        "color_tint": [
+          1.0,
+          0.95,
+          0.7
+        ]
+      }
+    },
+    "screenshot_overlay": {
+      "enabled": true,
+      "font_size": 16,
+      "position": "top_left",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        0.85
+      ],
+      "background": true,
+      "separator": " | ",
+      "fields": [
+        "biome",
+        "position",
+        "heading",
+        "entities_visible",
+        "fps",
+        "frame_ms",
+        "draw_calls",
+        "render_tris",
+        "tension_state",
+        "day_phase",
+        "timestamp"
+      ]
+    }
+  },
+  "_class_defaults": {
+    "geological": {
+      "color_base": [
+        0.3,
+        0.27,
+        0.23
+      ],
+      "color_shadow": [
+        0.26,
+        0.23,
+        0.19
+      ],
+      "color_accent": [
+        0.34,
+        0.3,
+        0.25
+      ],
+      "light_reactive": false,
+      "band_strength": 0.18,
+      "wind_strength": 0.0,
+      "ghost_chance": 0.33,
+      "use_vertex_colors": false,
+      "contact": {
+        "radius": 3.0,
+        "darkness": 0.4
+      },
+      "sink": -0.15,
+      "scale_override": null,
+      "fade_in_near": 30.0,
+      "fade_in_far": 50.0
+    },
+    "structural": {
+      "color_base": [
+        0.25,
+        0.22,
+        0.19
+      ],
+      "color_shadow": [
+        0.21,
+        0.18,
+        0.16
+      ],
+      "color_accent": [
+        0.29,
+        0.25,
+        0.22
+      ],
+      "light_reactive": false,
+      "band_strength": 0.22,
+      "wind_strength": 0.0,
+      "ghost_chance": 0.0,
+      "use_vertex_colors": false,
+      "taper_strength": 0.35,
+      "twist_amount": 0.2,
+      "contact": {
+        "radius": 6.0,
+        "darkness": 0.5
+      },
+      "sink": -0.3,
+      "scale_override": {
+        "x": 2.2,
+        "y": 1.0,
+        "z": 2.2
+      },
+      "fade_in_near": 40.0,
+      "fade_in_far": 55.0
+    },
+    "crystalline": {
+      "color_base": [
+        0.42,
+        0.44,
+        0.56
+      ],
+      "color_shadow": [
+        0.32,
+        0.34,
+        0.44
+      ],
+      "color_accent": [
+        0.52,
+        0.54,
+        0.66
+      ],
+      "light_reactive": true,
+      "band_strength": 0.1,
+      "wind_strength": 0.0,
+      "ghost_chance": 0.0,
+      "use_vertex_colors": false,
+      "contact": {
+        "radius": 4.0,
+        "darkness": 0.3
+      },
+      "sink": -0.05,
+      "scale_override": null,
+      "fade_in_near": 30.0,
+      "fade_in_far": 50.0
+    },
+    "organic_flora": {
+      "color_base": [
+        0.28,
+        0.26,
+        0.3
+      ],
+      "color_shadow": [
+        0.22,
+        0.2,
+        0.25
+      ],
+      "color_accent": [
+        0.34,
+        0.32,
+        0.36
+      ],
+      "light_reactive": false,
+      "band_strength": 0.0,
+      "wind_strength": 0.03,
+      "ghost_chance": 0.0,
+      "use_vertex_colors": false,
+      "contact": {
+        "radius": 1.5,
+        "darkness": 0.2
+      },
+      "sink": -0.05,
+      "scale_override": null,
+      "fade_in_near": 15.0,
+      "fade_in_far": 30.0
+    },
+    "atmosphere": {
+      "color_base": [
+        0.24,
+        0.26,
+        0.2
+      ],
+      "color_shadow": [
+        0.2,
+        0.22,
+        0.17
+      ],
+      "color_accent": [
+        0.28,
+        0.3,
+        0.24
+      ],
+      "light_reactive": false,
+      "band_strength": 0.0,
+      "wind_strength": 0.05,
+      "ghost_chance": 0.0,
+      "use_vertex_colors": false,
+      "contact": {
+        "radius": 0.0,
+        "darkness": 0.0
+      },
+      "sink": 0.0,
+      "scale_override": null,
+      "fade_in_near": 15.0,
+      "fade_in_far": 30.0
+    },
+    "life": {
+      "color_base": [
+        0.22,
+        0.19,
+        0.16
+      ],
+      "color_shadow": [
+        0.18,
+        0.16,
+        0.14
+      ],
+      "color_accent": [
+        0.26,
+        0.23,
+        0.2
+      ],
+      "light_reactive": false,
+      "band_strength": 0.0,
+      "wind_strength": 0.0,
+      "ghost_chance": 0.0,
+      "use_vertex_colors": false,
+      "contact": {
+        "radius": 0.0,
+        "darkness": 0.0
+      },
+      "sink": 0.0,
+      "scale_override": null,
+      "fade_in_near": 15.0,
+      "fade_in_far": 30.0
+    },
+    "horizon": {
+      "color_base": [
+        0.18,
+        0.17,
+        0.16
+      ],
+      "color_shadow": [
+        0.15,
+        0.15,
+        0.14
+      ],
+      "color_accent": [
+        0.2,
+        0.19,
+        0.18
+      ],
+      "light_reactive": false,
+      "band_strength": 0.0,
+      "wind_strength": 0.0,
+      "ghost_chance": 0.0,
+      "use_vertex_colors": false,
+      "contact": {
+        "radius": 0.0,
+        "darkness": 0.0
+      },
+      "sink": 0.0,
+      "scale_override": null,
+      "fade_in_near": 0.0,
+      "fade_in_far": 400.0
+    },
+    "encounter": {
+      "_doc": "Encounter agents — orbs, scouts, watchers. Rendered as unshaded emissive primitives; collision via kind-specific radius.",
+      "color_base": [
+        1.0,
+        0.4,
+        0.4
+      ],
+      "color_shadow": [
+        0.6,
+        0.2,
+        0.2
+      ],
+      "color_accent": [
+        1.0,
+        0.6,
+        0.6
+      ],
+      "light_reactive": false,
+      "band_strength": 0.0,
+      "wind_strength": 0.0,
+      "ghost_chance": 0.0,
+      "use_vertex_colors": false,
+      "sink": 0.0,
+      "scale_override": null,
+      "fade_in_near": 0.0,
+      "fade_in_far": 200.0
+    },
+    "debug": {
+      "_doc": "Debug + fixture-only primitives (shadow_orb, test beacons). Not used by gameplay — safe to edit freely without regression risk.",
+      "color_base": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "color_shadow": [
+        0.7,
+        0.7,
+        0.7
+      ],
+      "color_accent": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "light_reactive": false,
+      "band_strength": 0.0,
+      "wind_strength": 0.0,
+      "ghost_chance": 0.0,
+      "use_vertex_colors": false,
+      "sink": 0.0,
+      "scale_override": null,
+      "fade_in_near": 0.0,
+      "fade_in_far": 200.0
+    }
+  },
+  "kinds": {
+    "boulder": {
+      "class": "geological",
+      "visual_radius": 0.9,
+      "use_vertex_colors": true,
+      "color_base": [
+        0.3,
+        0.26,
+        0.22
+      ],
+      "color_shadow": [
+        0.26,
+        0.22,
+        0.18
+      ],
+      "color_accent": [
+        0.34,
+        0.29,
+        0.24
+      ],
+      "burial": {
+        "min_frac": 0.25,
+        "max_frac": 0.65,
+        "min_above_ground": 0.8
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "rock_lobed",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          1.21,
+          1.18,
+          0.78
+        ],
+        "variant_spread": 0.1,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "lobe_count": 3,
+          "noise_strength": 0.35,
+          "moss_grade_upper": true
+        }
+      },
+      "physics": {
+        "collision_radius": 2.5
+      },
+      "render": {
+        "scale": [
+          5.0,
+          4.4,
+          3.1
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "o"
+    },
+    "stalagmite": {
+      "class": "geological",
+      "spatial_class": "spike",
+      "visual_radius": 0.63,
+      "color_base": [
+        0.33,
+        0.28,
+        0.23
+      ],
+      "color_shadow": [
+        0.29,
+        0.24,
+        0.19
+      ],
+      "color_accent": [
+        0.37,
+        0.32,
+        0.26
+      ],
+      "taper_strength": 0.3,
+      "twist_amount": 0.15,
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.2,
+        "min_above_ground": 0.6
+      },
+      "physics": {
+        "collision_radius": 1.2
+      },
+      "render": {
+        "scale": [
+          1.0,
+          1.0,
+          3.75
+        ],
+        "color": [
+          0.28,
+          0.24,
+          0.18
+        ],
+        "emissive": 0.0
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "tapered_vertical",
+        "output_name": "stalagmite_recipe",
+        "variant_count": 4,
+        "bounds": [1.0, 1.0, 3.75],
+        "variant_spread": 0.3,
+        "atoms": null,
+        "family_params": {
+          "taper_strength": 0.85,
+          "flare_ratio": 1.25,
+          "flare_frac": 0.18,
+          "noise_strength": 0.13,
+          "facet_count": 8,
+          "ring_count": 6
+        }
+      },
+      "ascii": "^"
+    },
+    "rubble": {
+      "class": "geological",
+      "spatial_class": "companion",
+      "visual_radius": 0.4,
+      "use_vertex_colors": true,
+      "fade_in_near": 3.0,
+      "fade_in_far": 60.0,
+      "color_base": [
+        0.37,
+        0.33,
+        0.28
+      ],
+      "color_shadow": [
+        0.33,
+        0.29,
+        0.24
+      ],
+      "color_accent": [
+        0.41,
+        0.37,
+        0.31
+      ],
+      "burial": {
+        "min_frac": 0.3,
+        "max_frac": 0.55,
+        "min_above_ground": 0.3
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "rock_lobed",
+        "variant_count": 4,
+        "bounds": [
+          1.0,
+          1.0,
+          0.5
+        ],
+        "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "lobe_count": 4,
+          "spread_radius": 1.0,
+          "flatness": 0.65,
+          "noise_strength": 0.22,
+          "elongation": 1.0
+        }
+      },
+      "render": {
+        "scale": [
+          1.0,
+          1.0,
+          0.5
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": ","
+    },
+    "cave_gravel": {
+      "class": "geological",
+      "spatial_class": "companion",
+      "visual_radius": 0.15,
+      "use_vertex_colors": true,
+      "fade_in_near": 2.0,
+      "fade_in_far": 45.0,
+      "color_base": [
+        0.39,
+        0.36,
+        0.31
+      ],
+      "color_shadow": [
+        0.35,
+        0.32,
+        0.27
+      ],
+      "color_accent": [
+        0.43,
+        0.4,
+        0.35
+      ],
+      "sink": -0.02,
+      "recipe": {
+        "tier": 2,
+        "family": "rock_lobed",
+        "variant_count": 4,
+        "bounds": [
+          0.24,
+          0.24,
+          0.08
+        ],
+        "variant_spread": 0.4,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "lobe_count": 2,
+          "spread_radius": 0.6,
+          "flatness": 0.5,
+          "noise_strength": 0.18,
+          "elongation": 1.0
+        }
+      },
+      "render": {
+        "scale": [
+          0.2,
+          0.2,
+          0.05
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "."
+    },
+    "mega_column": {
+      "class": "structural",
+      "spatial_class": "spike",
+      "visual_radius": 4.05,
+      "elemental_reactions": {
+        "electric": "electric_pulse",
+        "light": "reveal_glow"
+      },
+      "color_base": [
+        0.22,
+        0.19,
+        0.17
+      ],
+      "color_shadow": [
+        0.18,
+        0.16,
+        0.14
+      ],
+      "color_accent": [
+        0.26,
+        0.23,
+        0.2
+      ],
+      "burial": {
+        "min_frac": 0.3,
+        "max_frac": 0.5,
+        "min_above_ground": 4.0
+      },
+      "physics": {
+        "collision_radius": 8.0
+      },
+      "render": {
+        "scale": [
+          3.0,
+          3.0,
+          12.0
+        ],
+        "color": [
+          0.28,
+          0.22,
+          0.16
+        ],
+        "emissive": 0.0
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "tapered_vertical",
+        "output_name": "mega_column_recipe",
+        "variant_count": 4,
+        "bounds": [3.0, 3.0, 12.0],
+        "variant_spread": 0.18,
+        "atoms": null,
+        "family_params": {
+          "taper_strength": 0.12,
+          "flare_ratio": 1.7,
+          "flare_frac": 0.32,
+          "noise_strength": 0.08,
+          "facet_count": 10,
+          "ring_count": 8
+        }
+      },
+      "ascii": "#"
+    },
+    "column": {
+      "class": "structural",
+      "spatial_class": "spike",
+      "visual_radius": 2.07,
+      "color_base": [
+        0.26,
+        0.23,
+        0.2
+      ],
+      "color_shadow": [
+        0.22,
+        0.19,
+        0.17
+      ],
+      "color_accent": [
+        0.3,
+        0.26,
+        0.23
+      ],
+      "burial": {
+        "min_frac": 0.3,
+        "max_frac": 0.5,
+        "min_above_ground": 4.0
+      },
+      "physics": {
+        "collision_radius": 5.5
+      },
+      "render": {
+        "scale": [
+          2.25,
+          2.25,
+          10.0
+        ],
+        "color": [
+          0.3,
+          0.25,
+          0.18
+        ],
+        "emissive": 0.0
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "tapered_vertical",
+        "output_name": "column_recipe",
+        "variant_count": 4,
+        "bounds": [2.25, 2.25, 10.0],
+        "variant_spread": 0.2,
+        "atoms": null,
+        "family_params": {
+          "taper_strength": 0.18,
+          "flare_ratio": 1.55,
+          "flare_frac": 0.28,
+          "noise_strength": 0.09,
+          "facet_count": 9,
+          "ring_count": 7
+        }
+      },
+      "ascii": "|"
+    },
+    "buttress": {
+      "class": "structural",
+      "visual_radius": 2.5,
+      "use_vertex_colors": true,
+      "color_base": [
+        0.22,
+        0.25,
+        0.32
+      ],
+      "color_shadow": [
+        0.16,
+        0.19,
+        0.26
+      ],
+      "color_accent": [
+        0.3,
+        0.34,
+        0.42
+      ],
+      "burial": {
+        "min_frac": 0.25,
+        "max_frac": 0.55,
+        "min_above_ground": 2.5
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "tapered_vertical",
+        "variant_count": 4,
+        "bounds": [
+          2.5,
+          2.5,
+          6.0
+        ],
+        "variant_spread": 0.25,
+        "apron": null,
+        "atoms": {
+          "pattern": "chain_5",
+          "count": 5,
+          "size": 0.13,
+          "palette": "cream"
+        },
+        "family_params": {
+          "taper_strength": 0.4,
+          "flare_ratio": 1.8,
+          "flare_frac": 0.35,
+          "noise_strength": 0.1,
+          "facet_count": 9,
+          "ring_count": 7,
+          "accent_ring_y": 0.714,
+          "accent_ring_width": 0.06,
+          "accent_ring_color": [
+            0.48,
+            0.52,
+            0.6
+          ]
+        }
+      },
+      "physics": {
+        "collision_radius": 3.0
+      },
+      "render": {
+        "scale": [
+          2.5,
+          2.5,
+          6.0
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "M"
+    },
+    "crystal_cluster": {
+      "class": "crystalline",
+      "visual_radius": 2.0,
+      "light_reactive": true,
+      "use_vertex_colors": true,
+      "elemental_reactions": {
+        "fire": "fire_pulse",
+        "ice": "ice_pulse",
+        "electric": "electric_pulse",
+        "light": "reveal_glow"
+      },
+      "color_base": [
+        0.2,
+        0.22,
+        0.34
+      ],
+      "color_shadow": [
+        0.14,
+        0.16,
+        0.26
+      ],
+      "color_accent": [
+        0.28,
+        0.3,
+        0.42
+      ],
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.25
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "crystal_spike",
+        "variant_count": 4,
+        "bounds": [
+          4.8,
+          3.5,
+          5.0
+        ],
+        "variant_spread": 0.2,
+        "apron": null,
+        "atoms": {
+          "pattern": "lattice_7",
+          "count": 3,
+          "size": 0.1,
+          "palette": "cream"
+        },
+        "family_params": {
+          "main_spires": 3,
+          "satellite_spires": 4,
+          "spire_facets": 6,
+          "spire_rings": 5,
+          "noise_strength": 0.03,
+          "lean_angle_deg": 15.0
+        },
+        "camouflage": {
+          "fungal_pair_target": "crystal_cap",
+          "rule": "shape_not_color"
+        }
+      },
+      "physics": {
+        "collision_radius": 2.2
+      },
+      "render": {
+        "scale": [
+          2.8,
+          2.2,
+          3.5
+        ],
+        "color": [1.0, 1.0, 1.0],
+        "emissive": 1.0
+      },
+      "ascii": "*"
+    },
+    "filament": {
+      "class": "crystalline",
+      "spatial_class": "companion",
+      "visual_radius": 0.2,
+      "light_reactive": true,
+      "color_base": [
+        0.48,
+        0.46,
+        0.56
+      ],
+      "color_shadow": [
+        0.38,
+        0.36,
+        0.44
+      ],
+      "color_accent": [
+        0.55,
+        0.53,
+        0.64
+      ],
+      "burial": {
+        "min_frac": 0.05,
+        "max_frac": 0.15
+      },
+      "render": {
+        "scale": [
+          0.25,
+          0.25,
+          3.5
+        ],
+        "color": [
+          0.3,
+          0.4,
+          0.55
+        ],
+        "emissive": 1.0,
+        "z_offset": [1.0, 4.0]
+      },
+      "ascii": ":"
+    },
+    "exit_lure": {
+      "class": "crystalline",
+      "light_reactive": true,
+      "color_base": [
+        0.5,
+        0.48,
+        0.44
+      ],
+      "color_shadow": [
+        0.4,
+        0.38,
+        0.34
+      ],
+      "color_accent": [
+        0.58,
+        0.56,
+        0.52
+      ],
+      "render": {
+        "scale": [
+          1.0,
+          1.0,
+          2.0
+        ],
+        "color": [
+          0.6,
+          0.45,
+          0.2
+        ],
+        "emissive": 1.0
+      },
+      "ascii": "$"
+    },
+    "giant_fungus": {
+      "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 1.5,
+      "use_vertex_colors": true,
+      "elemental_reactions": {
+        "fire": "fire_pulse",
+        "light": "reveal_glow"
+      },
+      "color_base": [
+        0.22,
+        0.2,
+        0.22
+      ],
+      "color_shadow": [
+        0.17,
+        0.16,
+        0.18
+      ],
+      "color_accent": [
+        0.26,
+        0.24,
+        0.27
+      ],
+      "color_cap": [
+        0.5,
+        0.2,
+        0.6
+      ],
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.25
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "flora_composed",
+        "variant_count": 4,
+        "bounds": [
+          2.5,
+          2.5,
+          4.5
+        ],
+        "variant_spread": 0.25,
+        "apron": null,
+        "atoms": {
+          "pattern": "cap_ring_7",
+          "count": 7,
+          "size": 0.18,
+          "palette": "cream"
+        },
+        "family_params": {
+          "stem_height_frac": 0.65,
+          "stem_radius_frac": 0.35,
+          "cap_radius_frac": 0.75,
+          "cap_height_frac": 0.4,
+          "stem_taper": 0.15,
+          "stem_flare": 1.4,
+          "noise_strength": 0.06
+        }
+      },
+      "physics": {
+        "collision_radius": 1.4
+      },
+      "render": {
+        "scale": [
+          2.5,
+          2.5,
+          4.4
+        ],
+        "color": [1.0, 1.0, 1.0],
+        "emissive": 0.8
+      },
+      "ascii": "&"
+    },
+    "toadstool": {
+      "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.4,
+      "use_vertex_colors": true,
+      "wind_strength": 0.02,
+      "burial": {
+        "min_frac": 0.05,
+        "max_frac": 0.15,
+        "min_above_ground": 4.0
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "flora_composed",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          2.16,
+          2.16,
+          2.2
+        ],
+        "variant_spread": 0.15,
+        "apron": null,
+        "atoms": {
+          "pattern": "cap_scatter",
+          "count": 7,
+          "size": 0.15,
+          "palette": "cream"
+        },
+        "family_params": {
+          "cap_height_frac": 0.5,
+          "stem_taper": 0.3,
+          "has_ring": true,
+          "has_gill_shadow": true
+        }
+      },
+      "render": {
+        "scale": [
+          1.2,
+          1.2,
+          2.3
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "t"
+    },
+    "spore_pod": {
+      "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.5,
+      "use_vertex_colors": true,
+      "wind_strength": 0.0,
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.25,
+        "min_above_ground": 0.5
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "puffball_cluster",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          1.22,
+          1.11,
+          0.33
+        ],
+        "variant_spread": 0.3,
+        "apron": null,
+        "atoms": {
+          "pattern": "cream_warts",
+          "count": 7,
+          "size": 0.08,
+          "palette": "cream"
+        },
+        "family_params": {
+          "puffball_count": 3,
+          "scale_spread": 2.5,
+          "body_z_gradient": true
+        },
+        "camouflage": {
+          "grammar_host": "boulder",
+          "rule": "shape_not_color"
+        }
+      },
+      "render": {
+        "scale": [
+          1.5,
+          1.5,
+          0.9
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "%"
+    },
+    "doorframe": {
+      "class": "structural",
+      "use_vertex_colors": true,
+      "band_strength": 0.0,
+      "taper_strength": 0.0,
+      "twist_amount": 0.0,
+      "scale_override": null,
+      "burial": {
+        "min_frac": 0.05,
+        "max_frac": 0.15,
+        "min_above_ground": 2.5
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "posts_and_lintel",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          3.9,
+          1.01,
+          4.0
+        ],
+        "variant_spread": 0.25,
+        "apron": null,
+        "atoms": {
+          "pattern": "lintel_runes",
+          "count": 7,
+          "size": 0.15,
+          "palette": "cream"
+        },
+        "family_params": {
+          "post_count": 2,
+          "has_lintel": true,
+          "plinth_height_frac": 0.1
+        }
+      },
+      "render": {
+        "scale": [
+          3.8,
+          0.9,
+          3.8
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "n"
+    },
+    "monolith": {
+      "class": "structural",
+      "visual_radius": 1.0,
+      "use_vertex_colors": true,
+      "band_strength": 0.0,
+      "taper_strength": 0.0,
+      "twist_amount": 0.0,
+      "scale_override": null,
+      "burial": {
+        "min_frac": 0.1,
+        "max_frac": 0.25,
+        "min_above_ground": 3.0
+      },
+      "recipe": {
+        "tier": 1,
+        "family": "tapered_obelisk",
+        "builder": "legacy",
+        "variant_count": 4,
+        "bounds": [
+          1.4,
+          0.7,
+          4.05
+        ],
+        "variant_spread": 0.25,
+        "apron": null,
+        "atoms": {
+          "pattern": "body_glyphs",
+          "count": 7,
+          "size": 0.12,
+          "palette": "cream"
+        },
+        "family_params": {
+          "taper_strength": 0.2,
+          "has_cap": false
+        }
+      },
+      "render": {
+        "scale": [
+          1.1,
+          0.42,
+          4.3
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "I"
+    },
+    "moss_patch": {
+      "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.3,
+      "use_vertex_colors": true,
+      "color_base": [
+        0.18,
+        0.34,
+        0.22
+      ],
+      "color_shadow": [
+        0.14,
+        0.28,
+        0.17
+      ],
+      "color_accent": [
+        0.22,
+        0.4,
+        0.26
+      ],
+      "light_reactive": true,
+      "sink": -0.03,
+      "burial": {
+        "min_frac": 0.15,
+        "max_frac": 0.3
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          2.0,
+          2.0,
+          0.12
+        ],
+        "variant_spread": 0.3,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "cross_count": 22,
+          "cross_planes": 2,
+          "cross_width_frac": 0.025,
+          "dome_flatness": 0.95,
+          "lean_jitter_deg": 30.0
+        }
+      },
+      "render": {
+        "scale": [
+          1.5,
+          1.5,
+          0.15
+        ],
+        "color": [1.0, 1.0, 1.0],
+        "emissive": 0.9
+      },
+      "ascii": "~"
+    },
+    "grass_tuft": {
+      "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.3,
+      "use_vertex_colors": true,
+      "color_base": [
+        0.24,
+        0.3,
+        0.22
+      ],
+      "color_shadow": [
+        0.19,
+        0.24,
+        0.17
+      ],
+      "color_accent": [
+        0.28,
+        0.35,
+        0.26
+      ],
+      "wind_strength": 0.05,
+      "recipe": {
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          1.2,
+          1.2,
+          0.35
+        ],
+        "variant_spread": 0.3,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "cross_count": 18,
+          "cross_planes": 2,
+          "cross_width_frac": 0.015,
+          "dome_flatness": 0.5,
+          "lean_jitter_deg": 12.0
+        }
+      },
+      "render": {
+        "scale": [
+          0.3,
+          0.3,
+          0.25
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "\""
+    },
+    "dead_log": {
+      "class": "organic_flora",
+      "visual_radius": 2.2,
+      "color_base": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "color_shadow": [
+        0.2,
+        0.16,
+        0.18
+      ],
+      "color_accent": [
+        0.28,
+        0.24,
+        0.26
+      ],
+      "burial": {
+        "min_frac": 0.15,
+        "max_frac": 0.35
+      },
+      "physics": {
+        "collision_radius": 2.0
+      },
+      "render": {
+        "scale": [
+          3.75,
+          1.0,
+          0.75
+        ],
+        "color": [
+          0.19,
+          0.27,
+          0.12
+        ],
+        "emissive": 0.0
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "rock_lobed",
+        "variant_count": 4,
+        "bounds": [
+          3.75,
+          0.625,
+          0.75
+        ],
+        "variant_spread": 0.25,
+        "family_params": {
+          "lobe_count": 3,
+          "spread_radius": 0.4,
+          "flatness": 0.3,
+          "noise_strength": 0.12,
+          "elongation": 6.0
+        }
+      },
+      "ascii": "="
+    },
+    "leaf_pile": {
+      "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.2,
+      "use_vertex_colors": true,
+      "color_base": [
+        0.34,
+        0.28,
+        0.24
+      ],
+      "color_shadow": [
+        0.28,
+        0.22,
+        0.19
+      ],
+      "color_accent": [
+        0.4,
+        0.34,
+        0.3
+      ],
+      "sink": -0.02,
+      "recipe": {
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          0.8,
+          0.8,
+          0.15
+        ],
+        "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "cross_count": 14,
+          "cross_planes": 2,
+          "cross_width_frac": 0.04,
+          "dome_flatness": 0.9,
+          "lean_jitter_deg": 45.0
+        }
+      },
+      "render": {
+        "scale": [
+          0.5,
+          0.5,
+          0.1
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "_"
+    },
+    "twig_scatter": {
+      "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.15,
+      "use_vertex_colors": true,
+      "color_base": [
+        0.3,
+        0.26,
+        0.28
+      ],
+      "color_shadow": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "color_accent": [
+        0.36,
+        0.32,
+        0.34
+      ],
+      "sink": -0.01,
+      "recipe": {
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          1.5,
+          1.5,
+          0.12
+        ],
+        "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "cross_count": 10,
+          "cross_planes": 2,
+          "cross_width_frac": 0.03,
+          "dome_flatness": 0.95,
+          "lean_jitter_deg": 60.0
+        }
+      },
+      "render": {
+        "scale": [
+          0.6,
+          0.4,
+          0.05
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": ";"
+    },
+    "bone_pile": {
+      "class": "organic_flora",
+      "spatial_class": "companion",
+      "visual_radius": 0.3,
+      "use_vertex_colors": true,
+      "color_base": [
+        0.42,
+        0.4,
+        0.44
+      ],
+      "color_shadow": [
+        0.36,
+        0.34,
+        0.38
+      ],
+      "color_accent": [
+        0.48,
+        0.46,
+        0.5
+      ],
+      "burial": {
+        "min_frac": 0.2,
+        "max_frac": 0.45,
+        "min_above_ground": 0.5
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "rock_lobed",
+        "variant_count": 4,
+        "bounds": [
+          1.0,
+          1.0,
+          0.32
+        ],
+        "variant_spread": 0.35,
+        "apron": null,
+        "atoms": null,
+        "family_params": {
+          "lobe_count": 3,
+          "spread_radius": 0.9,
+          "flatness": 0.4,
+          "noise_strength": 0.12,
+          "elongation": 1.8
+        }
+      },
+      "physics": {
+        "collision_radius": 0.4
+      },
+      "render": {
+        "scale": [
+          0.6,
+          0.6,
+          0.3
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "ascii": "x"
+    },
+    "ceiling_moss": {
+      "class": "atmosphere",
+      "color_base": [
+        0.26,
+        0.3,
+        0.22
+      ],
+      "color_shadow": [
+        0.2,
+        0.25,
+        0.17
+      ],
+      "color_accent": [
+        0.3,
+        0.36,
+        0.26
+      ],
+      "light_reactive": true,
+      "render": {
+        "scale": [
+          3.0,
+          3.0,
+          2.5
+        ],
+        "color": [
+          0.35,
+          0.45,
+          0.18
+        ],
+        "emissive": 0.9,
+        "z_offset": [5.0, 8.0]
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          3.0,
+          3.0,
+          2.5
+        ],
+        "variant_spread": 0.3,
+        "family_params": {
+          "cross_count": 18,
+          "cross_planes": 2,
+          "cross_width_frac": 0.06,
+          "dome_flatness": 0.3,
+          "lean_jitter_deg": 18.0,
+          "layout": "drape"
+        }
+      },
+      "ascii": "~"
+    },
+    "hanging_vine": {
+      "class": "atmosphere",
+      "color_base": [
+        0.22,
+        0.28,
+        0.26
+      ],
+      "color_shadow": [
+        0.17,
+        0.22,
+        0.2
+      ],
+      "color_accent": [
+        0.26,
+        0.34,
+        0.32
+      ],
+      "render": {
+        "scale": [
+          0.8,
+          0.8,
+          4.0
+        ],
+        "color": [
+          0.1,
+          0.16,
+          0.07
+        ],
+        "emissive": 0.0,
+        "z_offset": [4.0, 7.0]
+      },
+      "recipe": {
+        "tier": 2,
+        "family": "scatter_tissue",
+        "variant_count": 4,
+        "bounds": [
+          0.8,
+          0.8,
+          4.0
+        ],
+        "variant_spread": 0.35,
+        "family_params": {
+          "cross_count": 3,
+          "cross_planes": 2,
+          "cross_width_frac": 0.1,
+          "dome_flatness": 0.1,
+          "lean_jitter_deg": 6.0,
+          "layout": "drape"
+        }
+      },
+      "ascii": "v"
+    },
+    "firefly": {
+      "class": "life",
+      "light_reactive": true,
+      "color_base": [
+        0.52,
+        0.48,
+        0.35
+      ],
+      "color_shadow": [
+        0.48,
+        0.44,
+        0.31
+      ],
+      "color_accent": [
+        0.56,
+        0.52,
+        0.39
+      ],
+      "render": {
+        "scale": [
+          0.06,
+          0.06,
+          0.06
+        ],
+        "color": [
+          0.95,
+          0.75,
+          0.3
+        ],
+        "emissive": 1.0,
+        "z_offset": [0.5, 2.5]
+      },
+      "ascii": "'"
+    },
+    "leaf": {
+      "class": "life",
+      "color_base": [
+        0.38,
+        0.36,
+        0.27
+      ],
+      "color_shadow": [
+        0.34,
+        0.32,
+        0.23
+      ],
+      "color_accent": [
+        0.42,
+        0.4,
+        0.31
+      ],
+      "render": {
+        "scale": [
+          0.08,
+          0.06,
+          0.01
+        ],
+        "color": [
+          0.22,
+          0.3,
+          0.1
+        ],
+        "emissive": 0.0,
+        "z_offset": [3.0, 3.0]
+      },
+      "ascii": "'"
+    },
+    "beetle": {
+      "class": "life",
+      "color_base": [
+        0.2,
+        0.17,
+        0.15
+      ],
+      "color_shadow": [
+        0.17,
+        0.15,
+        0.13
+      ],
+      "color_accent": [
+        0.24,
+        0.21,
+        0.19
+      ],
+      "render": {
+        "scale": [
+          0.04,
+          0.03,
+          0.02
+        ],
+        "color": [
+          0.1,
+          0.08,
+          0.06
+        ],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "speed": 2.0,
+        "flee_radius": 5.0,
+        "destructible": false,
+        "mote_arrangement": "solo",
+        "mote_color": [
+          0.08,
+          0.06,
+          0.05
+        ],
+        "mote_size": 0.03
+      },
+      "ascii": "b",
+      "combat_profile": {
+        "hp": 6,
+        "max_hp": 6,
+        "str_": 6,
+        "dex": 8,
+        "wil": 5,
+        "speed": 8,
+        "defense": 15,
+        "element_mods": {
+          "electric": 1.5,
+          "physical": 0.75
+        },
+        "default_attack": "beetle_mandibles",
+        "tier": "solo",
+        "pack_size_min": 1,
+        "pack_size_max": 2,
+        "pack_radius_m": 4.0,
+        "xp_reward": 3
+      }
+    },
+    "rat": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "world_scale_mult": 3.4,
+      "color_base": [
+        0.37,
+        0.31,
+        0.25
+      ],
+      "color_shadow": [
+        0.28,
+        0.22,
+        0.18
+      ],
+      "color_accent": [
+        0.47,
+        0.39,
+        0.34
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.19,
+          0.1,
+          0.08
+        ],
+        "variant_spread": 0.15,
+        "family_params": {
+          "shape": "rat",
+          "ear_color": [
+            0.55,
+            0.39,
+            0.37
+          ],
+          "tail_color": [
+            0.51,
+            0.39,
+            0.35
+          ],
+          "eye_color": [
+            0.08,
+            0.06,
+            0.05
+          ]
+        }
+      },
+      "physics": {
+        "collision_radius": 0.6
+      },
+      "render": {
+        "scale": [
+          8.0,
+          8.0,
+          8.0
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "speed": 4.0,
+        "flee_radius": 8.0,
+        "destructible": false,
+        "mote_arrangement": "rat_15",
+        "mote_color": [
+          0.55,
+          0.42,
+          0.3
+        ],
+        "mote_size": 0.15
+      },
+      "ascii": "r",
+      "combat_profile": {
+        "hp": 3,
+        "max_hp": 3,
+        "str_": 4,
+        "dex": 12,
+        "wil": 4,
+        "speed": 14,
+        "defense": 10,
+        "element_mods": {
+          "fire": 1.3,
+          "ice": 0.9
+        },
+        "default_attack": "rat_bite",
+        "tier": "pack",
+        "pack_size_min": 2,
+        "pack_size_max": 4,
+        "pack_radius_m": 4.0,
+        "xp_reward": 1
+      }
+    },
+    "spider": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.19,
+        0.17,
+        0.15
+      ],
+      "color_shadow": [
+        0.12,
+        0.1,
+        0.09
+      ],
+      "color_accent": [
+        0.28,
+        0.25,
+        0.22
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.12,
+          0.12,
+          0.05
+        ],
+        "variant_spread": 0.2,
+        "family_params": {
+          "shape": "spider"
+        }
+      },
+      "render": {
+        "scale": [
+          0.05,
+          0.05,
+          0.03
+        ],
+        "color": [1.0, 1.0, 1.0],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "speed": 3.0,
+        "flee_radius": 6.0,
+        "destructible": false,
+        "mote_arrangement": "solo",
+        "mote_color": [
+          0.06,
+          0.05,
+          0.04
+        ],
+        "mote_size": 0.04
+      },
+      "ascii": "s",
+      "combat_profile": {
+        "hp": 4,
+        "max_hp": 4,
+        "str_": 5,
+        "dex": 14,
+        "wil": 5,
+        "speed": 11,
+        "defense": 12,
+        "element_mods": {
+          "fire": 1.5
+        },
+        "default_attack": "spider_venom",
+        "tier": "solo",
+        "pack_size_min": 1,
+        "pack_size_max": 1,
+        "pack_radius_m": 0.0,
+        "xp_reward": 3
+      }
+    },
+    "horizon_form": {
+      "class": "horizon",
+      "physics": {
+        "collision_radius": 0.0
+      },
+      "render": {
+        "scale": [
+          6.0,
+          4.0,
+          10.0
+        ],
+        "color": [
+          0.08,
+          0.1,
+          0.05
+        ],
+        "emissive": 0.0
+      },
+      "ascii": " "
+    },
+    "horizon_mid": {
+      "class": "horizon",
+      "physics": {
+        "collision_radius": 0.0
+      },
+      "render": {
+        "scale": [
+          4.0,
+          3.0,
+          7.0
+        ],
+        "color": [
+          0.1,
+          0.12,
+          0.06
+        ],
+        "emissive": 0.0
+      },
+      "ascii": " "
+    },
+    "horizon_near": {
+      "class": "horizon",
+      "physics": {
+        "collision_radius": 0.0
+      },
+      "render": {
+        "scale": [
+          3.0,
+          2.0,
+          5.0
+        ],
+        "color": [
+          0.12,
+          0.14,
+          0.08
+        ],
+        "emissive": 0.0
+      },
+      "ascii": " "
+    },
+    "rat_ice": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "world_scale_mult": 3.4,
+      "color_base": [
+        0.55,
+        0.65,
+        0.8
+      ],
+      "color_shadow": [
+        0.4,
+        0.5,
+        0.68
+      ],
+      "color_accent": [
+        0.7,
+        0.78,
+        0.9
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.19,
+          0.1,
+          0.08
+        ],
+        "variant_spread": 0.15,
+        "family_params": {
+          "shape": "rat",
+          "ear_color": [
+            0.65,
+            0.7,
+            0.85
+          ],
+          "tail_color": [
+            0.58,
+            0.65,
+            0.8
+          ],
+          "eye_color": [
+            0.15,
+            0.2,
+            0.35
+          ]
+        }
+      },
+      "physics": {
+        "collision_radius": 0.6
+      },
+      "render": {
+        "scale": [
+          8.0,
+          8.0,
+          8.0
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "speed": 3.0,
+        "flee_radius": 10.0,
+        "destructible": false,
+        "mote_arrangement": "rat_15",
+        "mote_color": [
+          0.45,
+          0.55,
+          0.75
+        ],
+        "mote_size": 0.15
+      },
+      "ascii": "R",
+      "combat_profile": {
+        "hp": 5,
+        "max_hp": 5,
+        "str_": 6,
+        "dex": 11,
+        "wil": 6,
+        "speed": 12,
+        "defense": 12,
+        "element_mods": {
+          "ice": 0.25,
+          "fire": 1.5
+        },
+        "default_attack": "rat_ice_bite",
+        "tier": "pack",
+        "pack_size_min": 1,
+        "pack_size_max": 2,
+        "pack_radius_m": 5.0,
+        "xp_reward": 2
+      }
+    },
+    "rat_fire": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "world_scale_mult": 3.4,
+      "color_base": [
+        0.7,
+        0.28,
+        0.1
+      ],
+      "color_shadow": [
+        0.5,
+        0.18,
+        0.06
+      ],
+      "color_accent": [
+        0.85,
+        0.4,
+        0.15
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.19,
+          0.1,
+          0.08
+        ],
+        "variant_spread": 0.15,
+        "family_params": {
+          "shape": "rat",
+          "ear_color": [
+            0.8,
+            0.35,
+            0.15
+          ],
+          "tail_color": [
+            0.75,
+            0.3,
+            0.12
+          ],
+          "eye_color": [
+            0.9,
+            0.5,
+            0.1
+          ]
+        }
+      },
+      "physics": {
+        "collision_radius": 0.6
+      },
+      "render": {
+        "scale": [
+          8.0,
+          8.0,
+          8.0
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "speed": 5.0,
+        "flee_radius": 6.0,
+        "destructible": false,
+        "mote_arrangement": "rat_15",
+        "mote_color": [
+          0.75,
+          0.35,
+          0.12
+        ],
+        "mote_size": 0.15
+      },
+      "ascii": "R",
+      "combat_profile": {
+        "hp": 5,
+        "max_hp": 5,
+        "str_": 6,
+        "dex": 11,
+        "wil": 6,
+        "speed": 12,
+        "defense": 12,
+        "element_mods": {
+          "fire": 0.25,
+          "ice": 1.5
+        },
+        "default_attack": "rat_fire_bite",
+        "tier": "pack",
+        "pack_size_min": 1,
+        "pack_size_max": 2,
+        "pack_radius_m": 5.0,
+        "xp_reward": 2
+      }
+    },
+    "clay_pot": {
+      "class": "life",
+      "visual_radius": 0.5,
+      "use_vertex_colors": true,
+      "world_scale_mult": 13.0,
+      "color_base": [
+        0.6,
+        0.42,
+        0.25
+      ],
+      "color_shadow": [
+        0.5,
+        0.32,
+        0.18
+      ],
+      "color_accent": [
+        0.65,
+        0.47,
+        0.3
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.18,
+          0.18,
+          0.2
+        ],
+        "variant_spread": 0.1,
+        "family_params": {
+          "shape": "pot"
+        }
+      },
+      "physics": {
+        "collision_radius": 1.2
+      },
+      "render": {
+        "scale": [
+          13.0,
+          13.0,
+          13.0
+        ],
+        "color": [1.0, 1.0, 1.0],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "speed": 0.0,
+        "flee_radius": 0.0,
+        "destructible": true,
+        "scatter_speed": 3.0,
+        "scatter_gravity": 6.0,
+        "mote_arrangement": "pot_10",
+        "mote_color": [
+          0.6,
+          0.42,
+          0.25
+        ],
+        "mote_size": 0.15
+      },
+      "ascii": "u"
+    },
+    "treasure_chest": {
+      "class": "life",
+      "visual_radius": 0.7,
+      "use_vertex_colors": true,
+      "world_scale_mult": 12.5,
+      "color_base": [
+        0.33,
+        0.24,
+        0.14
+      ],
+      "color_shadow": [
+        0.22,
+        0.16,
+        0.1
+      ],
+      "color_accent": [
+        0.41,
+        0.29,
+        0.18
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.23,
+          0.15,
+          0.16
+        ],
+        "variant_spread": 0.1,
+        "family_params": {
+          "shape": "chest",
+          "latch_color": [
+            0.67,
+            0.59,
+            0.31
+          ]
+        }
+      },
+      "physics": {
+        "collision_radius": 1.5
+      },
+      "render": {
+        "scale": [
+          12.5,
+          12.5,
+          12.5
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "speed": 0.0,
+        "flee_radius": 0.0,
+        "destructible": false,
+        "mote_arrangement": "chest_8",
+        "mote_color": [
+          0.5,
+          0.35,
+          0.18
+        ],
+        "mote_size": 0.2
+      },
+      "ascii": "T"
+    },
+    "bat": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "world_scale_mult": 7.0,
+      "elemental_reactions": {
+        "ice": "ice_pulse",
+        "light": "reveal_glow"
+      },
+      "color_base": [
+        0.15,
+        0.13,
+        0.12
+      ],
+      "color_shadow": [
+        0.1,
+        0.08,
+        0.07
+      ],
+      "color_accent": [
+        0.22,
+        0.19,
+        0.17
+      ],
+      "physics": {
+        "collision_radius": 0.4
+      },
+      "render": {
+        "scale": [
+          0.4,
+          0.2,
+          0.4
+        ],
+        "color": [1.0, 1.0, 1.0],
+        "emissive": 0.0
+      },
+      "behavior": {
+        "behavior_mode": "flight",
+        "speed": 3.5,
+        "flee_radius": 0.0,
+        "destructible": false,
+        "cruise_alt_min": 5.0,
+        "cruise_alt_max": 11.0,
+        "waypoint_distance": 18.0,
+        "waypoint_wobble": 6.0,
+        "steer_strength": 1.6,
+        "bank_strength": 0.8,
+        "bob_amplitude": 0.4,
+        "bob_hz": 1.3,
+        "wing_span": 0.8,
+        "wing_chord": 0.25,
+        "wing_sweep": -0.15,
+        "flap_hz": 9.0,
+        "mote_arrangement": "solo",
+        "mote_color": [
+          0.3,
+          0.26,
+          0.24
+        ],
+        "mote_size": 0.18
+      },
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.2,
+          0.3,
+          0.06
+        ],
+        "variant_spread": 0.2,
+        "family_params": {
+          "shape": "bat"
+        }
+      },
+      "decal_projector": {
+        "hide_source": true,
+        "layers": [
+          {
+            "texture": "soft_circle",
+            "tint": [
+              0.015,
+              0.015,
+              0.025
+            ],
+            "size": 1.4,
+            "softness": 0.6
+          }
+        ],
+        "projection": {
+          "vector": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "max_distance": 20.0
+        },
+        "multiplier": {
+          "fan": 1,
+          "spread_deg": 0.0,
+          "jitter": 0.0
+        }
+      },
+      "ascii": "B",
+      "combat_profile": {
+        "hp": 2,
+        "max_hp": 2,
+        "str_": 3,
+        "dex": 18,
+        "wil": 6,
+        "speed": 20,
+        "defense": 14,
+        "element_mods": {},
+        "default_attack": "bat_nip",
+        "tier": "pack",
+        "pack_size_min": 3,
+        "pack_size_max": 6,
+        "pack_radius_m": 8.0,
+        "xp_reward": 1
+      }
+    },
+    "slime": {
+      "class": "life",
+      "use_vertex_colors": true,
+      "color_base": [
+        0.25,
+        0.5,
+        0.2
+      ],
+      "color_shadow": [
+        0.15,
+        0.35,
+        0.12
+      ],
+      "color_accent": [
+        0.35,
+        0.6,
+        0.28
+      ],
+      "recipe": {
+        "tier": 3,
+        "family": "creature_small",
+        "variant_count": 4,
+        "bounds": [
+          0.15,
+          0.15,
+          0.1
+        ],
+        "variant_spread": 0.25,
+        "family_params": {
+          "shape": "slime"
+        }
+      },
+      "ascii": "S",
+      "combat_profile": {
+        "hp": 3,
+        "max_hp": 3,
+        "str_": 3,
+        "dex": 6,
+        "wil": 4,
+        "speed": 6,
+        "defense": 8,
+        "element_mods": {
+          "fire": 1.5,
+          "ice": 0.5
+        },
+        "default_attack": "slime_splash",
+        "tier": "pack",
+        "pack_size_min": 2,
+        "pack_size_max": 5,
+        "pack_radius_m": 3.5,
+        "xp_reward": 1
+      }
+    },
+    "orb": {
+      "class": "encounter",
+      "description": "Roaming encounter agent. Rendered as an unshaded emissive sphere in the world; on camera contact begins an EncounterSession with the actor_id carried on the entity. Spawned by core/systems/roaming_pool.py, not by the stamp density table.",
+      "render": {
+        "scale": [0.6, 0.6, 0.6],
+        "color": [1.0, 0.08, 0.08],
+        "emissive": 2.5
+      },
+      "physics": {
+        "collision_radius": 1.5
+      },
+      "ascii": "O"
+    },
+    "shadow_orb": {
+      "class": "debug",
+      "description": "Shadow lab fixture \u2014 floating orb + decal_projector. Not used by gameplay; iterated at shadow_lab anchor (slot (-2, 0)).",
+      "render": {
+        "scale": [
+          0.4,
+          0.4,
+          0.4
+        ],
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": 1.0
+      },
+      "decal_projector": {
+        "altitude": 2.0,
+        "layers": [
+          {
+            "texture": "soft_circle",
+            "tint": [
+              0.02,
+              0.02,
+              0.03
+            ],
+            "size": 1.6,
+            "softness": 0.7
+          }
+        ],
+        "projection": {
+          "vector": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "max_distance": 6.0
+        },
+        "multiplier": {
+          "fan": 7,
+          "spread_deg": 60.0,
+          "jitter": 0.0
+        },
+        "animation": {
+          "rotate_hz": 0.0,
+          "pulse_hz": 0.0,
+          "drift": [
+            2.5,
+            2.5,
+            6.0
+          ]
+        }
+      },
+      "ascii": "O"
+    },
+    "puddle": {
+      "class": "atmosphere",
+      "color_base": [0.25, 0.35, 0.45],
+      "color_shadow": [0.18, 0.26, 0.34],
+      "color_accent": [0.32, 0.44, 0.55],
+      "render": {
+        "subparts": [
+          {"family": "flow", "scale": [1.6, 1.6, 1.0],
+           "color": [0.28, 0.40, 0.50],
+           "flow_velocity": [0.04, 0.02], "noise_scale": 1.5,
+           "opacity": 0.85, "offset": [0.0, 0.0, 0.02]}
+        ]
+      },
+      "ascii": "~"
+    },
+    "spore_cloud": {
+      "class": "atmosphere",
+      "color_base": [0.35, 0.55, 0.30],
+      "color_shadow": [0.26, 0.42, 0.22],
+      "color_accent": [0.45, 0.65, 0.38],
+      "render": {
+        "subparts": [
+          {"family": "haze", "scale": [3.0, 3.0, 2.5],
+           "color": [0.40, 0.62, 0.32], "density": 0.85,
+           "drift": [0.03, 0.04, 0.02], "turbulence_seed": 1.7,
+           "offset": [0.0, 0.0, 1.5]}
+        ]
+      },
+      "ascii": "%"
+    },
+    "torch_handcrafted": {
+      "class": "encounter",
+      "color_base": [0.4, 0.25, 0.15],
+      "color_shadow": [0.3, 0.18, 0.10],
+      "color_accent": [0.5, 0.32, 0.20],
+      "pickupable": true,
+      "charge_max": 100.0,
+      "erosion_rate": 0.05,
+      "erosion_mode": "time",
+      "wielded_effects": [
+        {"type": "ignite", "duration": 3.0}
+      ],
+      "render": {
+        "subparts": [
+          {"family": "tapered_vertical", "scale": [0.06, 0.06, 0.9],
+           "color": [0.4, 0.25, 0.15], "offset": [0.0, 0.0, 0.0]},
+          {"family": "flame", "scale": [0.4, 0.4, 0.6],
+           "color": [1.0, 0.45, 0.12], "emission": 2.0, "offset": [0.0, 0.0, 1.05],
+           "palette": "fire_warm"},
+          {"family": "haze", "scale": [0.6, 0.6, 1.2],
+           "color": [0.55, 0.52, 0.48], "density": 0.18,
+           "drift": [0.02, 0.0, 0.08], "offset": [0.0, 0.0, 1.8]}
+        ]
+      },
+      "ascii": "T"
+    },
+    "healing_potion": {
+      "class": "encounter",
+      "consumable": true,
+      "use_effects": [
+        {"type": "heal_player", "amount": 3}
+      ],
+      "color_base": [0.3, 0.55, 0.4],
+      "color_shadow": [0.2, 0.4, 0.3],
+      "color_accent": [0.4, 0.7, 0.5]
+    },
+    "wood_crate": {
+      "class": "encounter",
+      "color_base": [0.42, 0.28, 0.18],
+      "color_shadow": [0.32, 0.20, 0.12],
+      "color_accent": [0.50, 0.34, 0.22],
+      "tool_reactions": {
+        "fire": [
+          {"type": "ignite", "duration": 5.0},
+          {"type": "damage_hp", "amount": 10}
+        ]
+      },
+      "render": {
+        "scale": [0.4, 0.4, 0.4],
+        "color": [0.42, 0.28, 0.18]
+      },
+      "ascii": "#"
+    }
+  },
+  "schema_version": 1
+}

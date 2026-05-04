@@ -195,3 +195,90 @@ class TestVaultCrossQuery:
         vault.write_scenario({"id": "s2", "type": "hunt",
             "state": "COMPLETE", "objective": "b", "provenance_hash": "h2"})
         assert vault.completion_rate() == 1.0
+
+
+# -- Permanent Objects journal: schema (J1) -----------------------------------
+
+class TestVaultJournalSchema:
+    """
+    J1 -- schema migration only. Verifies the four journal tables exist
+    and the lexicon_state singleton is seeded on init.
+    CRUD methods land in J2/J3 when consumers need them.
+    """
+
+    def test_entries_table_exists(self, vault):
+        import sqlite3
+        with sqlite3.connect(vault.db_path) as conn:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='entries'"
+            ).fetchone()
+        assert row is not None
+
+    def test_lexicon_table_exists(self, vault):
+        import sqlite3
+        with sqlite3.connect(vault.db_path) as conn:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='lexicon'"
+            ).fetchone()
+        assert row is not None
+
+    def test_lexicon_contexts_table_exists(self, vault):
+        import sqlite3
+        with sqlite3.connect(vault.db_path) as conn:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='lexicon_contexts'"
+            ).fetchone()
+        assert row is not None
+
+    def test_lexicon_state_singleton_seeded(self, vault):
+        """parser_version=1 row exists on first init."""
+        state = vault.lexicon_state()
+        assert state is not None
+        assert state["id"]             == 1
+        assert state["parser_version"] == 1
+        assert state["w2v_version"]    == 0
+        assert state["last_entry_at"]      is None
+        assert state["last_full_retrain"]  is None
+
+    def test_lexicon_state_singleton_idempotent(self, tmp_path):
+        """Re-opening vault does not duplicate the singleton row."""
+        from core.vault import vault as VaultClass
+        db = tmp_path / "vault.db"
+        VaultClass(db_path=db)
+        VaultClass(db_path=db)  # second init must not re-seed
+        v3 = VaultClass(db_path=db)
+        import sqlite3
+        with sqlite3.connect(db) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM lexicon_state").fetchone()[0]
+        assert count == 1
+        assert v3.lexicon_state()["parser_version"] == 1
+
+    def test_lexicon_unique_term_ngram(self, vault):
+        """UNIQUE(term, ngram_size) constraint is enforced -- same term+ngram twice fails."""
+        import sqlite3
+        with sqlite3.connect(vault.db_path) as conn:
+            conn.execute("""
+                INSERT INTO lexicon (term, ngram_size, first_seen_at, last_seen_at)
+                VALUES ('cat', 1, '2026-04-28', '2026-04-28')
+            """)
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("""
+                    INSERT INTO lexicon (term, ngram_size, first_seen_at, last_seen_at)
+                    VALUES ('cat', 1, '2026-04-28', '2026-04-28')
+                """)
+
+    def test_lexicon_same_term_different_ngram_allowed(self, vault):
+        """'cat' as 1-gram and 'cat' as 2-gram (within phrase) should both be insertable."""
+        import sqlite3
+        with sqlite3.connect(vault.db_path) as conn:
+            conn.execute("""
+                INSERT INTO lexicon (term, ngram_size, first_seen_at, last_seen_at)
+                VALUES ('cat', 1, '2026-04-28', '2026-04-28')
+            """)
+            conn.execute("""
+                INSERT INTO lexicon (term, ngram_size, first_seen_at, last_seen_at)
+                VALUES ('cat carrier', 2, '2026-04-28', '2026-04-28')
+            """)
+            count = conn.execute("SELECT COUNT(*) FROM lexicon").fetchone()[0]
+        assert count == 2

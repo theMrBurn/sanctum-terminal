@@ -2,6 +2,9 @@
 data/*.db
 *.db
 
+# ── Godot telemetry tags — session screenshots, not source ────────────────────
+godot/tags/
+
 # ── Large binary assets — use asset storage, not git ─────────────────────────
 exports/
 data/live_assets/*/Texture_*.png
@@ -39,5 +42,37 @@ tests/mock_exports/
 .trunk/out/
 *.log
 
+# ── macOS noise ───────────────────────────────────────────────────────────────
+.DS_Store
+
 # ── Reference model packs (CC0, downloaded locally) ──────────────────────────
 assets/kenney/
+
+# ── Godot ─────────────────────────────────────────────────────────────────────
+godot/.godot/
+godot/manifest.json
+
+# ── Defensive snapshots and backups (recovery artifacts, not source) ─────────
+# .baseline files = pre-change snapshots saved during refinement panics
+# pre_repair_backup/ = wholesale mesh backups before destructive operations
+*.baseline
+godot/meshes/pre_repair_backup/
+
+# ── Claude Code session data ─────────────────────────────────────────────────
+# .claude/ holds both committable scope (AGENTS scaffolding, audit framework)
+# and personal session state. Ignore only the personal subpaths.
+.claude/projects/
+.claude/settings.local.json
+.claude/worktrees/
+
+# ── Expedition session logs — generated per Godot run, not source ────────────
+# Each completed expedition writes sessions/expedition_<timestamp>.json.
+# These are the post-mortem artifacts for visual triage — kept locally,
+# correlated with godot/tags/ screenshots, not committed.
+sessions/
+
+# ── Player save state (L5) ───────────────────────────────────────────────────
+# Persisted across brain restarts. Tomorrow morning's inventory lives here.
+# Tests use SANCTUM_SAVE_PATH to redirect to tmp_path so they don't pollute
+# the real save. Brain regenerates a fresh PlayerState on missing file.
+save/

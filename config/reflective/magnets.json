@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "connectives": [
+    "the", "a", "and", "or", "is", "in", "on", "of", "to", "with",
+    "her", "his", "their", "you", "we", "i"
+  ],
+  "thematic": [
+    "river", "stone", "moss", "breath", "thread", "dawn", "ash",
+    "bell", "moth", "bone", "rain", "hush", "glass", "shore", "salt",
+    "light", "stair", "small", "open", "still"
+  ],
+  "wildcards": [
+    "unmade", "almost", "hold", "again", "between"
+  ]
+}

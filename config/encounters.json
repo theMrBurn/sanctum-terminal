@@ -1,0 +1,210 @@
+{
+  "_schema_version": 2,
+  "_doc": "Encounter primitive — pools that compose into procedural encounters. Actors + intents + environments + objects + scouts. A scout declares mode=dialog|action; dialog scouts draw from dialog_intents + dialog_verbs + postures, action scouts draw from intents. Runtime builds an EncounterSession by picking a scout and resolving its references.",
+
+  "intents": {
+    "strike": {
+      "posture":    "coiling",
+      "telegraph":  "The {actor} coils, facets sharpening.",
+      "narration":  "The {actor} drives at you. (-{damage} HP)",
+      "save":       "str",
+      "effect":     "damage",
+      "damage":     ["d", 4]
+    },
+    "menace": {
+      "posture":    "dimming",
+      "telegraph":  "The {actor} dims. A pressure gathers.",
+      "narration":  "Your confidence slips. (progress -1)",
+      "effect":     "progress_delta",
+      "value":      -1
+    },
+    "withdraw": {
+      "posture":    "receding",
+      "telegraph":  "The {actor} recedes, knitting facets.",
+      "narration":  "It pulls back and heals. (orb +1 HP)",
+      "effect":     "orb_heal",
+      "value":      1
+    },
+    "reveal": {
+      "posture":    "opening",
+      "telegraph":  "A facet opens on the {actor}.",
+      "narration":  "Something shows through. Your next reading gains bonus.",
+      "effect":     "bonus_next_read"
+    },
+    "bind": {
+      "posture":    "weaving",
+      "telegraph":  "Threads wind around you.",
+      "narration":  "Your next save tightens. Disadvantage.",
+      "effect":     "disadvantage_next"
+    }
+  },
+
+  "dialog_intents": {
+    "questioning": {
+      "posture":    "wary",
+      "telegraph":  "The {actor} studies you.",
+      "narration":  "It weighs your words in silence.",
+      "effect":     "none"
+    },
+    "revealing": {
+      "posture":    "opening",
+      "telegraph":  "A facet on the {actor} parts.",
+      "narration":  "A thread offers itself. Your next reading gains bonus.",
+      "effect":     "bonus_next_read"
+    },
+    "withholding": {
+      "posture":    "coiled",
+      "telegraph":  "The {actor} draws its rings tight.",
+      "narration":  "Silence. Your approach doesn't land. (progress -1)",
+      "effect":     "progress_delta",
+      "value":      -1
+    },
+    "offering": {
+      "posture":    "extending",
+      "telegraph":  "The {actor} tilts, as if to show something.",
+      "narration":  "It waits. Your next saving roll eases.",
+      "effect":     "bonus_next_read"
+    },
+    "threatening": {
+      "posture":    "bristling",
+      "telegraph":  "The {actor} flares, facets sharp.",
+      "narration":  "A pressure gathers. Your next save tightens.",
+      "effect":     "disadvantage_next"
+    }
+  },
+
+  "postures": {
+    "_doc":      "Conversational stances the orb can hold. `reads` lists the dialog-verb stances that engage this posture (+1 progress on pass). `breaks_on` is the stance that shatters it (+2 progress, big win).",
+    "wary":      {"reads": ["curious", "deferent"],  "breaks_on": "cryptic"},
+    "opening":   {"reads": ["curious", "cryptic"],   "breaks_on": "deferent"},
+    "coiled":    {"reads": ["deferent"],             "breaks_on": "cryptic"},
+    "extending": {"reads": ["observe", "curious"],   "breaks_on": "aggressive"},
+    "bristling": {"reads": ["deferent", "observe"],  "breaks_on": "aggressive"}
+  },
+
+  "dialog_verbs": {
+    "_doc":   "Player-facing speech actions. Each carries a stance (matched against orb posture) and a save stat (d20 ≤ stat = pass).",
+    "PROBE":  {"stance": "curious",    "save": "wil", "label": "probe"},
+    "PRESS":  {"stance": "aggressive", "save": "str", "label": "press"},
+    "YIELD":  {"stance": "deferent",   "save": "wil", "label": "yield"},
+    "RIDDLE": {"stance": "cryptic",    "save": "wil", "label": "riddle"},
+    "LISTEN": {"stance": "observe",    "save": "wil", "label": "listen"}
+  },
+
+  "actors": {
+    "watcher": {
+      "type":        "orb",
+      "display_name": "watcher",
+      "tags":        ["observation_time", "precision_score"],
+      "max_hp":      6,
+      "segments":    {"count": 7, "solid_mode": true},
+      "visual": {
+        "base_color":    [1.0, 0.08, 0.08],
+        "emission":      2.5,
+        "pulse":         {"freq": 0.5, "amp": 0.25, "waveform": "sine"}
+      },
+      "phase_weights": {
+        "composed":  {"strike": 0.30, "menace": 0.30, "withdraw": 0.15, "reveal": 0.15, "bind": 0.10},
+        "pressured": {"strike": 0.50, "menace": 0.20, "withdraw": 0.05, "reveal": 0.10, "bind": 0.15},
+        "desperate": {"strike": 0.40, "menace": 0.10, "withdraw": 0.30, "reveal": 0.05, "bind": 0.15}
+      },
+      "reactive_bumps": [
+        {"when": "DEFEND",       "intent": "menace",   "mult": 3.0},
+        {"when": "ACT_pass",     "intent": "withdraw", "mult": 2.0},
+        {"when": "ACT_fail",     "intent": "strike",   "mult": 2.0},
+        {"when": "MOVE_pass",    "intent": "strike",   "mult": 1.5},
+        {"when": "OBSERVE_pass", "intent": "bind",     "mult": 2.0},
+        {"when": "THINK_pass",   "intent": "bind",     "mult": 2.0},
+        {"when": "CRAFT_fail",   "intent": "strike",   "mult": 2.0},
+        {"when": "TOOLS_fail",   "intent": "strike",   "mult": 2.0}
+      ],
+      "dialog_phase_weights": {
+        "composed":  {"questioning": 0.40, "revealing": 0.20, "withholding": 0.15, "offering": 0.15, "threatening": 0.10},
+        "pressured": {"questioning": 0.25, "revealing": 0.15, "withholding": 0.30, "offering": 0.10, "threatening": 0.20},
+        "desperate": {"questioning": 0.15, "revealing": 0.30, "withholding": 0.10, "offering": 0.30, "threatening": 0.15}
+      },
+      "dialog_reactive_bumps": [
+        {"when": "PROBE_pass",  "intent": "revealing",   "mult": 2.0},
+        {"when": "PROBE_fail",  "intent": "withholding", "mult": 2.0},
+        {"when": "PRESS_pass",  "intent": "threatening", "mult": 2.5},
+        {"when": "PRESS_fail",  "intent": "withholding", "mult": 2.0},
+        {"when": "YIELD_pass",  "intent": "offering",    "mult": 2.0},
+        {"when": "RIDDLE_pass", "intent": "revealing",   "mult": 2.5},
+        {"when": "LISTEN_pass", "intent": "offering",    "mult": 2.0}
+      ]
+    }
+  },
+
+  "environments": {
+    "cavern_alcove": {
+      "fog_color":   [0.02, 0.02, 0.04],
+      "floor_color": [0.16, 0.15, 0.14],
+      "ambient":     0.3
+    }
+  },
+
+  "objects": {
+    "pillar_pair": {"kind": "column", "count": 2, "placement": "flank"},
+    "mote_veil":   {"kind": "mote",   "count": 7, "placement": "aura"}
+  },
+
+  "scouts": {
+    "first_watcher": {
+      "_doc":         "UAT-1 — first meaningful encounter. Dialog mode: the watcher is parleyed with, not fought. Combat reserved for action-mode scouts (rat/bat/slime).",
+      "mode":         "dialog",
+      "actor":        "watcher",
+      "environment":  "cavern_alcove",
+      "objects":      ["pillar_pair", "mote_veil"],
+      "persistence":  "one_shot",
+      "spawn_mode":   "front_fov",
+      "ceremony": {
+        "opening":  "A watcher draws near.\nFacets tilt toward you.",
+        "victory":  "The watcher yields.\nSomething of it stays with you.",
+        "defeat":   "You step back from the ring.\nIts silence follows you.",
+        "fled":     "The watcher recedes.\nA weight lifts. A lesson trails you."
+      },
+      "flavor": {
+        "PROBE_pass":   "You frame a question it cannot refuse.",
+        "PROBE_fail":   "Your question glances off the facets.",
+        "PRESS_pass":   "You lean in. A ring loosens.",
+        "PRESS_fail":   "It tightens, every facet brighter.",
+        "YIELD_pass":   "You lower your gaze. The pressure thins.",
+        "YIELD_fail":   "Its patience is not yours.",
+        "RIDDLE_pass":  "A riddle answers a riddle. Something gives.",
+        "RIDDLE_fail":  "The words slip past each other.",
+        "LISTEN_pass":  "You catch the rhythm beneath its silence.",
+        "LISTEN_fail":  "The silence holds."
+      },
+      "default_path": "dismiss",
+      "paths": {
+        "bind": {
+          "_doc":     "Two breaks = you shattered its posture twice. Watcher binds itself to your expedition.",
+          "when":     {"breaks_min": 2},
+          "ceremony": "The watcher folds into your wake.\nIt will not leave you.",
+          "effects": [
+            {"type": "set_flag", "name": "watcher_bound", "value": true}
+          ]
+        },
+        "ally": {
+          "_doc":     "Three curious passes = you understood without breaking. Watcher allies without fealty.",
+          "when":     {"stance_count": {"curious": 3}},
+          "ceremony": "The watcher tilts. An alliance, not a leash.",
+          "effects": [
+            {"type": "set_flag", "name": "watcher_ally", "value": true}
+          ]
+        },
+        "dismiss": {
+          "_doc":     "Default — three passes any stance, nothing more. Watcher yields and moves on.",
+          "when":     {},
+          "ceremony": "The watcher yields. The path opens."
+        }
+      }
+    }
+  },
+
+  "phases": {
+    "composed":  {"hp_min_frac": 0.80},
+    "pressured": {"hp_min_frac": 0.40},
+    "desperate": {"hp_min_frac": 0.00}
+  }
+}

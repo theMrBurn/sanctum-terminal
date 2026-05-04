@@ -1,0 +1,13 @@
+{
+  "_comment": "Universal grammatical primitives for English. Intentionally minimal: no PERSONS, COMPANIONS, LOCATIONS, OBJECTS, VERBS lists baked in. Cultural meaning is learned from the user's corpus via Word2Vec + populated via the planner's first-appearance bootstrap (vault.user_seeds). Categories the user types are sacred and are never overridden by defaults.",
+  "_schema_version": 1,
+  "TEMPORAL_LEAD": [
+    "after",
+    "before",
+    "when",
+    "until",
+    "while",
+    "during",
+    "once"
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "consequences": [
+    {
+      "id": "hp_zero_enter_reflective",
+      "trigger": {"predicate": "hp_zero"},
+      "resolution": {
+        "predicate": null,
+        "effects": [
+          {
+            "name": "emit_state_event",
+            "args": {
+              "kind": "reflective_entry",
+              "label": "REFLECT",
+              "register": "ritual"
+            }
+          },
+          {
+            "name": "enter_reflective",
+            "args": {"trigger": "hp_zero"}
+          }
+        ]
+      },
+      "one_shot": true
+    },
+    {
+      "id": "reflective_commit_resume",
+      "trigger": {"predicate": "reflective_committed_from_hp_zero"},
+      "resolution": {
+        "predicate": null,
+        "effects": [
+          {"name": "exit_reflective"},
+          {
+            "name": "emit_state_event",
+            "args": {
+              "kind": "respawn",
+              "label": "RESPAWN",
+              "register": "tense"
+            }
+          },
+          {"name": "regen_world", "args": {"reseed": "random"}},
+          {"name": "restore_hp", "args": {"to": "full"}}
+        ]
+      },
+      "one_shot": true
+    },
+    {
+      "id": "reflective_commit_voluntary",
+      "trigger": {"predicate": "reflective_committed_voluntary"},
+      "resolution": {
+        "predicate": null,
+        "effects": [
+          {"name": "exit_reflective"},
+          {
+            "name": "emit_state_event",
+            "args": {
+              "kind": "reflective_complete",
+              "label": "DONE",
+              "register": "discovery"
+            }
+          }
+        ]
+      },
+      "one_shot": true
+    }
+  ]
+}
