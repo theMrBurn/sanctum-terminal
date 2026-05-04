@@ -1,16 +1,22 @@
 """Ping-pong make-brain handler.
 
-V1 (PR 3): stub — registers with make_brain_registry, owns the chamber
-geometry constants, auto-inserts vanilla + tennis_sim profiles. Real
-gameplay logic (serve / strike / scoring / runs) lands in PRs 4–8.
+PR 3 stub + PR 4 ball physics. Owns:
+  - Chamber geometry (constant for V1)
+  - Active profile name
+  - Vanilla + tennis_sim auto-seeding
+  - Active ball state (PR 4 — None when no ball is in play)
+  - BallisticsSolver lazily built per ball lifetime
 
-Per `.claude/feature/feat_make-brain-ping-pong.md` PR 3.
+Per `.claude/feature/feat_make-brain-ping-pong.md` PR 3-4.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from core.systems import make_brain_registry
+from core.systems.ballistics import (
+    BallisticsParams, BallisticsSolver, MotionVector, chamber_walls,
+)
 
 
 # ----------------------------------------------------------------------
@@ -102,6 +108,14 @@ class PingPongHandler:
         self.vault = vault
         self.active_profile = DEFAULT_PROFILE
         self._ensure_default_profiles()
+        # Ball state — None when no ball in play. Brain ticks on_tick(dt)
+        # only when self.ball is not None.
+        self.ball: MotionVector | None = None
+        # Solver is rebuilt whenever active_profile changes; a value of
+        # None forces lazy construction on next on_tick / on_serve.
+        self._solver: BallisticsSolver | None = None
+        self._solver_profile: str | None = None
+        self._session_time: float = 0.0
 
     # -- profile bootstrapping ---------------------------------------------
 
@@ -121,16 +135,83 @@ class PingPongHandler:
                 notes="Mehta wind-tunnel coefficients — dial-up preset",
             )
 
+    # -- solver -----------------------------------------------------------
+
+    def _ensure_solver(self) -> BallisticsSolver:
+        """Lazily build / rebuild the solver for the active profile."""
+        if self._solver is not None and self._solver_profile == self.active_profile:
+            return self._solver
+        params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
+        walls = chamber_walls(
+            tuple(CHAMBER_GEOMETRY["size"]),
+            tuple(CHAMBER_GEOMETRY["origin"]),
+        )
+        self._solver = BallisticsSolver(BallisticsParams.from_profile(params), walls)
+        self._solver_profile = self.active_profile
+        return self._solver
+
+    # -- ball lifecycle ---------------------------------------------------
+
+    def on_serve(self) -> MotionVector:
+        """Spawn a stationary ball at the active profile's serve_offset.
+
+        Per AC §"Decisions locked" #4: Atari single-press serve. First
+        press creates the ball; second press is the rally swing (PR 5).
+        """
+        params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
+        offset = params.get("serve_offset") or [0.0, 1.6, 1.5]
+        # Profile serve_offset is (lateral, vertical_eye_height, forward).
+        # Brain space convention: x=lateral, y=forward, z=up. So map
+        # offset[0] → x, offset[2] → y, offset[1] → z.
+        self.ball = MotionVector(
+            pos=(float(offset[0]), float(offset[2]), float(offset[1])),
+            vel=(0.0, 0.0, 0.0),
+            spin=(0.0, 0.0, 0.0),
+            timestamp=self._session_time,
+        )
+        return self.ball
+
+    def clear_ball(self) -> None:
+        """Remove the active ball (rally end, reset, etc.)."""
+        self.ball = None
+
+    def on_tick(self, dt: float, substeps: int = 4) -> list:
+        """Advance ball physics by `dt`. Returns wall-contact records
+        from the substep (for state-event emission later)."""
+        self._session_time += dt
+        if self.ball is None:
+            return []
+        solver = self._ensure_solver()
+        new_state, contacts = solver.step(self.ball, dt, substeps=substeps)
+        self.ball = new_state
+        return contacts
+
     # -- manifest --------------------------------------------------------
 
     def manifest_keys(self) -> dict[str, Any]:
         """Top-level keys merged into each manifest tick when this
         instance is active. Brain calls this from the manifest builder."""
-        return {
+        keys: dict[str, Any] = {
             "instance_id":    INSTANCE_ID,
             "active_profile": self.active_profile,
             "chamber":        dict(CHAMBER_GEOMETRY),
         }
+        if self.ball is not None:
+            params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
+            keys["ball"] = {
+                "exists": True,
+                "x":  self.ball.pos[0],
+                "y":  self.ball.pos[1],
+                "z":  self.ball.pos[2],
+                "vx": self.ball.vel[0],
+                "vy": self.ball.vel[1],
+                "vz": self.ball.vel[2],
+                "radius": float(params.get("ball_radius", 0.15)),
+                "color":  [0.95, 0.95, 0.30],   # high-visibility yellow wireframe
+            }
+        else:
+            keys["ball"] = {"exists": False}
+        return keys
 
 
 # ----------------------------------------------------------------------

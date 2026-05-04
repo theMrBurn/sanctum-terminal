@@ -2494,11 +2494,13 @@ def run_server(biome_name, port=9877):
                 _mb_cmd = msg.get("cmd")
                 if _mb_cmd in (
                     "profile_save", "profile_load", "profile_list",
+                    "volley_serve",
                 ):
                     mb_handler = {
                         "profile_save": make_brain_commands.handle_profile_save,
                         "profile_load": make_brain_commands.handle_profile_load,
                         "profile_list": make_brain_commands.handle_profile_list,
+                        "volley_serve": make_brain_commands.handle_volley_serve,
                     }[_mb_cmd]
                     ack = mb_handler(msg, _get_vault())
                     try:
@@ -2530,6 +2532,19 @@ def run_server(biome_name, port=9877):
             # engine, regens the world, restores HP, no perma-death.
             consequence_tick.tick(world, world.tick_events)
             world.tick_events.clear()
+
+            # Make-brain per-frame physics tick. Runs at fixed 1/60 dt
+            # regardless of client cadence — solver substeps handle any
+            # per-frame velocity. Silent no-op for legacy biomes (no
+            # registered handler).
+            if mb_instance_id:
+                try:
+                    spec = make_brain_registry.get(mb_instance_id)
+                    tick_fn = getattr(spec.handler, "on_tick", None)
+                    if callable(tick_fn):
+                        tick_fn(1.0 / 60.0)
+                except LookupError:
+                    pass
 
             # Process only the latest camera update (skip stale queued ones)
             if latest_cam_msg is not None:

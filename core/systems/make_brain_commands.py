@@ -104,6 +104,34 @@ def handle_profile_load(msg: dict, vault) -> dict:
     }
 
 
+def handle_volley_serve(msg: dict, vault) -> dict:
+    """Spawn a stationary ball in the volley chamber. Idempotent — if a
+    ball is already in play, replaces it with a fresh serve.
+
+    Required nothing in payload (instance_id is implied; only ping_pong
+    handles serves in V1). Returns {ok, ball: {...}} on success.
+    """
+    from core.systems import make_brain_registry
+    try:
+        spec = make_brain_registry.get("ping_pong")
+    except LookupError:
+        return {"ok": False, "cmd": "volley_serve",
+                "reason": "ping_pong make-brain not active"}
+    handler = spec.handler
+    fn = getattr(handler, "on_serve", None)
+    if fn is None or not callable(fn):
+        return {"ok": False, "cmd": "volley_serve",
+                "reason": "handler missing on_serve"}
+    ball = fn()
+    return {
+        "ok": True, "cmd": "volley_serve",
+        "ball": {
+            "x":  ball.pos[0], "y": ball.pos[1], "z": ball.pos[2],
+            "vx": ball.vel[0], "vy": ball.vel[1], "vz": ball.vel[2],
+        },
+    }
+
+
 def handle_profile_list(msg: dict, vault) -> dict:
     """List all profiles for an instance.
 

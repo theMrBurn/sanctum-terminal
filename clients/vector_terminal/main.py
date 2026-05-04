@@ -26,6 +26,7 @@ import pyray as rl  # noqa: E402
 from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
+from clients.vector_terminal import ball as ball_renderer  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
 from clients.vector_terminal import build_mode  # noqa: E402
 from clients.vector_terminal import chamber as chamber_renderer  # noqa: E402
@@ -379,6 +380,17 @@ def main() -> int:
                         "y": camera.position.z,  # manifest y from raylib z
                     },
                 })
+                # Make-brain ping_pong: fire_primary serves the ball when
+                # no ball is in play (Atari single-press serve, AC
+                # decision #4). Strike when ball IS in play lands in PR 5.
+                # Per `feat_make-brain-ping-pong.md` PR 4.
+                if last_manifest.get("instance_id") == "ping_pong":
+                    _ball = last_manifest.get("ball") or {}
+                    if not _ball.get("exists"):
+                        client.send({"cmd": "volley_serve"})
+                    # else: PR 5 will route into volley_strike here.
+                    # Continue to the smash path below — harmless in
+                    # volley_chamber since there are no smashable entities.
                 # Smash — first ARPG combat verb. If the click lands on
                 # an entity within melee range, fire `kind_destroyed`.
                 # Brain emits a StateEvent + advances any quest watching
@@ -564,6 +576,10 @@ def main() -> int:
         # volley_chamber. Reads `manifest.chamber`; silent no-op for
         # legacy biomes. Per `feat_make-brain-ping-pong.md` PR 3.
         chamber_renderer.render(last_manifest)
+
+        # Active ball — wireframe sphere from manifest.ball. Silent
+        # no-op when no ball in play. Per PR 4.
+        ball_renderer.render(last_manifest)
 
         # World seeds — vector-workroom feature. Rendered before entities
         # so close-up entities can occlude distant seeds. Each seed's
