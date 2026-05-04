@@ -132,6 +132,38 @@ def handle_volley_serve(msg: dict, vault) -> dict:
     }
 
 
+def handle_volley_reset_rally(msg: dict, vault) -> dict:
+    """Discard active ball + rally counter. Match state preserved."""
+    from core.systems import make_brain_registry
+    try:
+        spec = make_brain_registry.get("ping_pong")
+    except LookupError:
+        return {"ok": False, "cmd": "volley_reset_rally",
+                "reason": "ping_pong make-brain not active"}
+    fn = getattr(spec.handler, "reset_rally", None)
+    if fn is None or not callable(fn):
+        return {"ok": False, "cmd": "volley_reset_rally",
+                "reason": "handler missing reset_rally"}
+    fn()
+    return {"ok": True, "cmd": "volley_reset_rally"}
+
+
+def handle_volley_reset_match(msg: dict, vault) -> dict:
+    """Hard reset — fresh match, no ball, no rally."""
+    from core.systems import make_brain_registry
+    try:
+        spec = make_brain_registry.get("ping_pong")
+    except LookupError:
+        return {"ok": False, "cmd": "volley_reset_match",
+                "reason": "ping_pong make-brain not active"}
+    fn = getattr(spec.handler, "reset_match", None)
+    if fn is None or not callable(fn):
+        return {"ok": False, "cmd": "volley_reset_match",
+                "reason": "handler missing reset_match"}
+    fn()
+    return {"ok": True, "cmd": "volley_reset_match"}
+
+
 def _vec3(payload: dict, key: str) -> tuple[float, float, float] | None:
     """Pull a {x,y,z} or [x,y,z] vector out of a payload sub-dict."""
     v = payload.get(key)

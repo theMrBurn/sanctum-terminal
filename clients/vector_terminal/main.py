@@ -383,6 +383,16 @@ def main() -> int:
             if input_map.pressed("noclip_toggle"):
                 noclip = not noclip
 
+            # Volley resets (PR 6). R = reset current rally (preserves
+            # match score). SHIFT+R = reset entire match. Only meaningful
+            # in volley_chamber; no-op in other biomes.
+            if (last_manifest.get("instance_id") == "ping_pong"
+                    and input_map.pressed("reset_rally")):
+                if input_map.held("sprint"):
+                    client.send({"cmd": "volley_reset_match"})
+                else:
+                    client.send({"cmd": "volley_reset_rally"})
+
             # K = damage_self debug. Each press deals 99 damage, sufficient
             # to push HP to 0 in one tap — exposes the forced reflective
             # chain end-to-end (REFLECT toast → fridge UI → commit →

@@ -255,3 +255,135 @@ def test_handle_volley_serve_spawns_ball(fresh_vault):
     # Verify handler now has a ball
     spec = reg.get("ping_pong")
     assert spec.handler.ball is not None
+
+
+# ── PR 6 — match scoring + boundary resolution ────────────────────────
+
+
+def _ball_past_back_line(handler):
+    """Drive the ball to past out_of_bounds_y so the next on_tick resolves."""
+    from core.systems.ballistics import MotionVector
+    handler.ball = MotionVector(
+        pos=(0.0, -2.0, 1.6),    # past out_of_bounds_y=-1.0
+        vel=(0.0, 0.0, 0.0),
+        spin=(0.0, 0.0, 0.0),
+        timestamp=0.0,
+    )
+
+
+def test_handler_starts_with_fresh_match(fresh_vault):
+    h = ping_pong_brain.PingPongHandler(fresh_vault)
+    assert h.match.points == (0, 0)
+    assert h.match.games == (0, 0)
+    assert h.match.sets_won == (0, 0)
+    assert h.rally_contacts == 0
+    assert h.last_rally_outcome is None
+
+
+def test_on_serve_resets_rally_contacts(fresh_vault):
+    h = ping_pong_brain.PingPongHandler(fresh_vault)
+    h.on_serve()
+    h.rally_contacts = 5    # simulate mid-rally
+    h.on_serve()
+    assert h.rally_contacts == 0    # fresh serve = fresh count
+
+
+def test_on_strike_increments_rally_contacts(fresh_vault):
+    h = ping_pong_brain.PingPongHandler(fresh_vault)
+    h.on_serve()
+    assert h.rally_contacts == 0
+    h.on_strike((0.0, 1.5, 1.6), (0.0, 1.0, 0.0), (0.0, 5.0, 0.0))
+    assert h.rally_contacts == 1
+    h.on_strike((0.0, 1.5, 1.6), (0.0, 1.0, 0.0), (0.0, 5.0, 0.0))
+    # Note: ball moved after first strike, so second may miss the hitbox.
+    # We don't care about the specific count — just that on_strike has
+    # the *capacity* to increment. (More precise rally tests later.)
+
+
+def test_short_rally_out_awards_opp_point(fresh_vault):
+    """Rally with 0 contacts that goes out → opp gets the point (15-0)."""
+    h = ping_pong_brain.PingPongHandler(fresh_vault)
+    h.on_serve()
+    _ball_past_back_line(h)
+    h.on_tick(1.0 / 60.0)
+    assert h.ball is None
+    assert h.match.points == (0, 1)              # 0-15 → opp scored
+    assert h.last_rally_outcome["winner"] == "opp"
+
+
+def test_long_rally_out_awards_player_point(fresh_vault):
+    """Rally with ≥long_rally_threshold contacts → player gets the point."""
+    h = ping_pong_brain.PingPongHandler(fresh_vault)
+    h.on_serve()
+    h.rally_contacts = 12        # sustained well past threshold (default 10)
+    _ball_past_back_line(h)
+    h.on_tick(1.0 / 60.0)
+    assert h.ball is None
+    assert h.match.points == (1, 0)              # 15-0 → player scored
+    assert h.last_rally_outcome["winner"] == "player"
+
+
+def test_reset_rally_preserves_match_state(fresh_vault):
+    h = ping_pong_brain.PingPongHandler(fresh_vault)
+    h.on_serve()
+    _ball_past_back_line(h)
+    h.on_tick(1.0 / 60.0)
+    pts_after_first = h.match.points
+    h.on_serve()
+    h.rally_contacts = 3
+    h.reset_rally()
+    assert h.ball is None
+    assert h.rally_contacts == 0
+    assert h.match.points == pts_after_first     # match state preserved
+
+
+def test_reset_match_wipes_match_state(fresh_vault):
+    h = ping_pong_brain.PingPongHandler(fresh_vault)
+    h.on_serve()
+    _ball_past_back_line(h)
+    h.on_tick(1.0 / 60.0)
+    assert h.match.points != (0, 0)
+    h.reset_match()
+    assert h.match.points == (0, 0)
+    assert h.match.games == (0, 0)
+    assert h.match.sets_won == (0, 0)
+    assert h.last_rally_outcome is None
+
+
+def test_manifest_keys_include_match_state(fresh_vault):
+    h = ping_pong_brain.PingPongHandler(fresh_vault)
+    keys = h.manifest_keys()
+    ms = keys["match_state"]
+    assert ms["points"] == [0, 0]
+    assert ms["games"] == [0, 0]
+    assert ms["sets_won"] == [0, 0]
+    assert ms["mode"] == "wall_rally"
+    assert ms["rally_contacts"] == 0
+
+
+def test_handle_reset_commands(fresh_vault):
+    from core.systems.make_brain_commands import (
+        handle_volley_reset_match, handle_volley_reset_rally,
+    )
+    spec = ping_pong_brain.activate(fresh_vault)
+    spec.handler.on_serve()
+    _ball_past_back_line(spec.handler)
+    spec.handler.on_tick(1.0 / 60.0)            # opp scored 0-15
+
+    ack = handle_volley_reset_rally({"cmd": "volley_reset_rally"}, fresh_vault)
+    assert ack["ok"] is True
+    assert spec.handler.match.points == (0, 1)   # match preserved
+
+    ack = handle_volley_reset_match({"cmd": "volley_reset_match"}, fresh_vault)
+    assert ack["ok"] is True
+    assert spec.handler.match.points == (0, 0)   # match wiped
+
+
+def test_reset_commands_error_when_handler_inactive(fresh_vault):
+    from core.systems.make_brain_commands import (
+        handle_volley_reset_match, handle_volley_reset_rally,
+    )
+    ack1 = handle_volley_reset_rally({"cmd": "volley_reset_rally"}, fresh_vault)
+    ack2 = handle_volley_reset_match({"cmd": "volley_reset_match"}, fresh_vault)
+    assert ack1["ok"] is False
+    assert ack2["ok"] is False

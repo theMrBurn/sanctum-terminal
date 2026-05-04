@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.systems import make_brain_registry
+from core.systems import volley_scoring
 from core.systems.ballistics import (
     BallisticsParams, BallisticsSolver, MotionVector, chamber_walls,
 )
@@ -59,19 +60,25 @@ CHAMBER_GEOMETRY: dict[str, Any] = {
 # ----------------------------------------------------------------------
 
 VANILLA_PARAMS: dict[str, Any] = {
-    "_target":              "arcade — infinite rally, predictable, easy-to-hit",
-    "ball_mass":            1.0,
-    "ball_radius":          0.15,
-    "ball_drag_coeff":      0.0,
-    "ball_magnus_coeff":    0.0,
-    "gravity_y":            0.0,
-    "wall_restitution":     1.0,
-    "coupling_factor":      1.0,
-    "paddle_hitbox_radius": 0.6,
-    "paddle_arm_length":    0.7,
-    "swing_velocity":       12.0,
-    "cube_size":            12.0,
-    "serve_offset":         [0.0, 1.6, 1.5],
+    "_target":               "arcade — infinite rally, predictable, easy-to-hit",
+    "ball_mass":             1.0,
+    "ball_radius":           0.15,
+    "ball_drag_coeff":       0.0,
+    "ball_magnus_coeff":     0.0,
+    "gravity_y":             0.0,
+    "wall_restitution":      1.0,
+    "coupling_factor":       1.0,
+    "paddle_hitbox_radius":  0.6,
+    "paddle_arm_length":     0.7,
+    "swing_velocity":        12.0,
+    "cube_size":             12.0,
+    "serve_offset":          [0.0, 1.6, 1.5],
+    # Wall-rally scoring — sustaining ≥long_rally_threshold contacts
+    # awards a player point on rally end; below = opp point. Per AC PR 6.
+    "long_rally_threshold":  10,
+    # Out-of-bounds — rally ends when ball.y < this threshold
+    # (1m behind player spawn). Player must strike before then.
+    "out_of_bounds_y":       -1.0,
 }
 
 TENNIS_SIM_PARAMS: dict[str, Any] = {
@@ -116,6 +123,12 @@ class PingPongHandler:
         self._solver: BallisticsSolver | None = None
         self._solver_profile: str | None = None
         self._session_time: float = 0.0
+        # Match state — tennis scoring per AC PR 6. wall_rally mode:
+        # rally length crossing the long_rally_threshold awards a player
+        # point on rally end; otherwise opp point.
+        self.match: volley_scoring.MatchState = volley_scoring.new_match("wall_rally")
+        self.rally_contacts: int = 0
+        self.last_rally_outcome: dict | None = None    # for HUD/state events
 
     # -- profile bootstrapping ---------------------------------------------
 
@@ -157,6 +170,9 @@ class PingPongHandler:
 
         Per AC §"Decisions locked" #4: Atari single-press serve. First
         press creates the ball; second press is the rally swing (PR 5).
+        Resets rally contact counter so the next miss/score event
+        scores fairly. Match state preserved (use volley_reset_match
+        for a fresh match).
         """
         params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
         offset = params.get("serve_offset") or [0.0, 1.6, 1.5]
@@ -169,6 +185,7 @@ class PingPongHandler:
             spin=(0.0, 0.0, 0.0),
             timestamp=self._session_time,
         )
+        self.rally_contacts = 0
         return self.ball
 
     def clear_ball(self) -> None:
@@ -213,18 +230,64 @@ class PingPongHandler:
             friction        = coupling,        # V1: friction tracks coupling
         )
         self.ball = new_state
+        self.rally_contacts += 1
         return contact
 
     def on_tick(self, dt: float, substeps: int = 4) -> list:
         """Advance ball physics by `dt`. Returns wall-contact records
-        from the substep (for state-event emission later)."""
+        from the substep (for state-event emission later).
+
+        Resolves rally on out-of-bounds (ball passes back-line without
+        being struck). PR 6 — wall_rally scoring rule:
+            rally_contacts ≥ long_rally_threshold → player point
+            else                                  → opp point
+        """
         self._session_time += dt
         if self.ball is None:
             return []
         solver = self._ensure_solver()
         new_state, contacts = solver.step(self.ball, dt, substeps=substeps)
         self.ball = new_state
+        # Out-of-bounds resolution. Ball y past the back-line ends the
+        # rally regardless of velocity.
+        params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
+        out_y = float(params.get("out_of_bounds_y", -1.0))
+        if self.ball.pos[1] < out_y:
+            self._resolve_rally_out()
         return contacts
+
+    def _resolve_rally_out(self) -> None:
+        """Apply wall-rally scoring rule and clear the ball."""
+        params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
+        threshold = int(params.get("long_rally_threshold", 10))
+        if self.rally_contacts >= threshold:
+            self.match = volley_scoring.point_player(self.match)
+            winner = "player"
+        else:
+            self.match = volley_scoring.point_opp(self.match)
+            winner = "opp"
+        self.last_rally_outcome = {
+            "winner":         winner,
+            "rally_contacts": self.rally_contacts,
+            "threshold":      threshold,
+        }
+        self.ball = None
+        self.rally_contacts = 0
+
+    # -- match-level reset hooks ----------------------------------------
+
+    def reset_rally(self) -> None:
+        """Discard active ball + rally counter; preserve match state."""
+        self.ball = None
+        self.rally_contacts = 0
+        self.last_rally_outcome = None
+
+    def reset_match(self) -> None:
+        """Hard reset — fresh match, no ball, no rally."""
+        self.ball = None
+        self.rally_contacts = 0
+        self.last_rally_outcome = None
+        self.match = volley_scoring.new_match("wall_rally")
 
     # -- manifest --------------------------------------------------------
 
@@ -251,6 +314,18 @@ class PingPongHandler:
             }
         else:
             keys["ball"] = {"exists": False}
+        # Match state — tennis scoring snapshot for HUD + telemetry
+        keys["match_state"] = {
+            "points":         list(self.match.points),
+            "games":          list(self.match.games),
+            "sets_won":       list(self.match.sets_won),
+            "set_winners":    list(self.match.set_winners),
+            "match_winner":   self.match.match_winner,
+            "server":         self.match.server,
+            "mode":           self.match.mode,
+            "rally_contacts": self.rally_contacts,
+            "last_rally":     self.last_rally_outcome,
+        }
         return keys
 
 
