@@ -91,6 +91,17 @@ def main() -> int:
     click_pings: list[float] = []         # timestamps; fade over CLICK_PING_DURATION
     interact_flashes: list[tuple[float, float, float, float]] = []  # (t_start, x, y, z) raylib
 
+    # Make-brain ping_pong: paddle motion history. 5-frame ring buffer of
+    # (paddle_pos_brain, time). Paddle is a virtual point at
+    # paddle_arm_length along camera forward; finite-difference across
+    # the window gives the paddle velocity at strike time. Per AC PR 5.
+    # Default arm length matches profile vanilla; tracked here as a
+    # constant since the client doesn't know per-profile params yet
+    # (profile params live brain-side; client passes raw kinematic state).
+    paddle_history: list[tuple[tuple[float, float, float], float]] = []
+    PADDLE_ARM_LENGTH = 0.7
+    PADDLE_HISTORY_LEN = 5
+
     client = ManifestClient(cfg.BRAIN_HOST, cfg.BRAIN_PORT)
     try:
         client.connect()
@@ -322,6 +333,25 @@ def main() -> int:
             camera.position.z + forward[2],
         )
 
+        # Make-brain ping_pong: track paddle motion for finite-difference
+        # velocity at strike time. Paddle is a virtual point at
+        # PADDLE_ARM_LENGTH along camera forward; recorded in BRAIN space
+        # (x lateral, y forward, z up) so the brain doesn't need to
+        # convert. Per AC PR 5 ("Client computes paddle_vel as
+        # camera_angular_velocity × paddle_arm_length, sampled over a
+        # short window"). Finite-difference of the paddle position is
+        # equivalent to the cross-product formulation and avoids the
+        # right-vector sign trap.
+        forward_brain = (forward[0], forward[2], forward[1])
+        paddle_pos_brain = (
+            camera.position.x + forward_brain[0] * PADDLE_ARM_LENGTH,
+            camera.position.z + forward_brain[1] * PADDLE_ARM_LENGTH,
+            camera.position.y + forward_brain[2] * PADDLE_ARM_LENGTH,
+        )
+        paddle_history.append((paddle_pos_brain, now))
+        if len(paddle_history) > PADDLE_HISTORY_LEN:
+            paddle_history.pop(0)
+
         if not dial_active and not reflective_active and not build_state.active:
             # ENTER drives state transitions (HUB → MISSION_SELECT, etc.) but
             # MUST yield to the journal overlay — there ENTER is the toggle.
@@ -380,17 +410,38 @@ def main() -> int:
                         "y": camera.position.z,  # manifest y from raylib z
                     },
                 })
-                # Make-brain ping_pong: fire_primary serves the ball when
-                # no ball is in play (Atari single-press serve, AC
-                # decision #4). Strike when ball IS in play lands in PR 5.
-                # Per `feat_make-brain-ping-pong.md` PR 4.
+                # Make-brain ping_pong: fire_primary serves when no ball,
+                # strikes when a ball is in play (Atari single-press, AC
+                # decision #4). Paddle velocity comes from finite-
+                # differencing the paddle_history ring buffer over the
+                # last few frames — a quick mouse flick → high velocity,
+                # standing still → near-zero. Per AC PR 5.
                 if last_manifest.get("instance_id") == "ping_pong":
                     _ball = last_manifest.get("ball") or {}
                     if not _ball.get("exists"):
                         client.send({"cmd": "volley_serve"})
-                    # else: PR 5 will route into volley_strike here.
-                    # Continue to the smash path below — harmless in
-                    # volley_chamber since there are no smashable entities.
+                    elif len(paddle_history) >= 2:
+                        pos_old, t_old = paddle_history[0]
+                        pos_new, t_new = paddle_history[-1]
+                        dt_window = max(t_new - t_old, 1e-6)
+                        paddle_velocity = (
+                            (pos_new[0] - pos_old[0]) / dt_window,
+                            (pos_new[1] - pos_old[1]) / dt_window,
+                            (pos_new[2] - pos_old[2]) / dt_window,
+                        )
+                        client.send({
+                            "cmd": "volley_strike",
+                            "payload": {
+                                "paddle_pos":      list(pos_new),
+                                "paddle_normal":   list(forward_brain),
+                                "paddle_velocity": list(paddle_velocity),
+                            },
+                        })
+                        # Visual feedback at the paddle position. Reuse
+                        # the existing flash primitive (raylib coords).
+                        interact_flashes.append(
+                            (now, pos_new[0], pos_new[2], pos_new[1])
+                        )
                 # Smash — first ARPG combat verb. If the click lands on
                 # an entity within melee range, fire `kind_destroyed`.
                 # Brain emits a StateEvent + advances any quest watching

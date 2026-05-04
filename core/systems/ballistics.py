@@ -399,6 +399,79 @@ class BallisticsSolver:
         v_n_new = _scale(normal, -e * v_n)
         return _add(v_n_new, v_t_vec)
 
+    # -- Paddle strike ---------------------------------------------------
+
+    def paddle_strike(
+        self,
+        ball: MotionVector,
+        paddle_pos:      tuple[float, float, float],
+        paddle_normal:   tuple[float, float, float],
+        paddle_velocity: tuple[float, float, float],
+        coupling: float | None = None,
+        friction: float | None = None,
+    ) -> tuple[MotionVector, ContactProfile]:
+        """Apply a paddle reflection to the ball state.
+
+        Reflection (per AC §"Physics contract"):
+            v_n' = (1 + e) · v_paddle_n − e · v_ball_n
+            v_t' = v_ball_t + friction · v_paddle_t
+
+        where:
+            e = coupling (default = profile coupling_factor; 1.0 in vanilla)
+            friction = paddle/ball tangential coupling (default = same as e for V1
+                       — when spin-from-paddle motion lands in Stage 3, this
+                       becomes its own knob)
+
+        Caller is responsible for hitbox check (PingPongHandler.on_strike does
+        that). This method assumes the paddle is in contact.
+
+        Coordinate space: brain (x lateral, y forward, z up). Paddle normal
+        should be a unit vector pointing AWAY from the paddle face — same
+        direction the ball is being pushed.
+        """
+        # Normalize paddle normal in case caller passed something close.
+        n_len = _length(paddle_normal)
+        if n_len < 1e-9:
+            # Degenerate normal — treat as no-contact passthrough rather
+            # than crash. Returns ball unchanged with a synthetic profile.
+            n = (0.0, 0.0, 1.0)
+        else:
+            n = _scale(paddle_normal, 1.0 / n_len)
+
+        e = float(coupling) if coupling is not None else 1.0
+        f = float(friction) if friction is not None else e
+
+        # Decompose ball velocity into normal + tangential (relative to paddle face).
+        v_ball_n = _dot(ball.vel, n)
+        v_ball_n_vec = _scale(n, v_ball_n)
+        v_ball_t_vec = _sub(ball.vel, v_ball_n_vec)
+
+        # Decompose paddle velocity the same way.
+        v_pad_n = _dot(paddle_velocity, n)
+        v_pad_n_vec = _scale(n, v_pad_n)
+        v_pad_t_vec = _sub(paddle_velocity, v_pad_n_vec)
+
+        # Reflection — normal flipped + paddle's normal velocity coupled in,
+        # tangential picks up friction × paddle tangential.
+        new_v_n_vec = _scale(n, (1.0 + e) * v_pad_n - e * v_ball_n)
+        new_v_t_vec = _add(v_ball_t_vec, _scale(v_pad_t_vec, f))
+        new_vel = _add(new_v_n_vec, new_v_t_vec)
+
+        new_state = MotionVector(
+            pos=ball.pos, vel=new_vel, spin=ball.spin,
+            timestamp=ball.timestamp,
+        )
+        contact = ContactProfile(
+            contact_point   = ball.pos,
+            incoming        = ball,
+            paddle_normal   = n,
+            paddle_velocity = paddle_velocity,
+            outgoing        = new_state,
+            coupling_factor = e,
+            contact_kind    = "paddle_strike",
+        )
+        return new_state, contact
+
 
 # ----------------------------------------------------------------------
 # Convenience constructor for the volley_chamber V1 use case

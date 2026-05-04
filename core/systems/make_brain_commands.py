@@ -132,6 +132,81 @@ def handle_volley_serve(msg: dict, vault) -> dict:
     }
 
 
+def _vec3(payload: dict, key: str) -> tuple[float, float, float] | None:
+    """Pull a {x,y,z} or [x,y,z] vector out of a payload sub-dict."""
+    v = payload.get(key)
+    if v is None:
+        return None
+    try:
+        if isinstance(v, dict):
+            return (float(v["x"]), float(v["y"]), float(v["z"]))
+        return (float(v[0]), float(v[1]), float(v[2]))
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def handle_volley_strike(msg: dict, vault) -> dict:
+    """Apply a paddle strike to the active ball.
+
+    Required payload: paddle_pos, paddle_normal, paddle_velocity (each as
+    {x,y,z} or [x,y,z]).
+
+    Returns:
+      {ok: True,  cmd: ..., hit: True,  ball: {...}, contact: {...}}  on hit
+      {ok: True,  cmd: ..., hit: False}                                on miss (no ball-in-range)
+      {ok: False, cmd: ..., reason: "..."}                             on validation/handler error
+    """
+    payload = msg.get("payload") or {}
+    paddle_pos      = _vec3(payload, "paddle_pos")
+    paddle_normal   = _vec3(payload, "paddle_normal")
+    paddle_velocity = _vec3(payload, "paddle_velocity")
+    if paddle_pos is None:
+        return {"ok": False, "cmd": "volley_strike",
+                "reason": "missing or malformed paddle_pos"}
+    if paddle_normal is None:
+        return {"ok": False, "cmd": "volley_strike",
+                "reason": "missing or malformed paddle_normal"}
+    if paddle_velocity is None:
+        # Allow zero-velocity strike (poke). Default to (0,0,0).
+        paddle_velocity = (0.0, 0.0, 0.0)
+
+    from core.systems import make_brain_registry
+    try:
+        spec = make_brain_registry.get("ping_pong")
+    except LookupError:
+        return {"ok": False, "cmd": "volley_strike",
+                "reason": "ping_pong make-brain not active"}
+    handler = spec.handler
+    fn = getattr(handler, "on_strike", None)
+    if fn is None or not callable(fn):
+        return {"ok": False, "cmd": "volley_strike",
+                "reason": "handler missing on_strike"}
+
+    contact = fn(paddle_pos, paddle_normal, paddle_velocity)
+    if contact is None:
+        return {"ok": True, "cmd": "volley_strike", "hit": False}
+
+    ball = handler.ball
+    return {
+        "ok":   True,
+        "cmd":  "volley_strike",
+        "hit":  True,
+        "ball": {
+            "x":  ball.pos[0], "y": ball.pos[1], "z": ball.pos[2],
+            "vx": ball.vel[0], "vy": ball.vel[1], "vz": ball.vel[2],
+        },
+        "contact": {
+            "contact_point":   list(contact.contact_point),
+            "incoming_v":      list(contact.incoming.vel),
+            "outgoing_v":      list(contact.outgoing.vel),
+            "paddle_normal":   list(contact.paddle_normal),
+            "paddle_velocity": list(contact.paddle_velocity),
+            "coupling_factor": contact.coupling_factor,
+            "contact_kind":    contact.contact_kind,
+        },
+    }
+
+
 def handle_profile_list(msg: dict, vault) -> dict:
     """List all profiles for an instance.
 

@@ -2494,13 +2494,14 @@ def run_server(biome_name, port=9877):
                 _mb_cmd = msg.get("cmd")
                 if _mb_cmd in (
                     "profile_save", "profile_load", "profile_list",
-                    "volley_serve",
+                    "volley_serve", "volley_strike",
                 ):
                     mb_handler = {
-                        "profile_save": make_brain_commands.handle_profile_save,
-                        "profile_load": make_brain_commands.handle_profile_load,
-                        "profile_list": make_brain_commands.handle_profile_list,
-                        "volley_serve": make_brain_commands.handle_volley_serve,
+                        "profile_save":  make_brain_commands.handle_profile_save,
+                        "profile_load":  make_brain_commands.handle_profile_load,
+                        "profile_list":  make_brain_commands.handle_profile_list,
+                        "volley_serve":  make_brain_commands.handle_volley_serve,
+                        "volley_strike": make_brain_commands.handle_volley_strike,
                     }[_mb_cmd]
                     ack = mb_handler(msg, _get_vault())
                     try:

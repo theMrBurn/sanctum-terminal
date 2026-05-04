@@ -175,6 +175,46 @@ class PingPongHandler:
         """Remove the active ball (rally end, reset, etc.)."""
         self.ball = None
 
+    def on_strike(
+        self,
+        paddle_pos:      tuple[float, float, float],
+        paddle_normal:   tuple[float, float, float],
+        paddle_velocity: tuple[float, float, float],
+    ):
+        """Apply a paddle strike to the active ball.
+
+        Returns:
+          - None on miss (no ball, or ball outside paddle_hitbox_radius)
+          - ContactProfile on hit; self.ball is updated to the post-strike state.
+
+        Hitbox check uses the active profile's `paddle_hitbox_radius`. This
+        is brain-side authoritative — clients always send a strike attempt;
+        brain decides hit/miss.
+        """
+        if self.ball is None:
+            return None
+        params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
+        hit_radius = float(params.get("paddle_hitbox_radius", 0.6))
+        # Hit window: ball center within hit_radius from paddle position.
+        dx = self.ball.pos[0] - paddle_pos[0]
+        dy = self.ball.pos[1] - paddle_pos[1]
+        dz = self.ball.pos[2] - paddle_pos[2]
+        dist_sq = dx * dx + dy * dy + dz * dz
+        if dist_sq > hit_radius * hit_radius:
+            return None
+        coupling = float(params.get("coupling_factor", 1.0))
+        solver = self._ensure_solver()
+        new_state, contact = solver.paddle_strike(
+            self.ball,
+            paddle_pos      = tuple(paddle_pos),
+            paddle_normal   = tuple(paddle_normal),
+            paddle_velocity = tuple(paddle_velocity),
+            coupling        = coupling,
+            friction        = coupling,        # V1: friction tracks coupling
+        )
+        self.ball = new_state
+        return contact
+
     def on_tick(self, dt: float, substeps: int = 4) -> list:
         """Advance ball physics by `dt`. Returns wall-contact records
         from the substep (for state-event emission later)."""
