@@ -28,6 +28,7 @@ from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
 from clients.vector_terminal import build_mode  # noqa: E402
+from clients.vector_terminal import chamber as chamber_renderer  # noqa: E402
 from clients.vector_terminal import horizon_objects as horizon_renderer  # noqa: E402
 from clients.vector_terminal import input_map  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
@@ -558,6 +559,11 @@ def main() -> int:
         # `now` drives chrono kinds (aurora drift, lightning flashes,
         # sun drift). Static kinds (moon, ridge, stars) ignore it.
         horizon_renderer.draw_horizon_objects(last_manifest, camera, now)
+
+        # Make-brain chamber wireframe — 12-edge cube outline for
+        # volley_chamber. Reads `manifest.chamber`; silent no-op for
+        # legacy biomes. Per `feat_make-brain-ping-pong.md` PR 3.
+        chamber_renderer.render(last_manifest)
 
         # World seeds — vector-workroom feature. Rendered before entities
         # so close-up entities can occlude distant seeds. Each seed's

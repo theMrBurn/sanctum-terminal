@@ -55,6 +55,16 @@ def draw_hud(manifest: dict, color) -> None:
 
     fields: list[str] = []
 
+    # ── Make-brain identity (volley chamber, future archery, etc.) ──
+    # Trumps the character_sheet identity since make-brain biomes are
+    # standalone test rigs, not the main game. Per
+    # `feat_make-brain-ping-pong.md` PR 3.
+    mb_iid = manifest.get("instance_id")
+    if mb_iid == "ping_pong":
+        active_profile = manifest.get("active_profile") or "?"
+        fields.append(f"VOLLEY CHAMBER — {active_profile}")
+        fields.append("---")
+
     # ── Identity block (only when character_sheet present) ──
     sheet = manifest.get("character_sheet")
     if sheet:

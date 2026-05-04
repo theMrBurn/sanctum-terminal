@@ -39,6 +39,8 @@ TISSUE_KINDS_OUTDOOR = [
 ]
 # Workroom is the authoring sandbox — no procedural tissue at all.
 TISSUE_KINDS_WORKROOM: list[tuple] = []
+# Volley chamber is a clean physics test rig — no tissue, no clutter.
+TISSUE_KINDS_VOLLEY_CHAMBER: list[tuple] = []
 
 
 # -- Authored slots (cavern-only fixtures) ------------------------------------
@@ -301,6 +303,18 @@ WORKROOM_PALETTE = {
     "dark_stone":   (0.10, 0.11, 0.13),
     "dead_organic": (0.18, 0.18, 0.18),
     "bone":         (0.30, 0.31, 0.33),
+}
+
+# Volley chamber palette — slightly cooler than workroom, neutral so
+# tuning experiments aren't biased by warm/cool reading. Per
+# `.claude/feature/feat_make-brain-ping-pong.md` PR 3.
+VOLLEY_CHAMBER_PALETTE = {
+    "floor":        (0.14, 0.16, 0.20),
+    "dirt":         (0.12, 0.14, 0.18),
+    "stone":        (0.20, 0.22, 0.26),
+    "dark_stone":   (0.08, 0.10, 0.13),
+    "dead_organic": (0.16, 0.16, 0.18),
+    "bone":         (0.28, 0.30, 0.34),
 }
 
 BIOME_PALETTES = {
@@ -1961,6 +1975,24 @@ WORKROOM_LIGHT_STATES = {
 }
 
 
+# Volley chamber lighting — flat neutral, no fog, no horizon. Player
+# sees the cube wireframe + nothing else. Tuning bias minimal.
+VOLLEY_CHAMBER_LIGHT_STATES = {
+    "chamber": {
+        "ambient":     (0.50, 0.52, 0.58),
+        "fog_color":   (0.06, 0.07, 0.10),
+        "fog_near":    400.0,
+        "fog_far":     800.0,
+        "bg_color":    (0.04, 0.05, 0.07),   # near-black backdrop — wireframe pops
+        "far_clip":    400.0,
+        "sun_color":   (0.0, 0.0, 0.0),
+        "sun_scale":   0.0,
+        "moon_color":  (0.0, 0.0, 0.0),
+        "moon_scale":  0.0,
+    },
+}
+
+
 CAVERN_LIGHT_STATES = {
     "cave": {
         "ambient": (0.10, 0.08, 0.06),          # near-black — darkness defines, light reveals
@@ -2086,6 +2118,34 @@ BIOME_PLANES = {
                 "mark_grid_size": 1.0,
                 "mark_chance": 1.0,
                 "mark_strength": 0.18,
+            },
+            "size": 2000.0,
+            "follow_camera": True,
+        },
+    ],
+    "volley_chamber": [
+        # Volley-chamber floor — flat ground reference matched to the cube
+        # at y=0. The chamber wireframe (12 edges) renders as a separate
+        # top-level manifest key (`chamber`); this plane is just so the
+        # player has a ground plane to walk on. mark_grid_size=2.0 = clean
+        # widely-spaced lattice so contact zones read against it.
+        {
+            "tag": "ground_near",
+            "kind": "ground",
+            "normal": [0.0, 0.0, 1.0],
+            "offset": 0.0,
+            "layer": "near",
+            "material": {
+                "shader": "ground",
+                "surface": "chamber_floor",
+                "color_base": [0.10, 0.12, 0.16],
+                "grain_scale": 0.0,
+                "grain_strength": 0.0,
+                "normal_strength": 0.0,
+                "roughness": 0.98,
+                "mark_grid_size": 2.0,
+                "mark_chance": 1.0,
+                "mark_strength": 0.10,
             },
             "size": 2000.0,
             "follow_camera": True,
@@ -2265,6 +2325,9 @@ OUTDOOR_HORIZON_OBJECTS: list[dict] = [
 
 # Workroom — minimal banner + a single moon for orientation. Authoring
 # sandbox; no atmospheric drama.
+VOLLEY_CHAMBER_BANNER_LAYERS: list[dict] = []
+VOLLEY_CHAMBER_HORIZON_OBJECTS: list[dict] = []
+
 WORKROOM_BANNER_LAYERS: list[dict] = [
     {"distance": 49.0, "height": 49.0, "opacity": 0.10, "role": "horizon",
      "tint": [0.16, 0.18, 0.20]},
@@ -2498,6 +2561,11 @@ MACRO_STAMP_OUTDOOR_CLEARING = {
 # "primitive kind = behavior, biome determines shape and activity from
 # the config relationships."
 
+VOLLEY_CHAMBER_FIXTURE_ALIASES: dict[str, dict] = {
+    # Volley chamber has no hub fixtures — it's a standalone test rig.
+    # Empty dict is enough; brain looks up safely on missing keys.
+}
+
 WORKROOM_FIXTURE_ALIASES: dict[str, dict] = {
     # Workroom is the canonical authoring sandbox — fixtures retain
     # their original placeholder visual so the user sees the abstract
@@ -2711,6 +2779,79 @@ BIOME_REGISTRY = {
             "tiles_per_frame": 2,
             "cache_size": 64,
         },
+    },
+    "volley_chamber": {
+        # Make-brain-ping-pong test rig. 12×12×12 cube wireframe room,
+        # neutral floor, no atmosphere, no clutter. Per
+        # `.claude/feature/feat_make-brain-ping-pong.md` PR 3.
+        # The chamber wireframe (cube edges) is emitted as a top-level
+        # `chamber` manifest key, not as entities/seeds.
+        "palette": VOLLEY_CHAMBER_PALETTE,
+        "color_scales": {},
+        "companions": {},
+        "spectrum": {},
+        "motes": {},
+        "tile_variants": {"standard": {"density_mult": 1.0, "weight": 1.0}},
+        "light_states": VOLLEY_CHAMBER_LIGHT_STATES,
+        "default_light_state": "chamber",
+        "cycle": WORKROOM_CYCLE,        # no tension dynamics — same shape
+        "density": [],
+        "planes": BIOME_PLANES["volley_chamber"],
+        "stamps": [],
+        "stamp_affinity": {},
+        "anchor_stamps": {},
+        "room_beacons": [],
+        "flourish_pools": {},
+        "tissue_kinds": TISSUE_KINDS_VOLLEY_CHAMBER,
+        "banner_layers": VOLLEY_CHAMBER_BANNER_LAYERS,
+        "horizon_objects": VOLLEY_CHAMBER_HORIZON_OBJECTS,
+        "macro_stamps": [],
+        "tile_prefetch_radius": 1,
+        "node_spacing_range": (16.0, 20.0),
+        "has_ceiling": False,
+        "ceiling_mold_chance": 0.0,
+        "authored_slots": {},
+        "mega_stamp_exclusion_slots": set(),
+        "fixture_aliases": VOLLEY_CHAMBER_FIXTURE_ALIASES,
+        "spawn_mode": "legacy_landmark",
+        "spawn_location": {
+            "x": 0.0, "y": 0.0,
+            "heading_deg": 0.0, "pitch_deg": 0.0,
+        },
+        "atmosphere": {
+            "fog_enabled": False,
+            "ambient_energy_base": 0.50,
+            "ambient_energy_chrono_factor": 0.0,
+            "sun_enabled": False,
+            "aerial_perspective": 0.0,
+        },
+        # Player physically contained inside the cube — but V1 doesn't
+        # enforce containment via the envelope (handled by ball physics
+        # in PR 4). Leaving radius=0 is fine; player can walk past walls
+        # with no consequence in V1 (`project_walls_are_cosmetic`).
+        "playable_radius": 0.0,
+        "playable_softness": 0.5,
+        "exchange": {
+            "delivery_budget": 50,
+            "compression_threshold": 100,
+            "render_horizon": 49,
+            "mandatory_kinds": set(),
+            "scoring_weights": {
+                "wake_priority": 1.0,
+                "distance_band": 0.8,
+                "fov_relevance": 0.6,
+                "velocity_bias": 0.4,
+                "emissive_boost": -0.35,
+                "ground_penalty": 0.25,
+                "roster_stability": -0.30,
+                "newcomer_gate": 0.20,
+            },
+            "shell_budgets": [10, 8, 6, 4, 2, 1, 1],
+            "tiles_per_frame": 1,
+            "cache_size": 16,
+        },
+        # Make-brain hooks (PR 3 — substrate consumed at brain boot)
+        "make_brain_instance_id": "ping_pong",
     },
     "workroom": {
         # Authoring sandbox — clean room. Per

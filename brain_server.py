@@ -68,6 +68,7 @@ from core.systems.journal import lexicon as journal_lexicon
 from core.vault import vault as Vault
 from core.systems import seed_commands
 from core.systems import make_brain_commands
+from core.systems import make_brain_registry
 from core.systems.character_draft import CharacterDraft
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
@@ -95,6 +96,26 @@ def _get_vault() -> Vault:
     if _VAULT is None:
         _VAULT = Vault()
     return _VAULT
+
+
+def _make_brain_manifest_keys(biome_name: str) -> dict:
+    """Pull top-level manifest keys from the active make-brain instance,
+    if any. Returns {} for biomes that don't bind one — silent no-op for
+    legacy biomes. Per `feat_make-brain-ping-pong.md` PR 3."""
+    iid = BIOME_REGISTRY.get(biome_name, {}).get("make_brain_instance_id")
+    if not iid:
+        return {}
+    try:
+        spec = make_brain_registry.get(iid)
+    except LookupError:
+        # Activation hasn't run yet (e.g., test that imports BrainWorld
+        # without booting). Silent — manifest just lacks the keys.
+        return {}
+    handler = spec.handler
+    fn = getattr(handler, "manifest_keys", None)
+    if fn is None or not callable(fn):
+        return {}
+    return fn()
 
 
 def _journal_persist_entry(raw_note: str) -> int:
@@ -1507,6 +1528,12 @@ class BrainWorld:
                 "tiles": len(self.exchange._tile_cache),
                 "exchange_budget": self.exchange.config["delivery_budget"],
             },
+            # Make-brain top-level keys — merged from the active instance
+            # if the biome binds one (volley_chamber → ping_pong, future
+            # archery_range → archery, etc.). Empty dict spread is a
+            # silent no-op for legacy biomes. Per
+            # `.claude/feature/feat_make-brain-ping-pong.md` PR 3.
+            **_make_brain_manifest_keys(self.biome_name),
         }
 
     def cycle_light_state(self):
@@ -1521,6 +1548,16 @@ class BrainWorld:
 
 def run_server(biome_name, port=9877):
     world = BrainWorld(biome_name)
+
+    # Make-brain activation — if the biome registry binds an instance_id
+    # for this biome, instantiate + register the handler. Idempotent
+    # across re-boots. Per `.claude/feature/feat_make-brain-ping-pong.md` PR 3.
+    mb_instance_id = BIOME_REGISTRY.get(biome_name, {}).get("make_brain_instance_id")
+    if mb_instance_id == "ping_pong":
+        from core.systems.make_brains import ping_pong as ping_pong_brain
+        ping_pong_brain.activate(_get_vault())
+        print(f"Make-brain: activated ping_pong for biome {biome_name!r}",
+              flush=True)
 
     # Expedition engine — authored encounter/session loop that rides
     # on top of the manifest. Lazily built per client connection so
