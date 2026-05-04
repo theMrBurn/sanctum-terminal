@@ -29,6 +29,7 @@ from clients.vector_terminal import hud  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
 from clients.vector_terminal import build_mode  # noqa: E402
 from clients.vector_terminal import horizon_objects as horizon_renderer  # noqa: E402
+from clients.vector_terminal import input_map  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
 from clients.vector_terminal.seed_collision import compute_floor_height  # noqa: E402
@@ -178,7 +179,7 @@ def main() -> int:
         # (journal_active intercepts ESC + ENTER + UP/DOWN, but J always
         # cycles the visibility flag). Suspended while a dial is active —
         # the dial owns the modal foreground.
-        if not dial_active and not reflective_active and rl.is_key_pressed(rl.KeyboardKey.KEY_J):
+        if not dial_active and not reflective_active and input_map.pressed("journal_toggle"):
             show_journal = not show_journal
 
         # B toggles BUILD mode (vector-workroom PR 4). Biome-gated: silent
@@ -187,17 +188,17 @@ def main() -> int:
         # `build_mode.handle_input`. ESC is the inside-BUILD exit.
         if (not build_state.active
                 and not dial_active and not journal_active and not reflective_active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_B)):
+                and input_map.pressed("build_toggle")):
             build_mode.toggle_build(build_state, last_manifest, camera, yaw)
 
         # ESC inside BUILD exits to walk mode rather than closing the app.
         # Outside BUILD, ESC closes the app (existing behavior).
         if (build_state.active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE)):
+                and input_map.pressed("state_back")):
             build_state.active = False
         elif (not dial_active and not journal_active and not reflective_active
                 and not build_state.active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE)):
+                and input_map.pressed("state_back")):
             break
 
         # ENTER toggles PLACE↔EDIT sub-mode while BUILD is active.
@@ -206,7 +207,7 @@ def main() -> int:
         # a selected seed for the PLACE→EDIT transition; silently
         # refuses otherwise.
         if (build_state.active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER)):
+                and input_map.pressed("submode_toggle")):
             if build_state.sub_mode == "place":
                 build_mode.enter_edit(build_state)
             else:
@@ -243,21 +244,21 @@ def main() -> int:
 
         mx = mz = 0.0
         if not dial_active and not build_state.active:
-            if rl.is_key_down(rl.KeyboardKey.KEY_W):
+            if input_map.held("move_forward"):
                 mx += flat_forward[0]
                 mz += flat_forward[2]
-            if rl.is_key_down(rl.KeyboardKey.KEY_S):
+            if input_map.held("move_back"):
                 mx -= flat_forward[0]
                 mz -= flat_forward[2]
-            if rl.is_key_down(rl.KeyboardKey.KEY_D):
+            if input_map.held("move_right"):
                 mx += right[0]
                 mz += right[2]
-            if rl.is_key_down(rl.KeyboardKey.KEY_A):
+            if input_map.held("move_left"):
                 mx -= right[0]
                 mz -= right[2]
         mag = math.sqrt(mx * mx + mz * mz)
         if mag > 0:
-            sprinting = rl.is_key_down(rl.KeyboardKey.KEY_LEFT_SHIFT) or rl.is_key_down(rl.KeyboardKey.KEY_RIGHT_SHIFT)
+            sprinting = input_map.held("sprint")
             speed = cfg.MOVE_SPEED * (cfg.SPRINT_MULTIPLIER if sprinting else 1.0)
             step = speed * dt
             camera.position.x += mx / mag * step
@@ -283,7 +284,7 @@ def main() -> int:
         # standing on the current floor (any walkable surface).
         if (not dial_active
                 and not build_state.active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_SPACE)
+                and input_map.pressed("jump")
                 and abs(camera.position.y - floor_y) < 0.05):
             vy = cfg.JUMP_VELOCITY
         camera.position.y += vy * dt
@@ -322,32 +323,32 @@ def main() -> int:
         if not dial_active and not reflective_active and not build_state.active:
             # ENTER drives state transitions (HUB → MISSION_SELECT, etc.) but
             # MUST yield to the journal overlay — there ENTER is the toggle.
-            if not journal_active and rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER):
+            if not journal_active and input_map.pressed("confirm"):
                 state = str(last_manifest.get("game_state", {}).get("state", "HUB"))
                 target = smart_enter_target(state)
                 if target is not None:
                     client.send({"cmd": "state_transition_request", "target": target})
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_E):
+            if input_map.pressed("equip_cycle"):
                 inv = last_manifest.get("player", {}).get("inventory", [])
                 equipped = last_manifest.get("player", {}).get("equipped")
                 nxt = next_inventory_name(inv, equipped)
                 if nxt is not None:
                     client.send({"cmd": "equip_request", "name": nxt})
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_L):
+            if input_map.pressed("light_cycle"):
                 client.send({"cmd": "light_cycle"})
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_T):
+            if input_map.pressed("tension_toggle"):
                 client.send({"cmd": "tension_toggle"})
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_I):
+            if input_map.pressed("inventory_toggle"):
                 show_inventory_modal = not show_inventory_modal
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_H):
+            if input_map.pressed("hud_toggle"):
                 show_hud = not show_hud
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_BACKSLASH):
+            if input_map.pressed("noclip_toggle"):
                 noclip = not noclip
 
             # K = damage_self debug. Each press deals 99 damage, sufficient
@@ -356,7 +357,7 @@ def main() -> int:
             # respawn chain → regen world + restore HP). Per
             # `design_virtual_hallucination`: HP=0 is just a respawn
             # condition, never perma-death framing.
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_K):
+            if input_map.pressed("damage_self_debug"):
                 client.send({"cmd": "damage_self", "amount": 99})
 
             # PR 5 collapse (2026-05-02): the Backspace IN_MISSION → HUB
@@ -364,7 +365,7 @@ def main() -> int:
             # exploration replaces "out in a mission"; there's no modal
             # state to abort from. Backspace is unbound here for now.
 
-            if rl.is_mouse_button_pressed(rl.MouseButton.MOUSE_BUTTON_LEFT):
+            if input_map.pressed("fire_primary"):
                 click_pings.append(now)
                 # Telemetry tag — preserved for the screenshot/marking
                 # workflow. Decoupled from gameplay so the same click
@@ -412,7 +413,7 @@ def main() -> int:
                         pass
                     client.send(payload)
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_F):
+            if input_map.pressed("interact"):
                 target = entity_at_crosshair(
                     camera.position.x, camera.position.y, camera.position.z,
                     forward[0], forward[1], forward[2],
@@ -452,10 +453,10 @@ def main() -> int:
             encounter = last_manifest.get("encounter", {})
             options = encounter.get("action_options") or []
             if options:
-                for i, key_name in enumerate(_NUM_KEYS):
+                for i, slot_action in enumerate(input_map.SLOT_ACTIONS):
                     if i >= len(options):
                         break
-                    if rl.is_key_pressed(getattr(rl.KeyboardKey, key_name)):
+                    if input_map.pressed(slot_action):
                         action = action_for_key_index(options, i)
                         if action:
                             client.send({"cmd": "encounter_action", "action": action})
@@ -469,13 +470,13 @@ def main() -> int:
                 # Picks: torch on log → fire spreads, ice on water → freeze,
                 # electric on metal → charge, light on shadow → reveal.
                 cast_press = None
-                if rl.is_key_pressed(rl.KeyboardKey.KEY_ONE):
+                if input_map.pressed("slot_1"):
                     cast_press = "fire"
-                elif rl.is_key_pressed(rl.KeyboardKey.KEY_TWO):
+                elif input_map.pressed("slot_2"):
                     cast_press = "ice"
-                elif rl.is_key_pressed(rl.KeyboardKey.KEY_THREE):
+                elif input_map.pressed("slot_3"):
                     cast_press = "electric"
-                elif rl.is_key_pressed(rl.KeyboardKey.KEY_FOUR):
+                elif input_map.pressed("slot_4"):
                     cast_press = "light"
                 if cast_press is not None:
                     cast_id_counter += 1
