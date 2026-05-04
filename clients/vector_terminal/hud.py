@@ -221,3 +221,25 @@ def draw_status_chip(text: str, screen_w: int, color) -> None:
     if _FONT is None:
         load_font()
     rl.draw_text_ex(_FONT, text, rl.Vector2(screen_w - 120, 12), cfg.HUD_FONT_SIZE, 1.0, color)
+
+
+def draw_build_overlay(lines: list[str], color) -> None:
+    """Render BUILD-mode HUD lines at top-left. Drawn AFTER `draw_hud`
+    so it overlays the live status block — visually announces that
+    normal play input is suspended in favor of authoring.
+
+    Caller composes the lines via `build_mode.hud_lines()`. Empty list
+    is a no-op (caller passes empty when BUILD is inactive)."""
+    if not lines:
+        return
+    if _FONT is None:
+        load_font()
+    x = cfg.HUD_X
+    y = cfg.HUD_Y
+    line_h = cfg.HUD_LINE_HEIGHT
+    # Solid backing rectangle so the BUILD block reads on top of the
+    # existing identity/status fields without bleed-through.
+    height = line_h * len(lines) + 12
+    rl.draw_rectangle(x - 6, y - 6, 540, height, (0, 0, 0, 220))
+    for i, text in enumerate(lines):
+        _draw(text, x, y + i * line_h, color)

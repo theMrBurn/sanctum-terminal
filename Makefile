@@ -121,6 +121,13 @@ brain-cavern: meshes
 brain-vector:
 	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py cavern
 
+# Brain for the vector-workroom authoring sandbox. Per
+# `.claude/feature/feat_vector-workroom.md`. Empty procedural pool,
+# flat 1m grid floor; world_seeds placed via BUILD mode are the only
+# content. Pair with `make vector`.
+brain-workroom:
+	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py workroom
+
 # Launch the vector_terminal client (assumes a brain is already up on :9877).
 vector:
 	PYTHONPATH=. ./.venv/bin/python -m clients.vector_terminal.main

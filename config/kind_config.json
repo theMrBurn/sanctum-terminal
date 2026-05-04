@@ -2296,11 +2296,6 @@
       "visual_radius": 0.5,
       "use_vertex_colors": true,
       "world_scale_mult": 13.0,
-      "mission_loot": [
-        {"name": "pot_shard", "weight": 1.0},
-        {"name": "ember", "weight": 0.4},
-        {"name": "healing_potion", "weight": 0.6}
-      ],
       "color_base": [
         0.6,
         0.42,

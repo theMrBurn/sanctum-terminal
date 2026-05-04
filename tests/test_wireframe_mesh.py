@@ -54,17 +54,80 @@ def test_spire_has_9_vertices_16_edges():
     assert spire.edge_count() == 16
 
 
+def test_wedge_has_6_vertices_9_edges():
+    """Wedge: triangular ramp. Per `docs/spec_workroom_primitives.md` Tier 1.
+    Bottom rect (4 edges) + back rect (3 edges) + slope (2 edges) = 9 edges."""
+    wedge = get_builtin("wedge")
+    assert wedge.vertex_count() == 6
+    assert wedge.edge_count() == 9
+
+
+def test_wedge_is_ground_anchored():
+    """Wedge should rest on the floor: minimum Y is 0, maximum Y is 1.0.
+    Seeds placed at floor level should sit on the ground."""
+    wedge = get_builtin("wedge")
+    ys = [v[1] for v in wedge.vertices]
+    assert min(ys) == 0.0
+    assert max(ys) == 1.0
+
+
+def test_slab_has_8_vertices_12_edges():
+    """Slab: thin platform — same topology as cube, compressed in Y."""
+    slab = get_builtin("slab")
+    assert slab.vertex_count() == 8
+    assert slab.edge_count() == 12
+
+
+def test_slab_is_thin_and_ground_anchored():
+    """Slab Y range = [0, 0.1] — thin tile, sits on the floor."""
+    slab = get_builtin("slab")
+    ys = [v[1] for v in slab.vertices]
+    assert min(ys) == 0.0
+    assert max(ys) == pytest.approx(0.1)
+
+
+def test_stair_4_vertex_count():
+    """4-step stair: 5 z-stations × 4 corners (low+high × left+right) = 20 verts."""
+    stair = get_builtin("stair")
+    assert stair.vertex_count() == 20
+
+
+def test_stair_4_edge_count_under_budget():
+    """Edge count well under the 200-edge soft budget for clean rendering."""
+    stair = get_builtin("stair")
+    assert stair.edge_count() == 36
+    assert stair.edge_count() < 200
+
+
+def test_stair_4_is_ground_anchored_and_top_at_unit():
+    """Bottom at Y=0, top at Y=1.0. Each step rises 0.25."""
+    stair = get_builtin("stair")
+    ys = [v[1] for v in stair.vertices]
+    assert min(ys) == 0.0
+    assert max(ys) == pytest.approx(1.0)
+
+
+def test_stair_4_edges_reference_valid_vertices():
+    """No edge points to a non-existent vertex; no self-loops."""
+    stair = get_builtin("stair")
+    n = stair.vertex_count()
+    for (a, b) in stair.edges:
+        assert 0 <= a < n
+        assert 0 <= b < n
+        assert a != b
+
+
 def test_get_builtin_unknown_returns_none():
     assert get_builtin("does_not_exist") is None
 
 
 def test_builtin_names_listed():
     names = builtin_names()
-    assert "cube" in names
-    assert "tetrahedron" in names
-    assert "octahedron" in names
-    assert "pyramid" in names
-    assert "spire" in names
+    for expected in (
+        "cube", "tetrahedron", "octahedron", "pyramid", "spire",
+        "wedge", "slab", "stair",
+    ):
+        assert expected in names
 
 
 # ── WireframeMesh dataclass ──────────────────────────────────────

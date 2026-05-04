@@ -27,9 +27,12 @@ from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
+from clients.vector_terminal import build_mode  # noqa: E402
 from clients.vector_terminal import horizon_objects as horizon_renderer  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
+from clients.vector_terminal.seed_collision import compute_floor_height  # noqa: E402
+from clients.vector_terminal.seed_mesh_cache import SeedMeshCache  # noqa: E402
 from clients.vector_terminal import silhouette as silhouette_renderer  # noqa: E402
 from clients.vector_terminal import state_events as state_events_renderer  # noqa: E402
 from clients.vector_terminal.collision import resolve_collisions  # noqa: E402
@@ -76,6 +79,12 @@ def main() -> int:
     show_journal = False
     journal_state = journal.JournalState()
     reflective_state = reflective_overlay.ReflectiveState()
+    build_state = build_mode.BuildState()
+    seed_mesh_cache = SeedMeshCache()
+    # Per-session cast counter — drives the negative `tag_id` namespace
+    # that distinguishes elemental casts from telemetry tags brain-side.
+    # Reset on session start; not persisted.
+    cast_id_counter: int = 0
     click_pings: list[float] = []         # timestamps; fade over CLICK_PING_DURATION
     interact_flashes: list[tuple[float, float, float, float]] = []  # (t_start, x, y, z) raylib
 
@@ -172,12 +181,51 @@ def main() -> int:
         if not dial_active and not reflective_active and rl.is_key_pressed(rl.KeyboardKey.KEY_J):
             show_journal = not show_journal
 
-        if (not dial_active and not journal_active and not reflective_active
+        # B toggles BUILD mode (vector-workroom PR 4). Biome-gated: silent
+        # no-op outside `workroom`. Only fires WHEN NOT IN BUILD — once
+        # inside, B is repurposed as the blue color-channel binding via
+        # `build_mode.handle_input`. ESC is the inside-BUILD exit.
+        if (not build_state.active
+                and not dial_active and not journal_active and not reflective_active
+                and rl.is_key_pressed(rl.KeyboardKey.KEY_B)):
+            build_mode.toggle_build(build_state, last_manifest, camera, yaw)
+
+        # ESC inside BUILD exits to walk mode rather than closing the app.
+        # Outside BUILD, ESC closes the app (existing behavior).
+        if (build_state.active
+                and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE)):
+            build_state.active = False
+        elif (not dial_active and not journal_active and not reflective_active
+                and not build_state.active
                 and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE)):
             break
 
+        # ENTER toggles PLACE↔EDIT sub-mode while BUILD is active.
+        # Eaten BEFORE the per-frame BUILD dispatch so the same press
+        # doesn't propagate to PLACE input or other handlers. Requires
+        # a selected seed for the PLACE→EDIT transition; silently
+        # refuses otherwise.
+        if (build_state.active
+                and rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER)):
+            if build_state.sub_mode == "place":
+                build_mode.enter_edit(build_state)
+            else:
+                build_mode.exit_edit(build_state)
+
+        # BUILD-mode input dispatch — runs only while active. Returns a
+        # list of brain commands (seed_create/update/delete). Sub-mode
+        # branches inside `handle_input` (PLACE vs EDIT). Crucially,
+        # runs BEFORE the FPS-movement / equip / interact handlers
+        # below; the `build_state.active` gate suspends them.
+        if build_state.active:
+            build_cmds = build_mode.handle_input(
+                build_state, last_manifest, camera, yaw, cache=seed_mesh_cache,
+            )
+            for cmd in build_cmds:
+                client.send(cmd)
+
         delta = rl.get_mouse_delta()
-        if not dial_active:
+        if not dial_active and not build_state.active:
             yaw -= delta.x * cfg.MOUSE_SENS
             pitch -= delta.y * cfg.MOUSE_SENS
             pitch = max(-math.pi / 2 + 0.01, min(math.pi / 2 - 0.01, pitch))
@@ -194,7 +242,7 @@ def main() -> int:
         right = (-cy, 0.0, sy_)
 
         mx = mz = 0.0
-        if not dial_active:
+        if not dial_active and not build_state.active:
             if rl.is_key_down(rl.KeyboardKey.KEY_W):
                 mx += flat_forward[0]
                 mz += flat_forward[2]
@@ -215,15 +263,33 @@ def main() -> int:
             camera.position.x += mx / mag * step
             camera.position.z += mz / mag * step
 
-        # Vertical physics — jump impulse + gravity. Floor at EYE_HEIGHT.
+        # Vertical physics — jump impulse + gravity. Floor is dynamic:
+        # `compute_floor_height` reads workroom seeds and returns the top
+        # of the highest walkable surface under the player's XZ within
+        # STEP_HEIGHT_MAX of current camera Y. Falls back to EYE_HEIGHT
+        # when no seed surface applies. This is what makes ramps/stairs/
+        # platforms traversable without lateral collision against walls.
+        floor_y = compute_floor_height(
+            seeds=last_manifest.get("seeds") or [],
+            world_x=camera.position.x,
+            world_z=camera.position.z,
+            current_y=camera.position.y,
+            ground_y=cfg.EYE_HEIGHT,
+            cache=seed_mesh_cache,
+        )
+
+        # SPACE in BUILD/PLACE drops a seed (handled by build_mode), so it
+        # must NOT also trigger jump here. Jump is only available when
+        # standing on the current floor (any walkable surface).
         if (not dial_active
+                and not build_state.active
                 and rl.is_key_pressed(rl.KeyboardKey.KEY_SPACE)
-                and abs(camera.position.y - cfg.EYE_HEIGHT) < 0.01):
+                and abs(camera.position.y - floor_y) < 0.05):
             vy = cfg.JUMP_VELOCITY
         camera.position.y += vy * dt
         vy -= cfg.GRAVITY * dt
-        if camera.position.y <= cfg.EYE_HEIGHT:
-            camera.position.y = cfg.EYE_HEIGHT
+        if camera.position.y <= floor_y:
+            camera.position.y = floor_y
             vy = 0.0
 
         if not noclip:
@@ -253,7 +319,7 @@ def main() -> int:
             camera.position.z + forward[2],
         )
 
-        if not dial_active and not reflective_active:
+        if not dial_active and not reflective_active and not build_state.active:
             # ENTER drives state transitions (HUB → MISSION_SELECT, etc.) but
             # MUST yield to the journal overlay — there ENTER is the toggle.
             if not journal_active and rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER):
@@ -293,16 +359,16 @@ def main() -> int:
             if rl.is_key_pressed(rl.KeyboardKey.KEY_K):
                 client.send({"cmd": "damage_self", "amount": 99})
 
-            # Backspace = abort to HUB. Brain validates IN_MISSION → HUB
-            # so this only does anything when we're actually in a mission.
-            # Always-a-way-home navigation per the UAT-driven design directive.
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_BACKSPACE):
-                state = str(last_manifest.get("game_state", {}).get("state", ""))
-                if state == "IN_MISSION":
-                    client.send({"cmd": "state_transition_request", "target": "HUB"})
+            # PR 5 collapse (2026-05-02): the Backspace IN_MISSION → HUB
+            # abort path is dead — IN_MISSION no longer exists. Free
+            # exploration replaces "out in a mission"; there's no modal
+            # state to abort from. Backspace is unbound here for now.
 
             if rl.is_mouse_button_pressed(rl.MouseButton.MOUSE_BUTTON_LEFT):
                 click_pings.append(now)
+                # Telemetry tag — preserved for the screenshot/marking
+                # workflow. Decoupled from gameplay so the same click
+                # can register both a position tag and a smash hit.
                 client.send({
                     "cmd": "tag_event",
                     "tag": {
@@ -311,6 +377,40 @@ def main() -> int:
                         "y": camera.position.z,  # manifest y from raylib z
                     },
                 })
+                # Smash — first ARPG combat verb. If the click lands on
+                # an entity within melee range, fire `kind_destroyed`.
+                # Brain emits a StateEvent + advances any quest watching
+                # that kind + filters the entity out of subsequent
+                # manifests. Misses (no entity in range) are silent.
+                smash_target = entity_at_crosshair(
+                    camera.position.x, camera.position.y, camera.position.z,
+                    forward[0], forward[1], forward[2],
+                    last_manifest.get("entities", []),
+                    cfg.INTERACT_RANGE_M,
+                    cfg.INTERACT_RADIUS_HEURISTIC,
+                )
+                if smash_target is not None:
+                    sx = float(smash_target.get("x", 0.0))
+                    sy = float(smash_target.get("y", 0.0))   # manifest forward
+                    sz = float(smash_target.get("z", 0.0))   # manifest up
+                    # Visual flash at the hit position (existing primitive).
+                    interact_flashes.append((now, sx, sz, sy))
+                    # Some entity ids are strings (e.g. roaming orbs use
+                    # `orb#N`); only forward int-able ids so the brain's
+                    # destroyed_entity_ids ledger stays clean. Smash on a
+                    # string-id entity still emits the kind_destroyed
+                    # event for quest progression — just doesn't drop
+                    # the entity from the world.
+                    raw_id = smash_target.get("id")
+                    payload = {
+                        "cmd": "kind_destroyed",
+                        "kind": str(smash_target.get("kind", "")),
+                    }
+                    try:
+                        payload["entity_id"] = int(raw_id)
+                    except (TypeError, ValueError):
+                        pass
+                    client.send(payload)
 
             if rl.is_key_pressed(rl.KeyboardKey.KEY_F):
                 target = entity_at_crosshair(
@@ -360,6 +460,46 @@ def main() -> int:
                         if action:
                             client.send({"cmd": "encounter_action", "action": action})
                         break
+            else:
+                # No active encounter → KEYS 1-4 are elemental cast slots
+                # (fire / ice / electric / light). Brain dispatches via
+                # `cast_event` cmd, finds nearest entity within
+                # CAST_REACTION_RADIUS_M, fires whatever
+                # kind_config.elemental_reactions[element] mapping says.
+                # Picks: torch on log → fire spreads, ice on water → freeze,
+                # electric on metal → charge, light on shadow → reveal.
+                cast_press = None
+                if rl.is_key_pressed(rl.KeyboardKey.KEY_ONE):
+                    cast_press = "fire"
+                elif rl.is_key_pressed(rl.KeyboardKey.KEY_TWO):
+                    cast_press = "ice"
+                elif rl.is_key_pressed(rl.KeyboardKey.KEY_THREE):
+                    cast_press = "electric"
+                elif rl.is_key_pressed(rl.KeyboardKey.KEY_FOUR):
+                    cast_press = "light"
+                if cast_press is not None:
+                    cast_id_counter += 1
+                    # Coord swap: raylib (X, Y=up, Z=fwd) → brain (X, Y=fwd, Z=up).
+                    origin_brain = (
+                        camera.position.x,
+                        camera.position.z,
+                        camera.position.y,
+                    )
+                    direction_brain = (
+                        forward[0],
+                        forward[2],
+                        forward[1],
+                    )
+                    client.send({
+                        "cmd": "cast_event",
+                        "cast": {
+                            "tag_id": -cast_id_counter,
+                            "element": cast_press,
+                            "trajectory": "straight",
+                            "origin": list(origin_brain),
+                            "direction": list(direction_brain),
+                        },
+                    })
 
         for msg in client.poll():
             if msg.get("unchanged"):
@@ -418,6 +558,22 @@ def main() -> int:
         # sun drift). Static kinds (moon, ridge, stars) ignore it.
         horizon_renderer.draw_horizon_objects(last_manifest, camera, now)
 
+        # World seeds — vector-workroom feature. Rendered before entities
+        # so close-up entities can occlude distant seeds. Each seed's
+        # mesh-edit log is replayed via `seed_mesh_cache`; cache is
+        # invalidated by log signature change.
+        build_mode.draw_seeds(last_manifest, seed_mesh_cache)
+        if build_state.active:
+            build_mode.draw_selection_highlight(
+                build_state, last_manifest, seed_mesh_cache,
+            )
+            if build_state.sub_mode == "place":
+                build_mode.draw_ghost_cursor(build_state)
+            elif build_state.sub_mode == "edit":
+                build_mode.draw_edit_cursors(
+                    build_state, last_manifest, seed_mesh_cache,
+                )
+
         for ent in last_manifest.get("entities", []):
             if class_for(str(ent.get("kind", ""))) in cfg.SKIP_ENTITY_CLASSES:
                 continue
@@ -451,6 +607,10 @@ def main() -> int:
             hud.draw_hud(last_manifest, amber)
             hud.draw_encounter_panel(last_manifest, amber)
             hud.draw_crosshair(rl.get_screen_width(), rl.get_screen_height(), amber)
+            if build_state.active:
+                hud.draw_build_overlay(
+                    build_mode.hud_lines(build_state, last_manifest), amber,
+                )
 
         # Click-ping rings at screen center — 2D, drawn after end_mode_3d.
         click_pings = [t for t in click_pings if now - t < cfg.CLICK_PING_DURATION]
@@ -533,8 +693,14 @@ def _amber(intensity: float) -> tuple[int, int, int, int]:
 
 
 def _draw_entity(ent: dict, camera) -> None:
+    # `kind` is the BEHAVIORAL identifier (engage handlers, kind_class
+    # filters). `visual_kind` is the per-biome alias the brain may set
+    # via `BIOME_REGISTRY[biome]["fixture_aliases"]` so the same hub
+    # fixture (pillar_reflection / fridge) renders as biome-appropriate
+    # geometry without changing the gameplay verb. Falls back to `kind`.
     kind = str(ent.get("kind", ""))
-    bx, by, bz = bounds_for(kind)
+    visual_kind = str(ent.get("visual_kind") or kind)
+    bx, by, bz = bounds_for(visual_kind)
     # Manifest is Z-up, raylib Y-up. Position swap: manifest (x, y, z) → raylib (x, z, y).
     # Scale swap matches: raylib (x, y, z) ← manifest (x, z, y) = (sx*bx, sz*bz, sy*by).
     px = float(ent.get("x", 0.0))
@@ -561,7 +727,7 @@ def _draw_entity(ent: dict, camera) -> None:
         max(0, min(255, int(base_b * 255 * intensity))),
         255,
     )
-    recipe = recipe_for_kind(kind)
+    recipe = recipe_for_kind(visual_kind)
     heading = float(ent.get("heading", 0.0))
     _draw_recipe(recipe, px, py, pz, sxw, szw, syw, heading, color)
 

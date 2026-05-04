@@ -28,6 +28,7 @@ from typing import Any
 
 import pyray as rl
 
+from core.systems.edge_skins import get_skin
 from core.systems.wireframe_mesh import (
     WireframeMesh,
     get_builtin as get_builtin_mesh,
@@ -324,6 +325,9 @@ def _draw_wireframe_mesh(
     elevation = math.radians(float(obj.get("elevation", 30.0)))
     scale = float(obj.get("size", 1.0))
     color = _color(obj.get("color", [0.7, 0.7, 0.7]))
+    skin_name = obj.get("skin")
+    skin_fn = get_skin(str(skin_name)) if skin_name else None
+    skin_seed = int(obj.get("skin_seed", 0))
 
     # Position on cylinder surface.
     horiz = radius * math.cos(elevation)
@@ -331,7 +335,15 @@ def _draw_wireframe_mesh(
     px = cam_x + horiz * math.cos(azimuth)
     pz = cam_z - horiz * math.sin(azimuth)
 
-    draw_wireframe(mesh, (px, height, pz), scale, color)
+    draw_wireframe(
+        mesh,
+        (px, height, pz),
+        scale,
+        color,
+        skin=skin_fn,
+        time=now,
+        seed=skin_seed,
+    )
 
 
 # Module-global OBJ cache so we don't re-parse a file every frame.

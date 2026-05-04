@@ -151,6 +151,35 @@ class vault:
                     INSERT OR IGNORE INTO lexicon_state (id, parser_version, w2v_version)
                     VALUES (1, 1, 0)
                 """)
+                # -- Workroom seeds (vector-workroom feature) --------------------
+                # User-placed primitive instances with optional mesh-edit log.
+                # Distinct from `user_seeds` above (which is lexicon category
+                # overrides) — name disambiguates intent. See
+                # .claude/feature/feat_vector-workroom.md for the full schema
+                # contract and acceptance criteria.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS world_seeds (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        biome       TEXT    NOT NULL,
+                        kind        TEXT    NOT NULL,
+                        base_mesh   TEXT    NOT NULL,
+                        pos_x       REAL    NOT NULL,
+                        pos_y       REAL    NOT NULL,
+                        pos_z       REAL    NOT NULL,
+                        yaw_deg     REAL    NOT NULL DEFAULT 0,
+                        scale       REAL    NOT NULL DEFAULT 1.0,
+                        color_r     REAL    NOT NULL DEFAULT 0.7,
+                        color_g     REAL    NOT NULL DEFAULT 0.7,
+                        color_b     REAL    NOT NULL DEFAULT 0.7,
+                        mesh_edits  TEXT    NOT NULL DEFAULT '[]',
+                        created_at  TEXT    NOT NULL,
+                        updated_at  TEXT    NOT NULL
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_world_seeds_biome "
+                    "ON world_seeds(biome)"
+                )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -470,3 +499,144 @@ class vault:
             d["id"] = row["id"]
             result.append(d)
         return result
+
+    # -- Workroom seeds: CRUD --------------------------------------------------
+    #
+    # Per `.claude/feature/feat_vector-workroom.md`. User-placed primitive
+    # instances with an append-only mesh-edit log. CRUD is exposed as four
+    # helpers; brain command handlers wrap them. mesh_edits is stored as a
+    # JSON list and deserialized on read for caller convenience.
+
+    _WORLD_SEED_FIELDS = (
+        "biome", "kind", "base_mesh",
+        "pos_x", "pos_y", "pos_z",
+        "yaw_deg", "scale",
+        "color_r", "color_g", "color_b",
+        "mesh_edits",
+    )
+    # Subset that callers may patch via world_seed_update.
+    _WORLD_SEED_UPDATABLE = (
+        "biome", "kind", "base_mesh",
+        "pos_x", "pos_y", "pos_z",
+        "yaw_deg", "scale",
+        "color_r", "color_g", "color_b",
+        "mesh_edits",
+    )
+
+    @staticmethod
+    def _deserialize_world_seed(row) -> dict:
+        d = dict(row)
+        raw = d.get("mesh_edits") or "[]"
+        try:
+            d["mesh_edits"] = (
+                json.loads(raw) if isinstance(raw, str) else (raw or [])
+            )
+        except (TypeError, ValueError):
+            d["mesh_edits"] = []
+        return d
+
+    def world_seed_create(self, seed: dict) -> int:
+        """Insert a world_seed row. Returns the new row id.
+
+        Required fields: biome, kind, base_mesh, pos_x, pos_y, pos_z.
+        Defaults applied: yaw_deg=0, scale=1.0, color_r/g/b=0.7,
+        mesh_edits=[]. Raises KeyError on missing required field.
+        """
+        from datetime import datetime, timezone
+        for k in ("biome", "kind", "base_mesh", "pos_x", "pos_y", "pos_z"):
+            if k not in seed:
+                raise KeyError(f"world_seed_create: missing required field {k!r}")
+        edits = seed.get("mesh_edits", [])
+        if not isinstance(edits, (list, tuple)):
+            raise ValueError("mesh_edits must be a list of edit ops")
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "INSERT INTO world_seeds "
+                "(biome, kind, base_mesh, pos_x, pos_y, pos_z, "
+                "yaw_deg, scale, color_r, color_g, color_b, "
+                "mesh_edits, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(seed["biome"]),
+                    str(seed["kind"]),
+                    str(seed["base_mesh"]),
+                    float(seed["pos_x"]),
+                    float(seed["pos_y"]),
+                    float(seed["pos_z"]),
+                    float(seed.get("yaw_deg", 0.0)),
+                    float(seed.get("scale", 1.0)),
+                    float(seed.get("color_r", 0.7)),
+                    float(seed.get("color_g", 0.7)),
+                    float(seed.get("color_b", 0.7)),
+                    json.dumps(list(edits)),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+    def world_seed_update(self, seed_id: int, fields: dict) -> bool:
+        """Patch a subset of fields on an existing seed. Returns True if
+        a row was updated, False if no seed with that id exists.
+
+        Only fields in `_WORLD_SEED_UPDATABLE` are honored; unknown keys
+        in the input are silently ignored. mesh_edits is JSON-encoded.
+        """
+        from datetime import datetime, timezone
+        if not fields:
+            return self._world_seed_exists(seed_id)
+        sets: list[str] = []
+        vals: list = []
+        for k, v in fields.items():
+            if k not in self._WORLD_SEED_UPDATABLE:
+                continue
+            if k == "mesh_edits":
+                if not isinstance(v, (list, tuple)):
+                    raise ValueError("mesh_edits must be a list of edit ops")
+                vals.append(json.dumps(list(v)))
+            elif k in ("biome", "kind", "base_mesh"):
+                vals.append(str(v))
+            else:
+                vals.append(float(v))
+            sets.append(f"{k} = ?")
+        if not sets:
+            return self._world_seed_exists(seed_id)
+        sets.append("updated_at = ?")
+        vals.append(datetime.now(timezone.utc).isoformat())
+        vals.append(int(seed_id))
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                f"UPDATE world_seeds SET {', '.join(sets)} WHERE id = ?",
+                tuple(vals),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def world_seed_delete(self, seed_id: int) -> bool:
+        """Remove a seed by id. Returns True if a row was deleted."""
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "DELETE FROM world_seeds WHERE id = ?", (int(seed_id),)
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def world_seeds_by_biome(self, biome: str) -> list:
+        """Return all seeds in a biome, ordered by id (placement order).
+        mesh_edits is deserialized to a list per row."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM world_seeds WHERE biome = ? ORDER BY id ASC",
+                (str(biome),),
+            ).fetchall()
+        return [self._deserialize_world_seed(r) for r in rows]
+
+    def _world_seed_exists(self, seed_id: int) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM world_seeds WHERE id = ?", (int(seed_id),)
+            ).fetchone()
+        return row is not None

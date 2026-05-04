@@ -15,7 +15,11 @@ reads per-biome knobs from there. Adding a new biome = adding one entry
 to BIOME_REGISTRY. NO `if biome_name == "foo"` branches anywhere else.
 """
 
-from core.systems.tension_cycle import CAVERN_CYCLE, OUTDOOR_CYCLE
+from core.systems.tension_cycle import (
+    CAVERN_CYCLE,
+    OUTDOOR_CYCLE,
+    WORKROOM_CYCLE,
+)
 
 
 # -- Tissue scatter — connector kinds between authored stamps -----------------
@@ -33,6 +37,8 @@ TISSUE_KINDS_OUTDOOR = [
     ("leaf_pile",    1),  # trimmed 2→1
     ("twig_scatter", 1),  # trimmed 3→1
 ]
+# Workroom is the authoring sandbox — no procedural tissue at all.
+TISSUE_KINDS_WORKROOM: list[tuple] = []
 
 
 # -- Authored slots (cavern-only fixtures) ------------------------------------
@@ -283,6 +289,18 @@ OUTDOOR_PALETTE = {
     "dark_stone": (0.06, 0.05, 0.03),
     "dead_organic": (0.06, 0.10, 0.04),
     "bone": (0.16, 0.14, 0.08),
+}
+
+# Workroom — neutral grey/blue authoring sandbox per
+# `.claude/feature/feat_vector-workroom.md`. Floor reads as a workshop
+# bench, no warm/cool bias to compete with what the user authors.
+WORKROOM_PALETTE = {
+    "floor":        (0.18, 0.20, 0.22),
+    "dirt":         (0.16, 0.17, 0.19),
+    "stone":        (0.22, 0.24, 0.26),
+    "dark_stone":   (0.10, 0.11, 0.13),
+    "dead_organic": (0.18, 0.18, 0.18),
+    "bone":         (0.30, 0.31, 0.33),
 }
 
 BIOME_PALETTES = {
@@ -1927,6 +1945,22 @@ OUTDOOR_LIGHT_STATES = {
     },
 }
 
+WORKROOM_LIGHT_STATES = {
+    "workshop": {
+        "ambient":     (0.55, 0.55, 0.60),  # neutral fill
+        "fog_color":   (0.18, 0.20, 0.22),
+        "fog_near":    200.0,                # essentially no fog
+        "fog_far":     400.0,
+        "bg_color":    (0.10, 0.11, 0.13),   # dim sky — a moon stays readable
+        "far_clip":    400.0,
+        "sun_color":   (0.0, 0.0, 0.0),
+        "sun_scale":   0.0,
+        "moon_color":  (0.85, 0.88, 0.95),
+        "moon_scale":  1.0,
+    },
+}
+
+
 CAVERN_LIGHT_STATES = {
     "cave": {
         "ambient": (0.10, 0.08, 0.06),          # near-black — darkness defines, light reveals
@@ -2028,6 +2062,34 @@ BIOME_PLANES = {
         # Wall planes removed — cavern is endless, entities (spikes/boulders)
         # are the only obstacles. The corridor-perspective feel comes from
         # fog + density falloff, not arbitrary planar boundaries.
+    ],
+    "workroom": [
+        # Workroom floor — flat workshop bench. mark_grid_size=1.0 paints
+        # the 1m authoring grid that BUILD-mode places snap to (PR 4).
+        # No ceiling, no walls; endless walk per `design_endless_biomes`.
+        {
+            "tag": "ground_near",
+            "kind": "ground",
+            "normal": [0.0, 0.0, 1.0],
+            "offset": 0.0,
+            "layer": "near",
+            "material": {
+                "shader": "ground",
+                "surface": "workshop_bench",
+                "color_base": [0.18, 0.20, 0.22],
+                "grain_scale": 0.0,
+                "grain_strength": 0.0,
+                "normal_strength": 0.0,
+                "roughness": 0.95,
+                # 1m authoring grid — every 1m a tonal mark, fairly bright
+                # so seeds drop legibly against the floor.
+                "mark_grid_size": 1.0,
+                "mark_chance": 1.0,
+                "mark_strength": 0.18,
+            },
+            "size": 2000.0,
+            "follow_camera": True,
+        },
     ],
     "outdoor": [
         {
@@ -2197,6 +2259,23 @@ OUTDOOR_HORIZON_OBJECTS: list[dict] = [
         "elevation": 4.0,          # near the horizon — landmark feel
         "size": 4.5,
         "color": [0.40, 0.42, 0.45],
+    },
+]
+
+
+# Workroom — minimal banner + a single moon for orientation. Authoring
+# sandbox; no atmospheric drama.
+WORKROOM_BANNER_LAYERS: list[dict] = [
+    {"distance": 49.0, "height": 49.0, "opacity": 0.10, "role": "horizon",
+     "tint": [0.16, 0.18, 0.20]},
+]
+WORKROOM_HORIZON_OBJECTS: list[dict] = [
+    {
+        "kind": "moon",
+        "azimuth": 90.0,
+        "elevation": 35.0,
+        "size": 2.0,
+        "color": [0.85, 0.88, 0.95],
     },
 ]
 
@@ -2401,6 +2480,72 @@ MACRO_STAMP_OUTDOOR_CLEARING = {
 }
 
 
+# -- Fixture aliases — kind=behavior, visual_kind=biome-skinned form ---------
+#
+# Hub fixtures (`pillar_reflection`, `fridge`, etc.) are spawned by brain
+# at fixed positions whenever game_state == HUB. The behavioral kind
+# stays constant — engage handlers in main.py check `kind == "fridge"`
+# / `kind == "pillar_reflection"` regardless of biome — but the VISUAL
+# is biome-tinted via this map. Brain merges these overrides into the
+# entity dict at spawn time.
+#
+# `visual_kind` overrides what the renderer feeds to bounds_for() and
+# recipe_for_kind() so the mesh shape changes per biome. Other keys
+# (sx/sy/sz/r/g/b/heading) override their respective entity fields
+# directly. Any field not specified falls through to the brain default.
+#
+# Pattern per `design_kind_config_pattern` + user 2026-05-02 directive:
+# "primitive kind = behavior, biome determines shape and activity from
+# the config relationships."
+
+WORKROOM_FIXTURE_ALIASES: dict[str, dict] = {
+    # Workroom is the canonical authoring sandbox — fixtures retain
+    # their original placeholder visual so the user sees the abstract
+    # shape, not a biome-skinned reading of it.
+    "pillar_reflection": {
+        "sx": 0.6, "sy": 0.6, "sz": 3.0,
+        "r": 0.7, "g": 0.5, "b": 1.0,    # cool purple — meta-pillar palette
+    },
+    "fridge": {
+        "sx": 0.7, "sy": 0.4, "sz": 1.4,
+        "r": 0.85, "g": 0.88, "b": 0.90, # pale appliance white
+    },
+}
+
+CAVERN_FIXTURE_ALIASES: dict[str, dict] = {
+    # In cavern, the reflection pillar reads as a violet crystal cluster —
+    # vertical, mineral, glowing. Same engage_pillar verb, different vocabulary.
+    "pillar_reflection": {
+        "visual_kind": "crystal_cluster",
+        "sx": 1.0, "sy": 1.0, "sz": 1.5,
+        "r": 0.65, "g": 0.45, "b": 0.95,
+    },
+    # The fridge becomes a stone shrine / boulder-alcove — geological,
+    # not appliance.
+    "fridge": {
+        "visual_kind": "boulder",
+        "sx": 0.7, "sy": 0.7, "sz": 0.9,
+        "r": 0.45, "g": 0.42, "b": 0.50,
+    },
+}
+
+OUTDOOR_FIXTURE_ALIASES: dict[str, dict] = {
+    # In outdoor, the reflection pillar reads as a dead tree trunk —
+    # vertical landmark, organic decay tone.
+    "pillar_reflection": {
+        "visual_kind": "dead_log",
+        "sx": 0.7, "sy": 0.7, "sz": 1.5,
+        "r": 0.55, "g": 0.40, "b": 0.30,
+    },
+    # The fridge becomes a moss-covered boulder — the woodland shrine.
+    "fridge": {
+        "visual_kind": "boulder",
+        "sx": 0.6, "sy": 0.6, "sz": 0.8,
+        "r": 0.40, "g": 0.55, "b": 0.30,
+    },
+}
+
+
 BIOME_REGISTRY = {
     "cavern": {
         "palette": CAVERN_PALETTE,
@@ -2431,6 +2576,8 @@ BIOME_REGISTRY = {
         # Authored slots — cavern has the hub + fixtures; outdoor is pure procedural
         "authored_slots": CAVERN_AUTHORED_SLOTS,
         "mega_stamp_exclusion_slots": CAVERN_MEGA_STAMP_EXCLUSION_SLOTS,
+        # Hub fixture overrides — same behavioral kind, biome-skinned visual.
+        "fixture_aliases": CAVERN_FIXTURE_ALIASES,
         # Spawn behavior — Godot reads spawn_mode to pick hub vs legacy landmark
         "spawn_mode": "hub",
         "spawn_location": {
@@ -2521,6 +2668,8 @@ BIOME_REGISTRY = {
         # No authored scenes — outdoor is fully procedural for now
         "authored_slots": {},
         "mega_stamp_exclusion_slots": set(),
+        # Hub fixtures use forest vocabulary in outdoor.
+        "fixture_aliases": OUTDOOR_FIXTURE_ALIASES,
         # Spawn behavior — outdoor uses the legacy landmark-framing path
         # until an authored hub lands for this biome
         "spawn_mode": "legacy_landmark",
@@ -2561,6 +2710,77 @@ BIOME_REGISTRY = {
             "shell_budgets": [90, 80, 70, 55, 45, 35, 25],
             "tiles_per_frame": 2,
             "cache_size": 64,
+        },
+    },
+    "workroom": {
+        # Authoring sandbox — clean room. Per
+        # `.claude/feature/feat_vector-workroom.md`. Empty density,
+        # empty stamps, single moon, flat 1m grid floor. World_seeds
+        # placed via BUILD mode are the ONLY content.
+        "palette": WORKROOM_PALETTE,
+        "color_scales": {},
+        "companions": {},
+        "spectrum": {},
+        "motes": {},
+        "tile_variants": {"standard": {"density_mult": 1.0, "weight": 1.0}},
+        "light_states": WORKROOM_LIGHT_STATES,
+        "default_light_state": "workshop",
+        "cycle": WORKROOM_CYCLE,
+        "density": [],
+        "planes": BIOME_PLANES["workroom"],
+        "stamps": [],
+        "stamp_affinity": {},
+        "anchor_stamps": {},
+        "room_beacons": [],
+        "flourish_pools": {},
+        "tissue_kinds": TISSUE_KINDS_WORKROOM,
+        "banner_layers": WORKROOM_BANNER_LAYERS,
+        "horizon_objects": WORKROOM_HORIZON_OBJECTS,
+        "macro_stamps": [],
+        "tile_prefetch_radius": 1,
+        # World-gen tunables — irrelevant since density is empty,
+        # but the keys must exist for biome consumers.
+        "node_spacing_range": (16.0, 20.0),
+        "has_ceiling": False,
+        "ceiling_mold_chance": 0.0,
+        "authored_slots": {},
+        "mega_stamp_exclusion_slots": set(),
+        # Workroom keeps the canonical placeholder visuals so authoring
+        # surfaces show the abstract shape, not a biome-skinned reading.
+        "fixture_aliases": WORKROOM_FIXTURE_ALIASES,
+        "spawn_mode": "legacy_landmark",
+        "spawn_location": {
+            "x": 0.0, "y": 0.0,
+            "heading_deg": 0.0, "pitch_deg": 0.0,
+        },
+        "atmosphere": {
+            "fog_enabled": False,
+            "ambient_energy_base": 0.55,
+            "ambient_energy_chrono_factor": 0.0,
+            "sun_enabled": False,
+            "aerial_perspective": 0.0,
+        },
+        # Endless walk per `design_endless_biomes` — no dome cap.
+        "playable_radius": 0.0,
+        "playable_softness": 0.5,
+        "exchange": {
+            "delivery_budget": 50,
+            "compression_threshold": 100,
+            "render_horizon": 49,
+            "mandatory_kinds": set(),
+            "scoring_weights": {
+                "wake_priority": 1.0,
+                "distance_band": 0.8,
+                "fov_relevance": 0.6,
+                "velocity_bias": 0.4,
+                "emissive_boost": -0.35,
+                "ground_penalty": 0.25,
+                "roster_stability": -0.30,
+                "newcomer_gate": 0.20,
+            },
+            "shell_budgets": [10, 8, 6, 4, 2, 1, 1],
+            "tiles_per_frame": 1,
+            "cache_size": 16,
         },
     },
 }

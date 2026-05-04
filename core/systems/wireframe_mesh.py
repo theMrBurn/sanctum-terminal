@@ -100,6 +100,109 @@ def _pyramid() -> WireframeMesh:
     return WireframeMesh(vertices=v, edges=e)
 
 
+def _wedge() -> WireframeMesh:
+    """Right-angled triangular ramp. Slope rises from front (z=-0.5)
+    at y=0 to back (z=0.5) at y=1. Authored ground-anchored: y spans
+    [0, 1] so a seed placed at floor level rests on the floor.
+
+    6 vertices, 9 edges. Per `docs/spec_workroom_primitives.md` Tier 1.
+    """
+    v = (
+        (-0.5, 0.0, -0.5),  # 0 front-bottom-left
+        ( 0.5, 0.0, -0.5),  # 1 front-bottom-right
+        (-0.5, 0.0,  0.5),  # 2 back-bottom-left
+        ( 0.5, 0.0,  0.5),  # 3 back-bottom-right
+        (-0.5, 1.0,  0.5),  # 4 back-top-left
+        ( 0.5, 1.0,  0.5),  # 5 back-top-right
+    )
+    e = (
+        (0, 1), (1, 3), (2, 3), (0, 2),  # bottom rect
+        (2, 4), (3, 5), (4, 5),           # back rect
+        (0, 4), (1, 5),                   # slope edges
+    )
+    return WireframeMesh(vertices=v, edges=e)
+
+
+def _slab() -> WireframeMesh:
+    """Thin square platform. Same topology as cube; Y span is 0.1 instead
+    of 2.0 so it reads as a tile/foundation. Ground-anchored (Y spans
+    [0.0, 0.1]).
+
+    8 vertices, 12 edges.
+    """
+    v = (
+        (-0.5, 0.0, -0.5),
+        ( 0.5, 0.0, -0.5),
+        ( 0.5, 0.0,  0.5),
+        (-0.5, 0.0,  0.5),
+        (-0.5, 0.1, -0.5),
+        ( 0.5, 0.1, -0.5),
+        ( 0.5, 0.1,  0.5),
+        (-0.5, 0.1,  0.5),
+    )
+    e = (
+        (0, 1), (1, 2), (2, 3), (3, 0),  # bottom face
+        (4, 5), (5, 6), (6, 7), (7, 4),  # top face
+        (0, 4), (1, 5), (2, 6), (3, 7),  # vertical edges
+    )
+    return WireframeMesh(vertices=v, edges=e)
+
+
+def _stair_4() -> WireframeMesh:
+    """Four-step staircase, ground-anchored. Each step rises 0.25 in Y
+    and advances 0.25 in Z. Standing tread connects step n's top to
+    step (n+1)'s base.
+
+    Topology: 5 horizontal cross-sections (z = -0.5, -0.25, 0, 0.25, 0.5)
+    each at TWO Y-levels (the tread top and the riser top). 20 vertices.
+
+    Built explicitly so vertex indices stay readable for future edits.
+    """
+    # Layout (raylib coords):
+    # Step 0: tread y=0.00 z in [-0.50, -0.25]   riser to y=0.25
+    # Step 1: tread y=0.25 z in [-0.25,  0.00]   riser to y=0.50
+    # Step 2: tread y=0.50 z in [ 0.00,  0.25]   riser to y=0.75
+    # Step 3: tread y=0.75 z in [ 0.25,  0.50]   riser ends at top y=1.00
+    #
+    # Each step contributes 4 vertices on the X=-0.5 side and 4 on X=+0.5.
+    # The whole staircase has 20 vertices total (5 z-stations × 4 corners).
+    # Index layout: for each z-station k in 0..4, vertices [4k, 4k+1, 4k+2, 4k+3]
+    # are (x=-0.5, y=tread_low), (x=+0.5, y=tread_low),
+    #     (x=-0.5, y=tread_high), (x=+0.5, y=tread_high).
+    v: list[tuple[float, float, float]] = []
+    for k in range(5):
+        z = -0.5 + 0.25 * k
+        y_low = max(0.0, 0.25 * (k - 1))   # tread height entering this z
+        y_high = 0.25 * k                   # tread height leaving this z
+        v.append((-0.5, y_low,  z))
+        v.append(( 0.5, y_low,  z))
+        v.append((-0.5, y_high, z))
+        v.append(( 0.5, y_high, z))
+
+    e: list[tuple[int, int]] = []
+    # Bottom rail along z (the ground line) — z-stations k=0 to k=4 at y_low
+    # k=0 has y_low=0; subsequent k have non-zero y_low so the "bottom" ramp
+    # follows the under-tread profile. Connect (4k, 4(k+1)) and (4k+1, 4(k+1)+1).
+    for k in range(4):
+        e.append((4 * k,     4 * (k + 1)))      # left bottom rail
+        e.append((4 * k + 1, 4 * (k + 1) + 1))  # right bottom rail
+    # Top rail along z (the walking surface)
+    for k in range(4):
+        e.append((4 * k + 2,     4 * (k + 1) + 2))      # left top rail
+        e.append((4 * k + 3,     4 * (k + 1) + 3))      # right top rail
+    # Risers — vertical edges at each z station (between low and high y)
+    for k in range(5):
+        e.append((4 * k,     4 * k + 2))  # left riser
+        e.append((4 * k + 1, 4 * k + 3))  # right riser
+    # Tread cross edges — horizontal X-spanning edges at each z station,
+    # at both the low and high Y of that station.
+    for k in range(5):
+        e.append((4 * k,     4 * k + 1))  # cross at y_low
+        e.append((4 * k + 2, 4 * k + 3))  # cross at y_high
+
+    return WireframeMesh(vertices=tuple(v), edges=tuple(e))
+
+
 def _spire() -> WireframeMesh:
     """Tall narrow obelisk — 4 base, 4 mid (broader), 1 apex.
     Reads as a tower or distant landmark on the horizon."""
@@ -128,6 +231,10 @@ _BUILTIN_MESHES: dict[str, WireframeMesh] = {
     "octahedron": _octahedron(),
     "pyramid": _pyramid(),
     "spire": _spire(),
+    # Tier 1 platforming kit per `docs/spec_workroom_primitives.md`.
+    "wedge": _wedge(),
+    "slab":  _slab(),
+    "stair": _stair_4(),
 }
 
 

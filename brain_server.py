@@ -66,6 +66,7 @@ from core.systems.reflective import state_machine as reflective_sm
 from core.systems.quests.state import QuestState
 from core.systems.journal import lexicon as journal_lexicon
 from core.vault import vault as Vault
+from core.systems import seed_commands
 from core.systems.character_draft import CharacterDraft
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
@@ -578,7 +579,7 @@ class BrainWorld:
             print(
                 f"  loaded save: {len(loaded_player.inventory)} items, "
                 f"equipped={loaded_player.equipped!r}, "
-                f"missions={len(loaded_player.completed_missions)}, {sheet_status}",
+                f"quests={len(loaded_player.completed_quests)}, {sheet_status}",
                 flush=True,
             )
         else:
@@ -688,25 +689,19 @@ class BrainWorld:
             self.character_draft = self._init_creation_draft()
             self.game_state: GameState = GameState.fresh_character()
 
-        # World regen support (L2). hub_seed preserves the canonical hub world
-        # so RESULTS → HUB returns to the same staging area each time. Mission
-        # transitions assign a fresh mission_seed that overrides base_seed
-        # while IN_MISSION. world_revision bumps on every regen — Godot
-        # watches it, re-dispatches spawn, and rebuilds entity render state.
-        self.hub_seed: int = base_seed
+        # World regen support. world_revision bumps on every regen call;
+        # clients watch it, re-dispatch spawn, and rebuild entity render
+        # state. Post PR 6 there's no hub_seed — the active brain seed
+        # persists for the whole session; reflective commits regen with
+        # a fresh derived seed (`design_death_only_regen`).
         self.world_revision: int = 0
 
-        # Mission picker (L6). Derived from BIOME_EXPEDITIONS[biome]. Each
-        # active class becomes a mission_id by appending "_01" — same shape
-        # the L7 reward path already records into completed_missions, so the
-        # picker plugs in without reshaping persistence.
-        # selected_mission_id is None outside MISSION_SELECT; set on entry,
-        # cycled by mission_select_cycle, consumed at launch.
-        self.available_missions: list[str] = [
-            f"{cls}_01"
-            for cls in BIOME_EXPEDITIONS.get(biome_name, {}).get("active_classes", [])
-        ]
-        self.selected_mission_id: Optional[str] = None
+        # Smashed-entity ledger. Client `kind_destroyed` cmd pushes ids
+        # in here; manifest emission filters them out so smashed pots
+        # actually disappear. Cleared on world regen (next cycle's
+        # spawns are fresh — including respawns of previously-destroyed
+        # kinds at new procedural positions).
+        self.destroyed_entity_ids: set[int] = set()
 
         # Ceiling height — resolved from biome planes config.
         # Ceiling_moss and hanging_vine attach relative to this.
@@ -772,6 +767,9 @@ class BrainWorld:
         self.spatial = SpatialHash(cell_size=20.0)
         self._structural_positions = []
         self.next_eid = 0
+        # Clear smashed-entity ledger — fresh seed means fresh spawns,
+        # nothing to filter out.
+        self.destroyed_entity_ids = set()
         # Rebuild exchange with new seed (legacy-path safety).
         self.exchange = TileExchange(self.biome_name, new_seed, self.tile_size)
         # Re-prime spawn tile so non-stamp paths have entities.
@@ -1323,7 +1321,16 @@ class BrainWorld:
         if (self.game_state.state == gs.GameStateName.HUB
                 and self.character_sheet is not None):
             cx, cy = _PILLAR_RING_CENTER
-            visible.append({
+            # Per-biome fixture aliases — behavioral kind stays the same
+            # (engage handlers in client check `kind == "pillar_reflection"`
+            # / `kind == "fridge"`); the renderer reads `visual_kind` to
+            # swap mesh + bounds + recipe per biome. Color/scale overrides
+            # land via dict.update so missing keys fall through to defaults.
+            biome_aliases = BIOME_REGISTRY.get(
+                self.biome_name, {}
+            ).get("fixture_aliases", {})
+
+            pillar_ent = {
                 "id": -1100,
                 "kind": "pillar_reflection",
                 "x": cx, "y": cy, "z": 0.0,
@@ -1331,16 +1338,15 @@ class BrainWorld:
                 "heading": 0.0,
                 "r": 0.7, "g": 0.5, "b": 1.0,
                 "collision_radius": 0.6,
-            })
+            }
+            pillar_ent.update(biome_aliases.get("pillar_reflection", {}))
+            visible.append(pillar_ent)
 
             # Fridge — voluntary reflective practice + forced HP=0 entry.
             # Spawned in HUB only, also gated on a finalized character
-            # sheet (no fridge while still in CHARACTER_CREATION). Per
-            # `design_reflective_loop`. Pale fridge palette; refine
-            # after first VISUAL UAT — V1 spawn position is arbitrary,
-            # promotion to a real `place_in_context()` primitive lands
-            # later when more interactables need contextual placement.
-            visible.append({
+            # sheet. Per `design_reflective_loop`. Visual flexes per biome;
+            # the `engage_fridge` verb stays the same.
+            fridge_ent = {
                 "id": -1200,
                 "kind": "fridge",
                 "x": cx + 4.0, "y": cy - 14.0, "z": 0.0,
@@ -1348,7 +1354,9 @@ class BrainWorld:
                 "heading": 0.0,
                 "r": 0.85, "g": 0.88, "b": 0.90,
                 "collision_radius": 0.7,
-            })
+            }
+            fridge_ent.update(biome_aliases.get("fridge", {}))
+            visible.append(fridge_ent)
 
         return {
             "camera": {"x": cam_x, "y": cam_y, "z": cam_z,
@@ -1369,7 +1377,15 @@ class BrainWorld:
                 "color": list(ls.get("moon_color", [0, 0, 0])),
                 "scale": ls.get("moon_scale", 0.0),
             },
-            "entities": visible,
+            # Smashed-entity ledger filter — see `kind_destroyed` cmd
+            # handler. Smashed ids drop out of the manifest until next
+            # world regen. Filter is the last step so hub fixtures /
+            # creation pillars still emit correctly (their negative
+            # ids never collide with procedural entity ids).
+            "entities": [
+                e for e in visible
+                if int(e.get("id", -1)) not in self.destroyed_entity_ids
+            ],
             "planes": self.planes,
             "banner_layers": BIOME_REGISTRY.get(self.biome_name, {}).get("banner_layers", []),
             # Per `design_banner_layer_taxonomy` 2026-05-02 — distance-
@@ -1405,21 +1421,12 @@ class BrainWorld:
                 "equipped": self.player.equipped,
                 "hp": self.player.hp,
                 "max_hp": self.player.max_hp,
-                "completed_missions": list(self.player.completed_missions),
             },
-            # Loop state — Godot reads to gate UI / input / render mode per
-            # phase (HUB / MISSION_SELECT / IN_MISSION / RESULTS). Mutated
-            # brain-side via state_transition_request and mission_complete
-            # effect; streamed every tick so transitions land within one
-            # manifest cycle. Picker fields (available_missions,
-            # selected_mission_id) merge in here rather than living on the
-            # immutable GameState type — selection is transient session UI
-            # state, not part of the validated transition graph.
-            "game_state": {
-                **gs.to_manifest(self.game_state),
-                "available_missions": list(self.available_missions),
-                "selected_mission_id": self.selected_mission_id,
-            },
+            # Loop state — clients read to gate UI / input per phase.
+            # Post PR 6: 3 states (CHARACTER_CREATION / HUB / REFLECTIVE),
+            # picker fields gone, no more mission_id/seed/results ghost
+            # fields once `to_manifest` is updated.
+            "game_state": gs.to_manifest(self.game_state),
             # Character creation surface (`design_seven_pillars`, `design_dial_input`).
             # `dial_prompt` is the active engagement; `pillar_progress` shows
             # which pillars have sealed; `character_sheet` is the finalized
@@ -1744,71 +1751,33 @@ def run_server(biome_name, port=9877):
                     last_wake_ids = set()
                     continue
 
-                if msg.get("cmd") == "mission_complete_trigger":
-                    # Godot fires when a destructible kind shatters. Per
-                    # `project_async_quest_refactor` the cmd is dual-routed:
-                    # (1) pushed onto world.tick_events so any active quest
-                    #     watching this kind can complete on the next tick;
-                    # (2) the legacy IN_MISSION → RESULTS mission flow still
-                    #     runs (gated by state) until PR 5 collapses the
-                    #     mission state machine.
-                    trigger_kind = str(msg.get("trigger_kind", "unknown"))
+                if msg.get("cmd") == "kind_destroyed":
+                    # Player smashed (or otherwise destroyed) an entity.
+                    # Two effects: (1) push a `kind_destroyed` tick event
+                    # so async quests watching that kind can complete;
+                    # (2) if `entity_id` was supplied, add it to the
+                    # destroyed-ledger so subsequent manifests filter it
+                    # out — the entity actually disappears from the
+                    # world. Ledger clears on world regen.
+                    trigger_kind = str(msg.get("kind", "unknown"))
+                    entity_id = msg.get("entity_id")
                     world.tick_events.append({
                         "type": "kind_destroyed",
                         "kind": trigger_kind,
                     })
-                    if world.game_state.state != gs.GameStateName.IN_MISSION:
-                        # New async path handled above; legacy path is gated
-                        # on IN_MISSION and skipped while ambient.
-                        continue
-
-                    # L7 — roll loot from kind_config and add to inventory.
-                    # Each entry: a string name (guaranteed) or {name, weight}
-                    # (rolled). Brain is authoritative on what landed.
-                    loot_dropped: list[str] = []
-                    kcfg = _kc.kind(trigger_kind)
-                    for entry in kcfg.get("mission_loot", []):
-                        if isinstance(entry, str):
-                            name = entry
-                        elif isinstance(entry, dict):
-                            weight = float(entry.get("weight", 1.0))
-                            if random.random() > weight:
-                                continue
-                            name = str(entry.get("name", ""))
-                        else:
-                            continue
-                        if not name:
-                            continue
+                    if entity_id is not None:
                         try:
-                            world.player = ps.add_item(world.player, Item(name=name))
-                            loot_dropped.append(name)
-                        except ValueError as e:
-                            # Inventory full — drop the item, keep going.
-                            print(f"  loot drop skipped (inventory full): {name}", flush=True)
-
-                    payload = {
-                        "mission_id": world.game_state.mission_id,
-                        "trigger_kind": trigger_kind,
-                        "loot": loot_dropped,
-                        "xp": int(msg.get("xp", 25)),
-                    }
-                    try:
-                        world.game_state = gs.transition(
-                            world.game_state, gs.GameStateName.RESULTS,
-                            results=payload)
-                        # L5 — append the just-completed mission so the next
-                        # autosave (RESULTS → HUB) carries it. Append-only;
-                        # duplicate ids are fine (the player ran the same
-                        # mission twice).
-                        if world.game_state.mission_id is not None:
-                            new_completed = (world.player.completed_missions
-                                             + (world.game_state.mission_id,))
-                            world.player = world.player._replace(
-                                completed_missions=new_completed)
-                        last_wake_ids = set()
-                        print(f"  mission complete: {trigger_kind} -> RESULTS {payload}", flush=True)
-                    except ValueError as e:
-                        print(f"  mission_complete rejected: {e}", flush=True)
+                            world.destroyed_entity_ids.add(int(entity_id))
+                        except (TypeError, ValueError):
+                            pass
+                    # Toast feedback for the player — universal verb shape.
+                    world.state_events.emit(
+                        "kind_destroyed",
+                        f"SMASH {trigger_kind}",
+                        None,
+                        REG_LOOP,
+                    )
+                    last_wake_ids = set()
                     continue
 
                 if msg.get("cmd") == "journal_toggle_quest":
@@ -1924,30 +1893,14 @@ def run_server(biome_name, port=9877):
                     )
                     continue
 
-                if msg.get("cmd") == "mission_select_cycle":
-                    # L6 — cycle the picker selection while in MISSION_SELECT.
-                    # Outside that state the command is meaningless, so reject
-                    # rather than silently mutating selection. Wraps modulo
-                    # available_missions length; missing/unknown current
-                    # selection resets to index 0.
-                    if world.game_state.state != gs.GameStateName.MISSION_SELECT:
-                        print(f"  mission_select_cycle rejected: state={world.game_state.state.value}", flush=True)
-                        continue
-                    if not world.available_missions:
-                        print("  mission_select_cycle rejected: no available missions", flush=True)
-                        continue
-                    delta = int(msg.get("delta", 1))
-                    try:
-                        idx = world.available_missions.index(world.selected_mission_id)
-                    except ValueError:
-                        idx = 0
-                    new_idx = (idx + delta) % len(world.available_missions)
-                    world.selected_mission_id = world.available_missions[new_idx]
-                    last_wake_ids = set()
-                    print(f"  mission picker: -> {world.selected_mission_id} ({new_idx + 1}/{len(world.available_missions)})", flush=True)
-                    continue
 
                 if msg.get("cmd") == "state_transition_request":
+                    # PR 5 collapse (2026-05-02): only CHARACTER_CREATION
+                    # ↔ HUB ↔ REFLECTIVE survive. The MISSION_*-related
+                    # branches (regen, mission_launched, RETURNING/RETURNED
+                    # HOME) and the picker-selection lifecycle are gone.
+                    # World regen is now strictly HP=0 / reflective-commit
+                    # gated per `design_death_only_regen`.
                     target_str = str(msg.get("target", ""))
                     try:
                         target = gs.GameStateName(target_str)
@@ -1956,87 +1909,27 @@ def run_server(biome_name, port=9877):
                         continue
                     old = world.game_state
                     try:
-                        # Mission transitions need an id + seed. The id comes
-                        # from the picker's current selection (L6); msg may
-                        # override for tests/headless flows that bypass the
-                        # picker. Falls through to a sensible default if both
-                        # are unset (no available missions).
-                        kwargs = {}
-                        if target == gs.GameStateName.IN_MISSION:
-                            picked = (world.selected_mission_id
-                                      or (world.available_missions[0] if world.available_missions else "anomaly_hunt_01"))
-                            kwargs["mission_id"] = str(msg.get("mission_id", picked))
-                            kwargs["mission_seed"] = int(msg.get("mission_seed", random.randint(1, 999_999)))
-                        elif target == gs.GameStateName.RESULTS:
-                            kwargs["results"] = msg.get("results", {})
-                        new_state = gs.transition(old, target, **kwargs)
+                        new_state = gs.transition(old, target)
                     except ValueError as e:
                         print(f"  state_transition rejected: {e}", flush=True)
                         continue
 
                     world.game_state = new_state
                     print(f"  state: {old.state.value} -> {new_state.state.value}", flush=True)
+                    world.state_events.emit(
+                        "state_transition",
+                        f"{old.state.value} -> {new_state.state.value}",
+                        None,
+                        REG_LOOP,
+                    )
 
-                    # L6 — picker selection lifecycle. Initialize on entering
-                    # MISSION_SELECT (so the player sees a default highlight),
-                    # clear on any path back to HUB or forward to IN_MISSION
-                    # (selection is consumed at launch).
-                    if new_state.state == gs.GameStateName.MISSION_SELECT:
-                        if world.selected_mission_id not in world.available_missions:
-                            world.selected_mission_id = (
-                                world.available_missions[0]
-                                if world.available_missions else None
-                            )
-                    else:
-                        world.selected_mission_id = None
-
-                    # Side effects per transition.
-                    # Launching: regen world with the mission seed.
-                    # Returning to HUB from a mission/results: regen with hub seed.
-                    # Cancel from MISSION_SELECT: no regen (still in hub world).
-                    if (old.state == gs.GameStateName.MISSION_SELECT
-                            and new_state.state == gs.GameStateName.IN_MISSION):
-                        world.regen_world(new_state.mission_seed)
-                        print(f"  world regen: mission seed={new_state.mission_seed}", flush=True)
-                        world.state_events.emit(
-                            "mission_launched",
-                            "MISSION LAUNCHED",
-                            f"seed {new_state.mission_seed}",
-                            REG_LOOP,
-                        )
-                    elif (old.state in (gs.GameStateName.IN_MISSION, gs.GameStateName.RESULTS)
-                            and new_state.state == gs.GameStateName.HUB):
-                        world.regen_world(world.hub_seed)
-                        print(f"  world regen: hub seed={world.hub_seed}", flush=True)
-                        # Distinguish abort from completion via the prior state.
-                        label = "RETURNING HOME" if old.state == gs.GameStateName.IN_MISSION else "RETURNED HOME"
-                        world.state_events.emit(
-                            "state_transition", label, None, REG_LOOP)
-                    else:
-                        # Generic state transition feedback for HUB↔MISSION_SELECT, etc.
-                        world.state_events.emit(
-                            "state_transition",
-                            f"{old.state.value} -> {new_state.state.value}",
-                            None,
-                            REG_LOOP,
-                        )
-
-                    # L5 autosave — write player state to disk on the natural
-                    # mission boundary (RESULTS → HUB). Other transitions
-                    # don't need to save: HUB ↔ MISSION_SELECT mutates nothing
-                    # persistent; MISSION_SELECT → IN_MISSION is pre-mission;
-                    # IN_MISSION → HUB (abort) intentionally drops mission
-                    # progress and reverts to the last known-good autosave.
-                    if (old.state == gs.GameStateName.RESULTS
-                            and new_state.state == gs.GameStateName.HUB):
-                        try:
-                            _sync_quest_state_to_player(world)
-                            written = save_state.save(world.player, world.character_sheet)
-                            print(f"  autosave: {written}", flush=True)
-                            world.state_events.emit(
-                                "save_written", "SAVED", None, REG_SYSTEM)
-                        except OSError as e:
-                            print(f"  autosave failed: {e}", flush=True)
+                    # PR 5 collapse (2026-05-02): autosave on RESULTS →
+                    # HUB removed with the rest of the mission flow. The
+                    # natural beat boundary is now reflective commit
+                    # (REFLECTIVE → HUB via the consequences chain) —
+                    # save fires there in the `commit_reflective` handler.
+                    # Character-creation finalization save still fires
+                    # via the post-creation hook below (~line 2079).
 
                     last_wake_ids = set()  # force manifest resend with new state
                     continue
@@ -2472,6 +2365,21 @@ def run_server(biome_name, port=9877):
                                 f"{trigger!r}, skipped event push",
                                 flush=True,
                             )
+                        # L5 autosave — natural beat boundary post PR 5
+                        # collapse. Reflective commit is the new
+                        # "completed something deliberate" moment that
+                        # used to be RESULTS → HUB. Quest state syncs
+                        # from BrainWorld onto the player record before
+                        # serialization (same shape as the old path).
+                        try:
+                            _sync_quest_state_to_player(world)
+                            written = save_state.save(
+                                world.player, world.character_sheet)
+                            print(f"  autosave (reflective commit): {written}", flush=True)
+                            world.state_events.emit(
+                                "save_written", "SAVED", None, REG_SYSTEM)
+                        except OSError as save_err:
+                            print(f"  autosave failed: {save_err}", flush=True)
                     else:
                         # AC failed — stay in reflective. attempt_count
                         # was incremented by sm.commit. V1 emits a
@@ -2514,6 +2422,32 @@ def run_server(biome_name, port=9877):
                         REG_SYSTEM,
                     )
                     last_wake_ids = set()
+                    continue
+
+                # ---- Workroom seed CRUD ---------------------------------
+                # Per `.claude/feature/feat_vector-workroom.md` PR 1.
+                # Vault-backed seed table; handlers live in
+                # core.systems.seed_commands so tests can hit them
+                # directly. Mutations bump last_wake_ids so the next
+                # manifest tick re-reads world_seeds for the active biome.
+
+                _seed_cmd = msg.get("cmd")
+                if _seed_cmd in (
+                    "seed_create", "seed_update", "seed_delete", "seed_list",
+                ):
+                    handler = {
+                        "seed_create": seed_commands.handle_seed_create,
+                        "seed_update": seed_commands.handle_seed_update,
+                        "seed_delete": seed_commands.handle_seed_delete,
+                        "seed_list":   seed_commands.handle_seed_list,
+                    }[_seed_cmd]
+                    ack = handler(msg, _get_vault())
+                    try:
+                        client.sendall((json.dumps(ack) + "\n").encode("utf-8"))
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    if _seed_cmd != "seed_list" and ack.get("ok"):
+                        last_wake_ids = set()
                     continue
 
                 # Camera update — stash, only process the latest after drain
@@ -2660,6 +2594,13 @@ def run_server(biome_name, port=9877):
                     "bearings": bearings_map,
                 }
 
+                # Workroom seeds for the active biome — vector-workroom PR 1.
+                # Always shipped, even outside `workroom`, so other biomes
+                # can adopt seed authoring without engine changes (V2).
+                # Empty list when biome has no seeds.
+                manifest["seeds"] = _get_vault().world_seeds_by_biome(
+                    world.biome_name)
+
                 # Attach expedition snapshot to manifest. This is the
                 # render-manifest doctrine: brain owns state, manifest
                 # carries it, Godot paints what it sees. Godot has no
@@ -2758,6 +2699,18 @@ def run_server(biome_name, port=9877):
                             })
                     if reaction_events:
                         manifest["reaction_events"] = reaction_events
+                        # Player feedback — one toast per reaction. Universal
+                        # verb shape: ELEMENT → KIND. Players see what their
+                        # cast actually hit. Quiet on no-reaction casts so
+                        # the toast queue doesn't spam during practice.
+                        for re_evt in reaction_events:
+                            world.state_events.emit(
+                                "elemental_reaction",
+                                f"{str(re_evt['element']).upper()} → "
+                                f"{re_evt['kind']}",
+                                None,
+                                REG_LOOP,
+                            )
                     pending_casts.clear()
 
                 wake_ids = frozenset(

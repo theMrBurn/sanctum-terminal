@@ -82,9 +82,10 @@ HUD_MSG_MAX_CHARS = 60
 HUD_INV_MAX_CHARS = 60
 CROSSHAIR_SIZE = 8
 
-# Smart ENTER target table — derived from godot/main.gd:5142-5163.
-ENTER_TARGETS = {
-    "HUB": "MISSION_SELECT",
-    "MISSION_SELECT": "IN_MISSION",
-    "RESULTS": "HUB",
-}
+# Smart ENTER target table. Post PR 5 collapse (2026-05-02) the legacy
+# 5-state mission loop is gone; ENTER no longer drives state transitions
+# from HUB. Free exploration replaces "in a mission instance"; engage_*
+# verbs (F on fridge / pillar) drive REFLECTIVE / CHARACTER_CREATION.
+# Empty dict = ENTER is a no-op outside overlays (journal toggle,
+# dial commit) which intercept it before this lookup runs.
+ENTER_TARGETS: dict[str, str] = {}
