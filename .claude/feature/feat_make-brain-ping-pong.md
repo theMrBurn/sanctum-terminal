@@ -65,7 +65,7 @@ External material to study before / during PR 4 (ballistics) and PR 5
 
 | # | Question | Locked answer |
 |---|----------|---------------|
-| 1 | Where the chamber lives | **Standalone brain process for V1**: `python3 brain_server.py volley 9878`. Promote to hub-accessible biome later. |
+| 1 | Where the chamber lives | **Standalone brain process for V1**: `python3 brain_server.py volley_chamber 9878`. Promote to hub-accessible biome later. |
 | 2 | Cube dimensions | **12m × 12m × 12m abstract cube.** Configurable per profile. Not a real court. |
 | 3 | Vanilla physics defaults | **Arcade defaults — infinite rally, predictable, easy-to-hit.** All channels (gravity, drag, magnus, restitution) present in schema as profile knobs; vanilla turns them OFF or sets them to permissive values (gravity=0, drag=0, magnus=0, restitution=1.0). Realistic-tennis values live in a `tennis_sim` preset that inherits from vanilla. |
 | 4 | Serve pattern | **Atari single-press.** Press `fire_primary` → ball spawns stationary in front of player → press `fire_primary` again → strike. Charge-and-release deferred to V3 once envelopes land. |
@@ -149,7 +149,7 @@ Brain dispatches commands by `instance_id` → handler. Future archery, reflecti
 
 ## Surface — volley chamber
 
-- **Standalone brain instance:** `python3 brain_server.py volley 9878`. Boots with no outdoor/cavern state, only the volley_chamber biome.
+- **Standalone brain instance:** `python3 brain_server.py volley_chamber 9878`. Boots with no outdoor/cavern state, only the volley_chamber biome.
 - **Biome `volley_chamber`** — 12×12×12 cube. 4 walls + floor + ceiling, all wireframe. No clutter, no flora, no atmosphere. Single light source for orientation. Player spawns at center facing the +Z wall (the "front" wall).
 - **Vector terminal** connects to port 9878 (CLI flag passthrough).
 - **HUD identity:** "VOLLEY CHAMBER" header, current profile name, score block, live ContactProfile readout.
@@ -369,7 +369,7 @@ Existing `is_mouse_button_pressed(MOUSE_BUTTON_LEFT)` → `input_map.pressed("fi
 - [ ] **M1** — Existing vault.db opens cleanly, picks up `profiles` and `runs` tables on first volley brain boot, never touches existing rows. Vanilla profile auto-inserted on first boot if absent.
 
 ### VISUAL
-- [ ] **V1** — `python3 brain_server.py volley 9878` boots without error. Vector terminal connects, renders cube room. HUD shows "VOLLEY CHAMBER — vanilla."
+- [ ] **V1** — `python3 brain_server.py volley_chamber 9878` boots without error. Vector terminal connects, renders cube room. HUD shows "VOLLEY CHAMBER — vanilla."
 - [ ] **V2** — Press `fire_primary`. Ball appears at serve offset, stationary (arcade vanilla has gravity=0, so it hangs in place — not a bug).
 - [ ] **V3** — Press `fire_primary` again with crosshair on ball. Ball launches forward at swing velocity. Strikes far wall, returns toward player.
 - [ ] **V4** — Player swings (LMB or RT) at returning ball with crosshair on it. Ball reflects toward wall again. Rally continues.
@@ -424,7 +424,7 @@ Existing `is_mouse_button_pressed(MOUSE_BUTTON_LEFT)` → `input_map.pressed("fi
 - T3 green. Existing `test_targeting.py` and other input-touching tests still green. **Existing UAT scenarios for workroom + reflective fridge unchanged.**
 
 ### PR 3 — volley_chamber biome + brain instance
-- New `volley` brain mode: `brain_server.py volley 9878`. Boots only volley_chamber biome.
+- New `volley_chamber` biome boot: `brain_server.py volley_chamber 9878`. Boots only volley_chamber biome.
 - `volley_chamber` biome registered: 12×12×12 cube wireframe room.
 - Manifest emits `instance_id: "ping_pong"`, cube geometry, player spawn at center.
 - Vector terminal connects, renders cube, HUD shows VOLLEY CHAMBER identity.
