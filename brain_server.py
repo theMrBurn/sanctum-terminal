@@ -67,6 +67,7 @@ from core.systems.quests.state import QuestState
 from core.systems.journal import lexicon as journal_lexicon
 from core.vault import vault as Vault
 from core.systems import seed_commands
+from core.systems import make_brain_commands
 from core.systems.character_draft import CharacterDraft
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
@@ -2448,6 +2449,25 @@ def run_server(biome_name, port=9877):
                         pass
                     if _seed_cmd != "seed_list" and ack.get("ok"):
                         last_wake_ids = set()
+                    continue
+
+                # ---- Make-brain profile commands ------------------------
+                # Universal config dispatch for any make-brain instance.
+                # Per `.claude/feature/feat_make-brain-ping-pong.md` PR 1.
+                _mb_cmd = msg.get("cmd")
+                if _mb_cmd in (
+                    "profile_save", "profile_load", "profile_list",
+                ):
+                    mb_handler = {
+                        "profile_save": make_brain_commands.handle_profile_save,
+                        "profile_load": make_brain_commands.handle_profile_load,
+                        "profile_list": make_brain_commands.handle_profile_list,
+                    }[_mb_cmd]
+                    ack = mb_handler(msg, _get_vault())
+                    try:
+                        client.sendall((json.dumps(ack) + "\n").encode("utf-8"))
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
                     continue
 
                 # Camera update — stash, only process the latest after drain

@@ -180,6 +180,48 @@ class vault:
                     "CREATE INDEX IF NOT EXISTS idx_world_seeds_biome "
                     "ON world_seeds(biome)"
                 )
+                # Make-brain substrate -- universal config + run tables
+                # shared by every make-brain instance (ping-pong, future
+                # archery, future puzzle modules). See
+                # .claude/feature/feat_make-brain-ping-pong.md PR 1.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS profiles (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        instance_id     TEXT    NOT NULL,
+                        profile_name    TEXT    NOT NULL,
+                        parent_profile  TEXT,
+                        params_json     TEXT    NOT NULL,
+                        notes           TEXT    NOT NULL DEFAULT '',
+                        created_at      TEXT    NOT NULL,
+                        updated_at      TEXT    NOT NULL,
+                        UNIQUE(instance_id, profile_name)
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_profiles_instance "
+                    "ON profiles(instance_id)"
+                )
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS runs (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        instance_id     TEXT    NOT NULL,
+                        run_id          TEXT    NOT NULL,
+                        profile_name    TEXT    NOT NULL,
+                        started_at      TEXT    NOT NULL,
+                        ended_at        TEXT,
+                        metrics_json    TEXT    NOT NULL DEFAULT '{}',
+                        terminal_state  TEXT,
+                        UNIQUE(instance_id, run_id)
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_instance "
+                    "ON runs(instance_id)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_profile "
+                    "ON runs(instance_id, profile_name)"
+                )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -640,3 +682,230 @@ class vault:
                 "SELECT 1 FROM world_seeds WHERE id = ?", (int(seed_id),)
             ).fetchone()
         return row is not None
+
+    # -- Make-brain substrate: profiles ----------------------------------------
+    # Universal config snapshot table. Every make-brain instance
+    # (ping_pong, future archery, future puzzle modules) shares this
+    # table keyed by instance_id. params_json is per-instance free-form.
+    # Profile inheritance is supported via parent_profile + profile_resolve().
+
+    @staticmethod
+    def _deserialize_profile(row) -> dict:
+        d = dict(row)
+        raw = d.get("params_json") or "{}"
+        try:
+            d["params"] = (
+                json.loads(raw) if isinstance(raw, str) else (raw or {})
+            )
+        except (TypeError, ValueError):
+            d["params"] = {}
+        return d
+
+    def profile_save(
+        self,
+        instance_id: str,
+        profile_name: str,
+        params: dict,
+        parent_profile: str | None = None,
+        notes: str = "",
+    ) -> int:
+        """Insert or update a make-brain profile. Returns row id.
+
+        UNIQUE(instance_id, profile_name) — repeated saves overwrite.
+        params is JSON-serialized.
+        """
+        from datetime import datetime, timezone
+        if not isinstance(params, dict):
+            raise ValueError("profile_save: params must be a dict")
+        now = datetime.now(timezone.utc).isoformat()
+        params_json = json.dumps(params)
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "INSERT INTO profiles "
+                "(instance_id, profile_name, parent_profile, params_json, "
+                " notes, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(instance_id, profile_name) DO UPDATE SET "
+                "  parent_profile = excluded.parent_profile, "
+                "  params_json    = excluded.params_json, "
+                "  notes          = excluded.notes, "
+                "  updated_at     = excluded.updated_at",
+                (
+                    str(instance_id),
+                    str(profile_name),
+                    str(parent_profile) if parent_profile else None,
+                    params_json,
+                    str(notes or ""),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+            row_id = cur.lastrowid
+            if row_id == 0:
+                # ON CONFLICT path -- look up the existing row id
+                row = conn.execute(
+                    "SELECT id FROM profiles "
+                    "WHERE instance_id = ? AND profile_name = ?",
+                    (str(instance_id), str(profile_name)),
+                ).fetchone()
+                row_id = int(row[0]) if row else 0
+            return int(row_id)
+
+    def profile_load(self, instance_id: str, profile_name: str) -> dict | None:
+        """Return raw profile row (no parent resolution) or None.
+
+        For inheritance-resolved params, use profile_resolve().
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM profiles "
+                "WHERE instance_id = ? AND profile_name = ?",
+                (str(instance_id), str(profile_name)),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._deserialize_profile(row)
+
+    def profile_list(self, instance_id: str) -> list[dict]:
+        """All profiles for an instance, ordered by name."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM profiles WHERE instance_id = ? "
+                "ORDER BY profile_name ASC",
+                (str(instance_id),),
+            ).fetchall()
+        return [self._deserialize_profile(r) for r in rows]
+
+    def profile_resolve(self, instance_id: str, profile_name: str) -> dict:
+        """Walk parent_profile chain and return merged params (child overrides
+        parent). Raises:
+          - LookupError if profile_name not found.
+          - LookupError if a parent in the chain is missing.
+          - ValueError if a cycle is detected.
+        """
+        seen: set[str] = set()
+        chain: list[dict] = []
+        current = profile_name
+        while current is not None:
+            if current in seen:
+                raise ValueError(
+                    f"profile_resolve: cycle detected at "
+                    f"{instance_id}:{current}"
+                )
+            seen.add(current)
+            row = self.profile_load(instance_id, current)
+            if row is None:
+                missing_kind = "profile" if not chain else "parent profile"
+                raise LookupError(
+                    f"profile_resolve: {missing_kind} not found: "
+                    f"{instance_id}:{current}"
+                )
+            chain.append(row)
+            current = row.get("parent_profile")
+        # Merge from oldest ancestor down to the requested child so
+        # child keys win.
+        merged: dict = {}
+        for row in reversed(chain):
+            merged.update(row.get("params") or {})
+        return merged
+
+    # -- Make-brain substrate: runs --------------------------------------------
+    # Per-engagement (session-grain) record. One row per make-brain
+    # process lifetime; per-rally / per-event detail lives in
+    # metrics_json.
+
+    @staticmethod
+    def _gen_run_id() -> str:
+        """Timestamp-prefixed random id (ULID-style — sortable by start time)."""
+        import secrets, time
+        ts_ms = int(time.time() * 1000)
+        return f"{ts_ms:013x}_{secrets.token_hex(4)}"
+
+    @staticmethod
+    def _deserialize_run(row) -> dict:
+        d = dict(row)
+        raw = d.get("metrics_json") or "{}"
+        try:
+            d["metrics"] = (
+                json.loads(raw) if isinstance(raw, str) else (raw or {})
+            )
+        except (TypeError, ValueError):
+            d["metrics"] = {}
+        return d
+
+    def run_start(self, instance_id: str, profile_name: str) -> str:
+        """Open a new run row. Returns the generated run_id."""
+        from datetime import datetime, timezone
+        run_id = self._gen_run_id()
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO runs "
+                "(instance_id, run_id, profile_name, started_at, "
+                " ended_at, metrics_json, terminal_state) "
+                "VALUES (?, ?, ?, ?, NULL, '{}', NULL)",
+                (
+                    str(instance_id),
+                    run_id,
+                    str(profile_name),
+                    now,
+                ),
+            )
+            conn.commit()
+        return run_id
+
+    def run_end(
+        self,
+        instance_id: str,
+        run_id: str,
+        terminal_state: str | None = None,
+        metrics: dict | None = None,
+    ) -> bool:
+        """Close out a run. Returns True if a row was updated."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        metrics_json = json.dumps(metrics or {})
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "UPDATE runs SET "
+                "  ended_at       = ?, "
+                "  terminal_state = ?, "
+                "  metrics_json   = ? "
+                "WHERE instance_id = ? AND run_id = ?",
+                (
+                    now,
+                    str(terminal_state) if terminal_state else None,
+                    metrics_json,
+                    str(instance_id),
+                    str(run_id),
+                ),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def run_get(self, instance_id: str, run_id: str) -> dict | None:
+        """Return a single run row (or None)."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM runs "
+                "WHERE instance_id = ? AND run_id = ?",
+                (str(instance_id), str(run_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._deserialize_run(row)
+
+    def runs_by_instance(self, instance_id: str) -> list[dict]:
+        """All runs for an instance, newest first."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM runs WHERE instance_id = ? "
+                "ORDER BY started_at DESC",
+                (str(instance_id),),
+            ).fetchall()
+        return [self._deserialize_run(r) for r in rows]
