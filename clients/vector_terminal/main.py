@@ -27,7 +27,9 @@ from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
 from clients.vector_terminal import ball as ball_renderer  # noqa: E402
+from clients.vector_terminal import ball_trail as ball_trail_renderer  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
+from clients.vector_terminal import bricks as bricks_renderer  # noqa: E402
 from clients.vector_terminal import build_mode  # noqa: E402
 from clients.vector_terminal import chamber as chamber_renderer  # noqa: E402
 from clients.vector_terminal import console as volley_console  # noqa: E402
@@ -106,6 +108,11 @@ def main() -> int:
     # Volley console — backtick-toggled overlay for live profile tuning.
     # Per `feat_make-brain-ping-pong.md` PR 7.
     console_state = volley_console.ConsoleState()
+
+    # Ball trail — fading line behind the active ball. Visual diagnostic
+    # so the rally substrate's behavior is observable. Without this you
+    # can see the ball go forward but not where it bounces / returns.
+    ball_trail_state = ball_trail_renderer.TrailState()
 
     client = ManifestClient(cfg.BRAIN_HOST, cfg.BRAIN_PORT)
     try:
@@ -692,6 +699,16 @@ def main() -> int:
         # volley_chamber. Reads `manifest.chamber`; silent no-op for
         # legacy biomes. Per `feat_make-brain-ping-pong.md` PR 3.
         chamber_renderer.render(last_manifest)
+
+        # Ball trail — observe current ball position, render fading
+        # path. Renders BEFORE the ball so the live ball sphere is the
+        # most opaque thing on screen. Per V1 close-out 2026-05-04.
+        ball_trail_state.observe(last_manifest.get("ball"))
+        ball_trail_renderer.render(ball_trail_state)
+
+        # Brick Attack targets — wireframe AABBs on the front wall.
+        # Per V1 close-out 2026-05-04.
+        bricks_renderer.render(last_manifest)
 
         # Active ball — wireframe sphere from manifest.ball. Silent
         # no-op when no ball in play. Per PR 4.

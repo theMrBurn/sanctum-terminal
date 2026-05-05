@@ -98,6 +98,103 @@ TENNIS_SIM_PARAMS: dict[str, Any] = {
 
 
 # ----------------------------------------------------------------------
+# Brick Attack — horizontal row of breakable targets on the front wall.
+# Player strikes ball forward; ball hits brick → brick destroyed +
+# score. Hit threshold = WIN. R resets bricks + ball.
+# Per V1 close-out 2026-05-04.
+# ----------------------------------------------------------------------
+
+# Chamber is 12 wide × 36 long × 8 tall (CHAMBER_GEOMETRY above), so
+# front wall (north) is at brain y=+18, x∈[-6,+6], z∈[0,8]. Bricks
+# fit in this rectangle at mid-height.
+
+BRICK_SCORE         = 100
+TARGET_ROUNDS_PER_SET = 10    # combat-math sample target per experimental set
+                                # (down from 100 — 10 is enough signal,
+                                # 100 takes hours of UAT)
+
+# Floor-standing pins. Horizontal row 8m in front of player spawn,
+# spanning the chamber width. Ball rolls forward on the floor (per
+# vanilla gravity arc), hits pins, knocks them out. Per V1 close-out
+# screenshot review 2026-05-04.
+#
+# Each brick's `hp` is the number of contacts required to destroy it.
+# `max_hp` is the original; `hp` decrements on each contact. score is
+# awarded when destroyed (hp → 0).
+
+def _brick(x_min, x_max, hp=1, score=BRICK_SCORE):
+    return {
+        "x_min": x_min, "x_max": x_max,
+        "y_min": 8.0,   "y_max": 8.8,
+        "z_min": 0.0,   "z_max": 1.0,
+        "score": score, "hp": hp, "max_hp": hp,
+        "destroyed": False,
+    }
+
+
+# Control set — 6 bricks, all hp=1, threshold=600. Substrate baseline.
+CONTROL_BRICKS: list[dict[str, Any]] = [
+    _brick(-5.5, -4.0),
+    _brick(-3.5, -2.0),
+    _brick(-1.5,  0.0),
+    _brick( 0.0,  1.5),
+    _brick( 2.0,  3.5),
+    _brick( 4.0,  5.5),
+]
+CONTROL_THRESHOLD = sum(b["score"] for b in CONTROL_BRICKS)   # 600
+
+# Experimental v1 — every 3rd brick is a 3-HP "boss" pin worth 3× score.
+# Pattern (left → right): N N H N N H. Total HP to clear: 4·1 + 2·3 = 10.
+# Total threshold: 4·100 + 2·300 = 1000.
+EXPERIMENTAL_V1_BRICKS: list[dict[str, Any]] = [
+    _brick(-5.5, -4.0, hp=1, score=100),
+    _brick(-3.5, -2.0, hp=1, score=100),
+    _brick(-1.5,  0.0, hp=3, score=300),    # boss
+    _brick( 0.0,  1.5, hp=1, score=100),
+    _brick( 2.0,  3.5, hp=1, score=100),
+    _brick( 4.0,  5.5, hp=3, score=300),    # boss
+]
+EXPERIMENTAL_V1_THRESHOLD = sum(b["score"] for b in EXPERIMENTAL_V1_BRICKS)   # 1000
+
+BRICK_SETS: dict[str, dict[str, Any]] = {
+    "control": {
+        "label":     "Control (6 × 1-HP)",
+        "bricks":    CONTROL_BRICKS,
+        "threshold": CONTROL_THRESHOLD,
+    },
+    "experimental_v1": {
+        "label":     "Exp v1 (every 3rd × 3-HP boss)",
+        "bricks":    EXPERIMENTAL_V1_BRICKS,
+        "threshold": EXPERIMENTAL_V1_THRESHOLD,
+    },
+}
+
+DEFAULT_BRICK_SET = "control"
+
+
+def _fresh_bricks_for(set_name: str) -> list[dict[str, Any]]:
+    """Deep-ish copy of the named set's brick layout. Each brick's
+    fields (hp, destroyed) reset to fresh."""
+    layout = BRICK_SETS.get(set_name) or BRICK_SETS[DEFAULT_BRICK_SET]
+    return [dict(b) for b in layout["bricks"]]
+
+
+def _threshold_for(set_name: str) -> int:
+    layout = BRICK_SETS.get(set_name) or BRICK_SETS[DEFAULT_BRICK_SET]
+    return int(layout["threshold"])
+
+
+# Back-compat: keep the old names so any importers don't break.
+DEFAULT_BRICKS = CONTROL_BRICKS
+BRICK_WIN_THRESHOLD = CONTROL_THRESHOLD
+
+
+def _fresh_bricks() -> list[dict[str, Any]]:
+    """Legacy alias — returns fresh control-set bricks."""
+    return _fresh_bricks_for(DEFAULT_BRICK_SET)
+
+
+# ----------------------------------------------------------------------
 # Handler
 # ----------------------------------------------------------------------
 
@@ -147,6 +244,35 @@ class PingPongHandler:
         # State events emitted by the handler. Drained by the brain
         # manifest builder via drain_state_events(). Per AC PR 8.
         self._state_events: list[dict] = []
+        # Brick Attack mode — horizontal row of breakable targets on
+        # the front wall. Reset by reset_rally / reset_match.
+        # Per V1 close-out 2026-05-04.
+        self.bricks: list[dict[str, Any]] = _fresh_bricks()
+        self.brick_score: int = 0
+        self.brick_win: bool = False
+        # Round telemetry — substrate observation rig for combat-math
+        # extrapolation. A "round" = serve-fresh-bricks until win/reset.
+        # Records per-round contacts + duration + outcome so the user
+        # can derive: encounter HP → expected hits, expected time, etc.
+        self.brick_round_id: int = 1
+        self.brick_round_started_at: float = 0.0    # set on first serve, see on_serve
+        self.brick_round_contacts: int = 0
+        self.brick_round_log: list[dict] = []        # combined chronological log
+        self._brick_round_open: bool = False        # first round opens lazily on first serve
+        # Active brick set + per-set logs for combat-math experiments.
+        # User can switch via console: `mode <set_name>`. Per-set logs
+        # accumulate independently → control vs experimental compared.
+        self.brick_set: str = DEFAULT_BRICK_SET
+        self.brick_threshold: int = _threshold_for(self.brick_set)
+        self.brick_round_log_by_set: dict[str, list[dict]] = {
+            name: [] for name in BRICK_SETS
+        }
+        # Auto-reset after WIN — round logs immediately, then 2s celebration
+        # delay (player sees WIN flash), then bricks restore + ball clears
+        # + next round opens. Makes the 100-round experiment harness fully
+        # automatic — no manual R between rounds.
+        self._brick_auto_reset_at: float = 0.0
+        self._brick_auto_reset_delay: float = 2.0    # seconds of WIN-flash before reset
 
     # -- profile bootstrapping ---------------------------------------------
 
@@ -207,6 +333,11 @@ class PingPongHandler:
         if self._run_id is None:
             self._run_id = self.vault.run_start(INSTANCE_ID, self.active_profile)
             self._emit_event("make_brain_started", run_id=self._run_id)
+        # Open the first brick round lazily on first serve (so duration
+        # starts when the player actually starts playing, not at boot).
+        if not self._brick_round_open:
+            self._start_brick_round()
+            self._brick_round_open = True
         params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
         offset = params.get("serve_offset") or [0.0, 1.6, 1.5]
         # Profile serve_offset is (lateral, vertical_eye_height, forward).
@@ -266,6 +397,7 @@ class PingPongHandler:
         )
         self.ball = new_state
         self.rally_contacts += 1
+        self.brick_round_contacts += 1
         return contact
 
     def on_tick(self, dt: float, substeps: int = 4) -> list:
@@ -278,6 +410,20 @@ class PingPongHandler:
             else                                  → opp point
         """
         self._session_time += dt
+        # Auto-reset after WIN delay — round was already logged when WIN
+        # fired; this just spawns fresh bricks + clears ball so the next
+        # round can begin without manual R press. Per V1 close-out
+        # 2026-05-04 — fully automatic 100-round experiment harness.
+        if (self._brick_auto_reset_at > 0.0
+                and self._session_time >= self._brick_auto_reset_at):
+            self._brick_auto_reset_at = 0.0
+            self.bricks = _fresh_bricks_for(self.brick_set)
+            self.brick_threshold = _threshold_for(self.brick_set)
+            self.brick_score = 0
+            self.brick_win = False
+            self.ball = None
+            self._start_brick_round()
+            self._emit_event("brick_round_auto_reset", set=self.brick_set)
         if self.ball is None:
             return []
         solver = self._ensure_solver()
@@ -287,6 +433,57 @@ class PingPongHandler:
         speed = (new_state.vel[0]**2 + new_state.vel[1]**2 + new_state.vel[2]**2) ** 0.5
         if speed > self._rally_max_v:
             self._rally_max_v = speed
+        # Brick Attack — sphere-vs-AABB overlap check after each tick.
+        # Pins stand on the floor; ball rolling / bouncing forward
+        # contacts them. Multi-HP bricks decrement hp on each contact
+        # and only score (+ become destroyed) when hp reaches 0.
+        # Ball is NOT reflected by brick contact (passes through) so
+        # one strike can chain through multiple pins. Per V1 close-out
+        # 2026-05-04 + experimental harness 2026-05-04.
+        if not self.brick_win and self.ball is not None:
+            params_now = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
+            r = float(params_now.get("ball_radius", 0.15))
+            bx, by, bz = self.ball.pos
+            for brick in self.bricks:
+                if brick["destroyed"]:
+                    continue
+                if (brick["x_min"] - r <= bx <= brick["x_max"] + r
+                        and brick["y_min"] - r <= by <= brick["y_max"] + r
+                        and brick["z_min"] - r <= bz <= brick["z_max"] + r):
+                    # One contact = one HP decrement. Cooldown via
+                    # ball-leaves-AABB: in V1 we just process one brick
+                    # per tick step (break below); fast travel through
+                    # a multi-HP brick still requires multiple ticks.
+                    brick["hp"] = max(0, int(brick.get("hp", 1)) - 1)
+                    if brick["hp"] <= 0:
+                        brick["destroyed"] = True
+                        self.brick_score += int(brick["score"])
+                        self._emit_event(
+                            "brick_destroyed",
+                            score=brick["score"],
+                            total=self.brick_score,
+                            max_hp=int(brick.get("max_hp", 1)),
+                        )
+                        if self.brick_score >= self.brick_threshold:
+                            self.brick_win = True
+                            self._emit_event(
+                                "brick_win", score=self.brick_score,
+                                set=self.brick_set,
+                            )
+                            self._complete_brick_round("win")
+                            # Schedule auto-reset for 2s from now —
+                            # gives the player time to see the WIN
+                            # flash before bricks restore.
+                            self._brick_auto_reset_at = (
+                                self._session_time + self._brick_auto_reset_delay
+                            )
+                    else:
+                        self._emit_event(
+                            "brick_damaged",
+                            hp=brick["hp"],
+                            max_hp=int(brick.get("max_hp", 1)),
+                        )
+                    break    # one brick contact per tick step
         # Out-of-bounds resolution. Ball y past the back-line ends the
         # rally regardless of velocity.
         params = self.vault.profile_resolve(INSTANCE_ID, self.active_profile)
@@ -347,15 +544,26 @@ class PingPongHandler:
     # -- match-level reset hooks ----------------------------------------
 
     def reset_rally(self) -> None:
-        """Discard active ball + rally counter; preserve match state."""
+        """Discard active ball + rally counter; preserve match state +
+        round logs. Restores bricks for the active brick_set AND closes
+        any in-progress round as 'aborted' before starting a fresh one."""
+        if self.brick_round_contacts > 0 and not self.brick_win:
+            self._complete_brick_round("aborted")
         self.ball = None
         self.rally_contacts = 0
         self._rally_max_v = 0.0
         self.last_rally_outcome = None
+        self.bricks = _fresh_bricks_for(self.brick_set)
+        self.brick_threshold = _threshold_for(self.brick_set)
+        self.brick_score = 0
+        self.brick_win = False
+        self._start_brick_round()
 
     def reset_match(self) -> None:
-        """Hard reset — fresh match, no ball, no rally. Closes the
-        active run as 'aborted' (PR 8)."""
+        """Hard reset — fresh match, no ball, no rally, fresh bricks,
+        full round-log wipe (BOTH sets). Closes the active run as 'aborted'."""
+        if self.brick_round_contacts > 0 and not self.brick_win:
+            self._complete_brick_round("aborted")
         if self._run_id is not None:
             self._close_run(terminal_state="aborted")
         self.ball = None
@@ -365,6 +573,128 @@ class PingPongHandler:
         self.match = volley_scoring.new_match("wall_rally")
         self._run_metrics = {"rallies": [], "peak_max_v": 0.0,
                              "peak_rally_length": 0}
+        self.bricks = _fresh_bricks_for(self.brick_set)
+        self.brick_threshold = _threshold_for(self.brick_set)
+        self.brick_score = 0
+        self.brick_win = False
+        self.brick_round_id = 1
+        self.brick_round_log = []
+        self.brick_round_log_by_set = {name: [] for name in BRICK_SETS}
+        self._start_brick_round()
+
+    # -- experimental harness — set switching ----------------------------
+
+    def switch_brick_set(self, name: str) -> None:
+        """Switch the active brick layout. Closes any open round + spawns
+        fresh bricks for the new set. Per-set logs are preserved across
+        switches so you can compare datasets within a session."""
+        if name not in BRICK_SETS:
+            raise ValueError(
+                f"unknown brick_set: {name} (known: {sorted(BRICK_SETS)})"
+            )
+        if self.brick_round_contacts > 0 and not self.brick_win:
+            self._complete_brick_round("aborted")
+        self.brick_set = name
+        self.bricks = _fresh_bricks_for(name)
+        self.brick_threshold = _threshold_for(name)
+        self.brick_score = 0
+        self.brick_win = False
+        self.ball = None
+        self.brick_round_id = 1
+        self._brick_round_open = False    # next serve opens fresh round
+        self._emit_event("brick_set_switched", set=name)
+
+    def list_brick_sets(self) -> list[dict]:
+        """Return [{name, label, threshold, total_hp, rounds_logged, ...}]
+        for HUD / console listing."""
+        out = []
+        for name, layout in BRICK_SETS.items():
+            bricks = layout["bricks"]
+            log = self.brick_round_log_by_set.get(name) or []
+            wins = [r for r in log if r.get("reason") == "win"]
+            row = {
+                "name":          name,
+                "label":         layout["label"],
+                "threshold":     int(layout["threshold"]),
+                "total_hp":      sum(int(b.get("hp", 1)) for b in bricks),
+                "rounds":        len(log),
+                "wins":          len(wins),
+                "active":        name == self.brick_set,
+                "target":        TARGET_ROUNDS_PER_SET,
+            }
+            if wins:
+                contacts = [int(r["contacts"]) for r in wins]
+                durations = [float(r["duration_s"]) for r in wins]
+                row["avg_contacts"]   = round(sum(contacts) / len(contacts), 2)
+                row["avg_duration_s"] = round(sum(durations) / len(durations), 2)
+            out.append(row)
+        return out
+
+    # -- brick-round lifecycle (combat-math observation rig) -------------
+
+    def _start_brick_round(self) -> None:
+        """Open a fresh round. Called after reset_rally / reset_match."""
+        self.brick_round_started_at = self._session_time
+        self.brick_round_contacts = 0
+
+    def _complete_brick_round(self, reason: str) -> None:
+        """Append a completed round to the active set's log + emit event +
+        flush to vault.runs.metrics_json so the data survives crashes /
+        brain restarts. Per V1 close-out 2026-05-04 — substrate
+        observation rig must be durable for combat-math analysis."""
+        duration = round(self._session_time - self.brick_round_started_at, 3)
+        record = {
+            "round_id":   self.brick_round_id,
+            "set":        self.brick_set,
+            "duration_s": duration,
+            "contacts":   self.brick_round_contacts,
+            "score":      self.brick_score,
+            "reason":     reason,
+            "ended_at":   round(self._session_time, 3),
+        }
+        self.brick_round_log.append(record)
+        self.brick_round_log_by_set.setdefault(self.brick_set, []).append(record)
+        # Persist into the active run's metrics — recoverable from
+        # vault.db even if the brain crashes mid-experiment.
+        rounds_by_set = self._run_metrics.setdefault("brick_rounds_by_set", {})
+        rounds_by_set.setdefault(self.brick_set, []).append(record)
+        self._persist_run_metrics()
+        self._emit_event(
+            "brick_round_ended",
+            round_id=self.brick_round_id,
+            set=self.brick_set,
+            duration_s=duration,
+            contacts=self.brick_round_contacts,
+            reason=reason,
+        )
+        self.brick_round_id += 1
+
+    def brick_round_summary(self, last_n: int | None = None,
+                            set_name: str | None = None) -> dict:
+        """Aggregate stats over the round log. last_n=None = all rounds.
+        set_name=None = active set; pass a name to query that set."""
+        if set_name is None:
+            set_name = self.brick_set
+        rounds = self.brick_round_log_by_set.get(set_name) or []
+        if last_n is not None:
+            rounds = rounds[-last_n:]
+        wins = [r for r in rounds if r.get("reason") == "win"]
+        if not wins:
+            return {"sample": len(rounds), "wins": 0,
+                    "avg_contacts": 0, "avg_duration_s": 0,
+                    "min_contacts": 0, "max_contacts": 0}
+        contacts = [int(r["contacts"]) for r in wins]
+        durations = [float(r["duration_s"]) for r in wins]
+        return {
+            "sample":         len(rounds),
+            "wins":           len(wins),
+            "avg_contacts":   round(sum(contacts) / len(contacts), 2),
+            "avg_duration_s": round(sum(durations) / len(durations), 2),
+            "min_contacts":   min(contacts),
+            "max_contacts":   max(contacts),
+            "min_duration_s": round(min(durations), 2),
+            "max_duration_s": round(max(durations), 2),
+        }
 
     # -- run lifecycle internals ------------------------------------------
 
@@ -459,6 +789,27 @@ class PingPongHandler:
         keys["run_metrics"] = dict(self._run_metrics)
         # Drain queued state events for client consumption (PR 8).
         keys["volley_state_events"] = self.drain_state_events()
+        # Brick Attack state — items + score + win flag + round log +
+        # per-set summaries (combat-math experimental harness).
+        # Per V1 close-out 2026-05-04.
+        live_round_duration = max(
+            0.0, round(self._session_time - self.brick_round_started_at, 3)
+        )
+        keys["bricks"] = {
+            "items":     [dict(b) for b in self.bricks],
+            "score":     int(self.brick_score),
+            "threshold": int(self.brick_threshold),
+            "win":       bool(self.brick_win),
+            "set":       self.brick_set,
+            "round": {
+                "id":         self.brick_round_id,
+                "contacts":   self.brick_round_contacts,
+                "duration_s": live_round_duration,
+            },
+            "log":     [dict(r) for r in self.brick_round_log[-10:]],   # last 10 only — HUD doesn't need 100
+            "summary": self.brick_round_summary(last_n=10),
+            "sets":    self.list_brick_sets(),
+        }
         return keys
 
 

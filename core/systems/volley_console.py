@@ -74,6 +74,16 @@ def execute(line: str, vault, handler) -> list[str]:
         return _load(args, vault, handler)
     if verb == "save":
         return _save(args, vault, handler)
+    if verb == "mode":
+        return _mode(args, handler)
+    if verb == "sets":
+        return _sets(handler)
+    if verb == "data":
+        return _data(handler)
+    if verb == "runs":
+        return _runs(vault)
+    if verb == "export":
+        return _export(args, handler)
 
     if verb in _SCALAR_PARAMS:
         return _setter(verb, args, vault, handler)
@@ -93,9 +103,122 @@ def _help() -> list[str]:
         "  save  <name> [from parent]  snapshot active params under <name>",
         "  load  <name>                switch active profile to <name>",
         "  list                        show all profiles",
+        "  mode  <set_name>            switch brick set (control / experimental_v1)",
+        "  sets                        show all brick sets + per-set round stats",
+        "  data                        dump current run's round log",
+        "  runs                        list past vault.runs rows + summaries",
+        "  export [path]               write round log JSON snapshot to disk",
         "  help                        this list",
         "  scalar params: " + ", ".join(sorted(_SCALAR_PARAMS.keys())),
     ]
+
+
+def _export(args: list[str], handler) -> list[str]:
+    """Snapshot the current run's per-set round logs to a JSON file.
+
+    Default path: data/volley_runs/run_<timestamp>.json. Override with
+    `export <path>`. Includes per-set summaries so analysis tools have
+    pre-computed avg/min/max alongside raw rounds.
+    """
+    import json as _json
+    import time as _time
+    from pathlib import Path
+    if args:
+        path = Path(args[0])
+    else:
+        ts = _time.strftime("%Y%m%d_%H%M%S")
+        path = Path(f"data/volley_runs/run_{ts}.json")
+    log_by_set = getattr(handler, "brick_round_log_by_set", None) or {}
+    summaries = {
+        name: handler.brick_round_summary(set_name=name)
+        for name in log_by_set
+    }
+    payload = {
+        "exported_at":     _time.time(),
+        "exported_at_iso": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "active_profile":  handler.active_profile,
+        "active_set":      handler.brick_set,
+        "rounds_by_set":   log_by_set,
+        "summaries":       summaries,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(payload, indent=2))
+    except OSError as exc:
+        return [f"export failed: {exc}"]
+    total = sum(len(rounds) for rounds in log_by_set.values())
+    return [f"exported {total} rounds → {path}"]
+
+
+def _mode(args: list[str], handler) -> list[str]:
+    if len(args) != 1:
+        return ["usage: mode <set_name>   (try `sets` to see options)"]
+    try:
+        handler.switch_brick_set(args[0])
+    except ValueError as exc:
+        return [str(exc)]
+    return [f"switched to brick set: {args[0]}"]
+
+
+def _data(handler) -> list[str]:
+    """Dump current run's brick-round log per set. Combat-math source data."""
+    log_by_set = getattr(handler, "brick_round_log_by_set", None) or {}
+    if not any(log_by_set.values()):
+        return ["no rounds logged yet — play + win or press R to log an attempt"]
+    out: list[str] = ["round log (current run):"]
+    for name, rounds in log_by_set.items():
+        if not rounds:
+            continue
+        out.append(f"  [{name}] {len(rounds)} rounds:")
+        for r in rounds[-20:]:
+            mark = "✓" if r.get("reason") == "win" else "✗"
+            out.append(
+                f"    R{r.get('round_id'):>3}  {mark}  "
+                f"{r.get('contacts'):>3} hits  "
+                f"{float(r.get('duration_s', 0)):>5.1f}s  "
+                f"score {r.get('score')}"
+            )
+    return out
+
+
+def _runs(vault) -> list[str]:
+    """Show last 5 vault.runs rows for ping_pong + their summaries."""
+    runs = vault.runs_by_instance(INSTANCE_ID)
+    if not runs:
+        return ["no runs logged in vault.db"]
+    out: list[str] = [f"vault.runs ({len(runs)} total, showing last 5):"]
+    for r in runs[:5]:
+        rid = (r.get("run_id") or "?")[:14]
+        prof = r.get("profile_name") or "?"
+        term = r.get("terminal_state") or "in-progress"
+        metrics = r.get("metrics") or {}
+        rounds_by_set = metrics.get("brick_rounds_by_set") or {}
+        if rounds_by_set:
+            stats = []
+            for setname, rounds in rounds_by_set.items():
+                wins = sum(1 for x in rounds if x.get("reason") == "win")
+                stats.append(f"{setname}={wins}w/{len(rounds)}r")
+            stats_str = ", ".join(stats)
+        else:
+            stats_str = "no rounds"
+        out.append(f"  {rid}  {prof:<14}  {term:<12}  {stats_str}")
+    return out
+
+
+def _sets(handler) -> list[str]:
+    rows = handler.list_brick_sets()
+    if not rows:
+        return ["no brick sets registered"]
+    out: list[str] = ["brick sets:"]
+    for r in rows:
+        marker = "*" if r["active"] else " "
+        line = (f"  {marker} {r['name']:<18} HP={r['total_hp']:>2} "
+                f"thr={r['threshold']:>4} wins={r['wins']:>3}/{r['rounds']:>3} (target {r['target']})")
+        if "avg_contacts" in r:
+            line += f"  avg {r['avg_contacts']}h / {r['avg_duration_s']}s"
+        out.append(line)
+        out.append(f"      ↳ {r['label']}")
+    return out
 
 
 def _list(vault) -> list[str]:

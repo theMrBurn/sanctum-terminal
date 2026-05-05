@@ -64,6 +64,7 @@ def draw_hud(manifest: dict, color) -> None:
         active_profile = manifest.get("active_profile") or "?"
         fields.append(f"VOLLEY CHAMBER — {active_profile}")
         fields.extend(_volley_score_lines(manifest))
+        fields.extend(_brick_score_lines(manifest))
         fields.append("---")
 
     # ── Identity block (only when character_sheet present) ──
@@ -166,6 +167,53 @@ def _volley_score_lines(manifest: dict) -> list[str]:
         w = str(last.get("winner") or "?").upper()
         lines.append(f"  LAST RALLY  {rc} hits → {w} (≥{thr} = player)")
     return lines
+
+
+def _brick_score_lines(manifest: dict) -> list[str]:
+    """Brick Attack score + round telemetry block. Per V1 close-out 2026-05-04.
+
+    Shows: current score / threshold + WIN banner, live round (hits, time
+    elapsed), recent N rounds, aggregate summary (avg hits, avg time),
+    AND a per-set summary table for combat-math experimental harness.
+    """
+    bricks = manifest.get("bricks") or {}
+    items = bricks.get("items") or []
+    if not items:
+        return []
+    score = int(bricks.get("score") or 0)
+    threshold = int(bricks.get("threshold") or 0)
+    win = bool(bricks.get("win"))
+    set_name = str(bricks.get("set") or "?")
+    intact = sum(1 for b in items if not b.get("destroyed"))
+    total = len(items)
+
+    out: list[str] = []
+    out.append(f"  SET: {set_name}   (`mode <name>` to switch)")
+    if win:
+        out.append(f"  *** WIN! *** SCORE {score}      press SHIFT+R to reset / R for next round")
+    else:
+        out.append(f"  BRICKS {total - intact}/{total} hit    SCORE {score}/{threshold}")
+
+    # Live round
+    rnd = bricks.get("round") or {}
+    rid = int(rnd.get("id") or 0)
+    rcontacts = int(rnd.get("contacts") or 0)
+    rdur = float(rnd.get("duration_s") or 0.0)
+    if rid:
+        out.append(f"  ROUND {rid}: {rcontacts} hits, {rdur:.1f}s")
+
+    # Per-set summary table
+    sets = bricks.get("sets") or []
+    if sets:
+        out.append("  SETS  ")
+        for s in sets:
+            marker = "▶" if s.get("active") else " "
+            base = (f"  {marker} {s['name']:<14} {s['wins']:>3}/{s['target']:>3}")
+            if "avg_contacts" in s:
+                base += f"  avg {s['avg_contacts']}h / {s['avg_duration_s']}s"
+            out.append(base)
+
+    return out
 
 
 def _point_label(side_pts: int, opp_pts: int) -> str:
