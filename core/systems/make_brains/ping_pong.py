@@ -48,9 +48,13 @@ STATE_EVENT_TYPES: tuple[str, ...] = (
 # ----------------------------------------------------------------------
 
 CHAMBER_GEOMETRY: dict[str, Any] = {
-    "size":   [12.0, 12.0, 12.0],   # cube is symmetric, but kept as a list for arcade-tunability
-    "origin": [0.0, 0.0, 0.0],      # bottom-center
-    "color":  [0.55, 0.62, 0.72],   # cool wireframe
+    # Tennis-court-ish proportions post-UAT 2026-05-04: narrow lateral
+    # (12m), long forward axis (36m for reaction time on returns),
+    # modest ceiling (8m). Player spawn at y=0 (center of long axis)
+    # → 18m to front wall = 2.25s travel at 8 m/s = trackable rally.
+    "size":   [12.0, 36.0, 8.0],
+    "origin": [0.0, 0.0, 0.0],
+    "color":  [0.55, 0.62, 0.72],
 }
 
 
@@ -77,8 +81,9 @@ VANILLA_PARAMS: dict[str, Any] = {
     # awards a player point on rally end; below = opp point. Per AC PR 6.
     "long_rally_threshold":  10,
     # Out-of-bounds — rally ends when ball.y < this threshold
-    # (1m behind player spawn). Player must strike before then.
-    "out_of_bounds_y":       -1.0,
+    # (3m behind player spawn). Player must strike before then.
+    # Tuned post-UAT: needed more dive-save zone in the larger 24m chamber.
+    "out_of_bounds_y":       -3.0,
 }
 
 TENNIS_SIM_PARAMS: dict[str, Any] = {

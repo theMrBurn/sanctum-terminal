@@ -448,22 +448,33 @@ def main() -> int:
                 })
                 # Make-brain ping_pong: fire_primary serves when no ball,
                 # strikes when a ball is in play (Atari single-press, AC
-                # decision #4). Paddle velocity comes from finite-
-                # differencing the paddle_history ring buffer over the
-                # last few frames — a quick mouse flick → high velocity,
-                # standing still → near-zero. Per AC PR 5.
+                # decision #4). Strike model for V1 arcade: paddle velocity
+                # is a CONSTANT forward push along camera-forward at
+                # SWING_VELOCITY m/s. Pin in a comment so the camera-pan
+                # ≠ paddle-swing trap doesn't reappear: finite-differencing
+                # paddle position picks up TANGENTIAL camera motion when
+                # the player pans, sending the ball off in random side
+                # directions. Sim/charge dynamics are Stage 3 envelopes.
+                # Per AC PR 5 (revised post-UAT 2026-05-04). Dialed
+                # 12.0 → 4.0 → 2.5 after hands-on:
+                #   12 → 24 m/s ball: 0.3s round-trip, no reaction window
+                #    4 →  8 m/s ball: 4s round-trip in 36m chamber, but
+                #                     ball at 18m distance is too small
+                #                     to track visually
+                #  2.5 →  5 m/s ball: ~6s round-trip = trackable.
+                # Ball-radius bumped to 0.4m (vault profile) for visibility
+                # at distance — basketball-ish, not tennis-ball.
+                SWING_VELOCITY = 2.5
                 if last_manifest.get("instance_id") == "ping_pong":
                     _ball = last_manifest.get("ball") or {}
                     if not _ball.get("exists"):
                         client.send({"cmd": "volley_serve"})
-                    elif len(paddle_history) >= 2:
-                        pos_old, t_old = paddle_history[0]
-                        pos_new, t_new = paddle_history[-1]
-                        dt_window = max(t_new - t_old, 1e-6)
+                    elif len(paddle_history) >= 1:
+                        pos_new = paddle_history[-1][0]
                         paddle_velocity = (
-                            (pos_new[0] - pos_old[0]) / dt_window,
-                            (pos_new[1] - pos_old[1]) / dt_window,
-                            (pos_new[2] - pos_old[2]) / dt_window,
+                            forward_brain[0] * SWING_VELOCITY,
+                            forward_brain[1] * SWING_VELOCITY,
+                            forward_brain[2] * SWING_VELOCITY,
                         )
                         client.send({
                             "cmd": "volley_strike",
@@ -475,6 +486,9 @@ def main() -> int:
                         })
                         # Visual feedback at the paddle position. Reuse
                         # the existing flash primitive (raylib coords).
+                        # NOTE follow-up: this fires regardless of
+                        # hit/miss; should be brain-confirmed via the
+                        # volley_strike ack's `hit` field.
                         interact_flashes.append(
                             (now, pos_new[0], pos_new[2], pos_new[1])
                         )
