@@ -128,6 +128,13 @@ brain-vector:
 brain-workroom:
 	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py workroom
 
+# Brain for make-brain-ping_pong V1 — clean-room arcade volley chamber.
+# Per `.claude/feature/feat_make-brain-ping-pong.md`. 12×12×12 cube
+# wireframe room, vault-backed profile/run telemetry, keyboard console
+# for live tuning. Pair with `make vector`.
+brain-volley:
+	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py volley_chamber
+
 # Launch the vector_terminal client (assumes a brain is already up on :9877).
 vector:
 	PYTHONPATH=. ./.venv/bin/python -m clients.vector_terminal.main
