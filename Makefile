@@ -1,4 +1,4 @@
-.PHONY: clean factory test test-unit test-quest run seed-db trunk-check meshes brain brain-cavern brain-vector vector
+.PHONY: clean factory test test-unit test-quest run seed-db trunk-check meshes brain brain-cavern brain-vector vector brain-volley brain-nethack
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
@@ -138,3 +138,10 @@ brain-volley:
 # Launch the vector_terminal client (assumes a brain is already up on :9877).
 vector:
 	PYTHONPATH=. ./.venv/bin/python -m clients.vector_terminal.main
+
+# Make-brain: classic NetHack — side-project comparator.
+# Per `.claude/feature/feat_make-brain-nethack.md`. Standalone curses
+# app, NOT a TCP brain. Vault-backed profile/run telemetry inherited
+# from the make-brain substrate (vault.profiles + vault.runs).
+brain-nethack:
+	PYTHONPATH=. ./.venv/bin/python nethack_terminal.py
