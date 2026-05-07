@@ -80,14 +80,28 @@ Strike against env = damage. Strike against creature = trigger that creature's e
 - T3: full lifecycle (spawn → fly → env contact → smash; spawn → fly → creature contact → engagement open)
 - S1: throw axe at pot, pot smashes; throw at rat, engagement opens
 
-### PR 3 — HELD mode + iron_sword
-- `core/systems/weapons/melee_blade.py` handler
-- HELD-mode dispatch: each frame during swing arc, swept-sphere CCD; multi-hit possible
-- vault.profiles seeded
-- LMB triggers swing
-- strike_renderer renders weapon-mesh + impact glow
-- T4: HELD lifecycle, multi-hit
-- S2: cluster of pots, swing sword, multiple smash events
+### PR 3 — HELD mode + 5-verb swing system + iron_sword (SLASH default)
+**AC anchored to user sketch 2026-05-07** (`docs/sketches/arpg_combat_modes_2026-05-07.png`):
+
+- `HeldVerb` IntEnum: PUNCH, STAB, SLASH, HACK, REVERSE (per sketch right panel)
+- Per-verb arc geometry (wind_up / active / cooldown timings + reach + hitbox shape) — defaults per spec table
+- Per-weapon `held_verbs` list in vault.profiles declares supported verbs
+- `core/systems/weapons/melee_blade.py` handler — `on_use(camera_state, verb=None) → Strike` (verb defaults to weapon's `default_verb`)
+- HELD-mode dispatch: each frame during the verb's `active` phase, swept-sphere CCD against entities within the verb's arc geometry; multi-hit possible
+- vault.profiles row seeded for `iron_sword` with verbs `[SLASH, STAB, HACK, REVERSE]`, default SLASH
+- Input: LMB = default verb; modifier keys (Q/E or 1-5) cycle through weapon's verb list
+- strike_renderer renders weapon-mesh + per-verb arc indicator + impact glow on contact
+- T4 (test_held_strike): each verb's lifecycle (wind_up → active → cooldown), multi-hit per arc, verb-not-in-weapon-list rejection
+- S2: cluster of pots, swing iron_sword via SLASH verb, multiple smash events; switch to STAB, single-target hit; switch to HACK, slower wind-up + heavier impact
+
+**Per-verb arc tuning** (V1 defaults, dialed via vault.profiles per weapon):
+- PUNCH: 1.0m reach, 0.3m radius, 0.05/0.10/0.15s timing
+- STAB: 1.8m reach, 0.2m tip-cone, 0.10/0.15/0.20s
+- SLASH: 1.5m reach, 0.4m height arc, 0.08/0.20/0.25s
+- HACK: 1.5m reach, 0.5m vertical arc, 0.20/0.20/0.30s (heavier wind-up)
+- REVERSE: 1.5m reach, sweep behind, 0.05/0.15/0.20s
+
+**Note on verb selection in V1:** ship LMB-default + cycle modifier. V2 adds context-sensitive auto-verb (close = punch, mid = slash, etc.). User sketch implies verbs are intentional choices, not auto-pick.
 
 ### PR 4 — WHIP mode + chain_whip
 - `core/systems/weapons/melee_tether.py` handler
