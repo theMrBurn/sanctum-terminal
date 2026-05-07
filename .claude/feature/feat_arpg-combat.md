@@ -83,12 +83,12 @@ Strike against env = damage. Strike against creature = trigger that creature's e
 ### PR 3 — HELD mode + 5-verb swing system + iron_sword (SLASH default)
 **AC anchored to user sketch 2026-05-07** (`docs/sketches/arpg_combat_modes_2026-05-07.png`):
 
-- `HeldVerb` IntEnum: PUNCH, STAB, SLASH, HACK, REVERSE (per sketch right panel)
+- `HeldVerb` IntEnum: PUNCH, STAB, SLASH, HACK, RIPOSTE (per sketch right panel)
 - Per-verb arc geometry (wind_up / active / cooldown timings + reach + hitbox shape) — defaults per spec table
 - Per-weapon `held_verbs` list in vault.profiles declares supported verbs
 - `core/systems/weapons/melee_blade.py` handler — `on_use(camera_state, verb=None) → Strike` (verb defaults to weapon's `default_verb`)
 - HELD-mode dispatch: each frame during the verb's `active` phase, swept-sphere CCD against entities within the verb's arc geometry; multi-hit possible
-- vault.profiles row seeded for `iron_sword` with verbs `[SLASH, STAB, HACK, REVERSE]`, default SLASH
+- vault.profiles row seeded for `iron_sword` with verbs `[SLASH, STAB, HACK, RIPOSTE]`, default SLASH
 - Input: LMB = default verb; modifier keys (Q/E or 1-5) cycle through weapon's verb list
 - strike_renderer renders weapon-mesh + per-verb arc indicator + impact glow on contact
 - T4 (test_held_strike): each verb's lifecycle (wind_up → active → cooldown), multi-hit per arc, verb-not-in-weapon-list rejection
@@ -99,7 +99,7 @@ Strike against env = damage. Strike against creature = trigger that creature's e
 - STAB: 1.8m reach, 0.2m tip-cone, 0.10/0.15/0.20s
 - SLASH: 1.5m reach, 0.4m height arc, 0.08/0.20/0.25s
 - HACK: 1.5m reach, 0.5m vertical arc, 0.20/0.20/0.30s (heavier wind-up)
-- REVERSE: 1.5m reach, sweep behind, 0.05/0.15/0.20s
+- RIPOSTE: defensive parry zone in front of player, 0.03/0.18/0.35s. **Special-case on_contact = `parry_incoming_strike`** — catches Strike-on-Strike collisions instead of dealing damage. V1 ships the substrate; mechanically idle until V2 enemy-Strike emission. UAT-visible as a brief shimmer when triggered.
 
 **Note on verb selection in V1:** ship LMB-default + cycle modifier. V2 adds context-sensitive auto-verb (close = punch, mid = slash, etc.). User sketch implies verbs are intentional choices, not auto-pick.
 
