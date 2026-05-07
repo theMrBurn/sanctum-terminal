@@ -184,15 +184,13 @@ def test_loop_emits_state_event_with_register():
 
 def test_loop_does_not_fire_for_non_table_classes():
     """Classes with no REWARD_TABLE rows advance counters but emit no
-    StateEvents. Active classes are HUNT/MAKE/UNWIND/RITUAL after PR 12;
-    pending producers for SNEAK/SOLVE/WANDER — those classes should be
-    inert."""
+    StateEvents. Active classes after PR 13 are HUNT/MAKE/UNWIND/RITUAL/
+    WANDER; SNEAK + SOLVE still inert."""
     p = PreferenceCounters()
     se = StateEventBuffer()
     loop = ActivityLoop(p, se)
     p.emit(ActivityClass.SNEAK, 200)
     p.emit(ActivityClass.SOLVE, 200)
-    p.emit(ActivityClass.WANDER, 200)
     fired = loop.tick(0.0)
     assert fired == []
     assert se.latest_id() == 0
@@ -347,16 +345,64 @@ def test_ritual_emit_label_uses_ritual_register():
 
 
 def test_reward_table_covers_four_active_classes():
-    """PR 12 expanded; HUNT + MAKE + UNWIND + RITUAL have rows. SNEAK /
-    SOLVE / WANDER still pending producers."""
+    """PR 12 expanded; HUNT + MAKE + UNWIND + RITUAL have rows."""
     classes_with_rows = {row.cls for row in REWARD_TABLE}
     assert ActivityClass.HUNT   in classes_with_rows
     assert ActivityClass.MAKE   in classes_with_rows
     assert ActivityClass.UNWIND in classes_with_rows
     assert ActivityClass.RITUAL in classes_with_rows
+
+
+# ── PR 13: WANDER class wiring (lexicon_term_discovered producer) ────
+
+
+def test_wander_recognized_fires_at_25():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.WANDER, 24)
+    assert loop.tick(0.0) == []
+    p.emit(ActivityClass.WANDER, 1)            # crosses 25
+    fired = loop.tick(0.0)
+    assert "wander_recognized" in fired
+
+
+def test_wander_deepened_fires_at_100():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.WANDER, 25)
+    loop.tick(0.0)                              # fires wander_recognized
+    p.emit(ActivityClass.WANDER, 75)            # total 100
+    fired = loop.tick(0.0)
+    assert "wander_deepened" in fired
+    assert "wander_recognized" not in fired
+
+
+def test_wander_emit_label_uses_ritual_register():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.WANDER, 25)
+    loop.tick(0.0)
+    events = se.all()
+    assert any(e.kind == "wander_recognized"
+               and e.label == "WANDER — RECOGNIZED"
+               and e.register == "ritual"
+               for e in events)
+
+
+def test_reward_table_covers_five_active_classes():
+    """PR 13 expanded; HUNT + MAKE + UNWIND + RITUAL + WANDER active.
+    SNEAK + SOLVE still pending producers."""
+    classes_with_rows = {row.cls for row in REWARD_TABLE}
+    assert ActivityClass.HUNT   in classes_with_rows
+    assert ActivityClass.MAKE   in classes_with_rows
+    assert ActivityClass.UNWIND in classes_with_rows
+    assert ActivityClass.RITUAL in classes_with_rows
+    assert ActivityClass.WANDER in classes_with_rows
     assert ActivityClass.SNEAK  not in classes_with_rows
     assert ActivityClass.SOLVE  not in classes_with_rows
-    assert ActivityClass.WANDER not in classes_with_rows
 
 
 # ── Module-level singletons ─────────────────────────────────────────

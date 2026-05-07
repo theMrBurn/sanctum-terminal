@@ -169,6 +169,10 @@ REWARD_TABLE: tuple[RewardRow, ...] = (
               "RITUAL — RECOGNIZED", None, _REG_RITUAL),
     RewardRow(ActivityClass.RITUAL, 100, "ritual_deepened",
               "RITUAL — DEEPER",     None, _REG_RITUAL),
+    RewardRow(ActivityClass.WANDER, 25,  "wander_recognized",
+              "WANDER — RECOGNIZED", None, _REG_RITUAL),
+    RewardRow(ActivityClass.WANDER, 100, "wander_deepened",
+              "WANDER — DEEPER",     None, _REG_RITUAL),
 )
 
 

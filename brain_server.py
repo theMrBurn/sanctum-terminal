@@ -122,7 +122,13 @@ def _make_brain_manifest_keys(biome_name: str) -> dict:
 def _journal_persist_entry(raw_note: str) -> int:
     """Insert one entry row, return its id. Severity/frequency take
     schema defaults — the planner UI's structured form lands later.
-    Bridge harness only ever sends raw_note, so this is sufficient."""
+    Bridge harness only ever sends raw_note, so this is sufficient.
+
+    Emits activity_loop WANDER signals based on lexicon discovery —
+    each new term in the entry is a small discovery (intensity 1);
+    the entry itself is a routine RITUAL act of journaling
+    (intensity 1). Per PR 13.
+    """
     import sqlite3
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
@@ -136,8 +142,30 @@ def _journal_persist_entry(raw_note: str) -> int:
         # Run lexicon update inside the same transaction so terms tie to
         # the just-inserted entry id.
         entry_id = cur.lastrowid
-        journal_lexicon.update_lexicon(conn, entry_id, raw_note, vault=v)
+        lex_summary = journal_lexicon.update_lexicon(
+            conn, entry_id, raw_note, vault=v,
+        )
         conn.commit()
+    # Activity-loop signals — fire AFTER commit so a transaction
+    # rollback doesn't leave dangling counter bumps. Each new term =
+    # one WANDER (discovery); each entry = one RITUAL (daily care).
+    # Per PR 13.
+    new_terms = int((lex_summary or {}).get("new_terms", 0))
+    if new_terms > 0:
+        activity_loop.emit_activity(
+            activity_loop.ActivityClass.WANDER,
+            intensity=new_terms,
+            primitive="lexicon_term_discovered",
+            source_brain="journal",
+            payload={"entry_id": int(entry_id), "new_terms": new_terms},
+        )
+    activity_loop.emit_activity(
+        activity_loop.ActivityClass.RITUAL,
+        intensity=1,
+        primitive="journal_entry_recorded",
+        source_brain="journal",
+        payload={"entry_id": int(entry_id)},
+    )
     return entry_id
 
 
