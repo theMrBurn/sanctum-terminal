@@ -28,6 +28,21 @@ def handle_seed_create(msg: dict, vault) -> dict:
         sid = vault.world_seed_create(payload)
     except (KeyError, ValueError, TypeError) as exc:
         return {"ok": False, "cmd": "seed_create", "reason": str(exc)}
+    # Activity-loop signal — MAKE class. Each placed primitive is one
+    # build-act. Telemetry payload carries biome + kind + base_mesh so
+    # post-hoc analysis can disambiguate workroom vs. cavern vs. outdoor
+    # building, and which primitive types the player favors.
+    from core.systems import activity_loop
+    activity_loop.emit_activity(
+        activity_loop.ActivityClass.MAKE, intensity=1,
+        primitive="seed_create",
+        source_brain="workroom",
+        payload={
+            "biome":     str(payload.get("biome", "")),
+            "kind":      str(payload.get("kind", "")),
+            "base_mesh": str(payload.get("base_mesh", "")),
+        },
+    )
     return {"ok": True, "cmd": "seed_create", "seed_id": int(sid)}
 
 

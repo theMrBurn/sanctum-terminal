@@ -183,16 +183,16 @@ def test_loop_emits_state_event_with_register():
 
 
 def test_loop_does_not_fire_for_non_table_classes():
-    """No reward rows yet for MAKE/SNEAK/SOLVE/WANDER/RITUAL — counters
-    advance but no StateEvent emits."""
+    """Classes with no REWARD_TABLE rows advance counters but emit no
+    StateEvents. Active classes are HUNT/MAKE/UNWIND; pending producers
+    for SNEAK/SOLVE/WANDER/RITUAL — those classes should be inert."""
     p = PreferenceCounters()
     se = StateEventBuffer()
     loop = ActivityLoop(p, se)
-    p.emit(ActivityClass.MAKE, 100)
-    p.emit(ActivityClass.SNEAK, 100)
-    p.emit(ActivityClass.SOLVE, 100)
-    p.emit(ActivityClass.WANDER, 100)
-    p.emit(ActivityClass.RITUAL, 100)
+    p.emit(ActivityClass.SNEAK, 200)
+    p.emit(ActivityClass.SOLVE, 200)
+    p.emit(ActivityClass.WANDER, 200)
+    p.emit(ActivityClass.RITUAL, 200)
     fired = loop.tick(0.0)
     assert fired == []
     assert se.latest_id() == 0
@@ -257,6 +257,58 @@ def test_reward_table_has_both_hunt_and_unwind_rows():
     classes_with_rows = {row.cls for row in REWARD_TABLE}
     assert ActivityClass.HUNT in classes_with_rows
     assert ActivityClass.UNWIND in classes_with_rows
+
+
+# ── PR 11: MAKE class wiring (workroom seed_create producer) ──────────
+
+
+def test_make_recognized_fires_at_25():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.MAKE, 24)
+    assert loop.tick(0.0) == []
+    p.emit(ActivityClass.MAKE, 1)            # crosses 25
+    fired = loop.tick(0.0)
+    assert "make_recognized" in fired
+
+
+def test_make_deepened_fires_at_100():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.MAKE, 25)
+    loop.tick(0.0)                            # fires make_recognized
+    p.emit(ActivityClass.MAKE, 75)            # total 100, crosses
+    fired = loop.tick(0.0)
+    assert "make_deepened" in fired
+    assert "make_recognized" not in fired     # not re-fired
+
+
+def test_make_emit_label_uses_ritual_register():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.MAKE, 25)
+    loop.tick(0.0)
+    events = se.all()
+    assert any(e.kind == "make_recognized"
+               and e.label == "MAKE — RECOGNIZED"
+               and e.register == "ritual"
+               for e in events)
+
+
+def test_reward_table_covers_three_active_classes():
+    """PR 11 expanded; HUNT + MAKE + UNWIND all have rows. Other four
+    classes still pending producers — confirms no shadow rows."""
+    classes_with_rows = {row.cls for row in REWARD_TABLE}
+    assert ActivityClass.HUNT   in classes_with_rows
+    assert ActivityClass.MAKE   in classes_with_rows
+    assert ActivityClass.UNWIND in classes_with_rows
+    assert ActivityClass.SNEAK  not in classes_with_rows
+    assert ActivityClass.SOLVE  not in classes_with_rows
+    assert ActivityClass.WANDER not in classes_with_rows
+    assert ActivityClass.RITUAL not in classes_with_rows
 
 
 # ── Module-level singletons ─────────────────────────────────────────

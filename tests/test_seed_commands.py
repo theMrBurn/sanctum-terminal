@@ -11,13 +11,22 @@ from pathlib import Path
 
 import pytest
 
+from core.systems import activity_loop
 from core.systems import seed_commands
+from core.systems.state_events import StateEventBuffer
 from core.vault import vault as Vault
 
 
 @pytest.fixture
 def vault(tmp_path: Path):
     return Vault(db_path=tmp_path / "vault.db")
+
+
+@pytest.fixture(autouse=True)
+def _reset_activity_loop():
+    activity_loop._reset_for_tests()
+    yield
+    activity_loop._reset_for_tests()
 
 
 def _create_one(vault, **overrides) -> int:
@@ -44,6 +53,45 @@ def test_seed_create_succeeds_with_valid_payload(vault):
     assert ack["ok"] is True
     assert ack["cmd"] == "seed_create"
     assert isinstance(ack["seed_id"], int)
+
+
+# ── activity_loop integration (PR 11 — MAKE producer) ────────────────
+
+
+def test_seed_create_emits_make_activity(vault):
+    """Each successful seed_create bumps the MAKE counter by 1."""
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se, vault=vault)
+    _create_one(vault, base_mesh="cube")
+    _create_one(vault, base_mesh="spire")
+    assert prefs.counts[int(activity_loop.ActivityClass.MAKE)] == 2
+
+
+def test_seed_create_telemetry_payload_includes_biome_and_kind(vault):
+    """activity_log row carries biome + kind + base_mesh for post-hoc
+    analysis."""
+    se = StateEventBuffer()
+    activity_loop.install(se, vault=vault)
+    _create_one(vault, biome="workroom", kind="wireframe_mesh",
+                base_mesh="stair")
+    rows = vault.activity_log_recent(limit=1)
+    assert len(rows) == 1
+    assert rows[0]["primitive"]    == "seed_create"
+    assert rows[0]["source_brain"] == "workroom"
+    assert rows[0]["payload"]["biome"]     == "workroom"
+    assert rows[0]["payload"]["kind"]      == "wireframe_mesh"
+    assert rows[0]["payload"]["base_mesh"] == "stair"
+
+
+def test_failed_seed_create_does_not_emit(vault):
+    """Validation rejection should NOT bump MAKE counter."""
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se, vault=vault)
+    ack = seed_commands.handle_seed_create({
+        "payload": {"biome": "workroom"},  # missing required fields
+    }, vault)
+    assert ack["ok"] is False
+    assert prefs.counts[int(activity_loop.ActivityClass.MAKE)] == 0
 
 
 def test_seed_create_persists_to_vault(vault):
