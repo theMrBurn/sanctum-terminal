@@ -327,6 +327,67 @@ def _on_quest_complete(world, quest) -> None:
     print(f"  quest completed: {quest.id} loot={actually_added}", flush=True)
 
 
+def _strike_to_manifest(active, player_x, player_y, player_z):
+    """Per-strike manifest entry. Carries enough for the client's
+    strike_renderer to draw the per-mode visualization (ball, trail,
+    chain, hitbox) without recomputing physics. Per feat/arpg-combat
+    PR 6.
+
+    Common fields: weapon_kind, mode, source, ball_radius, position,
+    velocity, age, max_age. Mode-specific fields:
+      - held: held_phase ("wind_up" / "active" / "cooldown"),
+              hitbox_pos (player + forward × reach),
+              arc_reach, held_verb
+      - whip: player_pos (tether anchor — for chain-line render)
+      - shot: nothing extra
+    """
+    out = {
+        "weapon_kind":  active.strike.weapon_kind,
+        "mode":         active.strike.mode,
+        "source":       active.strike.source_actor,
+        "ball_radius":  active.strike.profile.ball_radius,
+        "x":            active.current_state.pos[0],
+        "y":            active.current_state.pos[1],
+        "z":            active.current_state.pos[2],
+        "vx":           active.current_state.vel[0],
+        "vy":           active.current_state.vel[1],
+        "vz":           active.current_state.vel[2],
+        "age_s":        active.age_seconds,
+        "max_age_s":    active.max_age_s,
+    }
+    if active.strike.mode == "held":
+        arc = active.strike.held_arc or {}
+        wind_up = float(arc.get("wind_up_s",  0.0))
+        active_s = float(arc.get("active_s",   0.0))
+        if active.age_seconds < wind_up:
+            phase = "wind_up"
+        elif active.age_seconds < wind_up + active_s:
+            phase = "active"
+        else:
+            phase = "cooldown"
+        fwd = arc.get("spawn_forward") or [0.0, 1.0, 0.0]
+        reach = float(arc.get("reach_m", 1.0))
+        out["held_phase"] = phase
+        out["arc_reach"]  = reach
+        out["hitbox_x"]   = active.current_state.pos[0] + float(fwd[0]) * reach
+        out["hitbox_y"]   = active.current_state.pos[1] + float(fwd[1]) * reach
+        out["hitbox_z"]   = active.current_state.pos[2] + float(fwd[2]) * reach
+        out["held_verb"]  = (active.strike.held_verb.name
+                              if active.strike.held_verb else None)
+    elif active.strike.mode == "whip":
+        # Anchor the tether line at the player's CURRENT position (the
+        # player may have moved since swing-start). For V1, "player_pos"
+        # = camera position on brain side. Brain space (y=forward, z=up).
+        out["player_x"] = float(player_x)
+        out["player_y"] = float(player_y)
+        out["player_z"] = float(player_z)
+        # Phase progress for retract animation hint
+        arc = active.strike.held_arc or {}
+        swing_s = float(arc.get("whip_swing_s", 0.45))
+        out["whip_phase"] = "swing" if active.age_seconds < swing_s else "retract"
+    return out
+
+
 def _on_strike_resolve(world, active_strike, target_entity) -> None:
     """Resolve an ARPG combat Strike contact (feat/arpg-combat PR 2).
 
@@ -1667,19 +1728,7 @@ class BrainWorld:
             # when no strikes are active. Each entry mirrors what the
             # client needs to render: id, mode, weapon, position, vel.
             "active_strikes": [
-                {
-                    "weapon_kind":  a.strike.weapon_kind,
-                    "mode":         a.strike.mode,
-                    "source":       a.strike.source_actor,
-                    "ball_radius":  a.strike.profile.ball_radius,
-                    "x":            a.current_state.pos[0],
-                    "y":            a.current_state.pos[1],
-                    "z":            a.current_state.pos[2],
-                    "vx":           a.current_state.vel[0],
-                    "vy":           a.current_state.vel[1],
-                    "vz":           a.current_state.vel[2],
-                    "age_s":        a.age_seconds,
-                }
+                _strike_to_manifest(a, cam_x, cam_y, cam_z)
                 for a in self.active_strikes
             ],
             # Reflective-mode surface — populated only while a session

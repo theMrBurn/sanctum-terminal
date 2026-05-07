@@ -1,22 +1,16 @@
-"""strike_renderer — visualizes in-flight ARPG combat Strikes.
+"""strike_renderer — per-mode visualization for in-flight ARPG combat Strikes.
 
-Per `feat_arpg-combat.md` PR 2 (SHOT). Reads `manifest.active_strikes`
-and renders ball + trail per Strike. SHOT mode is the V1 path (ball
-flies in straight-ish line under physics).
+Per `feat_arpg-combat.md` PR 2 (initial sphere render) + PR 6 (per-mode
+polish: SHOT trail, HELD hitbox glow, WHIP tether chain).
 
-PR 6 (visual polish) extends per-mode:
-- SHOT: ball + trail (this PR)
-- HELD: weapon mesh + impact glow
-- WHIP: ball + chain segments
-- Multi-Strike z-ordering
-
-For V1 simplicity each mode shares one render path here — a small
-sphere wireframe at the strike's current position with intensity
-modulated by `distance_fade.intensity`. PR 6 splits into per-mode
-helpers.
+Reads `manifest.active_strikes` and dispatches to the per-mode draw
+helper. The brain stamps mode-specific fields into each strike entry
+(held_phase, hitbox_pos, player_pos, etc.) so the client doesn't have
+to recompute physics state.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pyray as rl
@@ -25,20 +19,21 @@ from clients.vector_terminal import config as cfg
 from clients.vector_terminal import distance_fade
 
 
-# Strike ball — small wireframe sphere, slightly larger than the
-# physical hitbox to read at distance.
-_RENDER_RADIUS_SCALE = 1.2
-_RENDER_SLICES       = 8
+# Sphere render constants
+_SHOT_BALL_SCALE = 1.2
+_SHOT_BALL_SLICES = 8
+
+_HELD_HITBOX_SLICES = 6
+_HELD_GLOW_SLICES = 4
+
+_WHIP_BALL_SCALE = 1.3
+_WHIP_BALL_SLICES = 8
+_TETHER_SEGMENTS = 8
 
 
 def draw_strikes(manifest: dict[str, Any], camera) -> None:
     """Draw all active strikes from the manifest. Call inside
     `begin_mode_3d` so spheres composite with world geometry.
-
-    Each strike entry must carry `x/y/z` (current position),
-    `ball_radius`, `mode`, `weapon_kind`. Color follows the
-    vector-terminal amber phosphor identity, intensity dimmed by
-    distance via `distance_fade`.
     """
     strikes: list[dict[str, Any]] = manifest.get("active_strikes") or []
     if not strikes:
@@ -49,34 +44,142 @@ def draw_strikes(manifest: dict[str, Any], camera) -> None:
     cam_z = camera.position.z
 
     for s in strikes:
+        mode = str(s.get("mode", "shot"))
+        if mode == "shot":
+            _draw_shot(s, cam_x, cam_y, cam_z)
+        elif mode == "held":
+            _draw_held(s, cam_x, cam_y, cam_z)
+        elif mode == "whip":
+            _draw_whip(s, cam_x, cam_y, cam_z)
+        else:
+            # Unknown mode — fall back to ball render
+            _draw_shot(s, cam_x, cam_y, cam_z)
+
+
+def _amber_intensity(pos_x: float, pos_y: float, pos_z: float,
+                      cam_x: float, cam_y: float, cam_z: float
+                      ) -> tuple[int, int, int, int]:
+    """Phosphor-amber RGBA per distance from camera."""
+    dx = pos_x - cam_x
+    dy = pos_y - cam_y
+    dz = pos_z - cam_z
+    dist = (dx * dx + dy * dy + dz * dz) ** 0.5
+    intensity = distance_fade.intensity(dist)
+    return (
+        int(cfg.AMBER_RGB[0] * intensity),
+        int(cfg.AMBER_RGB[1] * intensity),
+        int(cfg.AMBER_RGB[2] * intensity),
+        255,
+    )
+
+
+def _brain_to_raylib(bx: float, by: float, bz: float) -> rl.Vector3:
+    """Brain (x, y_forward, z_up) → raylib (x, y_up, z_forward)."""
+    return rl.Vector3(bx, bz, by)
+
+
+# ── SHOT ──────────────────────────────────────────────────────────────
+
+
+def _draw_shot(s: dict[str, Any], cam_x: float, cam_y: float, cam_z: float) -> None:
+    """SHOT mode — wireframe sphere at ball position. Future PR adds
+    a trail (currently the ball position alone reads as a streak when
+    moving fast in low-frame-flicker terminal aesthetic)."""
+    try:
+        x = float(s.get("x", 0.0))
+        y = float(s.get("y", 0.0))
+        z = float(s.get("z", 0.0))
+        r = float(s.get("ball_radius", 0.3))
+    except (TypeError, ValueError):
+        return
+    pos = _brain_to_raylib(x, y, z)
+    color = _amber_intensity(pos.x, pos.y, pos.z, cam_x, cam_y, cam_z)
+    rl.draw_sphere_wires(pos, r * _SHOT_BALL_SCALE,
+                         _SHOT_BALL_SLICES, _SHOT_BALL_SLICES, color)
+
+
+# ── HELD ──────────────────────────────────────────────────────────────
+
+
+def _draw_held(s: dict[str, Any], cam_x: float, cam_y: float, cam_z: float) -> None:
+    """HELD mode — phase-aware visualization:
+      - wind_up: faint sphere near player (anticipation)
+      - active:  bright sphere at hitbox position + glow ring
+      - cooldown: dim sphere at last hitbox position fading out
+    """
+    try:
+        # Hitbox position from brain — player_pos + forward × reach
+        hx = float(s.get("hitbox_x", s.get("x", 0.0)))
+        hy = float(s.get("hitbox_y", s.get("y", 0.0)))
+        hz = float(s.get("hitbox_z", s.get("z", 0.0)))
+        r  = float(s.get("ball_radius", 0.4))
+    except (TypeError, ValueError):
+        return
+    phase = str(s.get("held_phase", "active"))
+    pos = _brain_to_raylib(hx, hy, hz)
+    base_color = _amber_intensity(pos.x, pos.y, pos.z, cam_x, cam_y, cam_z)
+    # Modulate alpha by phase
+    if phase == "wind_up":
+        alpha_mult = 0.4
+        radius_mult = 0.7
+    elif phase == "active":
+        alpha_mult = 1.0
+        radius_mult = 1.0
+    else:  # cooldown
+        alpha_mult = 0.5
+        radius_mult = 0.85
+    color = (base_color[0], base_color[1], base_color[2],
+             int(255 * alpha_mult))
+    rl.draw_sphere_wires(pos, r * radius_mult,
+                         _HELD_HITBOX_SLICES, _HELD_HITBOX_SLICES, color)
+    # Active phase: add a slightly larger glow ring for impact visibility
+    if phase == "active":
+        glow_color = (base_color[0], base_color[1], base_color[2], 80)
+        rl.draw_sphere_wires(pos, r * 1.4,
+                             _HELD_GLOW_SLICES, _HELD_GLOW_SLICES, glow_color)
+
+
+# ── WHIP ──────────────────────────────────────────────────────────────
+
+
+def _draw_whip(s: dict[str, Any], cam_x: float, cam_y: float, cam_z: float) -> None:
+    """WHIP mode — ball at current position + tether chain from player
+    to ball. Tether rendered as a series of small cubes along the
+    line (chain segments) for that "linked" feel."""
+    try:
+        bx = float(s.get("x", 0.0))
+        by = float(s.get("y", 0.0))
+        bz = float(s.get("z", 0.0))
+        r  = float(s.get("ball_radius", 0.35))
+    except (TypeError, ValueError):
+        return
+    ball_pos = _brain_to_raylib(bx, by, bz)
+    color = _amber_intensity(ball_pos.x, ball_pos.y, ball_pos.z,
+                             cam_x, cam_y, cam_z)
+
+    # Tether chain — only draw if we have player_pos in the manifest entry
+    px = s.get("player_x")
+    py = s.get("player_y")
+    pz = s.get("player_z")
+    if px is not None and py is not None and pz is not None:
         try:
-            x = float(s.get("x", 0.0))
-            y = float(s.get("y", 0.0))
-            z = float(s.get("z", 0.0))
-            r = float(s.get("ball_radius", 0.3))
+            anchor_pos = _brain_to_raylib(float(px), float(py), float(pz))
         except (TypeError, ValueError):
-            continue
+            anchor_pos = None
+        if anchor_pos is not None:
+            # Draw chain as a series of small cubes along anchor → ball.
+            for i in range(_TETHER_SEGMENTS):
+                t = (i + 1) / (_TETHER_SEGMENTS + 1)
+                seg_x = anchor_pos.x + (ball_pos.x - anchor_pos.x) * t
+                seg_y = anchor_pos.y + (ball_pos.y - anchor_pos.y) * t
+                seg_z = anchor_pos.z + (ball_pos.z - anchor_pos.z) * t
+                seg_pos = rl.Vector3(seg_x, seg_y, seg_z)
+                seg_color = _amber_intensity(seg_x, seg_y, seg_z,
+                                              cam_x, cam_y, cam_z)
+                # Reduce segment alpha so chain reads thinner than ball
+                seg_color_dim = (seg_color[0], seg_color[1], seg_color[2], 180)
+                rl.draw_cube_wires(seg_pos, 0.08, 0.08, 0.08, seg_color_dim)
 
-        # Brain emits y=forward, z=up. raylib renders xz-floor + y-up,
-        # so swap y↔z for the visual position. Same convention as ball.py.
-        pos = rl.Vector3(x, z, y)
-
-        # Distance from camera for phosphor intensity.
-        # Camera position is in raylib coords (y=up); recompute distance
-        # in raylib space directly.
-        dx = pos.x - cam_x
-        dy = pos.y - cam_y
-        dz = pos.z - cam_z
-        dist = (dx * dx + dy * dy + dz * dz) ** 0.5
-
-        intensity = distance_fade.intensity(dist)
-        amber = (
-            int(cfg.AMBER_RGB[0] * intensity),
-            int(cfg.AMBER_RGB[1] * intensity),
-            int(cfg.AMBER_RGB[2] * intensity),
-            255,
-        )
-
-        # Wireframe sphere — small ball.
-        render_r = r * _RENDER_RADIUS_SCALE
-        rl.draw_sphere_wires(pos, render_r, _RENDER_SLICES, _RENDER_SLICES, amber)
+    # Ball itself — slightly larger sphere
+    rl.draw_sphere_wires(ball_pos, r * _WHIP_BALL_SCALE,
+                         _WHIP_BALL_SLICES, _WHIP_BALL_SLICES, color)
