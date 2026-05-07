@@ -2031,6 +2031,18 @@ def run_server(biome_name, port=9877):
                         print(f"  weapon_use: unknown weapon {weapon_kind!r}", flush=True)
                         continue
                     profile["profile_name"] = weapon_kind   # for Strike telemetry
+                    # Combo weapons (e.g. fire_staff) carry per-mode
+                    # sub-profiles under `modes`. Extract the right one
+                    # and pass it as the flat profile to strike.spawn.
+                    # Per feat/arpg-combat PR 5.
+                    from core.systems.weapons import magic_staff as _magic_staff
+                    if _magic_staff.is_combo(profile):
+                        sub = _magic_staff.sub_profile(profile, mode)
+                        if sub is None:
+                            print(f"  weapon_use: combo weapon {weapon_kind!r} has no "
+                                  f"{mode!r} sub-mode", flush=True)
+                            continue
+                        profile = sub
                     held_verb = None
                     if held_verb_name and mode == "held":
                         try:

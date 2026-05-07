@@ -484,6 +484,36 @@ def main() -> int:
                     },
                 })
 
+            # ARPG combat — combo weapon (fire_staff) per PR 5.
+            # X = primary STAB swing (held mode); C = secondary fire
+            # bolt (shot mode with magnus spin-curve). Same weapon_kind
+            # ("fire_staff"), different mode arg → brain extracts right
+            # sub-profile via combo dispatch.
+            if input_map.pressed("staff_swing"):
+                client.send({
+                    "cmd":         "weapon_use",
+                    "weapon_kind": "fire_staff",
+                    "mode":        "held",
+                    "camera_state": {
+                        "pos":     [camera.position.x, camera.position.z, camera.position.y],
+                        "forward": [forward[0],         forward[1],         0.0],
+                        "ang_vel": 0.0,
+                        "now":     now,
+                    },
+                })
+            if input_map.pressed("staff_cast"):
+                client.send({
+                    "cmd":         "weapon_use",
+                    "weapon_kind": "fire_staff",
+                    "mode":        "shot",
+                    "camera_state": {
+                        "pos":     [camera.position.x, camera.position.z, camera.position.y],
+                        "forward": [forward[0],         forward[1],         0.0],
+                        "ang_vel": 0.0,
+                        "now":     now,
+                    },
+                })
+
             # K = damage_self debug. Each press deals 99 damage, sufficient
             # to push HP to 0 in one tap — exposes the forced reflective
             # chain end-to-end (REFLECT toast → fridge UI → commit →

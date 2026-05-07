@@ -116,6 +116,13 @@ DEFAULT_BINDINGS: dict[str, list[Trigger]] = {
         ("key",     "KEY_V"),                                 # V for vine/whip
         ("gamepad", "GAMEPAD_BUTTON_LEFT_FACE_LEFT"),         # D-pad left
     ],
+    # ARPG combat (feat/arpg-combat PR 5 — combo weapon staff)
+    "staff_swing":      [
+        ("key",     "KEY_X"),                                 # X = primary held cast/thrust
+    ],
+    "staff_cast":       [
+        ("key",     "KEY_C"),                                 # C = secondary fire bolt
+    ],
 
     # Misc UI / debug
     "journal_toggle":   [("key", "KEY_J")],

@@ -14,7 +14,7 @@ to seed default weapon profiles and register dispatchers.
 """
 from __future__ import annotations
 
-from core.systems.weapons import melee_blade, melee_tether, ranged_thrown
+from core.systems.weapons import magic_staff, melee_blade, melee_tether, ranged_thrown
 
 
 def activate_v1_weapons(vault) -> None:
@@ -25,8 +25,9 @@ def activate_v1_weapons(vault) -> None:
     PR 2 activates ranged_thrown (SHOT mode).
     PR 3 activates melee_blade (HELD mode with 5-verb swing system).
     PR 4 activates melee_tether (WHIP mode).
-    PR 5 will add magic_staff (combo: held primary + shot secondary).
+    PR 5 activates magic_staff (combo: held primary + shot secondary).
     """
     ranged_thrown.activate(vault)
     melee_blade.activate(vault)
     melee_tether.activate(vault)
+    magic_staff.activate(vault)
