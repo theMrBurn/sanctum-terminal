@@ -82,6 +82,9 @@ from core.systems.combat import Action, Participant
 from core.systems.combat_session import CombatSession
 from core.systems.encounter_builder import build_encounter
 from core.systems.player_state import PlayerState
+from core.systems.reflective import ReflectiveState
+from core.systems.reflective import rules as reflective_rules
+from core.systems.reflective import state_machine as reflective_sm
 from core.systems.stamp_world import get_visible
 
 
@@ -199,6 +202,96 @@ def _format_event(e: dict) -> str:
 
 
 # --- Combat loop -------------------------------------------------------------
+
+# --- Reflective mode (HP=0 routes here per design_reflective_loop) -----------
+
+class _ReflectiveWorld:
+    """Minimal duck-typed shim for reflective.state_machine ops.
+    The state machine only reads/writes world.reflective; everything else
+    a real BrainWorld carries (entities, tick_events, biome) is irrelevant
+    to reflective composition. Keeping the shim local to this file avoids
+    pulling in BrainWorld for what is effectively a single-attribute
+    container."""
+    def __init__(self) -> None:
+        self.reflective = ReflectiveState()
+
+
+def _run_reflective_on_death(rng: random.Random) -> str:
+    """Compose a poem at the fridge. Returns a one-line summary string
+    for the post-encounter message banner.
+
+    Per `design_reflective_loop`: HP=0 is the FORCED entry path. The
+    player must commit a satisfying composition to return to active
+    play. Voluntary engagement (walk-up to a fridge kind) is a separate
+    path not exposed here.
+
+    V1 ships only the `compose_three` rule (min_magnet_count: 3).
+    """
+    world = _ReflectiveWorld()
+    if not reflective_sm.enter(world, "hp_zero", rng):
+        # No rules registered (definitions.json missing / empty) —
+        # fail-open so the game doesn't strand the player.
+        return "reflective: skipped (no rules)"
+
+    rule = reflective_rules.get(world.reflective.current_rule_id)
+    instructions = rule.instructions if rule else "Compose."
+
+    while world.reflective.active:
+        sys.stdout.write("\033[2J\033[H")
+        print("  --- REFLECTIVE ---")
+        print()
+        print("  You fell. A fridge hums in the dark.")
+        print()
+        print(f"  {instructions}")
+        print()
+        # Wrap pool to 78 cols for readability
+        pool = world.reflective.magnet_pool
+        line: List[str] = []
+        width = 0
+        for w in pool:
+            if width + len(w) + 2 > 72 and line:
+                print("  pool: " + " · ".join(line))
+                line = [w]
+                width = len(w)
+            else:
+                line.append(w)
+                width += len(w) + 3
+        if line:
+            print("  pool: " + " · ".join(line))
+        print()
+        composed = world.reflective.composed
+        composed_str = " ".join(composed) if composed else "(none yet)"
+        print(f"  composed: {composed_str}")
+        print()
+        print("  > type a word from the pool, or 'commit', 'undo', 'show'")
+        try:
+            line_input = input("  > ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            # Forced trigger — but we don't trap the user against their
+            # will. Treat aborts as silent commit to the current state.
+            reflective_sm.exit(world)
+            return "reflective: aborted"
+
+        if line_input == "commit":
+            if reflective_sm.commit(world):
+                final = " ".join(composed)
+                attempts = world.reflective.attempt_count
+                reflective_sm.exit(world)
+                return f"reflective: «{final}» (try #{attempts})"
+            print(f"  not yet — keep going (try #{world.reflective.attempt_count})")
+            input("  press enter to continue ")
+        elif line_input == "undo":
+            if composed:
+                composed.pop()
+        elif line_input == "show":
+            continue
+        elif line_input in pool:
+            reflective_sm.place_magnet(world, line_input)
+        else:
+            print(f"  '{line_input}' isn't on this fridge")
+            input("  press enter to continue ")
+    return "reflective: ended"
+
 
 def _enemy_actions(session: CombatSession, player_id: str) -> List[Action]:
     """v1: every living enemy attacks the player with its default attack,
@@ -369,9 +462,12 @@ def main() -> int:
                 px, py = new_x, new_y
                 msg = f"victory · +{earned} XP"
             elif outcome == "defeat":
+                # HP=0 routes through reflective per design_reflective_loop.
+                # Composition gates the return to active play; respawn at
+                # hub with full HP only after the AC predicates clear.
+                msg = _run_reflective_on_death(rng)
                 player_state = player_state._replace(hp=player_state.max_hp)
                 px, py = HUB_SPAWN
-                msg = "defeated · respawned at hub"
             else:   # fled
                 msg = "fled — encounter ends"
             print("\033[2J\033[H", end="")
