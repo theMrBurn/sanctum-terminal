@@ -296,6 +296,22 @@ def _on_quest_complete(world, quest) -> None:
         detail,
         quest.register,
     )
+    # Activity-loop signal — SOLVE class. Each completed quest is a
+    # constrained-goal-met = solve. Intensity=2 (medium-heavy: more
+    # than a single dial-finalize, less than a sealed pillar).
+    # Telemetry payload carries quest id + name for post-hoc analysis
+    # of which quest types the player favors. Per PR 14.
+    activity_loop.emit_activity(
+        activity_loop.ActivityClass.SOLVE,
+        intensity=2,
+        primitive="quest_completed",
+        source_brain="quests",
+        payload={
+            "quest_id":   str(quest.id),
+            "quest_name": str(quest.name),
+            "loot":       list(actually_added),
+        },
+    )
     # Flip the persisted scenario row to COMPLETE for journal-derived
     # quests. Quests without scenario_id (legacy biome-seeded) skip
     # silently — they'll get scenario rows when full unification lands.

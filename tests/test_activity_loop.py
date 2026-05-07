@@ -184,13 +184,12 @@ def test_loop_emits_state_event_with_register():
 
 def test_loop_does_not_fire_for_non_table_classes():
     """Classes with no REWARD_TABLE rows advance counters but emit no
-    StateEvents. Active classes after PR 13 are HUNT/MAKE/UNWIND/RITUAL/
-    WANDER; SNEAK + SOLVE still inert."""
+    StateEvents. After PR 14, only SNEAK is still inert (no live
+    substrate yet for evasion / non-engagement)."""
     p = PreferenceCounters()
     se = StateEventBuffer()
     loop = ActivityLoop(p, se)
     p.emit(ActivityClass.SNEAK, 200)
-    p.emit(ActivityClass.SOLVE, 200)
     fired = loop.tick(0.0)
     assert fired == []
     assert se.latest_id() == 0
@@ -393,16 +392,63 @@ def test_wander_emit_label_uses_ritual_register():
 
 
 def test_reward_table_covers_five_active_classes():
-    """PR 13 expanded; HUNT + MAKE + UNWIND + RITUAL + WANDER active.
-    SNEAK + SOLVE still pending producers."""
+    """PR 13 expanded; HUNT + MAKE + UNWIND + RITUAL + WANDER active."""
     classes_with_rows = {row.cls for row in REWARD_TABLE}
     assert ActivityClass.HUNT   in classes_with_rows
     assert ActivityClass.MAKE   in classes_with_rows
     assert ActivityClass.UNWIND in classes_with_rows
     assert ActivityClass.RITUAL in classes_with_rows
     assert ActivityClass.WANDER in classes_with_rows
-    assert ActivityClass.SNEAK  not in classes_with_rows
-    assert ActivityClass.SOLVE  not in classes_with_rows
+
+
+# ── PR 14: SOLVE class wiring (quest_completed producer) ─────────────
+
+
+def test_solve_recognized_fires_at_20():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.SOLVE, 18)
+    assert loop.tick(0.0) == []
+    p.emit(ActivityClass.SOLVE, 2)              # crosses 20
+    fired = loop.tick(0.0)
+    assert "solve_recognized" in fired
+
+
+def test_solve_deepened_fires_at_80():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.SOLVE, 20)
+    loop.tick(0.0)
+    p.emit(ActivityClass.SOLVE, 60)             # total 80
+    fired = loop.tick(0.0)
+    assert "solve_deepened" in fired
+    assert "solve_recognized" not in fired
+
+
+def test_solve_emit_label_uses_ritual_register():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.SOLVE, 20)
+    loop.tick(0.0)
+    events = se.all()
+    assert any(e.kind == "solve_recognized"
+               and e.label == "SOLVE — RECOGNIZED"
+               and e.register == "ritual"
+               for e in events)
+
+
+def test_reward_table_covers_six_active_classes():
+    """PR 14 expanded; six classes active. SNEAK still pending —
+    no live substrate yet for evasion / non-engagement."""
+    classes_with_rows = {row.cls for row in REWARD_TABLE}
+    for cls in (ActivityClass.HUNT, ActivityClass.MAKE,
+                ActivityClass.UNWIND, ActivityClass.RITUAL,
+                ActivityClass.WANDER, ActivityClass.SOLVE):
+        assert cls in classes_with_rows, f"{cls.name} should have rows"
+    assert ActivityClass.SNEAK not in classes_with_rows
 
 
 # ── Module-level singletons ─────────────────────────────────────────
