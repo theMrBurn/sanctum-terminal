@@ -70,6 +70,7 @@ from core.systems import seed_commands
 from core.systems import make_brain_commands
 from core.systems import make_brain_registry
 from core.systems.character_draft import CharacterDraft
+from core.systems import activity_loop
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
 from core.systems.state_events import (
@@ -629,6 +630,23 @@ class BrainWorld:
         # the player should know about emits an event; clients render toasts.
         self.state_events: StateEventBuffer = StateEventBuffer()
 
+        # Activity loop — universal "what is the player doing" substrate
+        # (per `feat_make-brain-ping-pong.md` PR 9). Saturating int[7]
+        # counters with rotating slot-decay; producers emit one of seven
+        # ActivityClass signals; the loop edge-detects threshold crossings
+        # against REWARD_TABLE and fires StateEvents on rising edges.
+        # Module-level singletons; `install()` returns the pair.
+        # Vault binding enables activity_log telemetry per audit A6.
+        self.prefs, self.activity_loop = activity_loop.install(
+            self.state_events, vault=_get_vault(),
+        )
+
+        # UNWIND producer accumulator (PR 10) — pure-cumulative dwell-time
+        # tracker. Decoupled from `dwell_time` (which decays on movement)
+        # so an UNWIND emit fires for every DWELL_UNWIND_SLICE_SECONDS of
+        # accumulated low-input time, even across active stretches.
+        self._dwell_accum_for_unwind: float = 0.0
+
         # Quest state — async ambient quest substrate per
         # `project_async_quest_refactor`. PR 1.2 keeps this in-memory on
         # BrainWorld; PR 2 (V3 save schema) promotes the persistent fields
@@ -1068,6 +1086,13 @@ class BrainWorld:
         entity_count = len(exchange_entities)
         budget_max = self.tension._config.get("budget_max", 800)
         envelope = self.tension.tick(dt, entity_count, budget_max)
+
+        # Activity loop tick — slot-decay rotation + reward edge detection.
+        # Producers (ping_pong brick_destroyed, future workroom seed_create,
+        # future journal-quest daily-care, etc.) emit class signals; this
+        # is where the loop catches up + fires reward StateEvents.
+        # Per `feat_make-brain-ping-pong.md` PR 9.
+        self.activity_loop.tick(dt)
 
         # Current light state (base values)
         ls = self.light_states[self.light_state_names[self.light_state_idx]]
@@ -2579,6 +2604,18 @@ def run_server(biome_name, port=9877):
                     if world.dwell_time > DISSOCIATE_ONSET and world.tension.active:
                         world.dissociation_pressure += DISSOCIATE_RATE * dt
                         world.tension._dissociation_pressure = world.dissociation_pressure
+                    # UNWIND producer (PR 10) — pure-cumulative dwell
+                    # accumulator emits one UNWIND tick per slice. The
+                    # `while` drains accumulated time correctly when dt
+                    # is large (paused brain catching up).
+                    world._dwell_accum_for_unwind += dt
+                    while world._dwell_accum_for_unwind >= activity_loop.DWELL_UNWIND_SLICE_SECONDS:
+                        world._dwell_accum_for_unwind -= activity_loop.DWELL_UNWIND_SLICE_SECONDS
+                        activity_loop.emit_activity(
+                            activity_loop.ActivityClass.UNWIND, 1,
+                            primitive="dwell_slice",
+                            source_brain="brain_world",
+                        )
                 else:
                     world.dwell_time = max(0.0, world.dwell_time - dt * 3.0)
                     world.dissociation_pressure = max(

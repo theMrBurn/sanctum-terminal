@@ -222,6 +222,29 @@ class vault:
                     "CREATE INDEX IF NOT EXISTS idx_runs_profile "
                     "ON runs(instance_id, profile_name)"
                 )
+                # activity_log — telemetry-only stream of every ActivityClass
+                # emit. NEVER read for gameplay; counters in
+                # core/systems/activity_loop.py are the runtime currency.
+                # See `.claude/audit_2026-05-06.md` A6.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS activity_log (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp       REAL    NOT NULL,
+                        class_index     INTEGER NOT NULL,
+                        primitive       TEXT    NOT NULL,
+                        intensity       INTEGER NOT NULL,
+                        source_brain    TEXT    NOT NULL,
+                        payload_json    TEXT    NOT NULL DEFAULT '{}'
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_activity_log_ts "
+                    "ON activity_log(timestamp DESC)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_activity_log_class "
+                    "ON activity_log(class_index, timestamp DESC)"
+                )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -944,3 +967,91 @@ class vault:
         if peak == float("-inf"):
             return 0.0, None
         return peak, peak_run
+
+    # -- activity_log -----------------------------------------------------
+    # Telemetry-only log of every ActivityClass emit. Per
+    # `.claude/audit_2026-05-06.md` A6 — counters in
+    # core/systems/activity_loop.py are the runtime currency; this log
+    # is for UAT readout + post-hoc analysis. NEVER read for gameplay.
+
+    def activity_log_append(
+        self,
+        class_index: int,
+        primitive: str,
+        intensity: int,
+        source_brain: str,
+        payload: dict | None = None,
+    ) -> int:
+        """Append a single activity event. Returns the row id."""
+        import time as _time
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "INSERT INTO activity_log "
+                "(timestamp, class_index, primitive, intensity, source_brain, payload_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    _time.time(),
+                    int(class_index),
+                    str(primitive),
+                    int(intensity),
+                    str(source_brain),
+                    json.dumps(payload or {}),
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def activity_log_recent(
+        self,
+        limit: int = 100,
+        class_index: int | None = None,
+    ) -> list[dict]:
+        """Most-recent N events, optionally filtered by class. Newest first."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if class_index is None:
+                rows = conn.execute(
+                    "SELECT * FROM activity_log "
+                    "ORDER BY timestamp DESC LIMIT ?",
+                    (int(limit),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM activity_log "
+                    "WHERE class_index = ? "
+                    "ORDER BY timestamp DESC LIMIT ?",
+                    (int(class_index), int(limit)),
+                ).fetchall()
+            return [
+                {
+                    "id":           r["id"],
+                    "timestamp":    r["timestamp"],
+                    "class_index":  r["class_index"],
+                    "primitive":    r["primitive"],
+                    "intensity":    r["intensity"],
+                    "source_brain": r["source_brain"],
+                    "payload":      json.loads(r["payload_json"] or "{}"),
+                }
+                for r in rows
+            ]
+
+    def activity_log_count_by_class(
+        self,
+        since_ts: float | None = None,
+    ) -> dict[int, int]:
+        """Sum of `intensity` per class_index, optionally since a timestamp.
+        Returns {class_index: total_intensity}. Zero classes are omitted."""
+        with sqlite3.connect(self.db_path) as conn:
+            if since_ts is None:
+                rows = conn.execute(
+                    "SELECT class_index, SUM(intensity) "
+                    "FROM activity_log GROUP BY class_index"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT class_index, SUM(intensity) "
+                    "FROM activity_log WHERE timestamp >= ? "
+                    "GROUP BY class_index",
+                    (float(since_ts),),
+                ).fetchall()
+            return {int(r[0]): int(r[1] or 0) for r in rows}

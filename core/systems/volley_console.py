@@ -84,6 +84,8 @@ def execute(line: str, vault, handler) -> list[str]:
         return _runs(vault)
     if verb == "export":
         return _export(args, handler)
+    if verb == "activity":
+        return _activity()
 
     if verb in _SCALAR_PARAMS:
         return _setter(verb, args, vault, handler)
@@ -108,6 +110,7 @@ def _help() -> list[str]:
         "  data                        dump current run's round log",
         "  runs                        list past vault.runs rows + summaries",
         "  export [path]               write round log JSON snapshot to disk",
+        "  activity                    activity-loop counters + reward thresholds",
         "  help                        this list",
         "  scalar params: " + ", ".join(sorted(_SCALAR_PARAMS.keys())),
     ]
@@ -148,6 +151,32 @@ def _export(args: list[str], handler) -> list[str]:
         return [f"export failed: {exc}"]
     total = sum(len(rounds) for rounds in log_by_set.values())
     return [f"exported {total} rounds → {path}"]
+
+
+def _activity() -> list[str]:
+    """Render the activity-loop singleton state. Per `feat_make-brain-ping-pong.md`
+    PR 9 — UAT readout for the new substrate."""
+    from core.systems import activity_loop
+    snap = activity_loop.summary()
+    if not snap.get("installed"):
+        return ["activity loop: not installed (singleton uninitialized)"]
+    out: list[str] = ["activity-loop counters:"]
+    counts = snap["counts"]
+    # Show all 7 classes; zero-counts read explicitly so the table is whole.
+    for name, value in counts.items():
+        bar = "█" * (value // 8) if value else ""
+        out.append(f"  {name:<7} {value:>3}  {bar}")
+    rewards = snap.get("rewards") or []
+    if rewards:
+        out.append("rewards:")
+        for r in rewards:
+            mark = "✓" if r["fired"] else f"({r['remaining']} to go)"
+            out.append(
+                f"  {r['class']:<7} ≥{r['threshold']:>3} → {r['kind']:<24} {mark}"
+            )
+    else:
+        out.append("rewards: (table empty — no producers wired yet)")
+    return out
 
 
 def _mode(args: list[str], handler) -> list[str]:

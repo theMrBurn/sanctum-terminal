@@ -478,10 +478,55 @@ Existing `is_mouse_button_pressed(MOUSE_BUTTON_LEFT)` → `input_map.pressed("fi
 - Pin `project_make_brain_ping_pong_v1` memory + `design_make_brain_substrate` memory.
 - T9 + S1–S5 + V9 green.
 
+### PR 9 — activity-loop substrate + first producer
+**Frame:** Old-dev discipline applied. The "what is this player doing" question
+is too important and too frequent to live in a per-event log. Bytes-as-counters,
+tables-as-policy, polled-not-pushed. Telemetry log exists but is never read for
+gameplay. Per `feedback_factor_of_7` and the SNES-discipline framing locked
+2026-05-05.
+
+- New `core/systems/activity_loop.py`:
+  - `ActivityClass` IntEnum, **seven slots, pinned**: `HUNT MAKE SNEAK UNWIND SOLVE WANDER RITUAL`. No string class names in hot path.
+  - `PreferenceCounters` — `int[7]`, saturating at 255, slot-decay rotating across classes (one slot decremented per `DECAY_PERIOD_FRAMES`). O(1) emit + O(1) tick.
+  - `REWARD_TABLE` — static `tuple[(class, threshold, kind, register), ...]`. Edits require brain restart. Polled each tick.
+  - `ActivityLoop.tick()` — edge-detect rewards via `prev_count[c] < threshold ≤ count[c]`; fire one `StateEvent` per crossing. No callbacks, no chains.
+- `BrainWorld` owns singleton `PreferenceCounters` + `ActivityLoop` (alongside `state_events`). Ticked once per server tick.
+- **One producer wired:** `PingPongHandler.on_tick` brick-destroyed branch — `prefs.emit(HUNT, intensity=1 if max_hp==1 else 3)`. Single-line addition.
+- Optional `vault.activity_log` table — append-only telemetry, **never read for gameplay**. Used for UAT readout + later post-hoc analysis. Schema additive, idempotent migration.
+- Console command: `activity_summary` — backtick console, returns per-class counts + last N reward firings.
+- Out of scope: TensionCycle reading counters, other producers (workroom seed_create, journal-quest, lexicon), reward side-effects beyond StateEvent, migrating existing `_emit_event` chains to ActivityEvent.
+- T10 (activity_loop pytest: saturate cap, slot-decay rotation, edge detection fires once, StateEvent emission) + S6 (volley_chamber → strike bricks → `activity_summary` shows HUNT counter advance → cross threshold → toast renders).
+
+### PR 10 — UNWIND producer (second class, validates multi-producer signal)
+**Frame:** Adds the second activity producer to confirm the substrate carries
+multi-class signal correctly. UNWIND is the natural second slot — `dwell_time`
+is already a measured value; we translate it into the activity-loop currency
+without adding a new instrumentation surface.
+
+- New `DWELL_UNWIND_SLICE_SECONDS` const in `core/systems/activity_loop.py`
+  (default 10s — see comment above the const for the threshold-duration math).
+- `BrainWorld.__init__` adds `_dwell_accum_for_unwind: float = 0.0` —
+  pure-cumulative, decoupled from the existing `dwell_time` (which decays on
+  movement). One emit per slice of accumulated low-input time, even across
+  active stretches.
+- `run_server`'s dissociation block (low-input branch) drains the accumulator
+  in a `while` loop, calling `activity_loop.emit_activity(UNWIND, 1)` once per
+  slice crossing.
+- REWARD_TABLE adds two rows:
+  - `(UNWIND, 30,  "unwind_recognized", "UNWIND — RECOGNIZED", ritual)` (~5 min)
+  - `(UNWIND, 100, "unwind_deepened",   "UNWIND — DEEPER",     ritual)` (~17 min)
+- Out of scope: rewriting how `dwell_time` itself works, integrating UNWIND
+  with reflective_loop entry (later PR), persisting the accumulator across
+  brain reboots.
+- T10 expanded (slice constant legibility, UNWIND threshold crossings, register
+  matches state_events RITUAL vocab) + S7 (volley_chamber boot → don't move
+  for 5 min → `activity` shows UNWIND ≥30 → "UNWIND — RECOGNIZED" toast).
+
 ## Hot-reload notes
 - `core/vault.py` schema changes → brain restart.
 - `core/systems/make_brain_registry.py` → brain restart.
-- `core/systems/ballistics.py` / `volley_scoring.py` → brain restart.
+- `core/systems/ballistics.py` / `volley_scoring.py` / `activity_loop.py` → brain restart.
+- `REWARD_TABLE` in `activity_loop.py` (compile-time constant) → brain restart.
 - `clients/vector_terminal/input_map.py` → vector terminal restart.
 - `clients/vector_terminal/console.py` → vector terminal restart.
 - `brain_server.py` dispatch → brain restart.

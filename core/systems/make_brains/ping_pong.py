@@ -13,11 +13,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.systems import activity_loop
 from core.systems import make_brain_registry
 from core.systems import volley_scoring
 from core.systems.ballistics import (
     BallisticsParams, BallisticsSolver, MotionVector, chamber_walls,
 )
+from core.systems.activity_loop import ActivityClass
 
 
 # ----------------------------------------------------------------------
@@ -458,11 +460,27 @@ class PingPongHandler:
                     if brick["hp"] <= 0:
                         brick["destroyed"] = True
                         self.brick_score += int(brick["score"])
+                        # Activity-loop signal — HUNT class. Boss bricks
+                        # (max_hp > 1) carry triple intensity to mark them
+                        # as heavy moments. Per PR 9. Telemetry payload
+                        # carries score + max_hp so post-hoc analysis can
+                        # disambiguate boss-vs-normal contributions.
+                        bmax_hp = int(brick.get("max_hp", 1))
+                        activity_loop.emit_activity(
+                            ActivityClass.HUNT,
+                            intensity=3 if bmax_hp > 1 else 1,
+                            primitive="brick_destroyed",
+                            source_brain="ping_pong",
+                            payload={
+                                "score":  int(brick["score"]),
+                                "max_hp": bmax_hp,
+                            },
+                        )
                         self._emit_event(
                             "brick_destroyed",
                             score=brick["score"],
                             total=self.brick_score,
-                            max_hp=int(brick.get("max_hp", 1)),
+                            max_hp=bmax_hp,
                         )
                         if self.brick_score >= self.brick_threshold:
                             self.brick_win = True
