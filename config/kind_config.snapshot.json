@@ -954,6 +954,7 @@
       "physics": {
         "collision_radius": 1.2
       },
+      "pickupable": true,
       "recipe": {
         "bounds": [
           0.18,
@@ -1080,6 +1081,7 @@
       "physics": {
         "collision_radius": 2.2
       },
+      "pickupable": true,
       "recipe": {
         "apron": null,
         "atoms": {
@@ -2845,6 +2847,7 @@
       "physics": {
         "collision_radius": 1.5
       },
+      "pickupable": true,
       "recipe": {
         "bounds": [
           0.23,

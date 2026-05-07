@@ -81,6 +81,7 @@ from core.systems.ascii_render import render_view
 from core.systems.combat import Action, Participant
 from core.systems.combat_session import CombatSession
 from core.systems.encounter_builder import build_encounter
+from core.systems.inventory import Inventory
 from core.systems.player_state import PlayerState
 from core.systems.reflective import ReflectiveState
 from core.systems.reflective import rules as reflective_rules
@@ -121,16 +122,20 @@ def _build_ascii_map() -> Dict[str, str]:
 
 def _creature_id(ent: dict) -> str:
     """Stable id matching encounter_builder._make_enemy so defeated_set can
-    filter the creature out of future world frames."""
+    filter the creature out of future world frames. Same shape works for
+    pickupable items so the picked_up set can use the same id space."""
     return f"{ent['kind']}|{ent['x']:.2f}|{ent['y']:.2f}"
 
 
 def _visible_filtered(px: float, py: float, biome: str, seed: int,
-                      defeated: Set[str]) -> List[dict]:
+                      removed: Set[str]) -> List[dict]:
+    """Visible entities minus anything the player has resolved (defeated
+    creatures + picked-up items share the same id-set). Empty set is the
+    common case before the first encounter / pickup, so short-circuit."""
     ents = get_visible(px, py, 49.0, seed, biome)
-    if not defeated:
+    if not removed:
         return ents
-    return [e for e in ents if _creature_id(e) not in defeated]
+    return [e for e in ents if _creature_id(e) not in removed]
 
 
 def _nearest_creature(px: float, py: float, ents: Iterable[dict],
@@ -149,17 +154,37 @@ def _nearest_creature(px: float, py: float, ents: Iterable[dict],
     return best
 
 
+def _nearest_pickupable(px: float, py: float, ents: Iterable[dict],
+                        kind_cfgs: Dict[str, dict]) -> dict | None:
+    """Closest entity with `pickupable: true` in kind_config, within
+    CONTACT_RADIUS_M of (px, py). None if nothing in reach."""
+    best = None
+    best_d2 = CONTACT_RADIUS_M ** 2
+    for e in ents:
+        if not kind_cfgs.get(e.get("kind", ""), {}).get("pickupable"):
+            continue
+        dx = e["x"] - px
+        dy = e["y"] - py
+        d2 = dx * dx + dy * dy
+        if d2 <= best_d2:
+            best_d2 = d2
+            best = e
+    return best
+
+
 # --- Overworld rendering -----------------------------------------------------
 
 def _render_overworld(px: float, py: float, biome: str, seed: int,
                       ascii_map: Dict[str, str], player: PlayerState,
-                      tag_count: int, defeated: Set[str]) -> str:
-    ents = _visible_filtered(px, py, biome, seed, defeated)
+                      tag_count: int, removed: Set[str],
+                      inventory: Inventory) -> str:
+    ents = _visible_filtered(px, py, biome, seed, removed)
     grid = render_view(ents, px, py, VIEW_RADIUS_TILES, ascii_map)
     header = (f"  sanctum · {biome} · ({px:5.1f}, {py:5.1f}) · "
               f"HP {player.hp}/{player.max_hp} · "
-              f"ents {len(ents)} · tags {tag_count} · defeated {len(defeated)}")
-    footer = "  [wasd] move · [t] tag · [q] quit"
+              f"ents {len(ents)} · tags {tag_count} · "
+              f"carrying {inventory.count()}/{inventory.max_slots}")
+    footer = "  [wasd] move · [g] grab · [i] inventory · [t] tag · [q] quit"
     return "\n".join([header, ""] + ["  " + row for row in grid] + ["", footer])
 
 
@@ -378,7 +403,11 @@ def main() -> int:
 
     px, py = args.spawn
     tags: list = []
-    defeated: Set[str] = set()
+    # `removed` tracks both defeated creatures AND picked-up items —
+    # same id space (kind|x|y) so _visible_filtered can drop both in
+    # one pass per frame. Was named `defeated` before pickup landed.
+    removed: Set[str] = set()
+    inventory = Inventory()
     xp = 0
 
     def player_participant() -> Participant:
@@ -397,7 +426,7 @@ def main() -> int:
 
     print("\033[2J\033[H", end="")
     print(_render_overworld(px, py, args.biome, args.seed, ascii_map,
-                            player_state, len(tags), defeated))
+                            player_state, len(tags), removed, inventory))
 
     lib = attack_lib.load()
 
@@ -432,8 +461,41 @@ def main() -> int:
             tags.append({"x": px, "y": py, "t": time.time()})
             print(f"  [tagged #{len(tags)} @ ({px:.1f}, {py:.1f})]")
             continue
+        elif lower == "g":
+            ents = _visible_filtered(px, py, args.biome, args.seed, removed)
+            target = _nearest_pickupable(px, py, ents, kind_cfgs)
+            if target is None:
+                print("  [nothing in reach]")
+                continue
+            obj = {
+                "id":   _creature_id(target),
+                "name": target["kind"],
+                "kind": target["kind"],
+            }
+            if not inventory.has_space():
+                print(f"  [inventory full — drop something with G first]")
+                continue
+            inventory.pickup(obj)
+            removed.add(obj["id"])
+            print(f"  [picked up {target['kind']}]")
+            print("\033[2J\033[H", end="")
+            print(_render_overworld(px, py, args.biome, args.seed, ascii_map,
+                                    player_state, len(tags), removed, inventory))
+            continue
+        elif lower == "i":
+            print("  --- inventory ---")
+            items = inventory.list()
+            if not items:
+                print("    (carrying nothing)")
+            else:
+                for i, obj in enumerate(items):
+                    print(f"    {i+1}. {obj.get('name', obj.get('kind', '?'))}")
+            print(f"    [{inventory.count()}/{inventory.max_slots} slots, "
+                  f"{inventory.current_weight():.1f}/{inventory.max_weight} kg]")
+            continue
         elif lower == "q":
-            print(f"  bye. {len(tags)} tags · XP {xp} · defeated {len(defeated)}")
+            print(f"  bye. {len(tags)} tags · XP {xp} · removed {len(removed)} "
+                  f"· carrying {inventory.count()}")
             return 0
         else:
             print(f"  ? unknown key: {ch!r}")
@@ -443,7 +505,7 @@ def main() -> int:
         new_y = py + dy
 
         # Contact check — bump into a creature?
-        ents = _visible_filtered(new_x, new_y, args.biome, args.seed, defeated)
+        ents = _visible_filtered(new_x, new_y, args.biome, args.seed, removed)
         bumped = _nearest_creature(new_x, new_y, ents, kind_cfgs)
         if bumped is not None:
             roster = build_encounter(bumped, ents, kind_cfgs,
@@ -457,7 +519,7 @@ def main() -> int:
             if outcome == "victory":
                 for e in session.participants:
                     if e.side == "enemy" and not e.alive:
-                        defeated.add(e.id)
+                        removed.add(e.id)
                 # Step into the now-vacated tile.
                 px, py = new_x, new_y
                 msg = f"victory · +{earned} XP"
@@ -472,7 +534,7 @@ def main() -> int:
                 msg = "fled — encounter ends"
             print("\033[2J\033[H", end="")
             print(_render_overworld(px, py, args.biome, args.seed, ascii_map,
-                                    player_state, len(tags), defeated))
+                                    player_state, len(tags), removed, inventory))
             print(f"\n  [{msg}]")
             continue
 
@@ -480,7 +542,7 @@ def main() -> int:
         px, py = new_x, new_y
         print("\033[2J\033[H", end="")
         print(_render_overworld(px, py, args.biome, args.seed, ascii_map,
-                                player_state, len(tags), defeated))
+                                player_state, len(tags), removed, inventory))
 
 
 if __name__ == "__main__":

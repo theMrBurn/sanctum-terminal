@@ -859,6 +859,7 @@
       "ascii": "M"
     },
     "crystal_cluster": {
+      "pickupable": true,
       "class": "crystalline",
       "visual_radius": 2.0,
       "light_reactive": true,
@@ -2292,6 +2293,7 @@
       }
     },
     "clay_pot": {
+      "pickupable": true,
       "class": "life",
       "visual_radius": 0.5,
       "use_vertex_colors": true,
@@ -2354,6 +2356,7 @@
       "ascii": "u"
     },
     "treasure_chest": {
+      "pickupable": true,
       "class": "life",
       "visual_radius": 0.7,
       "use_vertex_colors": true,
