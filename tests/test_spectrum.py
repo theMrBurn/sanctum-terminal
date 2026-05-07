@@ -160,22 +160,7 @@ def test_phase_for_seed_in_range():
         assert 0.0 <= p < 2.0 * math.pi
 
 
-# ── Re-export compatibility ────────────────────────────────────────
-
-
-def test_ambient_life_re_exports_spectrum_engine():
-    """ambient_life.py must re-export the spectrum names so legacy
-    callers (cavern.py, tools/) keep working without import changes."""
-    try:
-        from core.systems.ambient_life import (
-            SpectrumEngine as ReExportedEngine,
-            SPECTRUM_PROFILES as ReExportedProfiles,
-            set_active_biome as ReExportedSetter,
-        )
-    except ImportError:
-        pytest.skip("ambient_life not importable (panda3d not in venv) — re-export check requires it")
-        return
-    # Identity check: same object as the spectrum-module canonical.
-    assert ReExportedEngine is SpectrumEngine
-    assert ReExportedProfiles is SPECTRUM_PROFILES
-    assert ReExportedSetter is set_active_biome
+# Re-export compatibility test removed 2026-05-07 audit A14:
+# `ambient_life.py` was archived (panda3d-imported, no live consumer).
+# spectrum module is canonical; legacy callers that needed the
+# re-export (cavern.py, tools/) are themselves archived.

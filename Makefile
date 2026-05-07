@@ -1,4 +1,4 @@
-.PHONY: clean factory test test-unit test-quest run seed-db trunk-check meshes brain brain-cavern brain-vector vector
+.PHONY: clean factory test test-unit test-quest seed-db meshes brain brain-cavern brain-vector brain-workroom brain-volley vector terminal terminal-inline godot-export godot-export-cavern godot-meshes
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
@@ -34,43 +34,14 @@ test-quest:
 	PYTHONPATH=. ./.venv/bin/python -m pytest tests/test_quest_engine.py \
 		-v --tb=short
 
-# ── Lint ──────────────────────────────────────────────────────────────────────
-trunk-check:
-	trunk check core/systems/quest_engine.py \
-		core/systems/biome_registry.py \
-		utils/VoxelFactory.py \
-		core/vault.py \
-		core/input_handler.py \
-		SimulationRunner.py \
-		FirstLight.py
-
 # ── Run ───────────────────────────────────────────────────────────────────────
-run:
-	PYTHONPATH=. ./.venv/bin/python SimulationRunner.py
-
-lab:
-	PYTHONPATH=. ./.venv/bin/python main.py
-
-room:
-	PYTHONPATH=. ./.venv/bin/python room_lab.py
-
-creation:
-	PYTHONPATH=. ./.venv/bin/python creation_lab.py
-
-theater:
-	PYTHONPATH=. ./.venv/bin/python simulation_theater.py
-
-dungeon:
-	PYTHONPATH=. ./.venv/bin/python dungeon.py
-
-shadowbox:
-	PYTHONPATH=. ./.venv/bin/python shadowbox_dungeon.py
-
-cavern:
-	PYTHONPATH=. ./.venv/bin/python cavern.py
-
-viewer:
-	PYTHONPATH=. ./.venv/bin/python template_viewer.py
+# Legacy Panda3D-era targets (run, lab, room, creation, theater, dungeon,
+# shadowbox, cavern, viewer, trunk-check) removed 2026-05-07 audit A14
+# — their entry-point scripts (cavern.py, creation_lab.py, dungeon.py,
+# FirstLight.py, main.py, room_lab.py, shadowbox_dungeon.py,
+# simulation_theater.py, SimulationRunner.py, template_viewer.py) are
+# archived under docs/archive/panda3d/top_level/. The live pipeline runs
+# brain + vector terminal exclusively.
 
 # Headless ASCII sanctum — the game at its bedrock. No Godot.
 # `terminal` opens a new macOS Terminal window so the game runs in its

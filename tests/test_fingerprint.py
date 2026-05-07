@@ -86,24 +86,9 @@ class TestFingerprintExport:
         assert engine.dominant_activity() == 'crafting'
 
 
-class TestFingerprintGhostIntegration:
-
-    def test_heavy_crafting_biases_maker(self, engine):
-        from core.systems.ghost_profile_engine import GhostProfileEngine
-        gpe = GhostProfileEngine()
-        for _ in range(50):
-            engine.tick(dt=10.0, activity='crafting')
-        engine.record('workbench_interactions', 0.9)
-        engine.record('crafting_tier', 0.8)
-        blend = gpe.update_from_fingerprint(engine.export())
-        assert blend.get('MAKER', 0) > blend.get('FORCE_MULTIPLIER', 0)
-
-    def test_heavy_exploration_biases_seeker(self, engine):
-        from core.systems.ghost_profile_engine import GhostProfileEngine
-        gpe = GhostProfileEngine()
-        for _ in range(50):
-            engine.tick(dt=10.0, activity='exploring')
-        engine.record('objects_inspected', 0.85)
-        engine.record('puzzle_attempts', 0.7)
-        blend = gpe.update_from_fingerprint(engine.export())
-        assert blend.get('SEEKER', 0) > blend.get('GUARDIAN', 0)
+# TestFingerprintGhostIntegration removed 2026-05-07 audit A14:
+# `ghost_profile_engine` was archived in A7-medium retirement
+# (no live consumer; only avatar_pipeline used it, itself archived).
+# The fingerprint-engine tests above continue to cover the live primitive.
+# If avatar identity blending is rebuilt under a future spec, restore
+# integration coverage with the new blender API.

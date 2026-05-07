@@ -63,27 +63,21 @@ make godot-export   # build static manifest.json for Godot to read
 
 ---
 
-## Legacy (Panda3D-era — DO NOT treat as live targets)
+## Legacy (Panda3D-era — ARCHIVED 2026-05-07 audit A14)
 
-These files predate the Godot pivot. Only `make cavern` (and a few unused targets) reach them. Refactoring their internals does not affect the live pipeline.
+All Panda3D-era files moved to `docs/archive/panda3d/`. The live pipeline (brain_server + vector terminal) is now panda3d-free in `core/systems/` and at root.
 
-- `cavern.py` — 94KB, Panda3D `ShowBase`. Last edit 2026-04-03. Has 13 `if biome ==` conditionals; pre-2026-04-26 audit flagged for `BIOME_REGISTRY` refactor — skipped because legacy.
-- `core/systems/ambient_life.py` — imports `panda3d.core` at module top (line 22). Was previously listed under Live files; corrected 2026-05-07 audit. brain_server.py does NOT import it; live path uses `core/systems/spectrum.py` which was extracted from ambient_life specifically to keep the brain hot path panda3d-free.
-- `core/systems/atmosphere_engine.py`, `core/systems/glow_decal.py`, `core/systems/sprite_renderer.py`, `core/systems/billboard_renderer.py` — all panda3d-imported, only legacy consumers.
-- `core/systems/cavern_builder.py`
-- `creation_lab.py`
-- `dungeon.py`
-- `FirstLight.py`
-- `room_lab.py`
-- `shadowbox_dungeon.py`
-- `simulation_theater.py`
-- `SimulationRunner.py`
-- `template_viewer.py`
-- `sanctum_terminal.py`
+- **Source modules** in `docs/archive/panda3d/`: `ambient_life.py`, `atmosphere_engine.py`, `avatar_pipeline.py`, `billboard_renderer.py`, `biome_renderer.py`, `biome_scene.py`, `cavern_builder.py`, `consolidation.py`, `corridor_scene.py`, `door_animator.py`, `dungeon_grid.py`, `entity_template.py`, `glow_decal.py`, `lab_environment.py`, `postprocess.py`, `scenario_chain.py`, `scenario_engine.py`, `scenario_runner.py`, `shadowbox_scene.py`, `sprite_renderer.py`, `terrain_generator.py`
+- **Top-level entries** in `docs/archive/panda3d/top_level/`: `cavern.py`, `creation_lab.py`, `dungeon.py`, `FirstLight.py`, `main.py`, `room_lab.py`, `shadowbox_dungeon.py`, `simulation_theater.py`, `SimulationRunner.py`, `template_viewer.py`
+- **Bound tests** in `docs/archive/panda3d/tests/`: `test_atmosphere.py`, `test_avatar_pipeline.py`, `test_campaign_engine.py`, `test_design_key.py`, `test_door_animator.py`, `test_dungeon.py`, `test_entity_template.py`, `test_fetch_quest.py`, `test_glow_decal.py`, `test_postprocess.py`, `test_scenario_runner.py`, `test_session_boundary.py`, `test_shadowbox_scene.py`, `test_sprite_renderer.py`, `test_terrain.py`, `test_tick_efficiency.py`, `test_z_biome_scenes.py`
 
-These files import `direct.showbase.ShowBase` or `panda3d.core` directly. They are launchable via specific `make` targets but no longer share state with `brain_server.py` or the Godot viewer.
+`sanctum_terminal.py` was **not archived** — it's a real headless ASCII alt-client (pure-Python, no panda3d, walks brain stamp_world directly). Reachable via `make terminal` / `make terminal-inline`.
 
-### Archived docs (Phase 1 reconciliation 2026-04-26)
+### Still in `core/systems/` despite legacy-only callers (deferred to A10)
+
+These don't import panda3d but their existing consumers were exclusively legacy: `combat.py`, `combat_session.py`, `attack_lib.py`, `crafting_engine.py`, `crafting_integration.py`, `material_system.py`, `interaction_engine.py`, `encounter_builder.py`, `campaign_engine.py`, `dungeon_campaign.py`, `session_boundary.py`, `grace_handler.py`. Disposition pending the `design_creature_engagement_v1` spec (audit A8 / A10).
+
+### Pre-existing archived docs (Phase 1 reconciliation 2026-04-26)
 
 - `docs/archive/panda3d/REFACTOR_PLAN.md` — Panda3D god-object decomposition plan
 - `docs/archive/panda3d/VISUAL_LANGUAGE.md` — register/biome taxonomy from Panda3D era
