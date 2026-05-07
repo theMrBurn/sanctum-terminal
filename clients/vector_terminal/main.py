@@ -451,6 +451,23 @@ def main() -> int:
                     },
                 })
 
+            # ARPG combat — melee swing (feat/arpg-combat PR 3 HELD mode).
+            # RMB triggers iron_sword swing with default SLASH verb.
+            # V1 hardcodes the weapon; verb cycling deferred to follow-up
+            # content PR. Uses brain default_verb in weapon_profile.
+            if input_map.pressed("melee"):
+                client.send({
+                    "cmd":         "weapon_use",
+                    "weapon_kind": "iron_sword",
+                    "mode":        "held",
+                    "camera_state": {
+                        "pos":     [camera.position.x, camera.position.z, camera.position.y],
+                        "forward": [forward[0],         forward[1],         0.0],
+                        "ang_vel": 0.0,
+                        "now":     now,
+                    },
+                })
+
             # K = damage_self debug. Each press deals 99 damage, sufficient
             # to push HP to 0 in one tap — exposes the forced reflective
             # chain end-to-end (REFLECT toast → fridge UI → commit →

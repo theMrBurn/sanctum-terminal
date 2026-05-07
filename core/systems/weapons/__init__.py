@@ -14,7 +14,7 @@ to seed default weapon profiles and register dispatchers.
 """
 from __future__ import annotations
 
-from core.systems.weapons import ranged_thrown
+from core.systems.weapons import melee_blade, ranged_thrown
 
 
 def activate_v1_weapons(vault) -> None:
@@ -22,6 +22,9 @@ def activate_v1_weapons(vault) -> None:
     per-mode dispatchers with the strike substrate. Idempotent — safe
     to call across brain restarts.
 
-    PR 2 activates ranged_thrown; later PRs add melee_blade, etc.
+    PR 2 activates ranged_thrown (SHOT mode).
+    PR 3 activates melee_blade (HELD mode with 5-verb swing system).
+    Later PRs add melee_tether (PR 4), magic_staff combo (PR 5).
     """
     ranged_thrown.activate(vault)
+    melee_blade.activate(vault)

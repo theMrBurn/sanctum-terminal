@@ -60,6 +60,12 @@ class ActiveStrike:
     contact_target_kind: str | None = None
     contact_pos:         tuple[float, float, float] | None = None
 
+    # HELD-mode multi-hit ledger. Tracks entity ids (or kind+pos
+    # fallback) already struck this swing so a single arc doesn't
+    # double-hit the same target. Reset implicitly per Strike (each
+    # ActiveStrike is one swing).
+    held_hit_ids: set[Any] = field(default_factory=set)
+
 
 def make_active(strike: Strike, walls: list[WallPlane] | None = None) -> ActiveStrike:
     """Construct an ActiveStrike wrapping a freshly-spawned Strike.
@@ -67,12 +73,26 @@ def make_active(strike: Strike, walls: list[WallPlane] | None = None) -> ActiveS
     `walls` defaults to empty (no chamber walls — outdoor / cavern
     open-world flight). Per-mode handlers can pass chamber_walls when
     relevant (e.g., volley_chamber containment).
+
+    HELD-mode max_age_s is sized to the verb's full lifecycle
+    (wind_up + active + cooldown) so the strike resolves cleanly when
+    the cooldown phase ends. SHOT/WHIP keep the default 5.0s flight
+    budget.
     """
     solver = BallisticsSolver(strike.profile, walls or [])
+    max_age = DEFAULT_MAX_AGE_S
+    if strike.mode == "held" and strike.held_arc:
+        # Sum the three phases — strike resolves at end of cooldown.
+        max_age = (
+            float(strike.held_arc.get("wind_up_s",  0.0)) +
+            float(strike.held_arc.get("active_s",   0.0)) +
+            float(strike.held_arc.get("cooldown_s", 0.0))
+        )
     return ActiveStrike(
         strike        = strike,
         current_state = strike.initial_state,
         solver        = solver,
+        max_age_s     = max_age,
     )
 
 
@@ -109,59 +129,180 @@ def tick_active_strikes(
     for active in active_strikes:
         if active.resolved:
             continue
-        # Physics advance — capture prev_pos for segment-vs-sphere CCD.
-        prev_pos = active.current_state.pos
-        new_state, _wall_contacts = active.solver.step(active.current_state, dt)
-        active.current_state = new_state
-        active.age_seconds += dt
-
-        # Age-based fade — strike never reached anything
-        if active.age_seconds >= active.max_age_s:
-            active.resolved = True
-            active.resolved_kind = "missed"
-            events.append({
-                "kind":        "strike_missed",
-                "weapon_kind": active.strike.weapon_kind,
-                "mode":        active.strike.mode,
-                "source":      active.strike.source_actor,
-                "fade_pos":    new_state.pos,
-            })
-            if on_resolve is not None:
-                on_resolve(active, None)
-            continue
-
-        # Entity collision check — segment-vs-sphere CCD. Catches
-        # tunneling when ball traverses more than 2×combined_radius
-        # per frame.
-        hit_entity = _find_collision(
-            prev_pos,
-            active.current_state.pos,
-            active.strike.profile.ball_radius,
-            entities,
-            kind_config,
-        )
-        if hit_entity is not None:
-            active.resolved = True
-            active.resolved_kind = "landed"
-            active.contact_target_kind = str(hit_entity.get("kind", ""))
-            active.contact_pos = active.current_state.pos
-            events.append({
-                "kind":          "strike_landed",
-                "weapon_kind":   active.strike.weapon_kind,
-                "mode":          active.strike.mode,
-                "source":        active.strike.source_actor,
-                "target_kind":   active.contact_target_kind,
-                "target_id":     hit_entity.get("id"),
-                "contact_pos":   active.contact_pos,
-                "kinetic_energy": kinetic_energy(
-                    active.current_state, active.strike.profile.ball_mass,
-                ),
-                "on_contact":    active.strike.on_contact,
-            })
-            if on_resolve is not None:
-                on_resolve(active, hit_entity)
-            continue
+        # Branch by mode — each mode has different advancement +
+        # collision semantics. SHOT/WHIP advance via BallisticsSolver
+        # and CCD against entities. HELD doesn't translate; the swing
+        # arc itself is the hitbox, swept per-frame during active phase.
+        if active.strike.mode == "held":
+            _tick_held(active, entities, kind_config, dt, on_resolve, events)
+        else:
+            _tick_flight(active, entities, kind_config, dt, on_resolve, events)
     return events
+
+
+def _tick_flight(
+    active:      ActiveStrike,
+    entities:    list[dict[str, Any]],
+    kind_config: dict[str, dict[str, Any]],
+    dt:          float,
+    on_resolve:  Any,
+    events:      list[dict[str, Any]],
+) -> None:
+    """SHOT / WHIP mode tick — physics-advanced, single-target resolve.
+    Used for any Strike that translates through space (ball really
+    flies). Multi-hit not supported here — one contact resolves the
+    Strike."""
+    prev_pos = active.current_state.pos
+    new_state, _wall_contacts = active.solver.step(active.current_state, dt)
+    active.current_state = new_state
+    active.age_seconds += dt
+
+    if active.age_seconds >= active.max_age_s:
+        active.resolved = True
+        active.resolved_kind = "missed"
+        events.append({
+            "kind":        "strike_missed",
+            "weapon_kind": active.strike.weapon_kind,
+            "mode":        active.strike.mode,
+            "source":      active.strike.source_actor,
+            "fade_pos":    new_state.pos,
+        })
+        if on_resolve is not None:
+            on_resolve(active, None)
+        return
+
+    hit_entity = _find_collision(
+        prev_pos,
+        active.current_state.pos,
+        active.strike.profile.ball_radius,
+        entities,
+        kind_config,
+    )
+    if hit_entity is not None:
+        active.resolved = True
+        active.resolved_kind = "landed"
+        active.contact_target_kind = str(hit_entity.get("kind", ""))
+        active.contact_pos = active.current_state.pos
+        events.append({
+            "kind":          "strike_landed",
+            "weapon_kind":   active.strike.weapon_kind,
+            "mode":          active.strike.mode,
+            "source":        active.strike.source_actor,
+            "target_kind":   active.contact_target_kind,
+            "target_id":     hit_entity.get("id"),
+            "contact_pos":   active.contact_pos,
+            "kinetic_energy": kinetic_energy(
+                active.current_state, active.strike.profile.ball_mass,
+            ),
+            "on_contact":    active.strike.on_contact,
+        })
+        if on_resolve is not None:
+            on_resolve(active, hit_entity)
+
+
+def _tick_held(
+    active:      ActiveStrike,
+    entities:    list[dict[str, Any]],
+    kind_config: dict[str, dict[str, Any]],
+    dt:          float,
+    on_resolve:  Any,
+    events:      list[dict[str, Any]],
+) -> None:
+    """HELD mode tick — phase-tracked (wind_up → active → cooldown).
+    During active phase, swept-sphere CCD against entities in the
+    swing arc volume; multi-hit allowed (each entity hit once per
+    swing, tracked via active.held_hit_ids).
+
+    Hitbox position: player_pos + forward × reach. Swing arc as a
+    SPHERE for V1; V2 adds true capsule/blade swept-volume.
+
+    Phase boundaries from strike.held_arc (wind_up_s, active_s,
+    cooldown_s)."""
+    arc = active.strike.held_arc or {}
+    wind_up_s = float(arc.get("wind_up_s",  0.0))
+    active_s  = float(arc.get("active_s",   0.0))
+    cooldown_s = float(arc.get("cooldown_s", 0.0))
+    reach     = float(arc.get("reach_m",    1.0))
+    radius    = float(arc.get("hitbox_radius", 0.4))
+    spawn_fwd = arc.get("spawn_forward") or [0.0, 1.0, 0.0]
+
+    active.age_seconds += dt
+    age = active.age_seconds
+    total = wind_up_s + active_s + cooldown_s
+
+    # Resolve at end of full lifecycle.
+    if age >= total:
+        active.resolved = True
+        # If we hit anything during the active window, "landed";
+        # otherwise "missed".
+        active.resolved_kind = "landed" if active.held_hit_ids else "missed"
+        events.append({
+            "kind":        "strike_missed" if not active.held_hit_ids else "swing_complete",
+            "weapon_kind": active.strike.weapon_kind,
+            "mode":        active.strike.mode,
+            "source":      active.strike.source_actor,
+            "hit_count":   len(active.held_hit_ids),
+        })
+        if on_resolve is not None and not active.held_hit_ids:
+            on_resolve(active, None)
+        return
+
+    # Outside the active window — no hitbox, just phase-progressing.
+    if age < wind_up_s or age > (wind_up_s + active_s):
+        return
+
+    # Active phase — compute hitbox center and CCD against entities.
+    px, py, pz = active.current_state.pos
+    fx, fy, fz = float(spawn_fwd[0]), float(spawn_fwd[1]), float(spawn_fwd[2])
+    hx = px + fx * reach
+    hy = py + fy * reach
+    hz = pz + fz * reach
+
+    for ent in entities:
+        ent_id = ent.get("id")
+        if ent_id is not None and ent_id in active.held_hit_ids:
+            continue                # already hit this swing, skip
+        try:
+            ex = float(ent.get("x", 0.0))
+            ey = float(ent.get("y", 0.0))
+            ez = float(ent.get("z", 0.0))
+        except (TypeError, ValueError):
+            continue
+        kind = str(ent.get("kind", ""))
+        ent_r = _entity_collision_radius(kind, kind_config)
+        if ent_r <= 0:
+            continue
+        dx, dy, dz = hx - ex, hy - ey, hz - ez
+        d2 = dx * dx + dy * dy + dz * dz
+        contact_d = radius + ent_r
+        if d2 > contact_d * contact_d:
+            continue
+        # Hit. Multi-hit semantics: record this entity as struck,
+        # emit one contact event, but do NOT resolve the Strike — the
+        # arc continues, can hit other entities in same active phase.
+        if ent_id is not None:
+            active.held_hit_ids.add(ent_id)
+        else:
+            # No id — fall back to (kind, x, y, z) as a stable identifier
+            active.held_hit_ids.add((kind, ex, ey, ez))
+        active.contact_target_kind = kind
+        active.contact_pos = (hx, hy, hz)
+        events.append({
+            "kind":          "strike_landed",
+            "weapon_kind":   active.strike.weapon_kind,
+            "mode":          active.strike.mode,
+            "source":        active.strike.source_actor,
+            "target_kind":   kind,
+            "target_id":     ent_id,
+            "contact_pos":   (hx, hy, hz),
+            "kinetic_energy": kinetic_energy(
+                active.current_state, active.strike.profile.ball_mass,
+            ),
+            "on_contact":    active.strike.on_contact,
+            "held_verb":     active.strike.held_verb.name if active.strike.held_verb else None,
+        })
+        if on_resolve is not None:
+            on_resolve(active, ent)
 
 
 def _find_collision(

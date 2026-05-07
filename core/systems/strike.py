@@ -259,6 +259,11 @@ def spawn(
         else:
             held_verb = HeldVerb.PUNCH
     arc = arc_shape(held_verb)
+    # Capture forward direction at swing-start so the runtime can place
+    # the swept hitbox at player_pos + forward × reach during the active
+    # phase. Camera rotation during swing doesn't follow — held swings
+    # are locked to start-of-swing direction (standard ARPG melee feel).
+    arc["spawn_forward"] = [float(fwd[0]), float(fwd[1]), float(fwd[2])]
     # Held-mode "ball" stays at hand; initial velocity zero (the swing
     # arc itself drives the per-frame hitbox sweep, computed during
     # resolution rather than as initial_state.vel).

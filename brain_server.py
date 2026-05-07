@@ -2016,10 +2016,12 @@ def run_server(biome_name, port=9877):
                 if msg.get("cmd") == "weapon_use":
                     # ARPG combat — player triggered a weapon use.
                     # Look up the weapon profile + spawn an ActiveStrike
-                    # via the substrate. Per feat/arpg-combat PR 2.
+                    # via the substrate. Per feat/arpg-combat PR 2 (SHOT)
+                    # + PR 3 (HELD with verb arg).
                     weapon_kind = str(msg.get("weapon_kind", ""))
                     mode = str(msg.get("mode", "shot"))
                     cam = msg.get("camera_state") or {}
+                    held_verb_name = msg.get("held_verb")
                     if not weapon_kind or "pos" not in cam or "forward" not in cam:
                         print(f"  weapon_use rejected: missing weapon_kind / camera fields",
                               flush=True)
@@ -2029,12 +2031,21 @@ def run_server(biome_name, port=9877):
                         print(f"  weapon_use: unknown weapon {weapon_kind!r}", flush=True)
                         continue
                     profile["profile_name"] = weapon_kind   # for Strike telemetry
+                    held_verb = None
+                    if held_verb_name and mode == "held":
+                        try:
+                            held_verb = strike_module.HeldVerb[str(held_verb_name).upper()]
+                        except KeyError:
+                            print(f"  weapon_use: unknown held_verb {held_verb_name!r}",
+                                  flush=True)
+                            continue
                     try:
                         s = strike_module.spawn(
                             weapon_profile=profile,
                             mode=mode,                # type: ignore[arg-type]
                             camera_state=cam,
                             source_actor="player",
+                            held_verb=held_verb,
                         )
                     except (KeyError, ValueError) as exc:
                         print(f"  weapon_use rejected: {exc}", flush=True)
