@@ -388,8 +388,24 @@ def _strike_to_manifest(active, player_x, player_y, player_z):
     return out
 
 
+# weapon_class → activity-loop class + intensity mapping
+# Per `design_arpg_combat_v1` activity-loop integration table (PR 7).
+# magic_* emits SOLVE (precision-cast as problem-solving — wizard-heavy
+# player gets puzzle-shaped tension via TensionCycle's pace consumer).
+# melee_tether is heavier weapon class (intensity 2). Default = HUNT 1.
+_WEAPON_CLASS_TO_ACTIVITY: dict[str, tuple] = {
+    "melee_blade":   (activity_loop.ActivityClass.HUNT,  1),
+    "melee_blunt":   (activity_loop.ActivityClass.HUNT,  1),
+    "melee_tether":  (activity_loop.ActivityClass.HUNT,  2),
+    "ranged_thrown": (activity_loop.ActivityClass.HUNT,  1),
+    "ranged_bow":    (activity_loop.ActivityClass.HUNT,  1),
+    "magic_staff":   (activity_loop.ActivityClass.SOLVE, 1),
+    "magic_wand":    (activity_loop.ActivityClass.SOLVE, 1),
+}
+
+
 def _on_strike_resolve(world, active_strike, target_entity) -> None:
-    """Resolve an ARPG combat Strike contact (feat/arpg-combat PR 2).
+    """Resolve an ARPG combat Strike contact (feat/arpg-combat PR 2 + PR 7).
 
     Called per-resolution by `strike_runtime.tick_active_strikes`. Three
     outcome paths:
@@ -401,14 +417,23 @@ def _on_strike_resolve(world, active_strike, target_entity) -> None:
        engagement trigger. Per `design_creature_engagement_v1` and
        `design_wont_tolerate` #5, hitting a creature does NOT damage HP.
        Strike opens the kind's engagement_type. V1 stub: emit StateEvent
-       + activity HUNT signal; full engagement-substrate dispatch lands
-       with `feat/creature-engagement` PR sequence.
+       + weapon-class-specific activity signal.
 
     3. `target_entity` has no engagement slot — env damage. Generalize
        the existing kind_destroyed flow: push tick event for async-quest
        predicates, add to destroyed_entity_ids ledger, emit StateEvent
-       toast, fire HUNT activity signal.
+       toast, fire weapon-class-specific activity signal.
+
+    PR 7 also closes the vault.combat_sessions row opened on weapon_use,
+    differentiates HUNT vs SOLVE per weapon_class.
     """
+    # weapon_class differentiates activity emission per spec table
+    weapon_class = active_strike.weapon_class or ""
+    activity_class, intensity = _WEAPON_CLASS_TO_ACTIVITY.get(
+        weapon_class,
+        (activity_loop.ActivityClass.HUNT, 1),       # default
+    )
+
     if target_entity is None:
         # Faded
         world.state_events.emit(
@@ -417,6 +442,15 @@ def _on_strike_resolve(world, active_strike, target_entity) -> None:
             None,
             REG_LOOP,
         )
+        # Close combat_sessions row with "missed" outcome.
+        if active_strike.session_id is not None:
+            try:
+                _get_vault().combat_session_close(
+                    session_id=active_strike.session_id,
+                    outcome="missed",
+                )
+            except Exception:                            # noqa: BLE001
+                pass
         return
 
     target_kind = str(target_entity.get("kind", ""))
@@ -434,20 +468,29 @@ def _on_strike_resolve(world, active_strike, target_entity) -> None:
             None,
             REG_TENSE,
         )
-        # V1 activity emit — HUNT registers as combat-style action even
-        # though no damage was dealt. The engagement that opens decides
-        # the eventual win/lose activity per its own type.
         activity_loop.emit_activity(
-            activity_loop.ActivityClass.HUNT,
-            intensity=1,
+            activity_class,
+            intensity=intensity,
             primitive="strike_to_creature",
             source_brain="arpg_combat",
             payload={
-                "weapon": active_strike.strike.weapon_kind,
-                "kind":   target_kind,
-                "mode":   active_strike.strike.mode,
+                "weapon":       active_strike.strike.weapon_kind,
+                "weapon_class": weapon_class,
+                "kind":         target_kind,
+                "mode":         active_strike.strike.mode,
             },
         )
+        # Close combat_sessions row.
+        if active_strike.session_id is not None:
+            try:
+                _get_vault().combat_session_close(
+                    session_id=active_strike.session_id,
+                    outcome="engagement_triggered",
+                    target_kind=target_kind,
+                    target_id=int(target_id) if target_id is not None else None,
+                )
+            except Exception:                            # noqa: BLE001
+                pass
         return
 
     # Env path — generalize kind_destroyed flow
@@ -467,16 +510,31 @@ def _on_strike_resolve(world, active_strike, target_entity) -> None:
         REG_LOOP,
     )
     activity_loop.emit_activity(
-        activity_loop.ActivityClass.HUNT,
-        intensity=1,
+        activity_class,
+        intensity=intensity,
         primitive="strike_destroyed_env",
         source_brain="arpg_combat",
         payload={
-            "weapon": active_strike.strike.weapon_kind,
-            "kind":   target_kind,
-            "mode":   active_strike.strike.mode,
+            "weapon":       active_strike.strike.weapon_kind,
+            "weapon_class": weapon_class,
+            "kind":         target_kind,
+            "mode":         active_strike.strike.mode,
         },
     )
+    # Close combat_sessions row with "landed" outcome.
+    if active_strike.session_id is not None:
+        try:
+            from core.systems.strike_runtime import kinetic_energy as _ke
+            _get_vault().combat_session_close(
+                session_id=active_strike.session_id,
+                outcome="landed",
+                target_kind=target_kind,
+                target_id=int(target_id) if target_id is not None else None,
+                kinetic_energy=_ke(active_strike.current_state,
+                                   active_strike.strike.profile.ball_mass),
+            )
+        except Exception:                                # noqa: BLE001
+            pass
 
 
 # ── Pillar formation geometry ─────────────────────────────────────────
@@ -2111,7 +2169,21 @@ def run_server(biome_name, port=9877):
                     except (KeyError, ValueError) as exc:
                         print(f"  weapon_use rejected: {exc}", flush=True)
                         continue
-                    world.active_strikes.append(strike_runtime.make_active(s))
+                    active = strike_runtime.make_active(s)
+                    # vault.combat_sessions telemetry — open per swing,
+                    # close on resolution (feat/arpg-combat PR 7).
+                    weapon_class = profile.get("weapon_class")
+                    active.weapon_class = weapon_class
+                    try:
+                        active.session_id = _get_vault().combat_session_open(
+                            source_actor="player",
+                            weapon_kind=weapon_kind,
+                            weapon_class=weapon_class,
+                            mode=mode,
+                        )
+                    except Exception:                    # noqa: BLE001
+                        pass                              # telemetry non-load-bearing
+                    world.active_strikes.append(active)
                     last_wake_ids = set()
                     continue
 

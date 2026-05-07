@@ -66,6 +66,16 @@ class ActiveStrike:
     # ActiveStrike is one swing).
     held_hit_ids: set[Any] = field(default_factory=set)
 
+    # vault.combat_sessions row id (feat/arpg-combat PR 7). Set when
+    # the brain opens a session on weapon_use; closed on resolution.
+    # None for non-telemetry contexts (tests, headless).
+    session_id: int | None = None
+
+    # weapon_class — read from weapon_profile at spawn time. Used by
+    # PR 7 activity-loop differentiation (HUNT for melee/thrown/bow,
+    # SOLVE for magic).
+    weapon_class: str | None = None
+
 
 def make_active(strike: Strike, walls: list[WallPlane] | None = None) -> ActiveStrike:
     """Construct an ActiveStrike wrapping a freshly-spawned Strike.

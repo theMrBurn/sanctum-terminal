@@ -245,6 +245,35 @@ class vault:
                     "CREATE INDEX IF NOT EXISTS idx_activity_log_class "
                     "ON activity_log(class_index, timestamp DESC)"
                 )
+                # combat_sessions — per-Strike telemetry record
+                # (feat/arpg-combat PR 7). One row per spawned Strike;
+                # opened on weapon_use cmd, closed on strike resolution.
+                # Mirrors vault.runs but per-swing grain instead of
+                # per-session.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS combat_sessions (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source_actor    TEXT    NOT NULL,
+                        weapon_kind     TEXT    NOT NULL,
+                        weapon_class    TEXT,
+                        mode            TEXT    NOT NULL,
+                        target_kind     TEXT,
+                        target_id       INTEGER,
+                        outcome         TEXT,
+                        kinetic_energy  REAL,
+                        started_at      REAL    NOT NULL,
+                        resolved_at     REAL,
+                        metrics_json    TEXT    NOT NULL DEFAULT '{}'
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_combat_sessions_weapon "
+                    "ON combat_sessions(weapon_kind, started_at DESC)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_combat_sessions_mode "
+                    "ON combat_sessions(mode, started_at DESC)"
+                )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -1031,6 +1060,99 @@ class vault:
                     "intensity":    r["intensity"],
                     "source_brain": r["source_brain"],
                     "payload":      json.loads(r["payload_json"] or "{}"),
+                }
+                for r in rows
+            ]
+
+    # -- combat_sessions --------------------------------------------------
+    # Per-Strike telemetry. Per `.claude/feature/feat_arpg-combat.md`
+    # PR 7. Mirrors runs but per-swing grain.
+
+    def combat_session_open(
+        self,
+        source_actor: str,
+        weapon_kind:  str,
+        weapon_class: str | None,
+        mode:         str,
+    ) -> int:
+        """Open a new combat session row. Returns the row id."""
+        import time as _time
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "INSERT INTO combat_sessions "
+                "(source_actor, weapon_kind, weapon_class, mode, started_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    str(source_actor),
+                    str(weapon_kind),
+                    str(weapon_class) if weapon_class else None,
+                    str(mode),
+                    _time.time(),
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def combat_session_close(
+        self,
+        session_id:    int,
+        outcome:       str,
+        target_kind:   str | None = None,
+        target_id:     int | None = None,
+        kinetic_energy: float | None = None,
+        metrics:       dict | None = None,
+    ) -> bool:
+        """Close a combat session by id. Returns True if a row was
+        updated."""
+        import time as _time
+        metrics_json = json.dumps(metrics or {})
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "UPDATE combat_sessions SET "
+                "  resolved_at    = ?, "
+                "  outcome        = ?, "
+                "  target_kind    = ?, "
+                "  target_id      = ?, "
+                "  kinetic_energy = ?, "
+                "  metrics_json   = ? "
+                "WHERE id = ?",
+                (
+                    _time.time(),
+                    str(outcome),
+                    str(target_kind) if target_kind else None,
+                    int(target_id) if target_id is not None else None,
+                    float(kinetic_energy) if kinetic_energy is not None else None,
+                    metrics_json,
+                    int(session_id),
+                ),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def combat_sessions_by_weapon(self, weapon_kind: str) -> list[dict]:
+        """List all combat sessions for a weapon, newest first."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM combat_sessions "
+                "WHERE weapon_kind = ? "
+                "ORDER BY started_at DESC",
+                (str(weapon_kind),),
+            ).fetchall()
+            return [
+                {
+                    "id":             r["id"],
+                    "source_actor":   r["source_actor"],
+                    "weapon_kind":    r["weapon_kind"],
+                    "weapon_class":   r["weapon_class"],
+                    "mode":           r["mode"],
+                    "target_kind":    r["target_kind"],
+                    "target_id":      r["target_id"],
+                    "outcome":        r["outcome"],
+                    "kinetic_energy": r["kinetic_energy"],
+                    "started_at":     r["started_at"],
+                    "resolved_at":    r["resolved_at"],
+                    "metrics":        json.loads(r["metrics_json"] or "{}"),
                 }
                 for r in rows
             ]
