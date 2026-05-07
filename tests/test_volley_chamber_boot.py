@@ -98,7 +98,9 @@ def test_handler_manifest_keys_shape(fresh_vault):
     assert keys["instance_id"] == "ping_pong"
     assert keys["active_profile"] == "vanilla"
     chamber = keys["chamber"]
-    assert chamber["size"] == [12.0, 12.0, 12.0]
+    # Tennis-court-ish proportions per ping_pong.py CHAMBER_GEOMETRY,
+    # tuned post-UAT 2026-05-04 (commit 7055e77).
+    assert chamber["size"] == [12.0, 36.0, 8.0]
     assert chamber["origin"] == [0.0, 0.0, 0.0]
     assert len(chamber["color"]) == 3
 
@@ -261,10 +263,14 @@ def test_handle_volley_serve_spawns_ball(fresh_vault):
 
 
 def _ball_past_back_line(handler):
-    """Drive the ball to past out_of_bounds_y so the next on_tick resolves."""
+    """Drive the ball to past out_of_bounds_y so the next on_tick resolves.
+
+    out_of_bounds_y was tuned to -3.0 in commit 7055e77; fixture y must
+    be strictly less than -3.0. Pinning at -4.0.
+    """
     from core.systems.ballistics import MotionVector
     handler.ball = MotionVector(
-        pos=(0.0, -2.0, 1.6),    # past out_of_bounds_y=-1.0
+        pos=(0.0, -4.0, 1.6),
         vel=(0.0, 0.0, 0.0),
         spin=(0.0, 0.0, 0.0),
         timestamp=0.0,

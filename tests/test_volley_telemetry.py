@@ -34,9 +34,13 @@ def handler(fresh_vault):
 
 
 def _send_ball_out(h):
-    """Drive the ball past out_of_bounds_y so on_tick resolves the rally."""
+    """Drive the ball past out_of_bounds_y so on_tick resolves the rally.
+
+    Vanilla profile out_of_bounds_y was tuned to -3.0 in commit 7055e77;
+    fixture y must be strictly less than -3.0. Pinning at -4.0.
+    """
     h.ball = MotionVector(
-        pos=(0.0, -2.0, 1.6),
+        pos=(0.0, -4.0, 1.6),
         vel=(0.0, 0.0, 0.0),
         spin=(0.0, 0.0, 0.0),
         timestamp=0.0,
