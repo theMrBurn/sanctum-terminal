@@ -35,21 +35,55 @@ Bound tests moved to `tests/` subdirectory:
 
 These will not be collected by `pytest` from this archive location.
 
-## What was NOT archived in this batch
+## A7-medium archived 2026-05-07
 
-Per audit A7, the following orphans were tagged "medium confidence" and
-require explicit user direction (retire vs. wire) before archival:
+The medium-confidence batch landed in a follow-up commit. Verification
+pass: each module's importers grep'd; all consumers were legacy
+(Panda3D-era files: `cavern.py`, `shadowbox_dungeon.py`, `creation_lab.py`,
+`simulation_theater.py`, `core/systems/biome_scene.py`) or
+co-retiring (e.g. `entropy_engine` only consumed by `placement_engine`,
+both archived together).
 
-- `core/systems/placement_engine.py`
-- `core/systems/entropy_engine.py`
-- `core/systems/ghost_profile_engine.py`
-- `core/systems/tree_builder.py`
-- `core/systems/object_ecology.py` (DESIGNED, not built — different category)
-- `core/systems/pickup_system.py`
+| File | Verified consumers (all legacy) | Superseded / replaced by |
+|---|---|---|
+| `placement_engine.py` | `cavern.py`, `shadowbox_dungeon.py` | `world_gen.py` honeycomb + flourish helpers, `stamp_world.stamp_at` |
+| `entropy_engine.py` | `cavern.py`, `shadowbox_dungeon.py`, `placement_engine` (lazy import) | (no replacement — entropy randomization absorbed into world_gen) |
+| `ghost_profile_engine.py` | `avatar_pipeline.py` (itself legacy-only) | `fingerprint_engine.py` is the live primitive; ghost-profile blending was avatar-creation-flow specific (now superseded by `pillars/` + `character_draft`) |
+| `tree_builder.py` | `core/systems/biome_scene.py` (Panda3D) | `wireframe_mesh.py` `tree_top` built-in primitive |
+| `pickup_system.py` | `creation_lab.py`, `simulation_theater.py`, `scenario_runner.py` (all legacy) | `PlayerState.inventory` tuple via `core/systems/player_state.py` |
+| `object_ecology.py` | (zero consumers, zero tests) | (no replacement — DESIGNED-only, never built into the live pipeline; ecological tagging if needed will land via kind_config schema) |
 
-Plus `core/systems/scenario_runner.py`, `consolidation.py`,
-`crafting_engine.py`, `crafting_integration.py`, `material_system.py` —
-deferred to A9 / A10 since they may rewire under the
-`design_creature_engagement_v1` spec.
+Bound tests archived alongside: `test_placement.py`, `test_entropy.py`,
+`test_ghost_profile.py`, `test_tree_builder.py`. (No tests existed for
+`pickup_system` standalone or `object_ecology`.)
 
-See audit doc A7 + A14 for the full disposition map.
+## Known downstream breakage (acceptable — legacy)
+
+After this archive, `core/systems/avatar_pipeline.py` has a broken
+import (`from core.systems.ghost_profile_engine import GhostProfileEngine`).
+It is itself only consumed by Panda3D-era files (`creation_lab.py`,
+`simulation_theater.py`). Its cleanup is part of A14 (legacy archive
+batch) — left broken intentionally rather than expanding A7 scope.
+
+Same pattern for `tests/test_fingerprint.py:92,102` and
+`tests/test_design_key.py` — these import `GhostProfileEngine` lazily
+inside test bodies. They will fail to RUN but still collect; the
+failures are isolated and don't affect the live test suite (verified
+post-archive: 157/157 cluster sweep green).
+
+## Still NOT archived (future batches)
+
+Deferred to **A10** (creature_engagement spec dependent):
+- `core/systems/combat.py` + `combat_session.py` + `attack_lib.py` + `encounter_builder.py`
+- `core/systems/crafting_engine.py` + `crafting_integration.py`
+- `core/systems/material_system.py`
+- `core/systems/interaction_engine.py`
+- `core/systems/encounter_generator.py` (already retired in initial batch)
+
+Deferred to **A14** (legacy file archival):
+- `core/systems/avatar_pipeline.py` (broken after this archive — see above)
+- `core/systems/scenario_engine.py` + `scenario_runner.py` + `scenario_chain.py` + `consolidation.py` (idle by design or legacy bridges)
+- `core/systems/atmosphere_engine.py`, `glow_decal.py`, `sprite_renderer.py`, `billboard_renderer.py` (all panda3d-imported)
+- All top-level Panda3D entries: `cavern.py`, `creation_lab.py`, `dungeon.py`, `FirstLight.py`, `room_lab.py`, `shadowbox_dungeon.py`, `simulation_theater.py`, `SimulationRunner.py`, `template_viewer.py`, `sanctum_terminal.py`, `main.py`
+
+See audit doc `.claude/audit_2026-05-06.md` for the full disposition map.
