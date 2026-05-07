@@ -111,6 +111,11 @@ DEFAULT_BINDINGS: dict[str, list[Trigger]] = {
         ("key",     "KEY_G"),                                 # G for "go" / throw
         ("gamepad", "GAMEPAD_BUTTON_LEFT_FACE_DOWN"),         # D-pad down
     ],
+    # ARPG combat (feat/arpg-combat PR 4 — WHIP-mode lash)
+    "weapon_whip":      [
+        ("key",     "KEY_V"),                                 # V for vine/whip
+        ("gamepad", "GAMEPAD_BUTTON_LEFT_FACE_LEFT"),         # D-pad left
+    ],
 
     # Misc UI / debug
     "journal_toggle":   [("key", "KEY_J")],

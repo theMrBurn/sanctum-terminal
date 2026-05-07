@@ -224,10 +224,13 @@ def spawn(
         tether = float(weapon_profile.get("tether_length", 2.0))
         ang_vel = float(camera_state.get("ang_vel", 0.0))
         # Swing arc velocity = camera_angular_velocity × tether_length
-        # (per ping-pong V1 paddle_velocity math).
+        # (per ping-pong V1 paddle_velocity math). When ang_vel is 0
+        # (player not turning), use a sensible default forward speed
+        # so the ball still arcs out in front (not stationary at hand).
         swing_speed = abs(ang_vel) * tether
-        # Initial direction is forward + perpendicular swing — V1
-        # simplification: launch tangent to forward in the swing plane.
+        if swing_speed < 1e-3:
+            swing_speed = 8.0          # default swing speed when not turning
+        # Initial direction is forward — V1 simplification.
         initial_vel = (fwd[0] * swing_speed, fwd[1] * swing_speed, fwd[2] * swing_speed)
         # Ball spawns at end of tether, forward of player.
         spawn_pos = (
@@ -240,6 +243,12 @@ def spawn(
             timestamp=float(camera_state.get("now", 0.0)),
         )
         oc = on_contact or "damage_env"
+        # Carry whip phase timings via held_arc (reuses the Strike
+        # field; runtime reads `whip_swing_s` and `whip_retract_s`).
+        whip_arc = {
+            "whip_swing_s":   float(weapon_profile.get("whip_swing_s",   0.45)),
+            "whip_retract_s": float(weapon_profile.get("whip_retract_s", 0.30)),
+        }
         return Strike(
             mode="whip",
             profile=profile,
@@ -249,6 +258,7 @@ def spawn(
             source_actor=source_actor,
             initial_state=initial_state,
             tether_length=tether,
+            held_arc=whip_arc,
         )
 
     # mode == "held"

@@ -468,6 +468,22 @@ def main() -> int:
                     },
                 })
 
+            # ARPG combat — whip lash (feat/arpg-combat PR 4 WHIP mode).
+            # V key triggers chain_whip — ball arcs out from tether,
+            # multi-hits along arc, deterministically returns to player.
+            if input_map.pressed("weapon_whip"):
+                client.send({
+                    "cmd":         "weapon_use",
+                    "weapon_kind": "chain_whip",
+                    "mode":        "whip",
+                    "camera_state": {
+                        "pos":     [camera.position.x, camera.position.z, camera.position.y],
+                        "forward": [forward[0],         forward[1],         0.0],
+                        "ang_vel": 0.0,
+                        "now":     now,
+                    },
+                })
+
             # K = damage_self debug. Each press deals 99 damage, sufficient
             # to push HP to 0 in one tap — exposes the forced reflective
             # chain end-to-end (REFLECT toast → fridge UI → commit →

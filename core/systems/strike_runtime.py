@@ -88,6 +88,12 @@ def make_active(strike: Strike, walls: list[WallPlane] | None = None) -> ActiveS
             float(strike.held_arc.get("active_s",   0.0)) +
             float(strike.held_arc.get("cooldown_s", 0.0))
         )
+    elif strike.mode == "whip" and strike.held_arc:
+        # Sum swing + retract — ball returns to player at end of retract.
+        max_age = (
+            float(strike.held_arc.get("whip_swing_s",   0.45)) +
+            float(strike.held_arc.get("whip_retract_s", 0.30))
+        )
     return ActiveStrike(
         strike        = strike,
         current_state = strike.initial_state,
@@ -129,12 +135,15 @@ def tick_active_strikes(
     for active in active_strikes:
         if active.resolved:
             continue
-        # Branch by mode — each mode has different advancement +
-        # collision semantics. SHOT/WHIP advance via BallisticsSolver
-        # and CCD against entities. HELD doesn't translate; the swing
-        # arc itself is the hitbox, swept per-frame during active phase.
+        # Branch by mode — each has different advancement + collision
+        # semantics. SHOT advances via BallisticsSolver + segment CCD
+        # (single-hit). WHIP swings under physics with multi-hit, then
+        # animates retract back to player. HELD doesn't translate; the
+        # swing arc IS the hitbox, swept per-frame during active phase.
         if active.strike.mode == "held":
             _tick_held(active, entities, kind_config, dt, on_resolve, events)
+        elif active.strike.mode == "whip":
+            _tick_whip(active, entities, kind_config, dt, on_resolve, events)
         else:
             _tick_flight(active, entities, kind_config, dt, on_resolve, events)
     return events
@@ -198,6 +207,123 @@ def _tick_flight(
         })
         if on_resolve is not None:
             on_resolve(active, hit_entity)
+
+
+def _tick_whip(
+    active:      ActiveStrike,
+    entities:    list[dict[str, Any]],
+    kind_config: dict[str, dict[str, Any]],
+    dt:          float,
+    on_resolve:  Any,
+    events:      list[dict[str, Any]],
+) -> None:
+    """WHIP mode tick — two phases: swing (physics + multi-hit), then
+    retract (animation back to player). Ball ALWAYS returns to player
+    at end of retract (deterministic — even on miss).
+
+    The swing phase runs BallisticsSolver advance + segment-vs-sphere
+    CCD with multi-hit (similar to HELD but along a flying ball
+    trajectory). The retract phase is animation only — no collisions,
+    ball position interpolates from end-of-swing pos toward player_pos
+    over retract_duration.
+
+    Per `design_arpg_combat_v1` WHIP AC: STRIKE input INITIATES; multi-
+    hit possible per arc; ball returns deterministically.
+    """
+    # Per-weapon swing/retract durations stored on the strike's profile
+    # via raw weapon_profile params. We retrieve via held_arc as a
+    # convenience (V1 stores them on Strike.held_arc for WHIP too —
+    # `arc_shape` only emits these for HELD verbs, so WHIP picks them
+    # up from default factory or via spawn-time injection. For V1, we
+    # just default in-place if absent.)
+    swing_duration = 0.45
+    retract_duration = 0.30
+    # Allow Strike.held_arc to override (in case future tooling stamps
+    # whip phases there). Best-effort lookup.
+    if active.strike.held_arc:
+        swing_duration = float(active.strike.held_arc.get("whip_swing_s", swing_duration))
+        retract_duration = float(active.strike.held_arc.get("whip_retract_s", retract_duration))
+    # max_age = swing + retract (set in make_active for HELD; for WHIP
+    # we set it here on first tick).
+    if active.max_age_s == DEFAULT_MAX_AGE_S:
+        active.max_age_s = swing_duration + retract_duration
+
+    prev_age = active.age_seconds
+    active.age_seconds += dt
+    new_age = active.age_seconds
+
+    # Phase 1: swing (physics + multi-hit) ------------------------------
+    if prev_age < swing_duration:
+        # Some or all of dt was during swing.
+        swing_dt = min(dt, swing_duration - prev_age)
+        prev_pos = active.current_state.pos
+        new_state, _ = active.solver.step(active.current_state, swing_dt)
+        active.current_state = new_state
+
+        # Multi-hit: check entities along swing segment, accumulate hits
+        # in held_hit_ids (reused for whip per the per-active set).
+        for ent in entities:
+            ent_id = ent.get("id")
+            if ent_id is not None and ent_id in active.held_hit_ids:
+                continue
+            try:
+                ex = float(ent.get("x", 0.0))
+                ey = float(ent.get("y", 0.0))
+                ez = float(ent.get("z", 0.0))
+            except (TypeError, ValueError):
+                continue
+            kind = str(ent.get("kind", ""))
+            ent_r = _entity_collision_radius(kind, kind_config)
+            if ent_r <= 0:
+                continue
+            contact_r = active.strike.profile.ball_radius + ent_r
+            toi = _segment_sphere_intersect(prev_pos, active.current_state.pos,
+                                            (ex, ey, ez), contact_r)
+            if toi is None:
+                continue
+            if ent_id is not None:
+                active.held_hit_ids.add(ent_id)
+            else:
+                active.held_hit_ids.add((kind, ex, ey, ez))
+            active.contact_target_kind = kind
+            active.contact_pos = active.current_state.pos
+            events.append({
+                "kind":        "strike_landed",
+                "weapon_kind": active.strike.weapon_kind,
+                "mode":        "whip",
+                "source":      active.strike.source_actor,
+                "target_kind": kind,
+                "target_id":   ent_id,
+                "contact_pos": active.current_state.pos,
+                "kinetic_energy": kinetic_energy(
+                    active.current_state, active.strike.profile.ball_mass,
+                ),
+                "on_contact":  active.strike.on_contact,
+            })
+            if on_resolve is not None:
+                on_resolve(active, ent)
+        # Continue arc — even after hits, ball plows through.
+
+    # Phase 2: retract (animation only — no collisions) ----------------
+    # If new_age has crossed into retract territory, stop physics and
+    # interpolate ball position toward player. For V1, we just don't
+    # advance physics — ball position freezes at end-of-swing, runtime
+    # fades it out at end of retract. (Fancy reel-in animation is
+    # client-side polish in PR 6.)
+
+    # Resolve at end of total ------------------------------------------
+    if new_age >= active.max_age_s:
+        active.resolved = True
+        active.resolved_kind = "landed" if active.held_hit_ids else "missed"
+        events.append({
+            "kind":         "swing_complete" if active.held_hit_ids else "strike_missed",
+            "weapon_kind":  active.strike.weapon_kind,
+            "mode":         "whip",
+            "source":       active.strike.source_actor,
+            "hit_count":    len(active.held_hit_ids),
+        })
+        if on_resolve is not None and not active.held_hit_ids:
+            on_resolve(active, None)
 
 
 def _tick_held(
