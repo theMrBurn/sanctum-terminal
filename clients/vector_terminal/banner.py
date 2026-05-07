@@ -39,12 +39,15 @@ import pyray as rl
 _SLICES = 24
 
 # Wireframe needs much higher alpha than filled meshes to be visible
-# against the black background. 6x boost + a 0.25 floor brings the
-# config's 0.02–0.21 range into a 0.25–1.0 visible range. Tint is
+# against the black background. 6x boost lifts the config's 0.02–0.21
+# range; floor protects the innermost layer from disappearing. Lowered
+# floor 0.25 → 0.10 (2026-05-07) so 7-layer rollout doesn't compress
+# the dynamic range — inner cylinders can fade further, giving more
+# contrast between near layers and the dominant horizon. Tint is
 # passed through unmodulated — biome identity preserved, only alpha
 # amplified for the vector-terminal aesthetic.
 _WIREFRAME_ALPHA_BOOST = 6.0
-_WIREFRAME_ALPHA_FLOOR = 0.25
+_WIREFRAME_ALPHA_FLOOR = 0.10
 
 # Demo mode: render only the outermost layer (the horizon). Strips the
 # inner 6 to isolate the single-cylinder primitive for tuning. Default

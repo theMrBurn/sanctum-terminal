@@ -31,9 +31,16 @@ AMBER_RGB = (255, 176, 0)
 # `distance_fade.set_bounds()` overrides these when the manifest
 # carries fog. These constants apply only before the first manifest is
 # received OR when a biome/state emits no fog (workroom, volley_chamber).
+#
+# MIN_GLOW lowered 0.15 → 0.06 → 0.04 (2026-05-07) — paired with
+# quadratic falloff in `distance_fade.intensity` for phosphor-curve
+# contrast. Mid-distance lines stay bright longer (lit through
+# atmosphere), then drop sharply near the far edge. Floor at 0.04 is
+# the minimum that still preserves the "never fully dark" identity
+# while letting the horizon cliff contrast hard against near wires.
 NEAR_DIST = 4.0
 FAR_FADE = 60.0
-MIN_GLOW = 0.15
+MIN_GLOW = 0.04
 
 # Terrain — wireframe floor / ceiling grid that snaps to camera so it
 # reads as infinite without exploding the line count.

@@ -80,9 +80,16 @@ def active_bounds() -> tuple[float, float]:
 
 def intensity(dist: float) -> float:
     """Phosphor falloff intensity at `dist`. Full bright within `near`,
-    linear fade to `cfg.MIN_GLOW` at `far`, capped at MIN_GLOW past
+    quadratic fade to `cfg.MIN_GLOW` at `far`, capped at MIN_GLOW past
     that. Never returns 0 — the wireframe identity keeps a faint glow
     on distant edges.
+
+    Curve shape (2026-05-07): quadratic `t²` instead of linear `t`. This
+    preserves brightness through mid-distance (CRT phosphor stays lit
+    "through atmosphere") then drops sharply at the far edge. The
+    visual effect: less wash-out in the middle band, sharper horizon
+    cliff. Combined with PR 16's dynamic fog bounds, the cliff
+    contracts/expands per cycle state.
     """
     near, far = active_bounds()
     if dist <= near:
@@ -91,4 +98,5 @@ def intensity(dist: float) -> float:
         return cfg.MIN_GLOW
     span = max(0.01, far - near)             # guard against degenerate equal bounds
     t = (dist - near) / span
+    t = t * t                                # quadratic falloff — phosphor-curve-shaped
     return max(cfg.MIN_GLOW, 1.0 - t * (1.0 - cfg.MIN_GLOW))
