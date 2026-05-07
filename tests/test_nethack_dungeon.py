@@ -210,8 +210,10 @@ def test_golden_seed_42_structure():
     # At minimum 2 rooms (4×3=12 floor cells each) + corridors
     assert passable_count >= 24
 
-    # Pin exact spawn and stairs for regression detection
-    assert level.spawn_pos == (12, 4), f"unexpected spawn: {level.spawn_pos}"
+    # Pin exact spawn and stairs for regression detection.
+    # Re-derived after 2026-05-07 feel-pass: SUPERGRID_H 3→2 + MIN_ROOM_H
+    # 3→4 shifted RNG sequence. Old pin was (12, 4).
+    assert level.spawn_pos == (11, 6), f"unexpected spawn: {level.spawn_pos}"
     assert level.stairs_pos in {
         (x, y) for x in range(MAP_W) for y in range(MAP_H)
         if level.grid[x][y] == Tile.STAIRS_DOWN

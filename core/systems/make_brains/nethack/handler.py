@@ -51,9 +51,9 @@ VANILLA_PARAMS: dict[str, Any] = {
     "map_h":            24,
     # Dungeon-gen — classic Rogue 3x3 super-grid
     "supergrid_w":      3,
-    "supergrid_h":      3,
+    "supergrid_h":      2,    # 2 rows → taller slots → real-feel rooms
     "min_room_w":       4,
-    "min_room_h":       3,
+    "min_room_h":       4,    # was 3 — guaranteed 2-row interior
     "max_room_w":       12,
     "max_room_h":       8,
     # FOV

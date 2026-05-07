@@ -22,10 +22,13 @@ MAP_W: int = 80
 MAP_H: int = 24
 
 SUPERGRID_W: int = 3       # 3 columns of room slots
-SUPERGRID_H: int = 3       # 3 rows of room slots
+SUPERGRID_H: int = 2       # 2 rows of room slots — gives 11-tall slots so
+                           # max room height can hit 8 (NetHack-feel rooms,
+                           # not hallway-ratio rooms). 3-row supergrid
+                           # capped slot_h at 7, forcing room_h ≤ 5.
 
 MIN_ROOM_W: int = 4
-MIN_ROOM_H: int = 3
+MIN_ROOM_H: int = 4        # was 3; minimum 2-row interior is the floor.
 MAX_ROOM_W: int = 12
 MAX_ROOM_H: int = 8
 

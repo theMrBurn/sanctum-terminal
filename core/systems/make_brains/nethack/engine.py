@@ -67,6 +67,10 @@ class GameState:
         # Generate the first level
         self.level = generate_level(seed)
         self._place_player_at_spawn()
+        # Spawn dlvl 1 monsters + items. PR 7's _spawn_level_entities
+        # was wired only into try_descend, so dlvl 1 booted empty. Without
+        # this call the player explores the first floor with nothing on it.
+        self._spawn_level_entities()
         self._update_fov()
 
     # -----------------------------------------------------------------------
@@ -98,6 +102,21 @@ class GameState:
         self.visible = compute_fov_from_level(
             self.level, self.player.x, self.player.y, fov_radius
         )
+        # Lit-room effect (classic NetHack): standing inside a room reveals
+        # the entire room interior, not just the FOV disk. Walls of the
+        # containing room are also revealed so the player sees the boundary.
+        px, py = self.player.x, self.player.y
+        for room in self.level.rooms:
+            if room.x < px < room.x2 and room.y < py < room.y2:
+                for cell in room.inner_cells():
+                    self.visible.add(cell)
+                for rx in range(room.x, room.x2 + 1):
+                    self.visible.add((rx, room.y))
+                    self.visible.add((rx, room.y2))
+                for ry in range(room.y, room.y2 + 1):
+                    self.visible.add((room.x,  ry))
+                    self.visible.add((room.x2, ry))
+                break
         self.visited |= self.visible
 
     # -----------------------------------------------------------------------
