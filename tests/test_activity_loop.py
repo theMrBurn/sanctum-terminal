@@ -451,6 +451,105 @@ def test_reward_table_covers_six_active_classes():
     assert ActivityClass.SNEAK not in classes_with_rows
 
 
+# ── PR 15: dominant_class + pace_multiplier (TensionCycle consumer) ──
+
+
+def test_dominant_class_returns_none_when_all_zero():
+    p = PreferenceCounters()
+    assert p.dominant_class() is None
+
+
+def test_dominant_class_returns_none_below_min_threshold():
+    """Class with max count below DOMINANT_MIN_COUNT — no dominance."""
+    from core.systems.activity_loop import DOMINANT_MIN_COUNT
+    p = PreferenceCounters()
+    p.emit(ActivityClass.HUNT, max(0, DOMINANT_MIN_COUNT - 1))
+    assert p.dominant_class() is None
+
+
+def test_dominant_class_returns_max():
+    p = PreferenceCounters()
+    p.emit(ActivityClass.UNWIND, 50)
+    p.emit(ActivityClass.HUNT,   30)
+    assert p.dominant_class() is ActivityClass.UNWIND
+
+
+def test_dominant_class_returns_none_on_tie():
+    """Tied tops → balanced (None) instead of arbitrary winner."""
+    p = PreferenceCounters()
+    p.emit(ActivityClass.HUNT,   30)
+    p.emit(ActivityClass.UNWIND, 30)
+    assert p.dominant_class() is None
+
+
+def test_pace_multiplier_neutral_without_install():
+    """Module-level pace_multiplier returns 1.0 when not installed."""
+    activity_loop._reset_for_tests()
+    assert activity_loop.pace_multiplier() == activity_loop.PACE_MULTIPLIER_NEUTRAL
+
+
+def test_pace_multiplier_active_for_hunt_dominant():
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se)
+    prefs.emit(ActivityClass.HUNT, 30)
+    assert activity_loop.pace_multiplier() == activity_loop.PACE_MULTIPLIER_ACTIVE
+
+
+def test_pace_multiplier_active_for_solve_dominant():
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se)
+    prefs.emit(ActivityClass.SOLVE, 30)
+    assert activity_loop.pace_multiplier() == activity_loop.PACE_MULTIPLIER_ACTIVE
+
+
+def test_pace_multiplier_reflective_for_unwind_dominant():
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se)
+    prefs.emit(ActivityClass.UNWIND, 30)
+    assert activity_loop.pace_multiplier() == activity_loop.PACE_MULTIPLIER_REFLECTIVE
+
+
+def test_pace_multiplier_reflective_for_ritual_dominant():
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se)
+    prefs.emit(ActivityClass.RITUAL, 30)
+    assert activity_loop.pace_multiplier() == activity_loop.PACE_MULTIPLIER_REFLECTIVE
+
+
+def test_pace_multiplier_neutral_for_make_dominant():
+    """MAKE/WANDER/SNEAK are neutral — exploration / authoring don't
+    bias atmosphere pacing."""
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se)
+    prefs.emit(ActivityClass.MAKE, 30)
+    assert activity_loop.pace_multiplier() == activity_loop.PACE_MULTIPLIER_NEUTRAL
+
+
+def test_pace_multiplier_neutral_for_wander_dominant():
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se)
+    prefs.emit(ActivityClass.WANDER, 30)
+    assert activity_loop.pace_multiplier() == activity_loop.PACE_MULTIPLIER_NEUTRAL
+
+
+def test_summary_exposes_dominant_and_pace():
+    se = StateEventBuffer()
+    prefs, _ = activity_loop.install(se)
+    prefs.emit(ActivityClass.HUNT, 30)
+    snap = activity_loop.summary()
+    assert snap["dominant"] == "HUNT"
+    assert snap["pace_multiplier"] == activity_loop.PACE_MULTIPLIER_ACTIVE
+    assert snap["dominant_min_count"] == activity_loop.DOMINANT_MIN_COUNT
+
+
+def test_summary_dominant_none_when_balanced():
+    se = StateEventBuffer()
+    activity_loop.install(se)
+    snap = activity_loop.summary()
+    assert snap["dominant"] is None
+    assert snap["pace_multiplier"] == 1.0
+
+
 # ── Module-level singletons ─────────────────────────────────────────
 
 

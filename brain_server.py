@@ -1126,17 +1126,27 @@ class BrainWorld:
         # Chronometer — real time of day
         chrono_state = self.chronometer.read()
 
-        # Tension cycle tick
+        # Activity loop tick — slot-decay rotation + reward edge detection.
+        # Runs BEFORE tension.tick so PR 15's hybrid pacing reads a
+        # current dominant class. Producers across six brain surfaces
+        # emit class signals; this is where the loop catches up + fires
+        # reward StateEvents. Per `feat_make-brain-ping-pong.md` PR 9 +
+        # activity_loop PRs 11-14.
+        self.activity_loop.tick(dt)
+
+        # Hybrid pacing (PR 15) — push the dominant-class pace multiplier
+        # into TensionCycle BEFORE its tick. SANCTUM_TENSION_PACE_DISABLED=1
+        # env flag forces 1.0 (disable knob if UAT exposes a regression).
+        import os as _os
+        if _os.environ.get("SANCTUM_TENSION_PACE_DISABLED") == "1":
+            self.tension.set_pace_multiplier(1.0)
+        else:
+            self.tension.set_pace_multiplier(activity_loop.pace_multiplier())
+
+        # Tension cycle tick (consumes pace multiplier set above)
         entity_count = len(exchange_entities)
         budget_max = self.tension._config.get("budget_max", 800)
         envelope = self.tension.tick(dt, entity_count, budget_max)
-
-        # Activity loop tick — slot-decay rotation + reward edge detection.
-        # Producers (ping_pong brick_destroyed, future workroom seed_create,
-        # future journal-quest daily-care, etc.) emit class signals; this
-        # is where the loop catches up + fires reward StateEvents.
-        # Per `feat_make-brain-ping-pong.md` PR 9.
-        self.activity_loop.tick(dt)
 
         # Current light state (base values)
         ls = self.light_states[self.light_state_names[self.light_state_idx]]
@@ -1527,6 +1537,11 @@ class BrainWorld:
             # Clients track watermark by event id; first connect syncs to
             # the latest id (no historical toast spam).
             "state_events": state_events_to_manifest(self.state_events),
+            # Activity loop snapshot — per-class counters + reward
+            # distance + dominant class + pace multiplier. HUD consumes
+            # for "what is the player doing" diagnostic readout.
+            # Per PR 15.
+            "activity": activity_loop.summary(),
             # Reflective-mode surface — populated only while a session
             # is active. Vector terminal renders the fridge UI off this.
             # Per `design_reflective_loop` — the fridge is a state, not

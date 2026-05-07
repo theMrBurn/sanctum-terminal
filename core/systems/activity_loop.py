@@ -123,6 +123,26 @@ MAX_TELEMETRY_BUFFER: int = 256
 # one place — keep them adjacent if either is tuned.
 DWELL_UNWIND_SLICE_SECONDS: float = 10.0
 
+# Hybrid pacing consumer (PR 15) — TensionCycle reads PreferenceCounters
+# and shifts cycle pacing based on the dominant class. Active classes
+# (HUNT, SOLVE) tighten the loop; reflective classes (UNWIND, RITUAL)
+# lengthen dwells; the rest stay neutral.
+#
+# Multiplier is bounded to keep ambient feel stable — the audit doc
+# flagged TensionCycle as load-bearing for atmosphere. Conservative
+# 15% range either side. SANCTUM_TENSION_PACE_DISABLED=1 env flag
+# forces 1.0 if a UAT exposes a regression.
+DOMINANT_MIN_COUNT:          int   = 10     # below this, "no dominant"
+PACE_MULTIPLIER_ACTIVE:      float = 0.85   # HUNT / SOLVE dominant — tighter loop
+PACE_MULTIPLIER_REFLECTIVE:  float = 1.15   # UNWIND / RITUAL dominant — longer dwells
+PACE_MULTIPLIER_NEUTRAL:     float = 1.00   # MAKE / WANDER / SNEAK / no-dominant
+
+# Class flavor sets — pinned constants so the dominant→multiplier
+# routing stays in one place.
+ACTIVE_CLASSES:     tuple = (0, 4)          # HUNT=0, SOLVE=4
+REFLECTIVE_CLASSES: tuple = (3, 6)          # UNWIND=3, RITUAL=6
+# (NEUTRAL = MAKE=1, SNEAK=2, WANDER=5 + anything not classified)
+
 
 # ---------------------------------------------------------------------------
 # Reward table — static. (class, threshold, state-event kind, register)
@@ -232,6 +252,29 @@ class PreferenceCounters:
     def snapshot(self) -> dict[str, int]:
         """Per-class count map for telemetry / console readout. O(7)."""
         return {cls.name: self.counts[int(cls)] for cls in ActivityClass}
+
+    def dominant_class(self) -> ActivityClass | None:
+        """Return the ActivityClass with the strict-max count, or None
+        if no class crosses DOMINANT_MIN_COUNT or there's a tie at the
+        top.
+
+        Tie-handling: if two classes share the max, return None
+        (balanced state). Avoids flickering pacing decisions when
+        signals are evenly mixed.
+        """
+        max_idx = -1
+        max_val = -1
+        tied    = False
+        for i, v in enumerate(self.counts):
+            if v > max_val:
+                max_val = v
+                max_idx = i
+                tied = False
+            elif v == max_val:
+                tied = True
+        if max_val < DOMINANT_MIN_COUNT or tied or max_idx < 0:
+            return None
+        return ActivityClass(max_idx)
 
 
 # ---------------------------------------------------------------------------
@@ -351,9 +394,37 @@ def tick(dt: float) -> list[str]:
     return _LOOP.tick(dt)
 
 
+def pace_multiplier() -> float:
+    """Module-level: dominant class → TensionCycle pace multiplier.
+
+    HUNT / SOLVE dominant → 0.85 (tighter loop, faster transitions)
+    UNWIND / RITUAL dominant → 1.15 (longer dwells, slower transitions)
+    Otherwise → 1.0 (neutral)
+
+    Returns 1.0 when the loop isn't installed or no class crosses
+    DOMINANT_MIN_COUNT. Bounded by PACE_MULTIPLIER_ACTIVE /
+    PACE_MULTIPLIER_REFLECTIVE consts.
+    """
+    if _PREFS is None:
+        return PACE_MULTIPLIER_NEUTRAL
+    cls = _PREFS.dominant_class()
+    if cls is None:
+        return PACE_MULTIPLIER_NEUTRAL
+    if int(cls) in ACTIVE_CLASSES:
+        return PACE_MULTIPLIER_ACTIVE
+    if int(cls) in REFLECTIVE_CLASSES:
+        return PACE_MULTIPLIER_REFLECTIVE
+    return PACE_MULTIPLIER_NEUTRAL
+
+
 def summary() -> dict:
     """Console / debug readout. Per-class counts + pending threshold
-    distance for each REWARD_TABLE row."""
+    distance + dominant class + pace multiplier for each REWARD_TABLE
+    row.
+
+    Manifest emitter (`brain_server.get_manifest`) calls this to expose
+    activity state to the vector terminal HUD per PR 15.
+    """
     if _PREFS is None:
         return {"installed": False}
     counts = _PREFS.counts
@@ -368,10 +439,14 @@ def summary() -> dict:
             "fired":     counts[idx] >= row.threshold,
             "kind":      row.kind,
         })
+    dom = _PREFS.dominant_class()
     return {
-        "installed": True,
-        "counts":    _PREFS.snapshot(),
-        "rewards":   rewards,
+        "installed":          True,
+        "counts":             _PREFS.snapshot(),
+        "rewards":            rewards,
+        "dominant":           dom.name if dom is not None else None,
+        "pace_multiplier":    pace_multiplier(),
+        "dominant_min_count": DOMINANT_MIN_COUNT,
     }
 
 

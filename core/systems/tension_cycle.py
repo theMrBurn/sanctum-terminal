@@ -199,6 +199,12 @@ class TensionCycle:
     When inactive (not boarded), tick() returns a static open envelope.
     """
 
+    # Activity-loop hybrid pacing (PR 15) — bounds for `pace_multiplier`.
+    # Audit doc flagged TensionCycle as load-bearing; keep deviation
+    # tight. Multipliers outside this range are clamped silently.
+    PACE_MULTIPLIER_MIN: float = 0.85
+    PACE_MULTIPLIER_MAX: float = 1.15
+
     def __init__(self, config=None):
         self._config = config or CAVERN_CYCLE
         self._state = "open"
@@ -217,6 +223,12 @@ class TensionCycle:
 
         self._dump_fired = False
         self._rebirth_fired = False
+
+        # Hybrid pacing multiplier (PR 15). 1.0 = no behavior change vs.
+        # pre-PR-15 cycle. brain_server tick re-sets this each frame
+        # from `activity_loop.pace_multiplier()` based on dominant class.
+        # Multiplies budget_ceiling AND hold_seconds reads inside tick().
+        self._pace_multiplier: float = 1.0
 
     @property
     def state(self):
@@ -264,6 +276,21 @@ class TensionCycle:
             self._set_state(state_name)
             self._lerp_t = 1.0  # skip transition
 
+    def set_pace_multiplier(self, mult: float) -> None:
+        """Set the activity-loop hybrid pacing multiplier (PR 15).
+        Clamped to [PACE_MULTIPLIER_MIN, PACE_MULTIPLIER_MAX] silently.
+        Multiplies budget_ceiling reads (so > 1.0 delays transitions,
+        < 1.0 hastens) AND hold_seconds (longer/shorter dwells)."""
+        if mult < self.PACE_MULTIPLIER_MIN:
+            mult = self.PACE_MULTIPLIER_MIN
+        elif mult > self.PACE_MULTIPLIER_MAX:
+            mult = self.PACE_MULTIPLIER_MAX
+        self._pace_multiplier = float(mult)
+
+    @property
+    def pace_multiplier(self) -> float:
+        return self._pace_multiplier
+
     def tick(self, dt, entity_count, max_entities=None):
         """Advance the cycle. Returns CycleEnvelope with current fog/ambient/state.
 
@@ -291,8 +318,14 @@ class TensionCycle:
         # Check if budget pushes us to next state
         cfg = self._config[self._state]
 
+        # Hybrid pacing (PR 15): multiplier scales hold_seconds AND
+        # budget_ceiling reads. > 1.0 delays advancement (longer dwells +
+        # higher pressure required); < 1.0 hastens (shorter holds +
+        # earlier transitions). Pre-PR-15 behavior at 1.0.
+        pace = self._pace_multiplier
+
         # Hold timer — dump/rebirth MUST wait before advancing, regardless of budget
-        hold = cfg.get("hold_seconds", 0)
+        hold = cfg.get("hold_seconds", 0) * pace
         if hold > 0:
             if self._lerp_t >= 1.0:
                 self._hold_timer += dt
@@ -308,7 +341,8 @@ class TensionCycle:
             should = True
             if self.should_advance:
                 should = self.should_advance(budget)
-            if should and budget > cfg.get("budget_ceiling", 1.0):
+            ceiling = cfg.get("budget_ceiling", 1.0) * pace
+            if should and budget > ceiling:
                 idx = STATE_ORDER.index(self._state)
                 next_idx = (idx + 1) % len(STATE_ORDER)
                 self._set_state(STATE_ORDER[next_idx])
