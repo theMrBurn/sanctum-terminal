@@ -5,18 +5,25 @@ wireframe cylinders centered on the camera at factor-of-7 radii.
 Each layer carries a role + tint + opacity + distance + height
 shipped from the brain in `manifest.banner_layers`.
 
-V1.1 (2026-05-01 evening) — MVP demo mode: render only the OUTERMOST
-single layer with a gentle breathing oscillation, so we can isolate
-the horizon-cylinder primitive and tune it before adding the inner 6.
-Restore full 7-layer rendering by setting `_DEMO_OUTERMOST_ONLY = False`.
+**V2 SHIPPED 2026-05-07 (audit ask A12):** full 7-layer rendering is
+the default. The legacy demo mode (single outermost cylinder) is
+preserved behind `_DEMO_OUTERMOST_ONLY=True` for tuning isolation
+or rollback.
 
 The outermost cylinder IS the player's perceptual horizon. Combined
 with `playable_radius=0`, this is what makes endless walk feel
 endless without truly-infinite-procedural memory cost.
 
 Camera-anchored — cylinders translate 1:1 with the player. They never
-grow, never rotate, never move radially. Only their CONTENT (and in
-demo mode their alpha) changes per frame.
+grow, never rotate, never move radially. Only their CONTENT (and the
+breathing oscillation) changes per frame.
+
+Companion PR 16 (`distance_fade`) makes wireframe entity intensity
+respond to TensionCycle's dynamic fog. Banner layers themselves are
+NOT subject to that fade — they render directly with their config
+opacity (boosted for wireframe legibility) and form the persistent
+horizon. As entities fade out toward TUNNEL/DUMP fog distances, the
+banner becomes the dominant atmospheric layer.
 """
 from __future__ import annotations
 
@@ -40,10 +47,11 @@ _WIREFRAME_ALPHA_BOOST = 6.0
 _WIREFRAME_ALPHA_FLOOR = 0.25
 
 # Demo mode: render only the outermost layer (the horizon). Strips the
-# inner 6 to isolate the single-cylinder primitive for tuning. Flip to
-# False once we're happy with the horizon and ready to layer the inner
-# 6 back in with their own roles.
-_DEMO_OUTERMOST_ONLY = True
+# inner 6 to isolate the single-cylinder primitive for tuning. Default
+# is full 7-layer rendering as of V2 ship 2026-05-07 (audit A12).
+# Flip back to True for tuning isolation or rollback if a UAT exposes
+# overdraw / depth issues.
+_DEMO_OUTERMOST_ONLY = False
 
 # Breathing oscillation — modulates alpha around its base value to make
 # the cylinder feel "alive" (atmospheric, not static geometry). Factor-
