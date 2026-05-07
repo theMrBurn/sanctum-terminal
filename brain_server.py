@@ -2125,6 +2125,24 @@ def run_server(biome_name, port=9877):
                                 f"{world.character_sheet.name} · age {world.character_sheet.age}",
                                 REG_RITUAL,
                             )
+                            # Activity-loop signal — RITUAL class. Sealing
+                            # a pillar is a sacred moment; intensity=3 marks
+                            # it as heavy (parallel to boss-brick HUNT). The
+                            # final-pillar seal also finalizes the sheet, so
+                            # this emit captures the character-creation
+                            # culmination. Per PR 12.
+                            activity_loop.emit_activity(
+                                activity_loop.ActivityClass.RITUAL,
+                                intensity=3,
+                                primitive="pillar_sealed",
+                                source_brain="brain_world",
+                                payload={
+                                    "pillar_id": str(pillar_id),
+                                    "final":     True,
+                                    "name":      world.character_sheet.name,
+                                    "age":       int(world.character_sheet.age),
+                                },
+                            )
                             world.state_events.emit(
                                 "state_transition",
                                 "RETURNING TO HUB",
@@ -2152,6 +2170,20 @@ def run_server(biome_name, port=9877):
                             f"PILLAR SEALED · {pillar_id.upper()}",
                             None,
                             REG_RITUAL,
+                        )
+                        # Activity-loop RITUAL signal for interim seals —
+                        # same intensity as final, since each pillar is a
+                        # sacred moment regardless of whether it completes
+                        # the sheet.
+                        activity_loop.emit_activity(
+                            activity_loop.ActivityClass.RITUAL,
+                            intensity=3,
+                            primitive="pillar_sealed",
+                            source_brain="brain_world",
+                            payload={
+                                "pillar_id": str(pillar_id),
+                                "final":     False,
+                            },
                         )
 
                     last_wake_ids = set()

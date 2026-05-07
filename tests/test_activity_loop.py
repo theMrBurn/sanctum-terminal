@@ -184,15 +184,15 @@ def test_loop_emits_state_event_with_register():
 
 def test_loop_does_not_fire_for_non_table_classes():
     """Classes with no REWARD_TABLE rows advance counters but emit no
-    StateEvents. Active classes are HUNT/MAKE/UNWIND; pending producers
-    for SNEAK/SOLVE/WANDER/RITUAL — those classes should be inert."""
+    StateEvents. Active classes are HUNT/MAKE/UNWIND/RITUAL after PR 12;
+    pending producers for SNEAK/SOLVE/WANDER — those classes should be
+    inert."""
     p = PreferenceCounters()
     se = StateEventBuffer()
     loop = ActivityLoop(p, se)
     p.emit(ActivityClass.SNEAK, 200)
     p.emit(ActivityClass.SOLVE, 200)
     p.emit(ActivityClass.WANDER, 200)
-    p.emit(ActivityClass.RITUAL, 200)
     fired = loop.tick(0.0)
     assert fired == []
     assert se.latest_id() == 0
@@ -305,10 +305,58 @@ def test_reward_table_covers_three_active_classes():
     assert ActivityClass.HUNT   in classes_with_rows
     assert ActivityClass.MAKE   in classes_with_rows
     assert ActivityClass.UNWIND in classes_with_rows
+
+
+# ── PR 12: RITUAL class wiring (pillar_sealed producer) ──────────────
+
+
+def test_ritual_recognized_fires_at_30():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.RITUAL, 27)        # 9 pillar seals at intensity 3
+    assert loop.tick(0.0) == []
+    p.emit(ActivityClass.RITUAL, 3)         # crosses 30 (10th seal)
+    fired = loop.tick(0.0)
+    assert "ritual_recognized" in fired
+
+
+def test_ritual_deepened_fires_at_100():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.RITUAL, 30)
+    loop.tick(0.0)                            # fires ritual_recognized
+    p.emit(ActivityClass.RITUAL, 70)          # total 100
+    fired = loop.tick(0.0)
+    assert "ritual_deepened" in fired
+    assert "ritual_recognized" not in fired   # not re-fired
+
+
+def test_ritual_emit_label_uses_ritual_register():
+    p = PreferenceCounters()
+    se = StateEventBuffer()
+    loop = ActivityLoop(p, se)
+    p.emit(ActivityClass.RITUAL, 30)
+    loop.tick(0.0)
+    events = se.all()
+    assert any(e.kind == "ritual_recognized"
+               and e.label == "RITUAL — RECOGNIZED"
+               and e.register == "ritual"
+               for e in events)
+
+
+def test_reward_table_covers_four_active_classes():
+    """PR 12 expanded; HUNT + MAKE + UNWIND + RITUAL have rows. SNEAK /
+    SOLVE / WANDER still pending producers."""
+    classes_with_rows = {row.cls for row in REWARD_TABLE}
+    assert ActivityClass.HUNT   in classes_with_rows
+    assert ActivityClass.MAKE   in classes_with_rows
+    assert ActivityClass.UNWIND in classes_with_rows
+    assert ActivityClass.RITUAL in classes_with_rows
     assert ActivityClass.SNEAK  not in classes_with_rows
     assert ActivityClass.SOLVE  not in classes_with_rows
     assert ActivityClass.WANDER not in classes_with_rows
-    assert ActivityClass.RITUAL not in classes_with_rows
 
 
 # ── Module-level singletons ─────────────────────────────────────────
