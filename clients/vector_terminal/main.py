@@ -26,9 +26,15 @@ import pyray as rl  # noqa: E402
 from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
+from clients.vector_terminal import ball as ball_renderer  # noqa: E402
+from clients.vector_terminal import ball_trail as ball_trail_renderer  # noqa: E402
 from clients.vector_terminal import banner  # noqa: E402
+from clients.vector_terminal import bricks as bricks_renderer  # noqa: E402
 from clients.vector_terminal import build_mode  # noqa: E402
+from clients.vector_terminal import chamber as chamber_renderer  # noqa: E402
+from clients.vector_terminal import console as volley_console  # noqa: E402
 from clients.vector_terminal import horizon_objects as horizon_renderer  # noqa: E402
+from clients.vector_terminal import input_map  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
 from clients.vector_terminal.seed_collision import compute_floor_height  # noqa: E402
@@ -87,6 +93,26 @@ def main() -> int:
     cast_id_counter: int = 0
     click_pings: list[float] = []         # timestamps; fade over CLICK_PING_DURATION
     interact_flashes: list[tuple[float, float, float, float]] = []  # (t_start, x, y, z) raylib
+
+    # Make-brain ping_pong: paddle motion history. 5-frame ring buffer of
+    # (paddle_pos_brain, time). Paddle is a virtual point at
+    # paddle_arm_length along camera forward; finite-difference across
+    # the window gives the paddle velocity at strike time. Per AC PR 5.
+    # Default arm length matches profile vanilla; tracked here as a
+    # constant since the client doesn't know per-profile params yet
+    # (profile params live brain-side; client passes raw kinematic state).
+    paddle_history: list[tuple[tuple[float, float, float], float]] = []
+    PADDLE_ARM_LENGTH = 0.7
+    PADDLE_HISTORY_LEN = 5
+
+    # Volley console — backtick-toggled overlay for live profile tuning.
+    # Per `feat_make-brain-ping-pong.md` PR 7.
+    console_state = volley_console.ConsoleState()
+
+    # Ball trail — fading line behind the active ball. Visual diagnostic
+    # so the rally substrate's behavior is observable. Without this you
+    # can see the ball go forward but not where it bounces / returns.
+    ball_trail_state = ball_trail_renderer.TrailState()
 
     client = ManifestClient(cfg.BRAIN_HOST, cfg.BRAIN_PORT)
     try:
@@ -165,6 +191,22 @@ def main() -> int:
             elif action == "abort":
                 client.send({"cmd": "abort_reflective"})
 
+        # Volley console — backtick toggles open/close. Trumps everything
+        # else so the user can dismiss it from any state. ESC also closes.
+        if input_map.pressed("console_toggle"):
+            volley_console.toggle(console_state)
+        if console_state.open:
+            volley_console.consume_chars(console_state)
+            if rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE):
+                volley_console.close(console_state)
+            else:
+                submitted = volley_console.handle_editing(console_state)
+                if submitted is not None and submitted.strip():
+                    client.send({
+                        "cmd": "console_exec",
+                        "payload": {"line": submitted.strip()},
+                    })
+
         # World does not pause — overlay only suspends ENTER/UP/DOWN/ESC.
         journal_active = show_journal and not dial_active and not reflective_active
         if journal_active:
@@ -178,7 +220,9 @@ def main() -> int:
         # (journal_active intercepts ESC + ENTER + UP/DOWN, but J always
         # cycles the visibility flag). Suspended while a dial is active —
         # the dial owns the modal foreground.
-        if not dial_active and not reflective_active and rl.is_key_pressed(rl.KeyboardKey.KEY_J):
+        if (not dial_active and not reflective_active
+                and not console_state.open
+                and input_map.pressed("journal_toggle")):
             show_journal = not show_journal
 
         # B toggles BUILD mode (vector-workroom PR 4). Biome-gated: silent
@@ -187,17 +231,18 @@ def main() -> int:
         # `build_mode.handle_input`. ESC is the inside-BUILD exit.
         if (not build_state.active
                 and not dial_active and not journal_active and not reflective_active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_B)):
+                and not console_state.open
+                and input_map.pressed("build_toggle")):
             build_mode.toggle_build(build_state, last_manifest, camera, yaw)
 
         # ESC inside BUILD exits to walk mode rather than closing the app.
         # Outside BUILD, ESC closes the app (existing behavior).
         if (build_state.active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE)):
+                and input_map.pressed("state_back")):
             build_state.active = False
         elif (not dial_active and not journal_active and not reflective_active
                 and not build_state.active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_ESCAPE)):
+                and input_map.pressed("state_back")):
             break
 
         # ENTER toggles PLACE↔EDIT sub-mode while BUILD is active.
@@ -206,7 +251,7 @@ def main() -> int:
         # a selected seed for the PLACE→EDIT transition; silently
         # refuses otherwise.
         if (build_state.active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER)):
+                and input_map.pressed("submode_toggle")):
             if build_state.sub_mode == "place":
                 build_mode.enter_edit(build_state)
             else:
@@ -225,7 +270,7 @@ def main() -> int:
                 client.send(cmd)
 
         delta = rl.get_mouse_delta()
-        if not dial_active and not build_state.active:
+        if not dial_active and not build_state.active and not console_state.open:
             yaw -= delta.x * cfg.MOUSE_SENS
             pitch -= delta.y * cfg.MOUSE_SENS
             pitch = max(-math.pi / 2 + 0.01, min(math.pi / 2 - 0.01, pitch))
@@ -242,22 +287,22 @@ def main() -> int:
         right = (-cy, 0.0, sy_)
 
         mx = mz = 0.0
-        if not dial_active and not build_state.active:
-            if rl.is_key_down(rl.KeyboardKey.KEY_W):
+        if not dial_active and not build_state.active and not console_state.open:
+            if input_map.held("move_forward"):
                 mx += flat_forward[0]
                 mz += flat_forward[2]
-            if rl.is_key_down(rl.KeyboardKey.KEY_S):
+            if input_map.held("move_back"):
                 mx -= flat_forward[0]
                 mz -= flat_forward[2]
-            if rl.is_key_down(rl.KeyboardKey.KEY_D):
+            if input_map.held("move_right"):
                 mx += right[0]
                 mz += right[2]
-            if rl.is_key_down(rl.KeyboardKey.KEY_A):
+            if input_map.held("move_left"):
                 mx -= right[0]
                 mz -= right[2]
         mag = math.sqrt(mx * mx + mz * mz)
         if mag > 0:
-            sprinting = rl.is_key_down(rl.KeyboardKey.KEY_LEFT_SHIFT) or rl.is_key_down(rl.KeyboardKey.KEY_RIGHT_SHIFT)
+            sprinting = input_map.held("sprint")
             speed = cfg.MOVE_SPEED * (cfg.SPRINT_MULTIPLIER if sprinting else 1.0)
             step = speed * dt
             camera.position.x += mx / mag * step
@@ -283,7 +328,8 @@ def main() -> int:
         # standing on the current floor (any walkable surface).
         if (not dial_active
                 and not build_state.active
-                and rl.is_key_pressed(rl.KeyboardKey.KEY_SPACE)
+                and not console_state.open
+                and input_map.pressed("jump")
                 and abs(camera.position.y - floor_y) < 0.05):
             vy = cfg.JUMP_VELOCITY
         camera.position.y += vy * dt
@@ -319,36 +365,66 @@ def main() -> int:
             camera.position.z + forward[2],
         )
 
-        if not dial_active and not reflective_active and not build_state.active:
+        # Make-brain ping_pong: track paddle motion for finite-difference
+        # velocity at strike time. Paddle is a virtual point at
+        # PADDLE_ARM_LENGTH along camera forward; recorded in BRAIN space
+        # (x lateral, y forward, z up) so the brain doesn't need to
+        # convert. Per AC PR 5 ("Client computes paddle_vel as
+        # camera_angular_velocity × paddle_arm_length, sampled over a
+        # short window"). Finite-difference of the paddle position is
+        # equivalent to the cross-product formulation and avoids the
+        # right-vector sign trap.
+        forward_brain = (forward[0], forward[2], forward[1])
+        paddle_pos_brain = (
+            camera.position.x + forward_brain[0] * PADDLE_ARM_LENGTH,
+            camera.position.z + forward_brain[1] * PADDLE_ARM_LENGTH,
+            camera.position.y + forward_brain[2] * PADDLE_ARM_LENGTH,
+        )
+        paddle_history.append((paddle_pos_brain, now))
+        if len(paddle_history) > PADDLE_HISTORY_LEN:
+            paddle_history.pop(0)
+
+        if (not dial_active and not reflective_active and not build_state.active
+                and not console_state.open and not journal_active):
             # ENTER drives state transitions (HUB → MISSION_SELECT, etc.) but
             # MUST yield to the journal overlay — there ENTER is the toggle.
-            if not journal_active and rl.is_key_pressed(rl.KeyboardKey.KEY_ENTER):
+            if input_map.pressed("confirm"):
                 state = str(last_manifest.get("game_state", {}).get("state", "HUB"))
                 target = smart_enter_target(state)
                 if target is not None:
                     client.send({"cmd": "state_transition_request", "target": target})
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_E):
+            if input_map.pressed("equip_cycle"):
                 inv = last_manifest.get("player", {}).get("inventory", [])
                 equipped = last_manifest.get("player", {}).get("equipped")
                 nxt = next_inventory_name(inv, equipped)
                 if nxt is not None:
                     client.send({"cmd": "equip_request", "name": nxt})
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_L):
+            if input_map.pressed("light_cycle"):
                 client.send({"cmd": "light_cycle"})
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_T):
+            if input_map.pressed("tension_toggle"):
                 client.send({"cmd": "tension_toggle"})
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_I):
+            if input_map.pressed("inventory_toggle"):
                 show_inventory_modal = not show_inventory_modal
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_H):
+            if input_map.pressed("hud_toggle"):
                 show_hud = not show_hud
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_BACKSLASH):
+            if input_map.pressed("noclip_toggle"):
                 noclip = not noclip
+
+            # Volley resets (PR 6). R = reset current rally (preserves
+            # match score). SHIFT+R = reset entire match. Only meaningful
+            # in volley_chamber; no-op in other biomes.
+            if (last_manifest.get("instance_id") == "ping_pong"
+                    and input_map.pressed("reset_rally")):
+                if input_map.held("sprint"):
+                    client.send({"cmd": "volley_reset_match"})
+                else:
+                    client.send({"cmd": "volley_reset_rally"})
 
             # K = damage_self debug. Each press deals 99 damage, sufficient
             # to push HP to 0 in one tap — exposes the forced reflective
@@ -356,7 +432,7 @@ def main() -> int:
             # respawn chain → regen world + restore HP). Per
             # `design_virtual_hallucination`: HP=0 is just a respawn
             # condition, never perma-death framing.
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_K):
+            if input_map.pressed("damage_self_debug"):
                 client.send({"cmd": "damage_self", "amount": 99})
 
             # PR 5 collapse (2026-05-02): the Backspace IN_MISSION → HUB
@@ -364,7 +440,7 @@ def main() -> int:
             # exploration replaces "out in a mission"; there's no modal
             # state to abort from. Backspace is unbound here for now.
 
-            if rl.is_mouse_button_pressed(rl.MouseButton.MOUSE_BUTTON_LEFT):
+            if input_map.pressed("fire_primary"):
                 click_pings.append(now)
                 # Telemetry tag — preserved for the screenshot/marking
                 # workflow. Decoupled from gameplay so the same click
@@ -377,6 +453,52 @@ def main() -> int:
                         "y": camera.position.z,  # manifest y from raylib z
                     },
                 })
+                # Make-brain ping_pong: fire_primary serves when no ball,
+                # strikes when a ball is in play (Atari single-press, AC
+                # decision #4). Strike model for V1 arcade: paddle velocity
+                # is a CONSTANT forward push along camera-forward at
+                # SWING_VELOCITY m/s. Pin in a comment so the camera-pan
+                # ≠ paddle-swing trap doesn't reappear: finite-differencing
+                # paddle position picks up TANGENTIAL camera motion when
+                # the player pans, sending the ball off in random side
+                # directions. Sim/charge dynamics are Stage 3 envelopes.
+                # Per AC PR 5 (revised post-UAT 2026-05-04). Dialed
+                # 12.0 → 4.0 → 2.5 after hands-on:
+                #   12 → 24 m/s ball: 0.3s round-trip, no reaction window
+                #    4 →  8 m/s ball: 4s round-trip in 36m chamber, but
+                #                     ball at 18m distance is too small
+                #                     to track visually
+                #  2.5 →  5 m/s ball: ~6s round-trip = trackable.
+                # Ball-radius bumped to 0.4m (vault profile) for visibility
+                # at distance — basketball-ish, not tennis-ball.
+                SWING_VELOCITY = 2.5
+                if last_manifest.get("instance_id") == "ping_pong":
+                    _ball = last_manifest.get("ball") or {}
+                    if not _ball.get("exists"):
+                        client.send({"cmd": "volley_serve"})
+                    elif len(paddle_history) >= 1:
+                        pos_new = paddle_history[-1][0]
+                        paddle_velocity = (
+                            forward_brain[0] * SWING_VELOCITY,
+                            forward_brain[1] * SWING_VELOCITY,
+                            forward_brain[2] * SWING_VELOCITY,
+                        )
+                        client.send({
+                            "cmd": "volley_strike",
+                            "payload": {
+                                "paddle_pos":      list(pos_new),
+                                "paddle_normal":   list(forward_brain),
+                                "paddle_velocity": list(paddle_velocity),
+                            },
+                        })
+                        # Visual feedback at the paddle position. Reuse
+                        # the existing flash primitive (raylib coords).
+                        # NOTE follow-up: this fires regardless of
+                        # hit/miss; should be brain-confirmed via the
+                        # volley_strike ack's `hit` field.
+                        interact_flashes.append(
+                            (now, pos_new[0], pos_new[2], pos_new[1])
+                        )
                 # Smash — first ARPG combat verb. If the click lands on
                 # an entity within melee range, fire `kind_destroyed`.
                 # Brain emits a StateEvent + advances any quest watching
@@ -412,7 +534,7 @@ def main() -> int:
                         pass
                     client.send(payload)
 
-            if rl.is_key_pressed(rl.KeyboardKey.KEY_F):
+            if input_map.pressed("interact"):
                 target = entity_at_crosshair(
                     camera.position.x, camera.position.y, camera.position.z,
                     forward[0], forward[1], forward[2],
@@ -452,10 +574,10 @@ def main() -> int:
             encounter = last_manifest.get("encounter", {})
             options = encounter.get("action_options") or []
             if options:
-                for i, key_name in enumerate(_NUM_KEYS):
+                for i, slot_action in enumerate(input_map.SLOT_ACTIONS):
                     if i >= len(options):
                         break
-                    if rl.is_key_pressed(getattr(rl.KeyboardKey, key_name)):
+                    if input_map.pressed(slot_action):
                         action = action_for_key_index(options, i)
                         if action:
                             client.send({"cmd": "encounter_action", "action": action})
@@ -469,13 +591,13 @@ def main() -> int:
                 # Picks: torch on log → fire spreads, ice on water → freeze,
                 # electric on metal → charge, light on shadow → reveal.
                 cast_press = None
-                if rl.is_key_pressed(rl.KeyboardKey.KEY_ONE):
+                if input_map.pressed("slot_1"):
                     cast_press = "fire"
-                elif rl.is_key_pressed(rl.KeyboardKey.KEY_TWO):
+                elif input_map.pressed("slot_2"):
                     cast_press = "ice"
-                elif rl.is_key_pressed(rl.KeyboardKey.KEY_THREE):
+                elif input_map.pressed("slot_3"):
                     cast_press = "electric"
-                elif rl.is_key_pressed(rl.KeyboardKey.KEY_FOUR):
+                elif input_map.pressed("slot_4"):
                     cast_press = "light"
                 if cast_press is not None:
                     cast_id_counter += 1
@@ -504,6 +626,21 @@ def main() -> int:
         for msg in client.poll():
             if msg.get("unchanged"):
                 continue
+            # Command acks carry a "cmd" field. console_exec acks feed the
+            # overlay scrollback; other acks pass silently for now (their
+            # side effects show up in the next manifest).
+            cmd_ack = msg.get("cmd")
+            if cmd_ack == "console_exec":
+                if msg.get("ok"):
+                    output = msg.get("output") or []
+                    volley_console.append_output(console_state, output)
+                else:
+                    volley_console.append_output(
+                        console_state, [f"err: {msg.get('reason', '?')}"]
+                    )
+                continue
+            if cmd_ack:
+                continue                       # other acks: silent (PR 7 scope)
             is_first_manifest = not last_manifest
             last_manifest = msg
             if is_first_manifest or revision.observe(msg.get("world_revision")):
@@ -558,6 +695,25 @@ def main() -> int:
         # sun drift). Static kinds (moon, ridge, stars) ignore it.
         horizon_renderer.draw_horizon_objects(last_manifest, camera, now)
 
+        # Make-brain chamber wireframe — 12-edge cube outline for
+        # volley_chamber. Reads `manifest.chamber`; silent no-op for
+        # legacy biomes. Per `feat_make-brain-ping-pong.md` PR 3.
+        chamber_renderer.render(last_manifest)
+
+        # Ball trail — observe current ball position, render fading
+        # path. Renders BEFORE the ball so the live ball sphere is the
+        # most opaque thing on screen. Per V1 close-out 2026-05-04.
+        ball_trail_state.observe(last_manifest.get("ball"))
+        ball_trail_renderer.render(ball_trail_state)
+
+        # Brick Attack targets — wireframe AABBs on the front wall.
+        # Per V1 close-out 2026-05-04.
+        bricks_renderer.render(last_manifest)
+
+        # Active ball — wireframe sphere from manifest.ball. Silent
+        # no-op when no ball in play. Per PR 4.
+        ball_renderer.render(last_manifest)
+
         # World seeds — vector-workroom feature. Rendered before entities
         # so close-up entities can occlude distant seeds. Each seed's
         # mesh-edit log is replayed via `seed_mesh_cache`; cache is
@@ -611,6 +767,16 @@ def main() -> int:
                 hud.draw_build_overlay(
                     build_mode.hud_lines(build_state, last_manifest), amber,
                 )
+
+        # Volley console — drawn last so it sits over the HUD when open.
+        # Backdrop already sets its own alpha, so it composes cleanly.
+        volley_console.render(
+            console_state,
+            rl.get_screen_width(),
+            rl.get_screen_height(),
+            amber,
+            None,
+        )
 
         # Click-ping rings at screen center — 2D, drawn after end_mode_3d.
         click_pings = [t for t in click_pings if now - t < cfg.CLICK_PING_DURATION]

@@ -19,3 +19,13 @@ packages = []
 
 [project.scripts]
 sanctum = "main:main"
+
+[tool.pytest.ini_options]
+# Don't collect tests from archived legacy / orphan directories.
+# See `.claude/audit_2026-05-06.md` A7 / A14.
+norecursedirs = [
+    "docs/archive",
+    ".git",
+    "__pycache__",
+    "node_modules",
+]

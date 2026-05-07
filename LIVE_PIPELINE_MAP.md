@@ -27,12 +27,17 @@ core/systems/...            ──┘
 - `core/systems/kind_config.py` — reader for `config/kind_config.json` (shared with Godot)
 - `core/systems/kind_config_schema.py` — kind_config validator
 - `core/systems/stamp_world.py` — pure-function world gen (`(seed, x, y) → entities`)
-- `core/systems/encounter_session.py` — encounter logic, effect dispatch with param schemas
-- `core/systems/encounter_resolver.py` — dialog/action resolution tables
+- `core/systems/encounter_session.py` — encounter logic, effect dispatch with param schemas (transitive deps: `encounter_engine.py`, `encounter_resolver.py`, `actor.py`, `encounter_config.py` — all live)
 - `core/systems/expedition_engine.py` + `expedition_data.py` — biome-agnostic expedition framework
-- `core/systems/ambient_life.py` — creature spawn + behaviors
 - `core/systems/spatial_wake.py` — wake-set / chain logic
-- `core/systems/tension_cycle.py` — TensionCycle hibernate-pool
+- `core/systems/tension_cycle.py` — TensionCycle hibernate-pool, fully wired in brain_server
+- `core/systems/spectrum.py` — per-biome hue drift (carved out of legacy ambient_life.py specifically to leave panda3d off the brain hot path)
+- `core/systems/state_events.py` — universal player-feedback primitive
+- `core/systems/activity_loop.py` — universal "what is the player doing" substrate (PR 9+10, on `feat/make-brain-ping-pong` branch)
+- `core/systems/reflective/` — engagement primitive (HP=0 routing, fridge UI)
+- `core/systems/consequences/` — effects + tick + hp_zero routing
+- `core/systems/quests/` — async quest substrate
+- `core/systems/journal/lexicon.py` — Permanent Objects journal (gensim/spaCy, parser_version regen)
 
 **Godot (GDScript, renders the world):**
 - `godot/main.gd` — viewer client, MultiMesh batching, manifest consumption
@@ -63,6 +68,8 @@ make godot-export   # build static manifest.json for Godot to read
 These files predate the Godot pivot. Only `make cavern` (and a few unused targets) reach them. Refactoring their internals does not affect the live pipeline.
 
 - `cavern.py` — 94KB, Panda3D `ShowBase`. Last edit 2026-04-03. Has 13 `if biome ==` conditionals; pre-2026-04-26 audit flagged for `BIOME_REGISTRY` refactor — skipped because legacy.
+- `core/systems/ambient_life.py` — imports `panda3d.core` at module top (line 22). Was previously listed under Live files; corrected 2026-05-07 audit. brain_server.py does NOT import it; live path uses `core/systems/spectrum.py` which was extracted from ambient_life specifically to keep the brain hot path panda3d-free.
+- `core/systems/atmosphere_engine.py`, `core/systems/glow_decal.py`, `core/systems/sprite_renderer.py`, `core/systems/billboard_renderer.py` — all panda3d-imported, only legacy consumers.
 - `core/systems/cavern_builder.py`
 - `creation_lab.py`
 - `dungeon.py`

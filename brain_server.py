@@ -67,7 +67,10 @@ from core.systems.quests.state import QuestState
 from core.systems.journal import lexicon as journal_lexicon
 from core.vault import vault as Vault
 from core.systems import seed_commands
+from core.systems import make_brain_commands
+from core.systems import make_brain_registry
 from core.systems.character_draft import CharacterDraft
+from core.systems import activity_loop
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
 from core.systems.state_events import (
@@ -94,6 +97,26 @@ def _get_vault() -> Vault:
     if _VAULT is None:
         _VAULT = Vault()
     return _VAULT
+
+
+def _make_brain_manifest_keys(biome_name: str) -> dict:
+    """Pull top-level manifest keys from the active make-brain instance,
+    if any. Returns {} for biomes that don't bind one — silent no-op for
+    legacy biomes. Per `feat_make-brain-ping-pong.md` PR 3."""
+    iid = BIOME_REGISTRY.get(biome_name, {}).get("make_brain_instance_id")
+    if not iid:
+        return {}
+    try:
+        spec = make_brain_registry.get(iid)
+    except LookupError:
+        # Activation hasn't run yet (e.g., test that imports BrainWorld
+        # without booting). Silent — manifest just lacks the keys.
+        return {}
+    handler = spec.handler
+    fn = getattr(handler, "manifest_keys", None)
+    if fn is None or not callable(fn):
+        return {}
+    return fn()
 
 
 def _journal_persist_entry(raw_note: str) -> int:
@@ -607,6 +630,23 @@ class BrainWorld:
         # the player should know about emits an event; clients render toasts.
         self.state_events: StateEventBuffer = StateEventBuffer()
 
+        # Activity loop — universal "what is the player doing" substrate
+        # (per `feat_make-brain-ping-pong.md` PR 9). Saturating int[7]
+        # counters with rotating slot-decay; producers emit one of seven
+        # ActivityClass signals; the loop edge-detects threshold crossings
+        # against REWARD_TABLE and fires StateEvents on rising edges.
+        # Module-level singletons; `install()` returns the pair.
+        # Vault binding enables activity_log telemetry per audit A6.
+        self.prefs, self.activity_loop = activity_loop.install(
+            self.state_events, vault=_get_vault(),
+        )
+
+        # UNWIND producer accumulator (PR 10) — pure-cumulative dwell-time
+        # tracker. Decoupled from `dwell_time` (which decays on movement)
+        # so an UNWIND emit fires for every DWELL_UNWIND_SLICE_SECONDS of
+        # accumulated low-input time, even across active stretches.
+        self._dwell_accum_for_unwind: float = 0.0
+
         # Quest state — async ambient quest substrate per
         # `project_async_quest_refactor`. PR 1.2 keeps this in-memory on
         # BrainWorld; PR 2 (V3 save schema) promotes the persistent fields
@@ -1046,6 +1086,13 @@ class BrainWorld:
         entity_count = len(exchange_entities)
         budget_max = self.tension._config.get("budget_max", 800)
         envelope = self.tension.tick(dt, entity_count, budget_max)
+
+        # Activity loop tick — slot-decay rotation + reward edge detection.
+        # Producers (ping_pong brick_destroyed, future workroom seed_create,
+        # future journal-quest daily-care, etc.) emit class signals; this
+        # is where the loop catches up + fires reward StateEvents.
+        # Per `feat_make-brain-ping-pong.md` PR 9.
+        self.activity_loop.tick(dt)
 
         # Current light state (base values)
         ls = self.light_states[self.light_state_names[self.light_state_idx]]
@@ -1506,6 +1553,12 @@ class BrainWorld:
                 "tiles": len(self.exchange._tile_cache),
                 "exchange_budget": self.exchange.config["delivery_budget"],
             },
+            # Make-brain top-level keys — merged from the active instance
+            # if the biome binds one (volley_chamber → ping_pong, future
+            # archery_range → archery, etc.). Empty dict spread is a
+            # silent no-op for legacy biomes. Per
+            # `.claude/feature/feat_make-brain-ping-pong.md` PR 3.
+            **_make_brain_manifest_keys(self.biome_name),
         }
 
     def cycle_light_state(self):
@@ -1520,6 +1573,16 @@ class BrainWorld:
 
 def run_server(biome_name, port=9877):
     world = BrainWorld(biome_name)
+
+    # Make-brain activation — if the biome registry binds an instance_id
+    # for this biome, instantiate + register the handler. Idempotent
+    # across re-boots. Per `.claude/feature/feat_make-brain-ping-pong.md` PR 3.
+    mb_instance_id = BIOME_REGISTRY.get(biome_name, {}).get("make_brain_instance_id")
+    if mb_instance_id == "ping_pong":
+        from core.systems.make_brains import ping_pong as ping_pong_brain
+        ping_pong_brain.activate(_get_vault())
+        print(f"Make-brain: activated ping_pong for biome {biome_name!r}",
+              flush=True)
 
     # Expedition engine — authored encounter/session loop that rides
     # on top of the manifest. Lazily built per client connection so
@@ -2450,6 +2513,33 @@ def run_server(biome_name, port=9877):
                         last_wake_ids = set()
                     continue
 
+                # ---- Make-brain profile commands ------------------------
+                # Universal config dispatch for any make-brain instance.
+                # Per `.claude/feature/feat_make-brain-ping-pong.md` PR 1.
+                _mb_cmd = msg.get("cmd")
+                if _mb_cmd in (
+                    "profile_save", "profile_load", "profile_list",
+                    "volley_serve", "volley_strike",
+                    "volley_reset_rally", "volley_reset_match",
+                    "console_exec",
+                ):
+                    mb_handler = {
+                        "profile_save":       make_brain_commands.handle_profile_save,
+                        "profile_load":       make_brain_commands.handle_profile_load,
+                        "profile_list":       make_brain_commands.handle_profile_list,
+                        "volley_serve":       make_brain_commands.handle_volley_serve,
+                        "volley_strike":      make_brain_commands.handle_volley_strike,
+                        "volley_reset_rally": make_brain_commands.handle_volley_reset_rally,
+                        "volley_reset_match": make_brain_commands.handle_volley_reset_match,
+                        "console_exec":       make_brain_commands.handle_console_exec,
+                    }[_mb_cmd]
+                    ack = mb_handler(msg, _get_vault())
+                    try:
+                        client.sendall((json.dumps(ack) + "\n").encode("utf-8"))
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    continue
+
                 # Camera update — stash, only process the latest after drain
                 latest_cam_msg = msg
 
@@ -2473,6 +2563,19 @@ def run_server(biome_name, port=9877):
             # engine, regens the world, restores HP, no perma-death.
             consequence_tick.tick(world, world.tick_events)
             world.tick_events.clear()
+
+            # Make-brain per-frame physics tick. Runs at fixed 1/60 dt
+            # regardless of client cadence — solver substeps handle any
+            # per-frame velocity. Silent no-op for legacy biomes (no
+            # registered handler).
+            if mb_instance_id:
+                try:
+                    spec = make_brain_registry.get(mb_instance_id)
+                    tick_fn = getattr(spec.handler, "on_tick", None)
+                    if callable(tick_fn):
+                        tick_fn(1.0 / 60.0)
+                except LookupError:
+                    pass
 
             # Process only the latest camera update (skip stale queued ones)
             if latest_cam_msg is not None:
@@ -2501,6 +2604,18 @@ def run_server(biome_name, port=9877):
                     if world.dwell_time > DISSOCIATE_ONSET and world.tension.active:
                         world.dissociation_pressure += DISSOCIATE_RATE * dt
                         world.tension._dissociation_pressure = world.dissociation_pressure
+                    # UNWIND producer (PR 10) — pure-cumulative dwell
+                    # accumulator emits one UNWIND tick per slice. The
+                    # `while` drains accumulated time correctly when dt
+                    # is large (paused brain catching up).
+                    world._dwell_accum_for_unwind += dt
+                    while world._dwell_accum_for_unwind >= activity_loop.DWELL_UNWIND_SLICE_SECONDS:
+                        world._dwell_accum_for_unwind -= activity_loop.DWELL_UNWIND_SLICE_SECONDS
+                        activity_loop.emit_activity(
+                            activity_loop.ActivityClass.UNWIND, 1,
+                            primitive="dwell_slice",
+                            source_brain="brain_world",
+                        )
                 else:
                     world.dwell_time = max(0.0, world.dwell_time - dt * 3.0)
                     world.dissociation_pressure = max(
