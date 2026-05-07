@@ -194,8 +194,8 @@ def _run_curses_loop(stdscr, game, handler) -> None:
     stdscr.keypad(True)
     curses.curs_set(0)
 
-    game.log("Welcome to Sanctum NetHack!  hjkl or arrows to move.")
-    game.log("Press Q to quit.  > to descend stairs.  , to pick up.")
+    game.log("Welcome to Sanctum NetHack!  hjkl / wasd / arrows to move.")
+    game.log("Q quit.  > descend.  , pickup.  x wield.  W wear.  q quaff.  r read.")
 
     while game.alive and not game.quit:
         render_frame(
@@ -224,7 +224,7 @@ def _run_curses_loop(stdscr, game, handler) -> None:
 
 def _run_text_loop(game, handler) -> None:
     """Minimal text-mode loop for environments where curses isn't available."""
-    print("NetHack text mode (no curses). Type hjkl to move, Q to quit.")
+    print("NetHack text mode (no curses). Type hjkl/wasd to move, Q to quit.")
     while game.alive and not game.quit:
         pos = f"({game.player.x},{game.player.y})"
         hp = f"HP:{game.player.hp}/{game.player.max_hp}"
