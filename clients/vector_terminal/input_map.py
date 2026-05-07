@@ -106,6 +106,12 @@ DEFAULT_BINDINGS: dict[str, list[Trigger]] = {
     "console_toggle":   [("key", "KEY_GRAVE")],              # backtick
     "reset_rally":      [("key", "KEY_R")],
 
+    # ARPG combat (feat/arpg-combat PR 2 — SHOT-mode throw)
+    "weapon_throw":     [
+        ("key",     "KEY_G"),                                 # G for "go" / throw
+        ("gamepad", "GAMEPAD_BUTTON_LEFT_FACE_DOWN"),         # D-pad down
+    ],
+
     # Misc UI / debug
     "journal_toggle":   [("key", "KEY_J")],
     "equip_cycle":      [("key", "KEY_E")],

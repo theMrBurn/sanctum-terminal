@@ -71,6 +71,9 @@ from core.systems import make_brain_commands
 from core.systems import make_brain_registry
 from core.systems.character_draft import CharacterDraft
 from core.systems import activity_loop
+from core.systems import strike as strike_module
+from core.systems import strike_runtime
+from core.systems import weapons as weapons_pkg
 from core.systems.character_sheet import CharacterSheet
 from core.systems.dial_prompt import DialPrompt, to_manifest as dial_to_manifest
 from core.systems.state_events import (
@@ -79,6 +82,7 @@ from core.systems.state_events import (
     LOOP as REG_LOOP,
     RITUAL as REG_RITUAL,
     SYSTEM as REG_SYSTEM,
+    TENSE as REG_TENSE,
 )
 from datetime import date
 
@@ -321,6 +325,97 @@ def _on_quest_complete(world, quest) -> None:
             _get_vault(), sid, scenario_ledger.COMPLETE,
             state_events=world.state_events)
     print(f"  quest completed: {quest.id} loot={actually_added}", flush=True)
+
+
+def _on_strike_resolve(world, active_strike, target_entity) -> None:
+    """Resolve an ARPG combat Strike contact (feat/arpg-combat PR 2).
+
+    Called per-resolution by `strike_runtime.tick_active_strikes`. Three
+    outcome paths:
+
+    1. `target_entity is None` — Strike faded at max-age. Emit
+       `strike_missed` StateEvent. No damage / engagement / activity emit.
+
+    2. `target_entity` has an `engagement` slot in kind_config — creature
+       engagement trigger. Per `design_creature_engagement_v1` and
+       `design_wont_tolerate` #5, hitting a creature does NOT damage HP.
+       Strike opens the kind's engagement_type. V1 stub: emit StateEvent
+       + activity HUNT signal; full engagement-substrate dispatch lands
+       with `feat/creature-engagement` PR sequence.
+
+    3. `target_entity` has no engagement slot — env damage. Generalize
+       the existing kind_destroyed flow: push tick event for async-quest
+       predicates, add to destroyed_entity_ids ledger, emit StateEvent
+       toast, fire HUNT activity signal.
+    """
+    if target_entity is None:
+        # Faded
+        world.state_events.emit(
+            "strike_missed",
+            f"{active_strike.strike.weapon_kind.upper()} — MISSED",
+            None,
+            REG_LOOP,
+        )
+        return
+
+    target_kind = str(target_entity.get("kind", ""))
+    target_id = target_entity.get("id")
+
+    # Look up kind_config to determine env vs creature behavior
+    kind_cfg = kind_config.kind(target_kind) or {}
+    has_engagement = "engagement" in kind_cfg
+
+    if has_engagement:
+        # Creature path — Strike triggers engagement (V1 stub)
+        world.state_events.emit(
+            "engagement_opened_via_strike",
+            f"{active_strike.strike.weapon_kind.upper()} → {target_kind.upper()}",
+            None,
+            REG_TENSE,
+        )
+        # V1 activity emit — HUNT registers as combat-style action even
+        # though no damage was dealt. The engagement that opens decides
+        # the eventual win/lose activity per its own type.
+        activity_loop.emit_activity(
+            activity_loop.ActivityClass.HUNT,
+            intensity=1,
+            primitive="strike_to_creature",
+            source_brain="arpg_combat",
+            payload={
+                "weapon": active_strike.strike.weapon_kind,
+                "kind":   target_kind,
+                "mode":   active_strike.strike.mode,
+            },
+        )
+        return
+
+    # Env path — generalize kind_destroyed flow
+    world.tick_events.append({
+        "type": "kind_destroyed",
+        "kind": target_kind,
+    })
+    if target_id is not None:
+        try:
+            world.destroyed_entity_ids.add(int(target_id))
+        except (TypeError, ValueError):
+            pass
+    world.state_events.emit(
+        "strike_landed",
+        f"{active_strike.strike.weapon_kind.upper()} → {target_kind.upper()}",
+        None,
+        REG_LOOP,
+    )
+    activity_loop.emit_activity(
+        activity_loop.ActivityClass.HUNT,
+        intensity=1,
+        primitive="strike_destroyed_env",
+        source_brain="arpg_combat",
+        payload={
+            "weapon": active_strike.strike.weapon_kind,
+            "kind":   target_kind,
+            "mode":   active_strike.strike.mode,
+        },
+    )
 
 
 # ── Pillar formation geometry ─────────────────────────────────────────
@@ -690,6 +785,15 @@ class BrainWorld:
         # so an UNWIND emit fires for every DWELL_UNWIND_SLICE_SECONDS of
         # accumulated low-input time, even across active stretches.
         self._dwell_accum_for_unwind: float = 0.0
+
+        # ARPG combat substrate (feat/arpg-combat PR 2). active_strikes
+        # holds in-flight Strikes — physics-advanced each tick by
+        # strike_runtime.tick_active_strikes. Cleared on resolution
+        # (hit or fade); manifest exposes them for client rendering.
+        self.active_strikes: list[strike_runtime.ActiveStrike] = []
+        # Seed V1 weapon profiles (throwing_axe etc.) + register SHOT
+        # dispatcher. Idempotent across brain restarts.
+        weapons_pkg.activate_v1_weapons(_get_vault())
 
         # Quest state — async ambient quest substrate per
         # `project_async_quest_refactor`. PR 1.2 keeps this in-memory on
@@ -1148,6 +1252,21 @@ class BrainWorld:
         budget_max = self.tension._config.get("budget_max", 800)
         envelope = self.tension.tick(dt, entity_count, budget_max)
 
+        # ARPG combat — advance in-flight Strikes (feat/arpg-combat PR 2).
+        # Each ActiveStrike's BallisticsSolver runs one frame, then the
+        # runtime checks per-strike entity collisions + age-fade. Resolved
+        # strikes are filtered after the tick. on_resolve handles all
+        # side effects (StateEvents, activity_loop, engagement triggers,
+        # kind_destroyed event).
+        if self.active_strikes:
+            kc = kind_config.all_kinds()
+            strike_runtime.tick_active_strikes(
+                self.active_strikes, exchange_entities, kc, dt,
+                on_resolve=lambda act, target: _on_strike_resolve(self, act, target),
+            )
+            # Filter resolved strikes
+            self.active_strikes = [a for a in self.active_strikes if not a.resolved]
+
         # Current light state (base values)
         ls = self.light_states[self.light_state_names[self.light_state_idx]]
 
@@ -1542,6 +1661,27 @@ class BrainWorld:
             # for "what is the player doing" diagnostic readout.
             # Per PR 15.
             "activity": activity_loop.summary(),
+            # In-flight ARPG combat strikes (feat/arpg-combat PR 2).
+            # Vector terminal renders these as ball + trail per mode
+            # via clients/vector_terminal/strike_renderer.py. Empty list
+            # when no strikes are active. Each entry mirrors what the
+            # client needs to render: id, mode, weapon, position, vel.
+            "active_strikes": [
+                {
+                    "weapon_kind":  a.strike.weapon_kind,
+                    "mode":         a.strike.mode,
+                    "source":       a.strike.source_actor,
+                    "ball_radius":  a.strike.profile.ball_radius,
+                    "x":            a.current_state.pos[0],
+                    "y":            a.current_state.pos[1],
+                    "z":            a.current_state.pos[2],
+                    "vx":           a.current_state.vel[0],
+                    "vy":           a.current_state.vel[1],
+                    "vz":           a.current_state.vel[2],
+                    "age_s":        a.age_seconds,
+                }
+                for a in self.active_strikes
+            ],
             # Reflective-mode surface — populated only while a session
             # is active. Vector terminal renders the fridge UI off this.
             # Per `design_reflective_loop` — the fridge is a state, not
@@ -1870,6 +2010,36 @@ def run_server(biome_name, port=9877):
                     world.player = ps.take_damage(world.player, amt)
                     consequence_signals.push_hp_zero(world)
                     print(f"  damage_self: hp {old_hp} -> {world.player.hp}", flush=True)
+                    last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "weapon_use":
+                    # ARPG combat — player triggered a weapon use.
+                    # Look up the weapon profile + spawn an ActiveStrike
+                    # via the substrate. Per feat/arpg-combat PR 2.
+                    weapon_kind = str(msg.get("weapon_kind", ""))
+                    mode = str(msg.get("mode", "shot"))
+                    cam = msg.get("camera_state") or {}
+                    if not weapon_kind or "pos" not in cam or "forward" not in cam:
+                        print(f"  weapon_use rejected: missing weapon_kind / camera fields",
+                              flush=True)
+                        continue
+                    profile = _get_vault().profile_resolve("weapon", weapon_kind)
+                    if not profile:
+                        print(f"  weapon_use: unknown weapon {weapon_kind!r}", flush=True)
+                        continue
+                    profile["profile_name"] = weapon_kind   # for Strike telemetry
+                    try:
+                        s = strike_module.spawn(
+                            weapon_profile=profile,
+                            mode=mode,                # type: ignore[arg-type]
+                            camera_state=cam,
+                            source_actor="player",
+                        )
+                    except (KeyError, ValueError) as exc:
+                        print(f"  weapon_use rejected: {exc}", flush=True)
+                        continue
+                    world.active_strikes.append(strike_runtime.make_active(s))
                     last_wake_ids = set()
                     continue
 

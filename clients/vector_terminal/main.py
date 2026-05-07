@@ -42,6 +42,7 @@ from clients.vector_terminal.seed_collision import compute_floor_height  # noqa:
 from clients.vector_terminal.seed_mesh_cache import SeedMeshCache  # noqa: E402
 from clients.vector_terminal import silhouette as silhouette_renderer  # noqa: E402
 from clients.vector_terminal import state_events as state_events_renderer  # noqa: E402
+from clients.vector_terminal import strike_renderer  # noqa: E402
 from clients.vector_terminal.collision import resolve_collisions  # noqa: E402
 from clients.vector_terminal.envelope import clamp_to_envelope  # noqa: E402
 from clients.vector_terminal.inputs import action_for_key_index, next_inventory_name  # noqa: E402
@@ -427,6 +428,29 @@ def main() -> int:
                 else:
                     client.send({"cmd": "volley_reset_rally"})
 
+            # ARPG combat — throw weapon (feat/arpg-combat PR 2 SHOT mode).
+            # G key fires the player's equipped weapon if it supports
+            # SHOT mode. V1 hardcodes throwing_axe; PR 5+ reads weapon
+            # from inventory/equipped slot.
+            if input_map.pressed("weapon_throw"):
+                # raylib (y=up) → brain (y=forward, z=up): swap axes.
+                # Camera position in raylib: (x, y, z) where y=up.
+                # Brain forward unit vector: (forward[0], forward[1], 0)
+                # already normalized in raylib coords; brain wants
+                # (fx, fy_brain, fz_brain). Camera forward is in xz
+                # plane (raylib), so swap into brain space.
+                client.send({
+                    "cmd":         "weapon_use",
+                    "weapon_kind": "throwing_axe",
+                    "mode":        "shot",
+                    "camera_state": {
+                        "pos":     [camera.position.x, camera.position.z, camera.position.y],
+                        "forward": [forward[0],         forward[1],         0.0],
+                        "ang_vel": 0.0,
+                        "now":     now,
+                    },
+                })
+
             # K = damage_self debug. Each press deals 99 damage, sufficient
             # to push HP to 0 in one tap — exposes the forced reflective
             # chain end-to-end (REFLECT toast → fridge UI → commit →
@@ -724,6 +748,11 @@ def main() -> int:
         # Active ball — wireframe sphere from manifest.ball. Silent
         # no-op when no ball in play. Per PR 4.
         ball_renderer.render(last_manifest)
+
+        # ARPG combat strikes (feat/arpg-combat PR 2). Renders any
+        # in-flight Strikes from manifest.active_strikes. Silent no-op
+        # when none active. PR 6 polishes per-mode visuals.
+        strike_renderer.draw_strikes(last_manifest, camera)
 
         # World seeds — vector-workroom feature. Rendered before entities
         # so close-up entities can occlude distant seeds. Each seed's
