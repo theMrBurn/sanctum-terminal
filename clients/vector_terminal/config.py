@@ -26,6 +26,11 @@ AMBER_RGB = (255, 176, 0)
 
 # Distance intensity falloff (Battlezone "phosphor decay with distance").
 # Lines stay full bright within NEAR_DIST, fade linearly to MIN_GLOW at FAR_FADE.
+# Per PR 16: NEAR_DIST and FAR_FADE are FALLBACK values. The brain's
+# TensionCycle drives manifest.fog.near/far per frame, and
+# `distance_fade.set_bounds()` overrides these when the manifest
+# carries fog. These constants apply only before the first manifest is
+# received OR when a biome/state emits no fog (workroom, volley_chamber).
 NEAR_DIST = 4.0
 FAR_FADE = 60.0
 MIN_GLOW = 0.15

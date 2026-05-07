@@ -25,6 +25,7 @@ import pyray as rl  # noqa: E402
 
 from clients.vector_terminal import config as cfg  # noqa: E402
 from clients.vector_terminal import dial_input  # noqa: E402
+from clients.vector_terminal import distance_fade  # noqa: E402
 from clients.vector_terminal import hud  # noqa: E402
 from clients.vector_terminal import ball as ball_renderer  # noqa: E402
 from clients.vector_terminal import ball_trail as ball_trail_renderer  # noqa: E402
@@ -646,6 +647,16 @@ def main() -> int:
             if is_first_manifest or revision.observe(msg.get("world_revision")):
                 _teleport_to_spawn(camera, msg)
                 yaw, pitch = _spawn_orientation(msg)
+            # PR 16 — push TensionCycle's lerped fog into the
+            # distance-fade module. The brain emits manifest.fog.near/far
+            # per frame (lerped between cycle-state values); this is
+            # what makes the cycle felt as visibility rather than just
+            # an internal counter. Falls back to cfg constants if the
+            # biome/state doesn't supply fog.
+            _fog_block = msg.get("fog") or {}
+            distance_fade.set_bounds(
+                _fog_block.get("near"), _fog_block.get("far"),
+            )
 
         # Advance state-event toasts — runs once per frame regardless of
         # whether new manifests arrived. Watermark + active list update.
@@ -843,14 +854,12 @@ def main() -> int:
 
 
 def _intensity_for_distance(dist: float) -> float:
-    """Battlezone-style phosphor falloff. Full intensity within NEAR_DIST,
-    linear fade to MIN_GLOW at FAR_FADE, never fully dark."""
-    if dist <= cfg.NEAR_DIST:
-        return 1.0
-    if dist >= cfg.FAR_FADE:
-        return cfg.MIN_GLOW
-    t = (dist - cfg.NEAR_DIST) / (cfg.FAR_FADE - cfg.NEAR_DIST)
-    return max(cfg.MIN_GLOW, 1.0 - t * (1.0 - cfg.MIN_GLOW))
+    """Battlezone-style phosphor falloff. Now a thin shim over
+    `distance_fade.intensity` — the actual logic + dynamic-bound state
+    lives in distance_fade.py per PR 16. Bounds are fed from
+    manifest.fog.near/far each frame; cfg constants are the fallback.
+    """
+    return distance_fade.intensity(dist)
 
 
 def _amber(intensity: float) -> tuple[int, int, int, int]:
