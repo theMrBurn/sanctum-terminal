@@ -336,3 +336,111 @@ def test_params_from_profile_reads_tennis_sim_overrides():
     assert p.gravity_y == -9.81
     assert p.wall_restitution == 0.85
     assert p.ball_magnus_coeff == 0.175
+
+
+# ----------------------------------------------------------------------
+# WallPlane.interaction_kind — feat/arpg-combat PR 1 extension
+# ----------------------------------------------------------------------
+
+
+def test_wallplane_default_interaction_is_reflect():
+    """V1 ping-pong behavior preserved — chamber walls all default to reflect."""
+    walls = chamber_walls((12.0, 12.0, 12.0), (0.0, 0.0, 0.0))
+    for w in walls:
+        assert w.interaction_kind == "reflect"
+
+
+def test_chamber_walls_reflect_unchanged_after_pr1():
+    """Regression — V1 ping-pong tests still pass with the new interaction_kind
+    field (already covered above; this is the explicit no-regression assertion)."""
+    solver = BallisticsSolver(BallisticsParams.from_profile(VANILLA),
+                              chamber_walls((12.0, 12.0, 12.0), (0.0, 0.0, 0.0)))
+    state = _spawn(pos=(0.0, 0.0, 1.6), vel=(8.0, 0.0, 0.0))
+    new_state, contacts = solver.step(state, 1.0)
+    # Ball should have hit east wall and reflected.
+    assert any(c.contact_kind == "wall_strike" for c in contacts)
+
+
+def test_wallplane_absorb_stops_ball():
+    """absorb interaction: ball stops at contact, contact recorded."""
+    absorb_east = WallPlane(
+        point=(6.0, 0.0, 0.0), normal=(-1.0, 0.0, 0.0),
+        name="east_absorb", interaction_kind="absorb",
+    )
+    floor = WallPlane(
+        point=(0.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0), name="floor",
+    )  # default reflect, just to keep ball above floor
+    solver = BallisticsSolver(BallisticsParams.from_profile(VANILLA),
+                              [absorb_east, floor])
+    state = _spawn(pos=(0.0, 0.0, 1.6), vel=(8.0, 0.0, 0.0))   # heading east
+    new_state, contacts = solver.step(state, 1.0)
+    # Ball stopped at the wall, vel should be zero.
+    assert _approx(new_state.vel, (0.0, 0.0, 0.0))
+    # One contact recorded.
+    absorb_contacts = [c for c in contacts if c.contact_kind == "wall_absorb"]
+    assert len(absorb_contacts) == 1
+
+
+def test_wallplane_passthrough_continues_ball_with_energy_loss():
+    """passthrough interaction: ball continues, vel multiplied by passthrough_coupling."""
+    pass_east = WallPlane(
+        point=(6.0, 0.0, 0.0), normal=(-1.0, 0.0, 0.0),
+        name="east_pass", interaction_kind="passthrough",
+        passthrough_coupling=0.5,
+    )
+    solver = BallisticsSolver(BallisticsParams.from_profile(VANILLA), [pass_east])
+    state = _spawn(pos=(0.0, 0.0, 1.6), vel=(8.0, 0.0, 0.0))
+    new_state, contacts = solver.step(state, 1.0)
+    # One passthrough contact recorded.
+    pass_contacts = [c for c in contacts if c.contact_kind == "wall_passthrough"]
+    assert len(pass_contacts) == 1
+    # Ball continues (positive x velocity post-contact, halved by coupling).
+    assert new_state.vel[0] > 0
+    assert abs(new_state.vel[0] - 8.0 * 0.5) < 1e-3
+
+
+def test_wallplane_passthrough_default_coupling():
+    """passthrough_coupling defaults to 0.85 when not specified."""
+    w = WallPlane(point=(0.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0),
+                  name="test", interaction_kind="passthrough")
+    assert w.passthrough_coupling == 0.85
+
+
+def test_wallplane_absorb_does_not_emit_extra_contacts():
+    """After absorb, ball is stationary — no further contacts in same step."""
+    absorb_floor = WallPlane(
+        point=(0.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0),
+        name="absorb_floor", interaction_kind="absorb",
+    )
+    solver = BallisticsSolver(BallisticsParams.from_profile(VANILLA),
+                              [absorb_floor])
+    # Drop ball straight down toward floor.
+    state = _spawn(pos=(0.0, 0.0, 1.0), vel=(0.0, 0.0, -5.0))
+    new_state, contacts = solver.step(state, 1.0)
+    assert len([c for c in contacts if c.contact_kind == "wall_absorb"]) == 1
+    assert _approx(new_state.vel, (0.0, 0.0, 0.0))
+
+
+def test_wallplane_passthrough_and_absorb_can_coexist():
+    """A solver can have walls with mixed interaction_kinds."""
+    pass_east = WallPlane(
+        point=(6.0, 0.0, 0.0), normal=(-1.0, 0.0, 0.0),
+        name="pass_east", interaction_kind="passthrough",
+        passthrough_coupling=0.7,
+    )
+    absorb_west = WallPlane(
+        point=(-6.0, 0.0, 0.0), normal=(1.0, 0.0, 0.0),
+        name="absorb_west", interaction_kind="absorb",
+    )
+    solver = BallisticsSolver(BallisticsParams.from_profile(VANILLA),
+                              [pass_east, absorb_west])
+    # Ball heading east — passes through east wall, never reaches west.
+    state = _spawn(pos=(0.0, 0.0, 0.0), vel=(8.0, 0.0, 0.0))
+    new_state, contacts = solver.step(state, 1.0)
+    pass_n  = sum(1 for c in contacts if c.contact_kind == "wall_passthrough")
+    absorb_n = sum(1 for c in contacts if c.contact_kind == "wall_absorb")
+    assert pass_n == 1
+    assert absorb_n == 0
+    # Velocity reduced but still positive.
+    assert new_state.vel[0] > 0
+    assert new_state.vel[0] < 8.0

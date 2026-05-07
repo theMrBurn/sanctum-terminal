@@ -71,19 +71,36 @@ inside test bodies. They will fail to RUN but still collect; the
 failures are isolated and don't affect the live test suite (verified
 post-archive: 157/157 cluster sweep green).
 
-## Still NOT archived (future batches)
+## A10 archived 2026-05-07 (closes feat/arpg-combat PR 1)
 
-Deferred to **A10** (creature_engagement spec dependent):
-- `core/systems/combat.py` + `combat_session.py` + `attack_lib.py` + `encounter_builder.py`
-- `core/systems/crafting_engine.py` + `crafting_integration.py`
-- `core/systems/material_system.py`
-- `core/systems/interaction_engine.py`
-- `core/systems/encounter_generator.py` (already retired in initial batch)
+The audit's deferred A10 batch landed alongside ARPG combat PR 1.
+Real-time Strike model (per `design_arpg_combat_v1`) doesn't reuse the
+turn-based combat substrate; these files have no live consumers.
 
-Deferred to **A14** (legacy file archival):
-- `core/systems/avatar_pipeline.py` (broken after this archive — see above)
-- `core/systems/scenario_engine.py` + `scenario_runner.py` + `scenario_chain.py` + `consolidation.py` (idle by design or legacy bridges)
-- `core/systems/atmosphere_engine.py`, `glow_decal.py`, `sprite_renderer.py`, `billboard_renderer.py` (all panda3d-imported)
-- All top-level Panda3D entries: `cavern.py`, `creation_lab.py`, `dungeon.py`, `FirstLight.py`, `room_lab.py`, `shadowbox_dungeon.py`, `simulation_theater.py`, `SimulationRunner.py`, `template_viewer.py`, `sanctum_terminal.py`, `main.py`
+| File | Why retired |
+|---|---|
+| `combat.py` | Turn-based Participant + Formula. Not used by real-time Strike. |
+| `combat_session.py` | Turn-based round wrapper. Same. |
+| `attack_lib.py` | JSON→AttackDef cache for combat.py. |
+| `encounter_builder.py` | Pack-pull for kind_config combat_profile (combat-shaped). |
+| `crafting_engine.py` | Crafting recipes; only legacy callers. |
+| `crafting_integration.py` | Bridge over idle ScenarioEngine + Inventory class (both archived). |
+| `material_system.py` | Only consumer was archived `entity_template.py`. |
+| `interaction_engine.py` | Only Panda3D-era callers. |
+| `campaign_engine.py` | Only Panda3D-era callers (creation_lab archived). |
+| `dungeon_campaign.py` | Only Panda3D-era callers. |
+| `session_boundary.py` | No live importer; was a bound test only. |
+| `grace_handler.py` | No live importer; pure-Python orphan. |
+
+Bound tests archived: `test_combat.py`, `test_combat_session.py`,
+`test_crafting.py`, `test_encounter_builder.py`, `test_grace_handler.py`,
+`test_interactions.py`, `test_material_system.py`.
+
+## A14 already closed in earlier commit (a3bde33)
+
+The full Panda3D-era archive (21 source modules + 10 top-level entries
++ 17 bound tests) landed there. Combined with this A10 archive, the
+live `core/systems/` directory is now substantially clean — no
+turn-based combat substrate, no Panda3D imports.
 
 See audit doc `.claude/audit_2026-05-06.md` for the full disposition map.

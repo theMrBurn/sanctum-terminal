@@ -92,10 +92,28 @@ class ContactProfile:
 
 @dataclass(frozen=True)
 class WallPlane:
-    """Static plane of the chamber. Inward normal points INTO the room."""
+    """Static plane of the chamber. Inward normal points INTO the room.
+
+    `interaction_kind` controls what happens when a moving ball hits the
+    plane (per ARPG-combat PR 1, audit feat_arpg-combat.md):
+      - `reflect`     — bounce off per `wall_restitution`. V1 ping-pong
+                        chamber walls all use this. Default.
+      - `absorb`      — ball stops at contact. Energy transferred. Used
+                        for combat hitboxes representing creatures /
+                        env entities that consume Strikes.
+      - `passthrough` — ball continues with reduced speed
+                        (`passthrough_coupling`). Used for combat
+                        hitboxes that let multi-hit Strikes plow through
+                        (held-mode multi-target swings).
+
+    Default `reflect` preserves V1 ping-pong behavior — existing
+    chamber_walls() ships pure-reflect planes, no migration needed.
+    """
     point:  tuple[float, float, float]          # any point on the plane
     normal: tuple[float, float, float]          # unit, pointing INTO playable volume
     name:   str                                  # "floor" / "ceiling" / "north" / etc., for debugging
+    interaction_kind: str = "reflect"            # "reflect" | "absorb" | "passthrough"
+    passthrough_coupling: float = 0.85           # speed retention on passthrough; 1.0 = no loss
 
 
 # ----------------------------------------------------------------------
@@ -242,25 +260,79 @@ class BallisticsSolver:
                 pos=pos, vel=vel, spin=state.spin,
                 timestamp=state.timestamp + (dt - time_left + toi),
             )
-            new_vel = self._reflect(vel, hit_wall.normal)
-            outgoing = MotionVector(
-                pos=pos, vel=new_vel, spin=state.spin,
-                timestamp=incoming.timestamp,
-            )
-            contacts.append(ContactProfile(
-                contact_point   = pos,
-                incoming        = incoming,
-                paddle_normal   = hit_wall.normal,
-                paddle_velocity = (0.0, 0.0, 0.0),
-                outgoing        = outgoing,
-                coupling_factor = self.params.wall_restitution,
-                contact_kind    = "wall_strike",
-            ))
-            # Nudge out of the plane by an epsilon along its normal so
-            # next CCD doesn't immediately re-detect a TOI at 0.
-            pos = _add(pos, _scale(hit_wall.normal, 1e-5))
-            vel = new_vel
-            time_left -= toi
+
+            # Dispatch per WallPlane.interaction_kind. ARPG-combat PR 1
+            # adds absorb/passthrough alongside the original reflect path.
+            ikind = hit_wall.interaction_kind
+            if ikind == "absorb":
+                # Ball stops at contact. Used for hitboxes that consume
+                # the Strike (sword vs single-target).
+                new_vel = (0.0, 0.0, 0.0)
+                contact_kind = "wall_absorb"
+                coupling     = self.params.wall_restitution    # legacy compat — reports profile coupling
+                outgoing = MotionVector(
+                    pos=pos, vel=new_vel, spin=state.spin,
+                    timestamp=incoming.timestamp,
+                )
+                contacts.append(ContactProfile(
+                    contact_point   = pos,
+                    incoming        = incoming,
+                    paddle_normal   = hit_wall.normal,
+                    paddle_velocity = (0.0, 0.0, 0.0),
+                    outgoing        = outgoing,
+                    coupling_factor = coupling,
+                    contact_kind    = contact_kind,
+                ))
+                # Ball stops in place. Time budget exhausted — exit loop
+                # so further CCD doesn't re-impact (vel=0 anyway).
+                vel = new_vel
+                time_left = 0.0
+                break
+            elif ikind == "passthrough":
+                # Ball continues through with energy loss. Used for
+                # hitboxes that let multi-hit swings plow through.
+                new_vel = _scale(vel, hit_wall.passthrough_coupling)
+                contact_kind = "wall_passthrough"
+                outgoing = MotionVector(
+                    pos=pos, vel=new_vel, spin=state.spin,
+                    timestamp=incoming.timestamp,
+                )
+                contacts.append(ContactProfile(
+                    contact_point   = pos,
+                    incoming        = incoming,
+                    paddle_normal   = hit_wall.normal,
+                    paddle_velocity = (0.0, 0.0, 0.0),
+                    outgoing        = outgoing,
+                    coupling_factor = hit_wall.passthrough_coupling,
+                    contact_kind    = contact_kind,
+                ))
+                # Nudge OUTWARD (along -normal) so next CCD doesn't
+                # immediately re-detect this plane. Ball is now on the
+                # outside.
+                pos = _add(pos, _scale(hit_wall.normal, -1e-5))
+                vel = new_vel
+                time_left -= toi
+            else:
+                # Default "reflect" — original V1 ping-pong behavior.
+                new_vel = self._reflect(vel, hit_wall.normal)
+                outgoing = MotionVector(
+                    pos=pos, vel=new_vel, spin=state.spin,
+                    timestamp=incoming.timestamp,
+                )
+                contacts.append(ContactProfile(
+                    contact_point   = pos,
+                    incoming        = incoming,
+                    paddle_normal   = hit_wall.normal,
+                    paddle_velocity = (0.0, 0.0, 0.0),
+                    outgoing        = outgoing,
+                    coupling_factor = self.params.wall_restitution,
+                    contact_kind    = "wall_strike",
+                ))
+                # Nudge out of the plane by an epsilon along its normal
+                # so next CCD doesn't immediately re-detect a TOI at 0.
+                pos = _add(pos, _scale(hit_wall.normal, 1e-5))
+                vel = new_vel
+                time_left -= toi
             guard += 1
             if guard > 32:
                 # Pathological geometry / corner case — break to avoid

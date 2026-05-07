@@ -73,9 +73,15 @@ All Panda3D-era files moved to `docs/archive/panda3d/`. The live pipeline (brain
 
 `sanctum_terminal.py` was **not archived** — it's a real headless ASCII alt-client (pure-Python, no panda3d, walks brain stamp_world directly). Reachable via `make terminal` / `make terminal-inline`.
 
-### Still in `core/systems/` despite legacy-only callers (deferred to A10)
+### A10 closed 2026-05-07 — turn-based combat substrate retired
 
-These don't import panda3d but their existing consumers were exclusively legacy: `combat.py`, `combat_session.py`, `attack_lib.py`, `crafting_engine.py`, `crafting_integration.py`, `material_system.py`, `interaction_engine.py`, `encounter_builder.py`, `campaign_engine.py`, `dungeon_campaign.py`, `session_boundary.py`, `grace_handler.py`. Disposition pending the `design_creature_engagement_v1` spec (audit A8 / A10).
+The deferred A10 list (`combat.py`, `combat_session.py`, `attack_lib.py`, `encounter_builder.py`, `crafting_engine.py`, `crafting_integration.py`, `material_system.py`, `interaction_engine.py`, `campaign_engine.py`, `dungeon_campaign.py`, `session_boundary.py`, `grace_handler.py`) was archived with feat/arpg-combat PR 1 — the real-time Strike model (`design_arpg_combat_v1`) doesn't reuse turn-based combat machinery. See `docs/archive/orphans_2026-05/README.md`.
+
+### Strike substrate — feat/arpg-combat (PR 1 landed 2026-05-07)
+
+- `core/systems/strike.py` — Strike dataclass + HeldVerb IntEnum (5 verbs: PUNCH / STAB / SLASH / HACK / RIPOSTE) + spawn factory + dispatch registry
+- `core/systems/ballistics.py` — `WallPlane.interaction_kind` extension (reflect | absorb | passthrough). Default reflect preserves V1 ping-pong behavior.
+- Per-mode handlers (`core/systems/weapons/`) land in PR 2-5 as the SHOT, HELD, WHIP, and combo dispatchers wire up.
 
 ### Pre-existing archived docs (Phase 1 reconciliation 2026-04-26)
 
