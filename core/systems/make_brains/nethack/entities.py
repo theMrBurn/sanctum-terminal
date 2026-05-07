@@ -22,10 +22,14 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 def _stat_bonus(stat: int) -> int:
-    """Convert a stat value to its modifier using classic NetHack table."""
+    """Convert a stat value to its modifier using classic NetHack table.
+
+    NetHack 3.6 convention: 3=-3, 4-5=-2, 6-7=-1, 8-14=0, 15-17=+1,
+    18=+2, 19+=+3.
+    """
     if stat <= 3:   return -3
     if stat <= 5:   return -2
-    if stat <= 8:   return -1
+    if stat <= 7:   return -1
     if stat <= 14:  return  0
     if stat <= 17:  return  1
     if stat <= 18:  return  2

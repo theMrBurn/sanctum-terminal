@@ -99,7 +99,7 @@ def _kill_monster(
     game.handler._run_metrics["monsters_killed"] += 1
     game.handler._emit_event(
         "monster_killed",
-        kind=monster.kind,
+        monster_kind=monster.kind,
         depth=game.dlvl,
         xp_gain=xp_gain,
     )
