@@ -457,7 +457,7 @@ def _on_strike_resolve(world, active_strike, target_entity) -> None:
     target_id = target_entity.get("id")
 
     # Look up kind_config to determine env vs creature behavior
-    kind_cfg = kind_config.kind(target_kind) or {}
+    kind_cfg = _kc.kind(target_kind) or {}
     has_engagement = "engagement" in kind_cfg
 
     if has_engagement:
@@ -1378,7 +1378,7 @@ class BrainWorld:
         # side effects (StateEvents, activity_loop, engagement triggers,
         # kind_destroyed event).
         if self.active_strikes:
-            kc = kind_config.all_kinds()
+            kc = _kc.all_kinds()
             strike_runtime.tick_active_strikes(
                 self.active_strikes, exchange_entities, kc, dt,
                 on_resolve=lambda act, target: _on_strike_resolve(self, act, target),
