@@ -116,6 +116,18 @@ def main() -> int:
     # can see the ball go forward but not where it bounces / returns.
     ball_trail_state = ball_trail_renderer.TrailState()
 
+    # ARPG combat — equipped weapon state (feat/arpg-combat PR 8).
+    # DOOM-style: catalog is fixed; Y cycles forward, 1-4 direct-select,
+    # LMB = primary mode of equipped weapon, RMB = secondary (combos
+    # only). Initial weapon is throwing_axe per V1 default.
+    WEAPON_CATALOG: list[dict] = [
+        {"kind": "throwing_axe", "primary_mode": "shot",  "secondary_mode": None,   "label": "AXE"},
+        {"kind": "iron_sword",   "primary_mode": "held",  "secondary_mode": None,   "label": "SWORD"},
+        {"kind": "chain_whip",   "primary_mode": "whip",  "secondary_mode": None,   "label": "WHIP"},
+        {"kind": "fire_staff",   "primary_mode": "held",  "secondary_mode": "shot", "label": "STAFF"},
+    ]
+    current_weapon_idx = 0
+
     client = ManifestClient(cfg.BRAIN_HOST, cfg.BRAIN_PORT)
     try:
         client.connect()
@@ -428,10 +440,60 @@ def main() -> int:
                 else:
                     client.send({"cmd": "volley_reset_rally"})
 
-            # ARPG combat — throw weapon (feat/arpg-combat PR 2 SHOT mode).
-            # G key fires the player's equipped weapon if it supports
-            # SHOT mode. V1 hardcodes throwing_axe; PR 5+ reads weapon
-            # from inventory/equipped slot.
+            # ARPG combat — equipped-weapon UX (feat/arpg-combat PR 8).
+            # Y cycles forward; 1-4 direct-select.
+            if input_map.pressed("weapon_cycle"):
+                current_weapon_idx = (current_weapon_idx + 1) % len(WEAPON_CATALOG)
+                w = WEAPON_CATALOG[current_weapon_idx]
+                print(f"[weapon] equipped: {w['label']} ({w['kind']})", flush=True)
+            # Direct-select via slot keys 1-4. Guard against modal
+            # consumers (encounter / dial / build mode) — slot keys have
+            # higher-priority consumers in those contexts.
+            if not show_inventory_modal and not show_journal:
+                if input_map.pressed("slot_1") and len(WEAPON_CATALOG) > 0:
+                    current_weapon_idx = 0
+                    print(f"[weapon] equipped: {WEAPON_CATALOG[0]['label']}", flush=True)
+                if input_map.pressed("slot_2") and len(WEAPON_CATALOG) > 1:
+                    current_weapon_idx = 1
+                    print(f"[weapon] equipped: {WEAPON_CATALOG[1]['label']}", flush=True)
+                if input_map.pressed("slot_3") and len(WEAPON_CATALOG) > 2:
+                    current_weapon_idx = 2
+                    print(f"[weapon] equipped: {WEAPON_CATALOG[2]['label']}", flush=True)
+                if input_map.pressed("slot_4") and len(WEAPON_CATALOG) > 3:
+                    current_weapon_idx = 3
+                    print(f"[weapon] equipped: {WEAPON_CATALOG[3]['label']}", flush=True)
+
+            # Attack — uses equipped weapon's primary/secondary mode.
+            # LMB = primary; RMB = secondary (combos only).
+            equipped = WEAPON_CATALOG[current_weapon_idx]
+            if input_map.pressed("attack_primary"):
+                client.send({
+                    "cmd":         "weapon_use",
+                    "weapon_kind": equipped["kind"],
+                    "mode":        equipped["primary_mode"],
+                    "camera_state": {
+                        "pos":     [camera.position.x, camera.position.z, camera.position.y],
+                        "forward": [forward[0],         forward[1],         0.0],
+                        "ang_vel": 0.0,
+                        "now":     now,
+                    },
+                })
+            if (equipped.get("secondary_mode")
+                    and input_map.pressed("attack_secondary")):
+                client.send({
+                    "cmd":         "weapon_use",
+                    "weapon_kind": equipped["kind"],
+                    "mode":        equipped["secondary_mode"],
+                    "camera_state": {
+                        "pos":     [camera.position.x, camera.position.z, camera.position.y],
+                        "forward": [forward[0],         forward[1],         0.0],
+                        "ang_vel": 0.0,
+                        "now":     now,
+                    },
+                })
+
+            # ARPG combat — legacy direct-weapon bindings (kept as
+            # alternates so muscle memory still works).
             if input_map.pressed("weapon_throw"):
                 # raylib (y=up) → brain (y=forward, z=up): swap axes.
                 # Camera position in raylib: (x, y, z) where y=up.
@@ -451,22 +513,9 @@ def main() -> int:
                     },
                 })
 
-            # ARPG combat — melee swing (feat/arpg-combat PR 3 HELD mode).
-            # RMB triggers iron_sword swing with default SLASH verb.
-            # V1 hardcodes the weapon; verb cycling deferred to follow-up
-            # content PR. Uses brain default_verb in weapon_profile.
-            if input_map.pressed("melee"):
-                client.send({
-                    "cmd":         "weapon_use",
-                    "weapon_kind": "iron_sword",
-                    "mode":        "held",
-                    "camera_state": {
-                        "pos":     [camera.position.x, camera.position.z, camera.position.y],
-                        "forward": [forward[0],         forward[1],         0.0],
-                        "ang_vel": 0.0,
-                        "now":     now,
-                    },
-                })
+            # PR 3's RMB→iron_sword direct binding superseded by PR 8's
+            # equipped-weapon flow above. RMB now acts as
+            # `attack_secondary` for combo weapons via the equipped path.
 
             # ARPG combat — whip lash (feat/arpg-combat PR 4 WHIP mode).
             # V key triggers chain_whip — ball arcs out from tether,

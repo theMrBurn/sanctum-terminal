@@ -106,23 +106,28 @@ DEFAULT_BINDINGS: dict[str, list[Trigger]] = {
     "console_toggle":   [("key", "KEY_GRAVE")],              # backtick
     "reset_rally":      [("key", "KEY_R")],
 
-    # ARPG combat (feat/arpg-combat PR 2 — SHOT-mode throw)
-    "weapon_throw":     [
-        ("key",     "KEY_G"),                                 # G for "go" / throw
-        ("gamepad", "GAMEPAD_BUTTON_LEFT_FACE_DOWN"),         # D-pad down
+    # ARPG combat (feat/arpg-combat PR 8 — equipped-weapon UX).
+    # DOOM-style: cycle with Y, direct-select with 1-4, attack with
+    # primary/secondary mouse buttons. Brain receives weapon_kind +
+    # mode based on currently equipped weapon, not per-key bindings.
+    "weapon_cycle":     [
+        ("key",     "KEY_Y"),
+        ("gamepad", "GAMEPAD_BUTTON_LEFT_FACE_UP"),           # D-pad up
     ],
-    # ARPG combat (feat/arpg-combat PR 4 — WHIP-mode lash)
-    "weapon_whip":      [
-        ("key",     "KEY_V"),                                 # V for vine/whip
-        ("gamepad", "GAMEPAD_BUTTON_LEFT_FACE_LEFT"),         # D-pad left
+    "attack_primary":   [
+        ("mouse",   "MOUSE_BUTTON_LEFT"),
+        ("gamepad", "GAMEPAD_BUTTON_RIGHT_TRIGGER_2"),        # RT
     ],
-    # ARPG combat (feat/arpg-combat PR 5 — combo weapon staff)
-    "staff_swing":      [
-        ("key",     "KEY_X"),                                 # X = primary held cast/thrust
+    "attack_secondary": [
+        ("mouse",   "MOUSE_BUTTON_RIGHT"),
+        ("gamepad", "GAMEPAD_BUTTON_RIGHT_TRIGGER_1"),        # RB
     ],
-    "staff_cast":       [
-        ("key",     "KEY_C"),                                 # C = secondary fire bolt
-    ],
+    # Legacy per-weapon bindings (kept as alts so muscle memory still
+    # works post-PR-8; primary path is cycle + slot select).
+    "weapon_throw":     [("key", "KEY_G")],
+    "weapon_whip":      [("key", "KEY_V")],
+    "staff_swing":      [("key", "KEY_X")],
+    "staff_cast":       [("key", "KEY_C")],
 
     # Misc UI / debug
     "journal_toggle":   [("key", "KEY_J")],
