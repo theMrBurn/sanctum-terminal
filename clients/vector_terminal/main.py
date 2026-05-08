@@ -473,7 +473,7 @@ def main() -> int:
                     "mode":        equipped["primary_mode"],
                     "camera_state": {
                         "pos":     [camera.position.x, camera.position.z, camera.position.y],
-                        "forward": [forward[0],         forward[1],         0.0],
+                        "forward": [forward[0],         forward[2],         forward[1]],
                         "ang_vel": 0.0,
                         "now":     now,
                     },
@@ -486,7 +486,7 @@ def main() -> int:
                     "mode":        equipped["secondary_mode"],
                     "camera_state": {
                         "pos":     [camera.position.x, camera.position.z, camera.position.y],
-                        "forward": [forward[0],         forward[1],         0.0],
+                        "forward": [forward[0],         forward[2],         forward[1]],
                         "ang_vel": 0.0,
                         "now":     now,
                     },
@@ -507,7 +507,7 @@ def main() -> int:
                     "mode":        "shot",
                     "camera_state": {
                         "pos":     [camera.position.x, camera.position.z, camera.position.y],
-                        "forward": [forward[0],         forward[1],         0.0],
+                        "forward": [forward[0],         forward[2],         forward[1]],
                         "ang_vel": 0.0,
                         "now":     now,
                     },
@@ -527,7 +527,7 @@ def main() -> int:
                     "mode":        "whip",
                     "camera_state": {
                         "pos":     [camera.position.x, camera.position.z, camera.position.y],
-                        "forward": [forward[0],         forward[1],         0.0],
+                        "forward": [forward[0],         forward[2],         forward[1]],
                         "ang_vel": 0.0,
                         "now":     now,
                     },
@@ -545,7 +545,7 @@ def main() -> int:
                     "mode":        "held",
                     "camera_state": {
                         "pos":     [camera.position.x, camera.position.z, camera.position.y],
-                        "forward": [forward[0],         forward[1],         0.0],
+                        "forward": [forward[0],         forward[2],         forward[1]],
                         "ang_vel": 0.0,
                         "now":     now,
                     },
@@ -557,7 +557,7 @@ def main() -> int:
                     "mode":        "shot",
                     "camera_state": {
                         "pos":     [camera.position.x, camera.position.z, camera.position.y],
-                        "forward": [forward[0],         forward[1],         0.0],
+                        "forward": [forward[0],         forward[2],         forward[1]],
                         "ang_vel": 0.0,
                         "now":     now,
                     },

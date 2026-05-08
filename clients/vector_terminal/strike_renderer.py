@@ -102,40 +102,73 @@ def _draw_shot(s: dict[str, Any], cam_x: float, cam_y: float, cam_z: float) -> N
 
 
 def _draw_held(s: dict[str, Any], cam_x: float, cam_y: float, cam_z: float) -> None:
-    """HELD mode — phase-aware visualization:
-      - wind_up: faint sphere near player (anticipation)
-      - active:  bright sphere at hitbox position + glow ring
-      - cooldown: dim sphere at last hitbox position fading out
+    """HELD mode — read as a SWING, not a static sphere.
+
+    Phase-aware visualization that conveys arc + reach + impact:
+
+      - wind_up: nothing visible (player commits, weapon hasn't extended)
+      - active:  a bright LINE from player to hitbox position +
+                 small impact sphere at the hitbox tip. This reads
+                 as a weapon extending forward, not a floating ball.
+      - cooldown: faint trailing line + sphere fading.
+
+    Per-verb sweep direction (V2 polish): SLASH should sweep horizontally
+    during active, HACK should sweep top-down, STAB/PUNCH straight
+    forward. V1 PR 9 ships fixed-position line; per-verb sweep is V2.
     """
     try:
-        # Hitbox position from brain — player_pos + forward × reach
-        hx = float(s.get("hitbox_x", s.get("x", 0.0)))
-        hy = float(s.get("hitbox_y", s.get("y", 0.0)))
-        hz = float(s.get("hitbox_z", s.get("z", 0.0)))
+        # Player position is the base of the swing — current_state.pos
+        px = float(s.get("x", 0.0))
+        py = float(s.get("y", 0.0))
+        pz = float(s.get("z", 0.0))
+        # Hitbox tip position (player + forward × reach)
+        hx = float(s.get("hitbox_x", px))
+        hy = float(s.get("hitbox_y", py))
+        hz = float(s.get("hitbox_z", pz))
         r  = float(s.get("ball_radius", 0.4))
     except (TypeError, ValueError):
         return
+
     phase = str(s.get("held_phase", "active"))
-    pos = _brain_to_raylib(hx, hy, hz)
-    base_color = _amber_intensity(pos.x, pos.y, pos.z, cam_x, cam_y, cam_z)
-    # Modulate alpha by phase
     if phase == "wind_up":
-        alpha_mult = 0.4
-        radius_mult = 0.7
-    elif phase == "active":
-        alpha_mult = 1.0
-        radius_mult = 1.0
-    else:  # cooldown
-        alpha_mult = 0.5
-        radius_mult = 0.85
-    color = (base_color[0], base_color[1], base_color[2],
-             int(255 * alpha_mult))
-    rl.draw_sphere_wires(pos, r * radius_mult,
-                         _HELD_HITBOX_SLICES, _HELD_HITBOX_SLICES, color)
-    # Active phase: add a slightly larger glow ring for impact visibility
+        return                                       # nothing to render yet
+
+    base_pos = _brain_to_raylib(px, py, pz)
+    tip_pos  = _brain_to_raylib(hx, hy, hz)
+    color = _amber_intensity(tip_pos.x, tip_pos.y, tip_pos.z,
+                             cam_x, cam_y, cam_z)
+
+    # Phase modulates intensity
     if phase == "active":
-        glow_color = (base_color[0], base_color[1], base_color[2], 80)
-        rl.draw_sphere_wires(pos, r * 1.4,
+        alpha = 255
+        tip_radius_mult = 1.0
+    else:                                           # cooldown
+        alpha = 110
+        tip_radius_mult = 0.7
+
+    # Blade line — segment from player base to tip. Use cube-segment
+    # chain like WHIP for visual continuity (raylib has no native
+    # thick line in 3D); 5 segments along the swing length.
+    blade_segs = 5
+    blade_color = (color[0], color[1], color[2], alpha)
+    for i in range(blade_segs):
+        t = (i + 0.5) / blade_segs
+        sx = base_pos.x + (tip_pos.x - base_pos.x) * t
+        sy = base_pos.y + (tip_pos.y - base_pos.y) * t
+        sz = base_pos.z + (tip_pos.z - base_pos.z) * t
+        seg_pos = rl.Vector3(sx, sy, sz)
+        # Thinner segments toward tip → reads as a blade tapering.
+        seg_size = 0.10 + (1.0 - t) * 0.04
+        rl.draw_cube_wires(seg_pos, seg_size, seg_size, seg_size, blade_color)
+
+    # Tip impact sphere — concentrated at the hitbox center.
+    tip_color = (color[0], color[1], color[2], alpha)
+    rl.draw_sphere_wires(tip_pos, r * tip_radius_mult,
+                         _HELD_HITBOX_SLICES, _HELD_HITBOX_SLICES, tip_color)
+    # Active phase: outer glow ring on impact
+    if phase == "active":
+        glow_color = (color[0], color[1], color[2], 70)
+        rl.draw_sphere_wires(tip_pos, r * 1.5,
                              _HELD_GLOW_SLICES, _HELD_GLOW_SLICES, glow_color)
 
 
