@@ -186,6 +186,144 @@ def stick_figure() -> WireframeRecipe:
     return WireframeRecipe(vertices=v, edges=e)
 
 
+def banner_billboard() -> WireframeRecipe:
+    """Wide flat panel facing +Z. Reads as a sign / poster / billboard
+    rather than a generic cube. Scale-wide-in-x, thin-in-z."""
+    v = (
+        (-0.5, -0.3, 0.0), (0.5, -0.3, 0.0),
+        (0.5, 0.3, 0.0),  (-0.5, 0.3, 0.0),
+        # Inner cross — gives texture so it doesn't read as an empty rectangle.
+        (-0.5, 0.0, 0.0), (0.5, 0.0, 0.0),
+        (0.0, -0.3, 0.0), (0.0, 0.3, 0.0),
+    )
+    e = (
+        (0, 1), (1, 2), (2, 3), (3, 0),
+        (4, 5), (6, 7),                       # cross
+    )
+    f = (
+        (0, 1, 2), (0, 2, 3),
+    )
+    return WireframeRecipe(vertices=v, edges=e, faces=f)
+
+
+def lattice_7() -> WireframeRecipe:
+    """Triangular lattice of 7 points — heptagon ring + center, all wired.
+    Same prime-7 invariant as heptagon_ring but feels like a node graph
+    rather than a single shape."""
+    n = 6
+    verts = [(0.0, 0.0, 0.0)]                  # center
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        verts.append((0.5 * math.cos(a), 0.0, 0.5 * math.sin(a)))
+    e = []
+    for i in range(1, n + 1):
+        e.append((0, i))                       # spokes
+        e.append((i, 1 + (i % n)))             # ring
+    return WireframeRecipe(vertices=tuple(verts), edges=tuple(e))
+
+
+def scatter_7() -> WireframeRecipe:
+    """7 points scattered in 3D, fully connected at near edges. Reads as
+    a node cloud — the visual hint of an irregular grouping."""
+    v = (
+        (-0.4, 0.3, -0.2),
+        (0.4, 0.4, 0.1),
+        (0.0, -0.4, -0.3),
+        (-0.3, 0.0, 0.4),
+        (0.3, -0.2, 0.3),
+        (0.0, 0.5, 0.0),
+        (-0.4, -0.3, 0.0),
+    )
+    # Spanning edges — k-nearest-like cross-links
+    e = (
+        (0, 5), (0, 3), (0, 6),
+        (1, 5), (1, 4),
+        (2, 4), (2, 6), (2, 5),
+        (3, 6), (3, 5),
+        (4, 5),
+    )
+    return WireframeRecipe(vertices=v, edges=e)
+
+
+def chain_vertical() -> WireframeRecipe:
+    """Stacked links — 3 small cube outlines along Y. Reads as a chain
+    / tether / spinal column."""
+    link_h = 0.3
+    links: list[tuple[float, float, float]] = []
+    edges: list[tuple[int, int]] = []
+    for i, cy in enumerate((-0.4, 0.0, 0.4)):
+        base = i * 8
+        s = 0.15                                # link half-size
+        links.extend([
+            (-s, cy - link_h * 0.4, -s), (s, cy - link_h * 0.4, -s),
+            (s, cy - link_h * 0.4,  s), (-s, cy - link_h * 0.4,  s),
+            (-s, cy + link_h * 0.4, -s), (s, cy + link_h * 0.4, -s),
+            (s, cy + link_h * 0.4,  s), (-s, cy + link_h * 0.4,  s),
+        ])
+        # bottom + top rings of each link
+        edges.extend([
+            (base + 0, base + 1), (base + 1, base + 2),
+            (base + 2, base + 3), (base + 3, base + 0),
+            (base + 4, base + 5), (base + 5, base + 6),
+            (base + 6, base + 7), (base + 7, base + 4),
+            (base + 0, base + 4), (base + 1, base + 5),
+            (base + 2, base + 6), (base + 3, base + 7),
+        ])
+        if i > 0:
+            # link the bottom of this cube to the top of the previous
+            prev = (i - 1) * 8
+            edges.append((prev + 5, base + 0))
+            edges.append((prev + 7, base + 2))
+    return WireframeRecipe(vertices=tuple(links), edges=tuple(edges))
+
+
+def ground_hug_disc() -> WireframeRecipe:
+    """Flat disc at y≈0 — wide ring + cross-spokes. Reads as a tile /
+    decal / shadow rather than a 3D object."""
+    n = 8
+    verts: list[tuple[float, float, float]] = [(0.0, 0.0, 0.0)]
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        verts.append((0.5 * math.cos(a), 0.0, 0.5 * math.sin(a)))
+    e = []
+    for i in range(1, n + 1):
+        nxt = 1 + (i % n)
+        e.append((i, nxt))
+        if i % 2 == 1:
+            e.append((0, i))                    # half the spokes for sparse feel
+    return WireframeRecipe(vertices=tuple(verts), edges=tuple(e))
+
+
+def vector_sprite_tpose() -> WireframeRecipe:
+    """T-pose figure — richer than stick_figure. Head circle + body box +
+    outstretched arms + base. Reads as a character glyph more than a
+    skeleton."""
+    v = (
+        # Head (4-point diamond up top)
+        (-0.10, 0.5, 0.0), (0.10, 0.5, 0.0),
+        (0.0, 0.55, 0.0),  (0.0, 0.40, 0.0),
+        # Body box
+        (-0.15, 0.40, 0.0), (0.15, 0.40, 0.0),
+        (0.15, -0.10, 0.0), (-0.15, -0.10, 0.0),
+        # Arms (outstretched)
+        (-0.45, 0.30, 0.0), (0.45, 0.30, 0.0),
+        # Legs
+        (-0.10, -0.10, 0.0), (-0.10, -0.50, 0.0),
+        (0.10, -0.10, 0.0), (0.10, -0.50, 0.0),
+    )
+    e = (
+        # head diamond
+        (0, 2), (2, 1), (1, 3), (3, 0),
+        # body
+        (4, 5), (5, 6), (6, 7), (7, 4),
+        # arms
+        (4, 8), (5, 9),
+        # legs
+        (10, 11), (12, 13),
+    )
+    return WireframeRecipe(vertices=v, edges=e)
+
+
 # ── Cached recipes (atoms are deterministic, build once at import) ───────────
 
 _CUBE = cube_wires()
@@ -194,6 +332,12 @@ _SPHERE = low_poly_sphere()
 _OCTAHEDRON = octahedron()
 _HEPTAGON = heptagon_ring()
 _STICK = stick_figure()
+_BANNER = banner_billboard()
+_LATTICE7 = lattice_7()
+_SCATTER7 = scatter_7()
+_CHAIN = chain_vertical()
+_GROUND_HUG = ground_hug_disc()
+_VECTOR_SPRITE = vector_sprite_tpose()
 
 
 # ── Heuristic dispatch ───────────────────────────────────────────────────────
@@ -210,14 +354,14 @@ def recipe_for_kind(kind: str) -> WireframeRecipe:
     if name.startswith("scan_"):
         if "orb" in name:                return _SPHERE
         if "tapered_vertical" in name:   return _CYLINDER
-        if "banner" in name:             return _CUBE
+        if "banner" in name:             return _BANNER
         if "heptagonal_mote" in name:    return _HEPTAGON
         if "silhouette_void" in name:    return _STICK
-        if "lattice_7" in name:          return _HEPTAGON
-        if "scatter_7" in name:          return _HEPTAGON
-        if "chain" in name:              return _CYLINDER
-        if "ground_hug" in name:         return _CUBE
-        if "vector_sprite" in name:      return _STICK
+        if "lattice_7" in name:          return _LATTICE7
+        if "scatter_7" in name:          return _SCATTER7
+        if "chain" in name:              return _CHAIN
+        if "ground_hug" in name:         return _GROUND_HUG
+        if "vector_sprite" in name:      return _VECTOR_SPRITE
         return _CUBE
     if "mote" in name or "spark" in name or "wisp" in name:
         return _HEPTAGON

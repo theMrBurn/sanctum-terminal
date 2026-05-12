@@ -38,23 +38,24 @@ DEFAULT_OUT = (
     Path.home() / "Desktop" / "reference_art" / "scan_2026-05-11" / "entities.json"
 )
 
-# Grid spacing in world meters
+# Grid spacing in world meters — bumped from 3m post-UAT for legibility.
 GRID_COLS = 5
-SPACING   = 3.0
-GRID_BASE = (0.0, 6.0, 0.0)         # in front of the player
+SPACING   = 5.0
+GRID_BASE = (0.0, 8.0, 0.0)         # in front of the player
 
-# Per-shape extra-scale hint so spread-out shapes read at a glance.
+# Per-shape extra-scale hint — doubled post-UAT so each shape reads
+# distinctly against the workroom grid.
 _SCALE_HINT: dict[str, tuple[float, float, float]] = {
-    "orb":              (1.0, 1.0, 1.0),
-    "tapered_vertical": (0.6, 0.6, 2.0),
-    "banner":           (2.0, 0.2, 1.4),
-    "heptagonal_mote":  (1.0, 1.0, 1.0),
-    "silhouette_void":  (1.4, 1.4, 2.2),
-    "lattice_7":        (2.0, 2.0, 0.6),
-    "scatter_7":        (2.2, 2.2, 0.5),
-    "chain":            (0.3, 0.3, 2.5),
-    "ground_hug":       (2.0, 2.0, 0.3),
-    "vector_sprite":    (1.2, 0.2, 1.8),     # billboardish flat sprite-block
+    "orb":              (2.0, 2.0, 2.0),
+    "tapered_vertical": (1.2, 1.2, 4.0),
+    "banner":           (4.0, 0.2, 2.8),
+    "heptagonal_mote":  (2.0, 2.0, 2.0),
+    "silhouette_void":  (2.8, 2.8, 4.4),
+    "lattice_7":        (4.0, 4.0, 1.2),
+    "scatter_7":        (4.4, 4.4, 1.0),
+    "chain":            (0.6, 0.6, 5.0),
+    "ground_hug":       (4.0, 4.0, 0.6),
+    "vector_sprite":    (2.4, 0.2, 3.6),
 }
 
 
