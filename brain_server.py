@@ -414,6 +414,130 @@ _WEAPON_CLASS_TO_ACTIVITY: dict[str, tuple] = {
 }
 
 
+def _engagement_state_manifest(active_engagement: dict | None) -> dict | None:
+    """Build the manifest payload for the active engagement, or None.
+
+    Reads the handler's live session for the dynamic bits (composed,
+    attempt_count) so the client sees per-tick state without the brain
+    re-copying. Returns None when no engagement is active.
+    """
+    if active_engagement is None:
+        return None
+    eng_type = active_engagement["engagement_type"]
+    try:
+        spec = make_brain_registry.get(eng_type)
+        session = getattr(spec.handler, "session", None) or {}
+    except LookupError:
+        session = {}
+    return {
+        "engagement_type": eng_type,
+        "kind":            active_engagement["kind"],
+        "agent_id":        active_engagement["agent_id"],
+        "engagement_id":   active_engagement["engagement_id"],
+        "rule_args":       active_engagement.get("rule_args", {}),
+        # Live handler session view (the client uses this for overlay state)
+        "pool":            list(session.get("pool", [])),
+        "composed":        list(session.get("composed", [])),
+        "target_count":    session.get("target_count"),
+        "max_attempts":    session.get("max_attempts"),
+        "attempt_count":   session.get("attempt_count", 0),
+    }
+
+
+def _open_engagement(world, kind: str, agent_id: str, engagement_cfg: dict) -> None:
+    """Open a creature engagement on contact / strike-to-creature.
+
+    Wires four things in one call:
+      1. Dispatch to the engagement_type's make-brain handler (begin()).
+      2. Open the vault.engagements row for telemetry.
+      3. Transition game_state HUB → ENGAGEMENT.
+      4. Stamp world.active_engagement so manifest emit can find it.
+
+    Raises if the engagement_type isn't registered. Caller wraps in
+    try/except — partial state (e.g. handler open but vault failed)
+    is cleaned up on the next end_engagement call which is defensive.
+    """
+    eng_type     = str(engagement_cfg.get("engagement_type", ""))
+    rule_args    = dict(engagement_cfg.get("rule_args", {}) or {})
+
+    spec = make_brain_registry.get(eng_type)      # raises LookupError
+    handler = spec.handler
+
+    began = handler.begin(agent_id=agent_id, kind=kind, rule_args=rule_args)
+    if not began:
+        raise RuntimeError(
+            f"engagement_type {eng_type!r} handler refused begin "
+            f"(another session already active on the same handler?)"
+        )
+
+    engagement_id = _get_vault().engagement_open(
+        instance_id=eng_type,
+        agent_id=agent_id,
+        kind=kind,
+    )
+
+    world.game_state = gs.transition(world.game_state, gs.GameStateName.ENGAGEMENT)
+    world.active_engagement = {
+        "engagement_type": eng_type,
+        "kind":            kind,
+        "agent_id":        agent_id,
+        "engagement_id":   engagement_id,
+        "rule_args":       rule_args,
+    }
+    print(
+        f"  engagement: opened {eng_type} (kind={kind}, agent={agent_id}, "
+        f"row={engagement_id})",
+        flush=True,
+    )
+
+
+def _close_engagement(world, terminal_state: str) -> None:
+    """Close the active engagement and transition back to HUB.
+
+    No-op if there's no active engagement (idempotent). terminal_state
+    ∈ {"won", "lost", "aborted", "fled"} — passed straight through to
+    the vault row + handler. Handler's `end()` returns the closed
+    session dict so we can persist final metrics."""
+    eng = world.active_engagement
+    if eng is None:
+        return
+    eng_type = eng["engagement_type"]
+    try:
+        spec = make_brain_registry.get(eng_type)
+        closed_session = spec.handler.end()
+    except Exception as exc:                          # noqa: BLE001
+        print(f"  engagement: handler end failed: {exc!r}", flush=True)
+        closed_session = None
+
+    metrics: dict = {}
+    if isinstance(closed_session, dict):
+        metrics = {
+            "attempts":      closed_session.get("attempt_count"),
+            "target_count":  closed_session.get("target_count"),
+            "composed_len":  len(closed_session.get("composed", []) or []),
+        }
+    try:
+        _get_vault().engagement_close(
+            engagement_id=int(eng["engagement_id"]),
+            terminal_state=terminal_state,
+            metrics=metrics,
+        )
+    except Exception as exc:                          # noqa: BLE001
+        print(f"  engagement: vault close failed: {exc!r}", flush=True)
+
+    try:
+        world.game_state = gs.transition(world.game_state, gs.GameStateName.HUB)
+    except ValueError:
+        # Already at HUB (shouldn't happen, but don't crash if it does)
+        pass
+    print(
+        f"  engagement: closed {eng_type} → {terminal_state} "
+        f"(metrics={metrics})",
+        flush=True,
+    )
+    world.active_engagement = None
+
+
 def _on_strike_resolve(world, active_strike, target_entity) -> None:
     """Resolve an ARPG combat Strike contact (feat/arpg-combat PR 2 + PR 7).
 
@@ -471,7 +595,24 @@ def _on_strike_resolve(world, active_strike, target_entity) -> None:
     has_engagement = "engagement" in kind_cfg
 
     if has_engagement:
-        # Creature path — Strike triggers engagement (V1 stub)
+        # Creature path — Strike triggers engagement. Only ONE engagement
+        # at a time (V1 cap); subsequent strikes during an active
+        # engagement just emit the StateEvent + activity, they don't open
+        # a second session.
+        eng_cfg = kind_cfg.get("engagement", {})
+        already_engaged = world.active_engagement is not None
+        if not already_engaged:
+            try:
+                _open_engagement(
+                    world,
+                    kind=target_kind,
+                    agent_id=str(target_id) if target_id is not None else f"{target_kind}@unknown",
+                    engagement_cfg=eng_cfg,
+                )
+            except Exception as exc:                     # noqa: BLE001
+                # Fall through to legacy stub if dispatch fails; the
+                # game shouldn't get stuck mid-engagement on a wiring bug.
+                print(f"  engagement open failed: {exc!r}", flush=True)
         world.state_events.emit(
             "engagement_opened_via_strike",
             f"{active_strike.strike.weapon_kind.upper()} → {target_kind.upper()}",
@@ -922,6 +1063,11 @@ class BrainWorld:
         # strike_runtime.tick_active_strikes. Cleared on resolution
         # (hit or fade); manifest exposes them for client rendering.
         self.active_strikes: list[strike_runtime.ActiveStrike] = []
+        # Creature engagement state (feat/creature-engagement PR 4).
+        # None when no engagement is in flight. Populated by
+        # _open_engagement; cleared by _close_engagement. Only ONE
+        # engagement at a time per V1.
+        self.active_engagement: dict | None = None
         # Seed V1 weapon profiles (throwing_axe etc.) + register SHOT
         # dispatcher. Idempotent across brain restarts.
         weapons_pkg.activate_v1_weapons(_get_vault())
@@ -1890,6 +2036,11 @@ class BrainWorld:
             # silent no-op for legacy biomes. Per
             # `.claude/feature/feat_make-brain-ping-pong.md` PR 3.
             **_make_brain_manifest_keys(self.biome_name),
+            # Creature engagement (feat/creature-engagement PR 4). When
+            # an engagement is in flight, the manifest carries a snapshot
+            # of the active session so the client can render the
+            # appropriate overlay. Absent (None) when game_state != ENGAGEMENT.
+            "engagement_state": _engagement_state_manifest(self.active_engagement),
         }
 
     def cycle_light_state(self):
@@ -2143,6 +2294,65 @@ def run_server(biome_name, port=9877):
                     consequence_signals.push_hp_zero(world)
                     print(f"  damage_self: hp {old_hp} -> {world.player.hp}", flush=True)
                     last_wake_ids = set()
+                    continue
+
+                if msg.get("cmd") == "engagement_place":
+                    # Player composed a magnet into the active engagement.
+                    # No-op if no engagement is active.
+                    if world.active_engagement is None:
+                        continue
+                    eng_type = world.active_engagement["engagement_type"]
+                    magnet = str(msg.get("magnet", ""))
+                    try:
+                        ok = make_brain_registry.dispatch(
+                            eng_type, "place_magnet", magnet)
+                    except (LookupError, AttributeError) as exc:
+                        print(f"  engagement_place failed: {exc!r}", flush=True)
+                        continue
+                    if not ok:
+                        print(f"  engagement_place rejected: magnet={magnet!r}",
+                              flush=True)
+                    continue
+
+                if msg.get("cmd") == "engagement_remove":
+                    if world.active_engagement is None:
+                        continue
+                    eng_type = world.active_engagement["engagement_type"]
+                    try:
+                        index = int(msg.get("index", -1))
+                    except (TypeError, ValueError):
+                        continue
+                    try:
+                        make_brain_registry.dispatch(
+                            eng_type, "remove_magnet", index)
+                    except (LookupError, AttributeError) as exc:
+                        print(f"  engagement_remove failed: {exc!r}", flush=True)
+                    continue
+
+                if msg.get("cmd") == "engagement_commit":
+                    if world.active_engagement is None:
+                        continue
+                    eng_type = world.active_engagement["engagement_type"]
+                    try:
+                        outcome = make_brain_registry.dispatch(eng_type, "commit")
+                    except (LookupError, AttributeError) as exc:
+                        print(f"  engagement_commit failed: {exc!r}", flush=True)
+                        continue
+                    print(f"  engagement_commit: outcome={outcome}", flush=True)
+                    if outcome in ("win", "exhausted"):
+                        terminal = "won" if outcome == "win" else "lost"
+                        _close_engagement(world, terminal)
+                    continue
+
+                if msg.get("cmd") == "engagement_abort":
+                    if world.active_engagement is None:
+                        continue
+                    eng_type = world.active_engagement["engagement_type"]
+                    try:
+                        make_brain_registry.dispatch(eng_type, "abort")
+                    except (LookupError, AttributeError) as exc:
+                        print(f"  engagement_abort failed: {exc!r}", flush=True)
+                    _close_engagement(world, "aborted")
                     continue
 
                 if msg.get("cmd") == "weapon_use":

@@ -45,6 +45,7 @@ class GameStateName(str, Enum):
     CHARACTER_CREATION = "CHARACTER_CREATION"  # at hub, doing the 7-pillar ritual
     HUB = "HUB"                     # at staging area, free exploration
     REFLECTIVE = "REFLECTIVE"       # at the fridge, composing under a rule
+    ENGAGEMENT = "ENGAGEMENT"       # in a creature engagement (compose_three, …)
 
 
 # Allowed transitions. Anything not in this set raises ValueError.
@@ -54,6 +55,8 @@ _ALLOWED_TRANSITIONS = frozenset({
     (GameStateName.HUB, GameStateName.CHARACTER_CREATION),     # re-do via Pillar of Reflection
     (GameStateName.HUB, GameStateName.REFLECTIVE),             # engage fridge (forced or voluntary)
     (GameStateName.REFLECTIVE, GameStateName.HUB),             # commit / abort back to hub
+    (GameStateName.HUB, GameStateName.ENGAGEMENT),             # creature contact / strike-on-creature
+    (GameStateName.ENGAGEMENT, GameStateName.HUB),             # engagement resolved (won/lost/aborted)
 })
 
 

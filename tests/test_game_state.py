@@ -43,10 +43,13 @@ def test_predicates():
     assert is_at_hub(gs)
 
 
-def test_enum_only_has_three_states():
-    """PR 5 collapse: MISSION_SELECT / IN_MISSION / RESULTS are gone."""
+def test_enum_states_match_canon():
+    """PR 5 collapse removed mission states. PR 4 of feat/creature-
+    engagement added ENGAGEMENT alongside REFLECTIVE."""
     members = {s.value for s in GameStateName}
-    assert members == {"CHARACTER_CREATION", "HUB", "REFLECTIVE"}
+    assert members == {
+        "CHARACTER_CREATION", "HUB", "REFLECTIVE", "ENGAGEMENT",
+    }
 
 
 # --- Allowed transitions ----------------------------------------------------
@@ -138,3 +141,37 @@ def test_transition_does_not_mutate_input():
     gs = GameState.initial()
     _ = transition(gs, GameStateName.REFLECTIVE)
     assert gs.state == GameStateName.HUB
+
+
+# --- Creature engagement state (feat/creature-engagement PR 4) ----
+
+
+def test_hub_to_engagement_allowed():
+    gs = transition(GameState.initial(), GameStateName.ENGAGEMENT)
+    assert gs.state == GameStateName.ENGAGEMENT
+
+
+def test_engagement_to_hub_allowed():
+    gs = transition(GameState.initial(), GameStateName.ENGAGEMENT)
+    back = transition(gs, GameStateName.HUB)
+    assert back.state == GameStateName.HUB
+
+
+def test_engagement_to_reflective_rejected():
+    """No direct ENGAGEMENT → REFLECTIVE — return to HUB first."""
+    gs = transition(GameState.initial(), GameStateName.ENGAGEMENT)
+    with pytest.raises(ValueError, match="illegal transition"):
+        transition(gs, GameStateName.REFLECTIVE)
+
+
+def test_character_creation_to_engagement_rejected():
+    gs = GameState.fresh_character()
+    with pytest.raises(ValueError, match="illegal transition"):
+        transition(gs, GameStateName.ENGAGEMENT)
+
+
+def test_engagement_state_round_trip_manifest():
+    gs = transition(GameState.initial(), GameStateName.ENGAGEMENT)
+    restored = from_manifest(to_manifest(gs))
+    assert restored == gs
+    assert to_manifest(gs) == {"state": "ENGAGEMENT"}
