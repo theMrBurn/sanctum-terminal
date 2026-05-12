@@ -2133,6 +2133,37 @@ def run_server(biome_name, port=9877):
                         print(f"  weapon_use rejected: missing weapon_kind / camera fields",
                               flush=True)
                         continue
+                    # WHIP single-instance lock (UAT 2026-05-11). Rapid
+                    # repeat clicks while a whip is in flight = recall
+                    # the active whip, don't spawn a new one. Player
+                    # can re-press after recall to lash again.
+                    if mode == "whip":
+                        active_whips = [
+                            a for a in world.active_strikes
+                            if a.strike.mode == "whip"
+                            and a.strike.source_actor == "player"
+                            and not a.resolved
+                        ]
+                        if active_whips:
+                            for a in active_whips:
+                                a.resolved = True
+                                a.resolved_kind = "interrupted"
+                                if a.session_id is not None:
+                                    try:
+                                        _get_vault().combat_session_close(
+                                            session_id=a.session_id,
+                                            outcome="interrupted",
+                                        )
+                                    except Exception:    # noqa: BLE001
+                                        pass
+                            world.state_events.emit(
+                                "whip_recalled",
+                                "WHIP — RECALLED",
+                                None,
+                                REG_LOOP,
+                            )
+                            last_wake_ids = set()
+                            continue
                     profile = _get_vault().profile_resolve("weapon", weapon_kind)
                     if not profile:
                         print(f"  weapon_use: unknown weapon {weapon_kind!r}", flush=True)
