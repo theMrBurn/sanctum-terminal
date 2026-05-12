@@ -167,6 +167,47 @@ def test_discover_rejects_version_gaps(monkeypatch) -> None:
 # --- Live config guard -----------------------------------------------------
 
 
+def test_engagement_slot_migration_idempotent() -> None:
+    """002_engagement_slot.up is a pure version bump — re-running it on
+    a config that already has engagement fields must not duplicate or
+    rewrite them."""
+    config = {
+        "schema_version": 1,
+        "kinds": {
+            "rat": {
+                "class": "life",
+                "engagement": {
+                    "engagement_type": "compose_three",
+                    "rule_args": {"target_count": 3},
+                },
+            },
+        },
+    }
+    once = mig.migrate(config, target=2)
+    twice = mig.migrate(once, target=2)
+    assert once == twice
+    assert once["kinds"]["rat"]["engagement"]["engagement_type"] == "compose_three"
+
+
+def test_engagement_slot_down_strips_engagement() -> None:
+    """002_engagement_slot.down removes engagement blocks — a config
+    written at v2 that walks back to v1 must shed the new optional slot."""
+    config = {
+        "schema_version": 2,
+        "kinds": {
+            "rat": {
+                "class": "life",
+                "engagement": {"engagement_type": "compose_three"},
+            },
+            "stone": {"class": "geo"},  # no engagement — must stay untouched
+        },
+    }
+    reversed_ = mig.migrate(config, target=1)
+    assert "engagement" not in reversed_["kinds"]["rat"]
+    assert reversed_["kinds"]["stone"] == {"class": "geo"}
+    assert reversed_["schema_version"] == 1
+
+
 def test_shipped_config_is_current_version() -> None:
     """config/kind_config.json must be at current_version after migrations land."""
     config = snap.load_config()

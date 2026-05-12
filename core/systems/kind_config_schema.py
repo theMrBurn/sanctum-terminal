@@ -297,6 +297,61 @@ def _validate_class_block(
         errors.extend(
             _validate_effect_list(cfg["use_effects"], f"{path}.use_effects")
         )
+    if "engagement" in cfg:
+        errors.extend(
+            _validate_engagement(cfg["engagement"], f"{path}.engagement")
+        )
+    return errors
+
+
+def _validate_engagement(eng: Any, path: str) -> list[str]:
+    """Per design_creature_engagement_v1 — kind binding to a make-brain.
+
+    Required:  engagement_type (string, matches a registered make-brain).
+    Optional:  rule_args (object), voluntary (bool), max_attempts (int),
+               on_win (list of consequence-effect dicts).
+    """
+    errors: list[str] = []
+    if not isinstance(eng, dict):
+        errors.append(
+            f"{path}: expected object, got {type(eng).__name__}"
+        )
+        return errors
+    if "engagement_type" not in eng:
+        errors.append(f"{path}: missing required key 'engagement_type'")
+    elif not isinstance(eng["engagement_type"], str):
+        errors.append(
+            f"{path}.engagement_type: expected string, "
+            f"got {type(eng['engagement_type']).__name__}"
+        )
+    if "rule_args" in eng and not isinstance(eng["rule_args"], dict):
+        errors.append(
+            f"{path}.rule_args: expected object, got "
+            f"{type(eng['rule_args']).__name__}"
+        )
+    if "voluntary" in eng and not isinstance(eng["voluntary"], bool):
+        errors.append(
+            f"{path}.voluntary: expected bool, got {eng['voluntary']!r}"
+        )
+    if "max_attempts" in eng:
+        ma = eng["max_attempts"]
+        if not isinstance(ma, int) or isinstance(ma, bool) or ma < 1:
+            errors.append(
+                f"{path}.max_attempts: expected positive int, got {ma!r}"
+            )
+    if "on_win" in eng:
+        if not isinstance(eng["on_win"], list):
+            errors.append(
+                f"{path}.on_win: expected list, got "
+                f"{type(eng['on_win']).__name__}"
+            )
+        else:
+            for i, eff in enumerate(eng["on_win"]):
+                if not isinstance(eff, dict):
+                    errors.append(
+                        f"{path}.on_win[{i}]: expected object, got "
+                        f"{type(eff).__name__}"
+                    )
     return errors
 
 

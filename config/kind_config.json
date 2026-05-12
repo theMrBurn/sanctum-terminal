@@ -1871,6 +1871,16 @@
       "class": "life",
       "use_vertex_colors": true,
       "world_scale_mult": 3.4,
+      "engagement": {
+        "engagement_type": "compose_three",
+        "rule_args": {
+          "target_count": 3,
+          "pool": "rat_postures",
+          "max_pool_size": 8
+        },
+        "voluntary": true,
+        "max_attempts": 3
+      },
       "color_base": [
         0.37,
         0.31,
@@ -2747,5 +2757,5 @@
       "ascii": "#"
     }
   },
-  "schema_version": 1
+  "schema_version": 2
 }

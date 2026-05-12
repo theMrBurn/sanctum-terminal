@@ -2010,6 +2010,16 @@
         "wil": 4,
         "xp_reward": 1
       },
+      "engagement": {
+        "engagement_type": "compose_three",
+        "max_attempts": 3,
+        "rule_args": {
+          "max_pool_size": 8,
+          "pool": "rat_postures",
+          "target_count": 3
+        },
+        "voluntary": true
+      },
       "physics": {
         "collision_radius": 0.6
       },
@@ -2981,5 +2991,5 @@
       }
     }
   },
-  "schema_version": 1
+  "schema_version": 2
 }

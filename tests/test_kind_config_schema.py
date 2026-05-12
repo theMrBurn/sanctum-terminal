@@ -406,3 +406,102 @@ def test_use_effects_missing_type_rejected() -> None:
     data = _kind_with({"use_effects": [{"amount": 5}]})
     errors = kind_config_schema.validate(data)
     assert any("missing required key 'type'" in e for e in errors)
+
+
+# --- engagement slot (creature engagement V1) ---------------------------------
+
+
+def test_engagement_minimal_valid() -> None:
+    """Only engagement_type required."""
+    data = _kind_with({"engagement": {"engagement_type": "compose_three"}})
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_engagement_full_valid() -> None:
+    data = _kind_with({
+        "engagement": {
+            "engagement_type": "compose_three",
+            "rule_args": {"target_count": 3, "pool": "rat_postures"},
+            "voluntary": True,
+            "max_attempts": 3,
+            "on_win": [{"type": "drop_loot", "table": "rat_loot"}],
+        }
+    })
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
+
+
+def test_engagement_missing_engagement_type_rejected() -> None:
+    data = _kind_with({"engagement": {"rule_args": {"x": 1}}})
+    errors = kind_config_schema.validate(data)
+    assert any(
+        "engagement" in e and "engagement_type" in e for e in errors
+    )
+
+
+def test_engagement_engagement_type_must_be_string() -> None:
+    data = _kind_with({"engagement": {"engagement_type": 42}})
+    errors = kind_config_schema.validate(data)
+    assert any("engagement_type" in e and "string" in e for e in errors)
+
+
+def test_engagement_rule_args_must_be_object() -> None:
+    data = _kind_with(
+        {"engagement": {"engagement_type": "compose_three", "rule_args": [1, 2]}}
+    )
+    errors = kind_config_schema.validate(data)
+    assert any("rule_args" in e and "object" in e for e in errors)
+
+
+def test_engagement_voluntary_must_be_bool() -> None:
+    data = _kind_with(
+        {"engagement": {"engagement_type": "compose_three", "voluntary": "yes"}}
+    )
+    errors = kind_config_schema.validate(data)
+    assert any("voluntary" in e for e in errors)
+
+
+def test_engagement_max_attempts_must_be_positive_int() -> None:
+    data = _kind_with(
+        {"engagement": {"engagement_type": "compose_three", "max_attempts": 0}}
+    )
+    errors = kind_config_schema.validate(data)
+    assert any("max_attempts" in e for e in errors)
+
+
+def test_engagement_max_attempts_rejects_bool() -> None:
+    data = _kind_with(
+        {"engagement": {"engagement_type": "compose_three", "max_attempts": True}}
+    )
+    errors = kind_config_schema.validate(data)
+    assert any("max_attempts" in e for e in errors)
+
+
+def test_engagement_on_win_must_be_list_of_objects() -> None:
+    data = _kind_with(
+        {"engagement": {"engagement_type": "compose_three", "on_win": "loot"}}
+    )
+    errors = kind_config_schema.validate(data)
+    assert any("on_win" in e and "list" in e for e in errors)
+
+
+def test_engagement_on_win_item_must_be_object() -> None:
+    data = _kind_with(
+        {"engagement": {"engagement_type": "compose_three", "on_win": ["bad"]}}
+    )
+    errors = kind_config_schema.validate(data)
+    assert any("on_win[0]" in e for e in errors)
+
+
+def test_engagement_block_must_be_object() -> None:
+    data = _kind_with({"engagement": "compose_three"})
+    errors = kind_config_schema.validate(data)
+    assert any("engagement" in e and "object" in e for e in errors)
+
+
+def test_engagement_omitted_is_valid() -> None:
+    """engagement slot is optional — kinds without it stay valid."""
+    data = _kind_with({})
+    errors = kind_config_schema.validate(data)
+    assert not errors, errors
