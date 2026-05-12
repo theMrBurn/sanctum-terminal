@@ -403,6 +403,31 @@ def _strike_to_manifest(active, player_x, player_y, player_z):
 # magic_* emits SOLVE (precision-cast as problem-solving — wizard-heavy
 # player gets puzzle-shaped tension via TensionCycle's pace consumer).
 # melee_tether is heavier weapon class (intensity 2). Default = HUNT 1.
+# Scan-gallery entities loaded at module import. Set via env
+# SANCTUM_SCAN_GALLERY=<json_path>; empty otherwise. Static list —
+# the manifest builder appends it every tick so the entities are
+# stable visual fixtures, not roaming agents.
+def _load_scan_gallery() -> list[dict]:
+    import os as _os
+    import json as _json
+    path = _os.environ.get("SANCTUM_SCAN_GALLERY", "").strip()
+    if not path:
+        return []
+    try:
+        with open(path, "r") as f:
+            data = _json.load(f)
+        if isinstance(data, list):
+            print(f"  scan_gallery: loaded {len(data)} entities from {path}",
+                  flush=True)
+            return data
+    except Exception as exc:                          # noqa: BLE001
+        print(f"  scan_gallery: load failed: {exc!r}", flush=True)
+    return []
+
+
+_SCAN_GALLERY_ENTITIES: list[dict] = _load_scan_gallery()
+
+
 _WEAPON_CLASS_TO_ACTIVITY: dict[str, tuple] = {
     "melee_blade":   (activity_loop.ActivityClass.HUNT,  1),
     "melee_blunt":   (activity_loop.ActivityClass.HUNT,  1),
@@ -3436,6 +3461,16 @@ def run_server(biome_name, port=9877):
 
                     manifest.setdefault("entities", []).extend(
                         roaming.snapshot())
+
+                # Scan-gallery injection — image-derived entities (see
+                # tools/scan_to_kinds.py). Activated by env
+                # SANCTUM_SCAN_GALLERY=<path-to-entities.json>. Bridge
+                # experiment for `design_render_reuse_mandate`: do the
+                # vector primitives compose into something recognizable
+                # when fed arbitrary image classifications?
+                if _SCAN_GALLERY_ENTITIES:
+                    manifest.setdefault("entities", []).extend(
+                        _SCAN_GALLERY_ENTITIES)
 
                 # Encounter session snapshot (HUD/orb/log data).
                 if encounter is not None:

@@ -203,6 +203,22 @@ def recipe_for_kind(kind: str) -> WireframeRecipe:
     """Map a brain kind name to its wireframe recipe. Heuristic — V4-final
     will move this mapping into config/kind_config.json."""
     name = kind.lower()
+    # tools/scan_to_kinds.py emits `scan_<shape>_<idx>` — image-derived
+    # entities. Match by embedded shape token so the experiment
+    # bridges raw classification → vector primitive without authoring
+    # one kind_config entry per image.
+    if name.startswith("scan_"):
+        if "orb" in name:                return _SPHERE
+        if "tapered_vertical" in name:   return _CYLINDER
+        if "banner" in name:             return _CUBE
+        if "heptagonal_mote" in name:    return _HEPTAGON
+        if "silhouette_void" in name:    return _STICK
+        if "lattice_7" in name:          return _HEPTAGON
+        if "scatter_7" in name:          return _HEPTAGON
+        if "chain" in name:              return _CYLINDER
+        if "ground_hug" in name:         return _CUBE
+        if "vector_sprite" in name:      return _STICK
+        return _CUBE
     if "mote" in name or "spark" in name or "wisp" in name:
         return _HEPTAGON
     if any(s in name for s in ("rock", "stone", "boulder", "rubble", "pebble", "scree")):
