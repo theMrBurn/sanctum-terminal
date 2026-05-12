@@ -38,6 +38,7 @@ from clients.vector_terminal import horizon_objects as horizon_renderer  # noqa:
 from clients.vector_terminal import input_map  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
+from clients.vector_terminal import engagement as engagement_overlay  # noqa: E402
 from clients.vector_terminal.seed_collision import compute_floor_height  # noqa: E402
 from clients.vector_terminal.seed_mesh_cache import SeedMeshCache  # noqa: E402
 from clients.vector_terminal import silhouette as silhouette_renderer  # noqa: E402
@@ -87,6 +88,7 @@ def main() -> int:
     show_journal = False
     journal_state = journal.JournalState()
     reflective_state = reflective_overlay.ReflectiveState()
+    engagement_state = engagement_overlay.EngagementState()
     build_state = build_mode.BuildState()
     seed_mesh_cache = SeedMeshCache()
     # Per-session cast counter — drives the negative `tag_id` namespace
@@ -205,6 +207,23 @@ def main() -> int:
             elif action == "abort":
                 client.send({"cmd": "abort_reflective"})
 
+        # Creature engagement overlay — sibling of reflective. When the
+        # brain reports manifest.engagement_state is populated, the
+        # overlay owns input the same way reflective does.
+        engagement_active = (
+            engagement_overlay.is_active(last_manifest)
+            and not dial_active and not reflective_active
+        )
+        if engagement_active:
+            action, payload = engagement_overlay.handle_input(
+                last_manifest, engagement_state
+            )
+            if action is not None:
+                msg = {"cmd": action}
+                if payload:
+                    msg.update(payload)
+                client.send(msg)
+
         # Volley console — backtick toggles open/close. Trumps everything
         # else so the user can dismiss it from any state. ESC also closes.
         if input_map.pressed("console_toggle"):
@@ -222,7 +241,10 @@ def main() -> int:
                     })
 
         # World does not pause — overlay only suspends ENTER/UP/DOWN/ESC.
-        journal_active = show_journal and not dial_active and not reflective_active
+        journal_active = (
+            show_journal and not dial_active and not reflective_active
+            and not engagement_active
+        )
         if journal_active:
             action, qid = journal.handle_input(last_manifest, journal_state)
             if action == "close":
@@ -234,7 +256,7 @@ def main() -> int:
         # (journal_active intercepts ESC + ENTER + UP/DOWN, but J always
         # cycles the visibility flag). Suspended while a dial is active —
         # the dial owns the modal foreground.
-        if (not dial_active and not reflective_active
+        if (not dial_active and not reflective_active and not engagement_active
                 and not console_state.open
                 and input_map.pressed("journal_toggle")):
             show_journal = not show_journal
@@ -245,6 +267,7 @@ def main() -> int:
         # `build_mode.handle_input`. ESC is the inside-BUILD exit.
         if (not build_state.active
                 and not dial_active and not journal_active and not reflective_active
+                and not engagement_active
                 and not console_state.open
                 and input_map.pressed("build_toggle")):
             build_mode.toggle_build(build_state, last_manifest, camera, yaw)
@@ -255,6 +278,7 @@ def main() -> int:
                 and input_map.pressed("state_back")):
             build_state.active = False
         elif (not dial_active and not journal_active and not reflective_active
+                and not engagement_active
                 and not build_state.active
                 and input_map.pressed("state_back")):
             break
@@ -398,7 +422,8 @@ def main() -> int:
         if len(paddle_history) > PADDLE_HISTORY_LEN:
             paddle_history.pop(0)
 
-        if (not dial_active and not reflective_active and not build_state.active
+        if (not dial_active and not reflective_active and not engagement_active
+                and not build_state.active
                 and not console_state.open and not journal_active):
             # ENTER drives state transitions (HUB → MISSION_SELECT, etc.) but
             # MUST yield to the journal overlay — there ENTER is the toggle.
@@ -958,7 +983,8 @@ def main() -> int:
                 amber,
             )
 
-        if show_journal and not dial_active and not reflective_active:
+        if (show_journal and not dial_active and not reflective_active
+                and not engagement_active):
             journal.draw_journal_overlay(
                 last_manifest,
                 journal_state,
@@ -971,6 +997,15 @@ def main() -> int:
             reflective_overlay.draw_overlay(
                 last_manifest,
                 reflective_state,
+                rl.get_screen_width(),
+                rl.get_screen_height(),
+                amber,
+            )
+
+        if engagement_active:
+            engagement_overlay.draw_overlay(
+                last_manifest,
+                engagement_state,
                 rl.get_screen_width(),
                 rl.get_screen_height(),
                 amber,
