@@ -274,6 +274,33 @@ class vault:
                     "CREATE INDEX IF NOT EXISTS idx_combat_sessions_mode "
                     "ON combat_sessions(mode, started_at DESC)"
                 )
+
+                # Creature engagement substrate per
+                # `.claude/feature/feat_creature-engagement.md` PR 3.
+                # One row per engagement *instance* (per agent contact).
+                # Mirrors vault.runs but at instance grain — `runs` is
+                # the make-brain *session*, `engagements` is the
+                # per-agent run inside that session.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS engagements (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        instance_id     TEXT    NOT NULL,
+                        agent_id        TEXT    NOT NULL,
+                        kind            TEXT    NOT NULL,
+                        started_at      REAL    NOT NULL,
+                        ended_at        REAL,
+                        terminal_state  TEXT,
+                        metrics_json    TEXT    NOT NULL DEFAULT '{}'
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_engagements_instance "
+                    "ON engagements(instance_id, started_at DESC)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_engagements_kind "
+                    "ON engagements(kind, started_at DESC)"
+                )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -1152,6 +1179,91 @@ class vault:
                     "kinetic_energy": r["kinetic_energy"],
                     "started_at":     r["started_at"],
                     "resolved_at":    r["resolved_at"],
+                    "metrics":        json.loads(r["metrics_json"] or "{}"),
+                }
+                for r in rows
+            ]
+
+    # -- Creature engagements (PR 3) --------------------------------------
+
+    def engagement_open(
+        self,
+        instance_id: str,
+        agent_id:    str,
+        kind:        str,
+    ) -> int:
+        """Open a new engagement row. Returns the row id.
+
+        One row per engagement instance — opened on contact, closed on
+        resolution (win/lost/aborted/fled). `metrics_json` accumulates
+        attempt counts, time-to-resolution, and engagement-type-specific
+        signals on close.
+        """
+        import time as _time
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "INSERT INTO engagements "
+                "(instance_id, agent_id, kind, started_at) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    str(instance_id),
+                    str(agent_id),
+                    str(kind),
+                    _time.time(),
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def engagement_close(
+        self,
+        engagement_id:  int,
+        terminal_state: str,
+        metrics:        dict | None = None,
+    ) -> bool:
+        """Close an engagement by id. Returns True if a row was updated.
+
+        terminal_state ∈ {"won", "lost", "aborted", "fled"} per the
+        StateEvent contract in design_creature_engagement_v1.
+        """
+        import time as _time
+        metrics_json = json.dumps(metrics or {})
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "UPDATE engagements SET "
+                "  ended_at       = ?, "
+                "  terminal_state = ?, "
+                "  metrics_json   = ? "
+                "WHERE id = ?",
+                (
+                    _time.time(),
+                    str(terminal_state),
+                    metrics_json,
+                    int(engagement_id),
+                ),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def engagements_by_kind(self, kind: str) -> list[dict]:
+        """List all engagements for a creature kind, newest first."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM engagements "
+                "WHERE kind = ? "
+                "ORDER BY started_at DESC",
+                (str(kind),),
+            ).fetchall()
+            return [
+                {
+                    "id":             r["id"],
+                    "instance_id":    r["instance_id"],
+                    "agent_id":       r["agent_id"],
+                    "kind":           r["kind"],
+                    "started_at":     r["started_at"],
+                    "ended_at":       r["ended_at"],
+                    "terminal_state": r["terminal_state"],
                     "metrics":        json.loads(r["metrics_json"] or "{}"),
                 }
                 for r in rows
