@@ -66,6 +66,12 @@ class ActiveStrike:
     # ActiveStrike is one swing).
     held_hit_ids: set[Any] = field(default_factory=set)
 
+    # Per-verb-swept hitbox position. Updated each frame during HELD
+    # active phase by _verb_direction; consumed by CCD + manifest.
+    # None outside active phase (CCD skipped anyway). Per
+    # feat/arpg-combat PR 9 — brain-side per-verb sweep.
+    held_hitbox_pos: tuple[float, float, float] | None = None
+
     # vault.combat_sessions row id (feat/arpg-combat PR 7). Set when
     # the brain opens a session on weapon_use; closed on resolution.
     # None for non-telemetry contexts (tests, headless).
@@ -217,6 +223,85 @@ def _tick_flight(
         })
         if on_resolve is not None:
             on_resolve(active, hit_entity)
+
+
+def _verb_direction(
+    verb_name:      str,
+    spawn_forward:  tuple[float, float, float],
+    progress:       float,
+    base_reach:     float,
+) -> tuple[tuple[float, float, float], float]:
+    """Compute the swept hitbox direction + effective reach for a HELD
+    verb at the given progress t ∈ [0, 1] through the active phase.
+
+    Per `design_arpg_combat_v1` HELD verb taxonomy + sketch:
+      - PUNCH:   short straight thrust (reach × 0.6, no sweep)
+      - STAB:    extended straight thrust (full reach, no sweep)
+      - SLASH:   horizontal sweep around UP axis, -60° → +60° as t: 0→1
+      - HACK:    vertical chop around RIGHT axis, +60° → -60° (up→down)
+      - RIPOSTE: stationary, no sweep (parry zone)
+
+    Returns (direction_unit_vector, effective_reach). Direction is in
+    brain coords (x=lateral, y=forward, z=up). Effective reach varies
+    per verb (PUNCH shorter than STAB).
+
+    Math:
+      Z-axis rotation (SLASH):
+        v_new = (cos·v_x - sin·v_y, sin·v_x + cos·v_y, v_z)
+      Right-axis rotation (HACK):
+        right = (fy, -fx, 0) / |(fy, -fx, 0)|  (horizontal-perp to forward)
+        Rodrigues: v_new = v·cos + (k×v)·sin + k(k·v)(1-cos)
+    """
+    fx, fy, fz = float(spawn_forward[0]), float(spawn_forward[1]), float(spawn_forward[2])
+    verb = str(verb_name).upper()
+
+    if verb == "PUNCH":
+        return ((fx, fy, fz), base_reach * 0.6)
+    if verb in ("STAB", "RIPOSTE"):
+        # Straight forward; RIPOSTE stationary (no sweep), STAB extends.
+        return ((fx, fy, fz), base_reach)
+
+    if verb == "SLASH":
+        # Sweep angle from -60° → +60° across active phase
+        half_arc = math.radians(60.0)
+        angle = -half_arc + 2.0 * half_arc * progress
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        return (
+            (cos_a * fx - sin_a * fy,
+             sin_a * fx + cos_a * fy,
+             fz),
+            base_reach,
+        )
+
+    if verb == "HACK":
+        # Tilt around right axis: +60° (pointed up) → -60° (pointed down)
+        half_arc = math.radians(60.0)
+        angle = half_arc - 2.0 * half_arc * progress
+        # Right axis = horizontal perpendicular to forward.
+        rx, ry = fy, -fx
+        rnorm = math.sqrt(rx * rx + ry * ry)
+        if rnorm < 1e-6:
+            # Forward is near-vertical; fall back to no rotation
+            return ((fx, fy, fz), base_reach)
+        rx /= rnorm
+        ry /= rnorm
+        # Rodrigues' formula for rotation around k=(rx, ry, 0):
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        # k × v
+        cvx = ry * fz - 0.0 * fy
+        cvy = 0.0 * fx - rx * fz
+        cvz = rx * fy - ry * fx
+        # k · v
+        kdv = rx * fx + ry * fy + 0.0 * fz
+        nx = fx * cos_a + cvx * sin_a + rx * kdv * (1.0 - cos_a)
+        ny = fy * cos_a + cvy * sin_a + ry * kdv * (1.0 - cos_a)
+        nz = fz * cos_a + cvz * sin_a + 0.0 * kdv * (1.0 - cos_a)
+        return ((nx, ny, nz), base_reach)
+
+    # Unknown verb — straight forward fallback.
+    return ((fx, fy, fz), base_reach)
 
 
 def _tick_whip(
@@ -387,12 +472,24 @@ def _tick_held(
     if age < wind_up_s or age > (wind_up_s + active_s):
         return
 
-    # Active phase — compute hitbox center and CCD against entities.
+    # Active phase — compute hitbox center per-verb-swept direction.
+    # PR 9: SLASH sweeps horizontally, HACK chops vertically, PUNCH/STAB
+    # straight forward (different reach). RIPOSTE stationary.
     px, py, pz = active.current_state.pos
-    fx, fy, fz = float(spawn_fwd[0]), float(spawn_fwd[1]), float(spawn_fwd[2])
-    hx = px + fx * reach
-    hy = py + fy * reach
-    hz = pz + fz * reach
+    # Progress through active phase: 0.0 → 1.0
+    progress = (age - wind_up_s) / max(active_s, 1e-6)
+    progress = max(0.0, min(1.0, progress))
+    verb_name = (active.strike.held_verb.name
+                  if active.strike.held_verb else "STAB")
+    swept_dir, eff_reach = _verb_direction(
+        verb_name, spawn_fwd, progress, reach,
+    )
+    hx = px + swept_dir[0] * eff_reach
+    hy = py + swept_dir[1] * eff_reach
+    hz = pz + swept_dir[2] * eff_reach
+    # Stash on the strike so _strike_to_manifest can read it without
+    # recomputing the verb math.
+    active.held_hitbox_pos = (hx, hy, hz)
 
     for ent in entities:
         ent_id = ent.get("id")

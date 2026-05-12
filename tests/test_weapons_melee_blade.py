@@ -155,9 +155,9 @@ def test_held_strike_hits_during_active_phase():
     # Entity 1.5m forward — within SLASH reach (1.5m) + entity radius
     entities = [{"id": 1, "kind": "pot", "x": 0.0, "y": 1.5, "z": 1.6}]
     kc = {"pot": {"bounds": {"radius": 0.5}}}
-    # Tick past wind-up into active. SLASH: wind_up=0.08, active=0.20.
-    # Tick 0.10s = into active phase.
-    strike_runtime.tick_active_strikes([active], entities, kc, dt=0.10)
+    # SLASH: wind_up=0.08, active=0.20. dt=0.18 → progress=0.5, hitbox
+    # at the midpoint of the sweep (straight forward).
+    strike_runtime.tick_active_strikes([active], entities, kc, dt=0.18)
     assert 1 in active.held_hit_ids
 
 
@@ -178,8 +178,9 @@ def test_held_strike_multi_hit_in_one_swing():
     ]
     kc = {"pot": {"bounds": {"radius": 0.5}},
           "crystal": {"bounds": {"radius": 0.5}}}
-    # First active tick — both entities hit
-    strike_runtime.tick_active_strikes([active], entities, kc, dt=0.10)
+    # First active tick — dt=0.18 puts progress=0.5 (straight forward),
+    # so both entities are within the swept hitbox.
+    strike_runtime.tick_active_strikes([active], entities, kc, dt=0.18)
     assert 1 in active.held_hit_ids
     assert 2 in active.held_hit_ids
     # Second active tick — same entities, no double-hit (set membership)

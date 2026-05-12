@@ -369,9 +369,19 @@ def _strike_to_manifest(active, player_x, player_y, player_z):
         reach = float(arc.get("reach_m", 1.0))
         out["held_phase"] = phase
         out["arc_reach"]  = reach
-        out["hitbox_x"]   = active.current_state.pos[0] + float(fwd[0]) * reach
-        out["hitbox_y"]   = active.current_state.pos[1] + float(fwd[1]) * reach
-        out["hitbox_z"]   = active.current_state.pos[2] + float(fwd[2]) * reach
+        # PR 9: per-verb swept hitbox position lives on the active
+        # strike (updated each frame in _tick_held). Read from there
+        # when set; fall back to fixed forward × reach during
+        # wind_up/cooldown phases when no sweep happens.
+        hp = active.held_hitbox_pos
+        if hp is not None:
+            out["hitbox_x"] = hp[0]
+            out["hitbox_y"] = hp[1]
+            out["hitbox_z"] = hp[2]
+        else:
+            out["hitbox_x"] = active.current_state.pos[0] + float(fwd[0]) * reach
+            out["hitbox_y"] = active.current_state.pos[1] + float(fwd[1]) * reach
+            out["hitbox_z"] = active.current_state.pos[2] + float(fwd[2]) * reach
         out["held_verb"]  = (active.strike.held_verb.name
                               if active.strike.held_verb else None)
     elif active.strike.mode == "whip":
