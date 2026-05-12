@@ -3554,6 +3554,15 @@ def run_server(biome_name, port=9877):
 
                 try:
                     client.sendall(response.encode("utf-8"))
+                except BlockingIOError:
+                    # Manifest grew faster than client could drain (e.g., a
+                    # large scan-gallery entity list). Skip this tick rather
+                    # than crash; next tick reapplies the manifest after the
+                    # client catches up. Bumps last_wake_ids back so we re-
+                    # send the full manifest next time instead of "unchanged".
+                    print("  send backpressure — skipping tick", flush=True)
+                    last_wake_ids = set()
+                    continue
                 except (BrokenPipeError, ConnectionResetError):
                     # Mirror the no-data and reset disconnect paths above —
                     # use `continue` so the outer accept loop survives. The
