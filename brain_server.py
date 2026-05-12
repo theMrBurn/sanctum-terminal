@@ -828,7 +828,9 @@ class BrainWorld:
         self.wake_chain = WakeChain(WAKE_CHAINS[chain_key])
         self.spatial = SpatialHash(cell_size=20.0)
 
-        # Tension cycle — board immediately for live atmosphere
+        # Tension cycle — board immediately. Visible intensity is
+        # dialed via TENSION_WET_MIX in the manifest builder, not by
+        # gating the cycle's activity.
         cycle_cfg = BIOME_REGISTRY[biome_name]["cycle"]
         self.tension = TensionCycle(cycle_cfg)
         self.tension.board()
@@ -1410,12 +1412,17 @@ class BrainWorld:
         AMBIENT_FLOOR = (0.04, 0.04, 0.05)  # silhouettes still read at night
         FOG_NEAR_CEIL = 2.0    # don't let fog touch the camera
         FOG_FAR_FLOOR = 6.0    # always leave a few meters of visibility
+        # Wet/dry on tension's visible output. 1.0 = full cycle effect,
+        # 0.0 = cycle runs underneath but no visible modulation. Cycle
+        # state (budget, dump events, telemetry) is unchanged either way.
+        TENSION_WET_MIX = 0.5
         if self.tension.active and envelope:
             open_amb = self.tension._config.get("open", {}).get(
                 "ambient", (0.5, 0.5, 0.5))
             open_avg = max(sum(open_amb) / 3.0, 0.01)
             tension_avg = sum(envelope.ambient) / 3.0
-            factor = max(tension_avg / open_avg, 0.05)
+            raw_factor = max(tension_avg / open_avg, 0.05)
+            factor = 1.0 + (raw_factor - 1.0) * TENSION_WET_MIX
             ambient = [
                 max(ls["ambient"][0] * factor, AMBIENT_FLOOR[0]),
                 max(ls["ambient"][1] * factor, AMBIENT_FLOOR[1]),
@@ -1425,8 +1432,10 @@ class BrainWorld:
             # envelope's fog_near/fog_far ratios to "open" drive the curve.
             open_fog = self.tension._config.get("open", {}).get(
                 "fog", (ls["fog_near"], ls["fog_far"]))
-            near_factor = envelope.fog[0] / max(open_fog[0], 0.01)
-            far_factor = envelope.fog[1] / max(open_fog[1], 0.01)
+            raw_near = envelope.fog[0] / max(open_fog[0], 0.01)
+            raw_far = envelope.fog[1] / max(open_fog[1], 0.01)
+            near_factor = 1.0 + (raw_near - 1.0) * TENSION_WET_MIX
+            far_factor = 1.0 + (raw_far - 1.0) * TENSION_WET_MIX
             fog_near = max(ls["fog_near"] * near_factor, FOG_NEAR_CEIL)
             fog_far = max(ls["fog_far"] * far_factor, FOG_FAR_FLOOR)
         else:
