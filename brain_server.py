@@ -926,6 +926,12 @@ class BrainWorld:
         # dispatcher. Idempotent across brain restarts.
         weapons_pkg.activate_v1_weapons(_get_vault())
 
+        # Creature engagement substrate — register compose_three handler.
+        # Per `.claude/feature/feat_creature-engagement.md` PR 2.
+        # Idempotent; PR 4 wires dispatch on creature contact.
+        from core.systems.make_brains import compose_three as compose_three_mb
+        compose_three_mb.activate(_get_vault())
+
         # Quest state — async ambient quest substrate per
         # `project_async_quest_refactor`. PR 1.2 keeps this in-memory on
         # BrainWorld; PR 2 (V3 save schema) promotes the persistent fields
