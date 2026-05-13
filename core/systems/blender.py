@@ -215,6 +215,48 @@ class WorldBlender:
             },
         }
 
+    def compose_library_kind(
+        self,
+        name: str,
+        *,
+        texture_name: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Compose a renderable artifact from an image_scan library entry.
+
+        Reads `library/geometry/<name>.json` for the composition,
+        optionally pulls a named texture's bundle (texture path + noise +
+        ramp), and produces a flat dict the brain manifest can carry.
+
+        Returns None if no geometry by that name. The texture arg is
+        independent of the geometry — a scarecrow geometry can be
+        rendered with a flannel texture, or a hay_fibers texture, or
+        none at all. Caller picks.
+        """
+        from core.systems import scan_library                  # local — avoids cycle
+
+        geo = scan_library.get_geometry(name)
+        if geo is None:
+            return None
+
+        out: dict[str, Any] = {
+            "kind_name":      geo.get("name", name),
+            "anchor":         geo.get("anchor"),
+            "subparts":       geo.get("subparts", []),
+            "source_image":   geo.get("source_image"),
+        }
+
+        if texture_name is not None:
+            bundle = scan_library.get_texture_bundle(texture_name)
+            if bundle is not None:
+                out["texture"] = bundle
+
+        return out
+
+    def library_kinds(self) -> list[str]:
+        """All geometry names available in the library."""
+        from core.systems import scan_library
+        return scan_library.list_geometries()
+
 
 # Convenience factory — single Blender instance with empty stub. Tests and
 # brain code can either import this default or build their own with a
