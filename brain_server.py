@@ -428,6 +428,55 @@ def _load_scan_gallery() -> list[dict]:
 _SCAN_GALLERY_ENTITIES: list[dict] = _load_scan_gallery()
 
 
+# Thing-library gallery — per `core/systems/thing_schema.py`.
+# Loaded at module import; brain injects each Thing's expanded
+# entities into the manifest every tick. Override the search dir
+# via SANCTUM_THINGS_DIR env (default: <repo>/library/things/).
+#
+# This is the reliable-math counterpart to _SCAN_GALLERY_ENTITIES:
+# instead of hand-tuned absolute-scale entries, each Thing has
+# `real_size_m` + fractional positions. Brain expands them into N
+# entities at world coords using thing_renderer.expand_thing.
+def _load_thing_gallery() -> list[dict]:
+    import os as _os
+    from pathlib import Path as _P
+    from core.systems import thing_schema, thing_renderer
+    raw = _os.environ.get("SANCTUM_THINGS_DIR", "").strip()
+    if raw:
+        things_dir = _P(raw).expanduser()
+    else:
+        things_dir = _P(__file__).parent / "library" / "things"
+    if not things_dir.exists():
+        return []
+    things = thing_schema.load_things_from_dir(things_dir)
+    if not things:
+        return []
+    # Grid placement: 4m spacing, starting 6m in front of spawn
+    out: list[dict] = []
+    spacing = 4.0
+    forward = 6.0
+    for idx, (name, thing) in enumerate(sorted(things.items())):
+        col = idx % 5
+        row = idx // 5
+        gx = (col - 2.0) * spacing
+        gy = forward + row * spacing
+        entities = thing_renderer.expand_thing_to_world_z(
+            thing,
+            origin_xy=(gx, gy),
+            floor_z=0.0,
+            yaw_deg=0.0,
+            id_base=40_000,
+            instance_id=idx,
+        )
+        out.extend(entities)
+    print(f"  thing_gallery: loaded {len(out)} entities from "
+          f"{len(things)} things ({things_dir})", flush=True)
+    return out
+
+
+_THING_GALLERY_ENTITIES: list[dict] = _load_thing_gallery()
+
+
 _WEAPON_CLASS_TO_ACTIVITY: dict[str, tuple] = {
     "melee_blade":   (activity_loop.ActivityClass.HUNT,  1),
     "melee_blunt":   (activity_loop.ActivityClass.HUNT,  1),
@@ -3471,6 +3520,15 @@ def run_server(biome_name, port=9877):
                 if _SCAN_GALLERY_ENTITIES:
                     manifest.setdefault("entities", []).extend(
                         _SCAN_GALLERY_ENTITIES)
+
+                # Thing-library injection — composed wireframe models
+                # via `core/systems/thing_schema.py`. Each Thing's
+                # bounding-box math expanded into N positioned entities
+                # using `core/systems/thing_renderer.py`. Loaded at
+                # module import; static across the brain's lifetime.
+                if _THING_GALLERY_ENTITIES:
+                    manifest.setdefault("entities", []).extend(
+                        _THING_GALLERY_ENTITIES)
 
                 # Encounter session snapshot (HUD/orb/log data).
                 if encounter is not None:
