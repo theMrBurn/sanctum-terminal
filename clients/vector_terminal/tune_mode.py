@@ -34,6 +34,14 @@ class TuneState:
     locked_thing: str | None = None   # name of currently-tuned thing
     locked_role:  str | None = None   # name of currently-tuned part role
     last_pick_t:  float = 0.0
+    # Save flash — render "✓ saved <thing>" for SAVE_FLASH_DURATION
+    # seconds after each thing_save command. Client-side optimistic:
+    # we don't wait for brain ack (brain logs it but doesn't return).
+    last_save_t:    float = 0.0
+    last_save_name: str = ""
+
+
+SAVE_FLASH_DURATION: float = 1.5    # seconds the save flash stays visible
 
 
 def toggle(state: TuneState) -> None:
@@ -143,44 +151,47 @@ def handle_input(
     rt_x, rt_y = -fb_y, fb_x
 
     # RIGHT arrow → "to my right"
-    if input_map.pressed("tune_pos_x_plus"):
+    if input_map.pressed_repeat("tune_pos_x_plus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
                               [rt_x * POSITION_STEP, rt_y * POSITION_STEP, 0.0]))
-    if input_map.pressed("tune_pos_x_minus"):
+    if input_map.pressed_repeat("tune_pos_x_minus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
                               [-rt_x * POSITION_STEP, -rt_y * POSITION_STEP, 0.0]))
     # UP arrow → "away from me" (forward in player frame)
-    if input_map.pressed("tune_pos_y_plus"):
+    if input_map.pressed_repeat("tune_pos_y_plus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
                               [fb_x * POSITION_STEP, fb_y * POSITION_STEP, 0.0]))
-    if input_map.pressed("tune_pos_y_minus"):
+    if input_map.pressed_repeat("tune_pos_y_minus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
                               [-fb_x * POSITION_STEP, -fb_y * POSITION_STEP, 0.0]))
     # PgUp / PgDn — world Z (up axis), always literal up/down
-    if input_map.pressed("tune_pos_z_plus"):
+    if input_map.pressed_repeat("tune_pos_z_plus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
                               [0.0, 0.0, POSITION_STEP]))
-    if input_map.pressed("tune_pos_z_minus"):
+    if input_map.pressed_repeat("tune_pos_z_minus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
                               [0.0, 0.0, -POSITION_STEP]))
 
     # Size — uniform 3-axis scale step
-    if input_map.pressed("tune_size_plus"):
+    if input_map.pressed_repeat("tune_size_plus"):
         cmds.append(_edit_cmd(thing, role, "rel_size",
                               [SIZE_STEP, SIZE_STEP, SIZE_STEP]))
-    if input_map.pressed("tune_size_minus"):
+    if input_map.pressed_repeat("tune_size_minus"):
         cmds.append(_edit_cmd(thing, role, "rel_size",
                               [-SIZE_STEP, -SIZE_STEP, -SIZE_STEP]))
 
     # Rotation
-    if input_map.pressed("tune_rot_plus"):
+    if input_map.pressed_repeat("tune_rot_plus"):
         cmds.append(_edit_cmd(thing, role, "rotation_deg", ROTATION_STEP))
-    if input_map.pressed("tune_rot_minus"):
+    if input_map.pressed_repeat("tune_rot_minus"):
         cmds.append(_edit_cmd(thing, role, "rotation_deg", -ROTATION_STEP))
 
-    # Save
+    # Save — single press, no repeat; arm the save flash.
     if input_map.pressed("tune_save"):
+        import time as _t
         cmds.append({"cmd": "thing_save", "thing_name": thing})
+        state.last_save_t = _t.time()
+        state.last_save_name = thing
 
     return cmds
 
@@ -199,9 +210,12 @@ def _edit_cmd(thing: str, role: str, field: str, delta) -> dict[str, Any]:
 
 
 def draw_hud(state: TuneState, manifest: dict, screen_w: int, color) -> None:
-    """One-line top-corner indicator: TUNE mode + currently selected
-    thing/part. Keep it small + non-intrusive."""
+    """Top-right HUD: TUNE mode header + currently selected thing/part
+    + transient save flash."""
     if not state.active:
+        # Save flash can survive briefly after exiting tune mode — useful
+        # if the user hits ENTER then immediately U to leave.
+        _maybe_draw_save_flash(state, screen_w, color)
         return
 
     import pyray as rl
@@ -221,3 +235,34 @@ def draw_hud(state: TuneState, manifest: dict, screen_w: int, color) -> None:
     rl.draw_text_ex(font, line1, rl.Vector2(x, y),       14, 1.0, color)
     rl.draw_text_ex(font, line2, rl.Vector2(x, y + 18),  14, 1.0, color)
     rl.draw_text_ex(font, line3, rl.Vector2(x, y + 36),  12, 1.0, color)
+
+    _maybe_draw_save_flash(state, screen_w, color, y_offset=72)
+
+
+def _maybe_draw_save_flash(
+    state: TuneState, screen_w: int, color, y_offset: int = 8,
+) -> None:
+    """Render a transient '✓ saved <thing>' line for SAVE_FLASH_DURATION
+    seconds after the user hit ENTER. Color brightens then fades."""
+    import time as _t
+    import pyray as rl
+    from clients.vector_terminal import hud
+
+    elapsed = _t.time() - state.last_save_t
+    if elapsed < 0 or elapsed > SAVE_FLASH_DURATION:
+        return
+    if not state.last_save_name:
+        return
+
+    # Linear fade from full → 0 over the duration
+    alpha = max(0.0, 1.0 - (elapsed / SAVE_FLASH_DURATION))
+    a = int(255 * alpha)
+    flash_color = (color[0], color[1], color[2], a)
+    bg_color = (0, 0, 0, int(200 * alpha))
+
+    font = hud.font()
+    text = f"  saved → {state.last_save_name}"
+    x = screen_w - 360
+    y = y_offset
+    rl.draw_rectangle(x - 8, y - 4, 360, 24, bg_color)
+    rl.draw_text_ex(font, text, rl.Vector2(x, y), 14, 1.0, flash_color)

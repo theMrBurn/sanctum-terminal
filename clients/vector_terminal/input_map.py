@@ -246,6 +246,44 @@ def pressed(action: str, gamepad: int = DEFAULT_GAMEPAD) -> bool:
     return False
 
 
+def pressed_repeat(action: str, gamepad: int = DEFAULT_GAMEPAD) -> bool:
+    """True on initial press AND on OS-driven auto-repeat fires while
+    held. Use for nudge-style inputs where the user wants continuous
+    adjustment (tune mode, list scrolling, etc.). Not for one-shot
+    actions — those use `pressed()`.
+
+    Mouse + gamepad triggers fall back to single-press semantics
+    (no auto-repeat available from raylib for those input kinds).
+    """
+    triggers = _BINDINGS.get(action)
+    if triggers is None:
+        raise LookupError(f"input_map: unknown action {action!r}")
+    for trigger in triggers:
+        kind = trigger[0]
+        if kind == "key":
+            if rl.is_key_pressed_repeat(getattr(rl.KeyboardKey, trigger[1])):
+                return True
+            # is_key_pressed_repeat doesn't fire on the initial press —
+            # combine with is_key_pressed so the first-frame edit lands too.
+            if rl.is_key_pressed(getattr(rl.KeyboardKey, trigger[1])):
+                return True
+        elif kind == "mouse":
+            if rl.is_mouse_button_pressed(getattr(rl.MouseButton, trigger[1])):
+                return True
+        elif kind == "gamepad":
+            if rl.is_gamepad_available(gamepad) and rl.is_gamepad_button_pressed(
+                gamepad, getattr(rl.GamepadButton, trigger[1])
+            ):
+                return True
+        elif kind in ("axis_pos", "axis_neg"):
+            continue
+        else:
+            raise ValueError(
+                f"input_map.pressed_repeat: unknown trigger kind {kind!r} on {action!r}"
+            )
+    return False
+
+
 def held(action: str, gamepad: int = DEFAULT_GAMEPAD) -> bool:
     """True if any trigger bound to the action is currently down."""
     triggers = _BINDINGS.get(action)
