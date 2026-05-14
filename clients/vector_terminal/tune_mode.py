@@ -121,19 +121,39 @@ def handle_input(
     thing = state.locked_thing
     role  = state.locked_role
 
-    # Position nudges — arrows for X/Y, PgUp/PgDn for Z
+    # Player-relative axes — arrow keys feel intuitive regardless of
+    # where the user is standing. Compute forward / right from the
+    # camera's XZ projection in raylib space, convert to brain coords
+    # (brain x=lateral matches raylib x; brain y=forward matches
+    # raylib z). The thing-gallery is yaw=0, so world-brain = bbox-local.
+    fwd_x = camera.target.x - camera.position.x       # raylib x
+    fwd_z = camera.target.z - camera.position.z       # raylib z
+    fwd_mag_xz = math.sqrt(fwd_x * fwd_x + fwd_z * fwd_z)
+    if fwd_mag_xz < 1e-6:
+        # Camera looking straight up/down — keep last-known facing as
+        # +brain-Y so behavior is at least deterministic, not garbage.
+        fb_x, fb_y = 0.0, 1.0
+    else:
+        fb_x = fwd_x / fwd_mag_xz                     # brain x component of facing
+        fb_y = fwd_z / fwd_mag_xz                     # brain y component of facing
+    # Player right vector (90° clockwise from facing in the XY plane)
+    rt_x, rt_y = fb_y, -fb_x
+
+    # RIGHT arrow → "to my right"
     if input_map.pressed("tune_pos_x_plus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
-                              [POSITION_STEP, 0.0, 0.0]))
+                              [rt_x * POSITION_STEP, rt_y * POSITION_STEP, 0.0]))
     if input_map.pressed("tune_pos_x_minus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
-                              [-POSITION_STEP, 0.0, 0.0]))
+                              [-rt_x * POSITION_STEP, -rt_y * POSITION_STEP, 0.0]))
+    # UP arrow → "away from me" (forward in player frame)
     if input_map.pressed("tune_pos_y_plus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
-                              [0.0, POSITION_STEP, 0.0]))
+                              [fb_x * POSITION_STEP, fb_y * POSITION_STEP, 0.0]))
     if input_map.pressed("tune_pos_y_minus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
-                              [0.0, -POSITION_STEP, 0.0]))
+                              [-fb_x * POSITION_STEP, -fb_y * POSITION_STEP, 0.0]))
+    # PgUp / PgDn — world Z (up axis), always literal up/down
     if input_map.pressed("tune_pos_z_plus"):
         cmds.append(_edit_cmd(thing, role, "rel_position",
                               [0.0, 0.0, POSITION_STEP]))

@@ -938,6 +938,28 @@ def main() -> int:
                 silhouette_renderer.draw_silhouette(ent, camera, render_mode)
             # else: atmosphere mode — skip entity rendering entirely.
 
+            # Tune-mode highlight — bright outline around the selected
+            # thing/part so you can SEE what your nudges affect.
+            if (tune_state.active
+                    and tune_state.locked_thing
+                    and tune_state.locked_role
+                    and ent.get("_thing") == tune_state.locked_thing
+                    and ent.get("_role") == tune_state.locked_role):
+                # Convert brain (x, y_forward, z_up) → raylib (x, y_up, z_forward)
+                hx = float(ent.get("x", 0.0))
+                hy = float(ent.get("z", 0.0))
+                hz = float(ent.get("y", 0.0))
+                # Use brain sx/sy/sz mapped to raylib (sx, sz, sy),
+                # inflated 30% so the box clearly surrounds the part.
+                sx_b = float(ent.get("sx", 1.0)) * 1.30
+                sy_b = float(ent.get("sy", 1.0)) * 1.30
+                sz_b = float(ent.get("sz", 1.0)) * 1.30
+                rl.draw_cube_wires(
+                    rl.Vector3(hx, hy, hz),
+                    sx_b, sz_b, sy_b,           # raylib axis swap
+                    (255, 255, 255, 255),
+                )
+
         amber = (cfg.AMBER_RGB[0], cfg.AMBER_RGB[1], cfg.AMBER_RGB[2], 255)
 
         # Interact-flash brackets — drawn in 3D (depth-tested with the world).
