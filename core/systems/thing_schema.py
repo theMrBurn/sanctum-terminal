@@ -104,6 +104,7 @@ class Thing:
     anchor: str
     parts: list[ThingPart] = field(default_factory=list)
     source: str | None = None      # provenance — image/description/etc.
+    tags:   list[str] = field(default_factory=list)   # query keys for the Blender
 
 
 # ── Validation ───────────────────────────────────────────────────
@@ -147,6 +148,18 @@ def validate_thing_dict(data: Any) -> list[ValidationError]:
     anchor = data.get("anchor")
     if not isinstance(anchor, str):
         errors.append(ValidationError("$.anchor", "must be string"))
+
+    # tags (optional list of non-empty strings)
+    if "tags" in data:
+        tags = data["tags"]
+        if not isinstance(tags, list):
+            errors.append(ValidationError(
+                "$.tags", f"must be list, got {type(tags).__name__}"))
+        else:
+            for i, t in enumerate(tags):
+                if not isinstance(t, str) or not t.strip():
+                    errors.append(ValidationError(
+                        f"$.tags[{i}]", "must be non-empty string"))
 
     # parts
     parts = data.get("parts")
@@ -273,12 +286,14 @@ def parse_thing(data: dict[str, Any]) -> Thing:
     data is shape-valid.
     """
     parts = [_parse_part(p) for p in data["parts"]]
+    raw_tags = data.get("tags") or []
     return Thing(
         name=str(data["name"]),
         real_size_m=tuple(float(v) for v in data["real_size_m"]),
         anchor=str(data["anchor"]),
         parts=parts,
         source=data.get("source"),
+        tags=[str(t) for t in raw_tags if isinstance(t, str) and t.strip()],
     )
 
 

@@ -7,6 +7,14 @@
   ],
   "anchor": "blade",
   "source": "hand-authored fixture \u2014 first proof of thing_schema math",
+  "tags": [
+    "weapon",
+    "blade",
+    "medieval",
+    "tolkien",
+    "wieldable",
+    "pickupable"
+  ],
   "parts": [
     {
       "primitive": "tapered_vertical",

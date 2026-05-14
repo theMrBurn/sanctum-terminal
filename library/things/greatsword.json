@@ -7,6 +7,14 @@
   ],
   "anchor": "blade",
   "source": "hand-authored \u2014 two-handed massive sword, tolkien register",
+  "tags": [
+    "weapon",
+    "blade",
+    "two_handed",
+    "tolkien",
+    "wieldable",
+    "pickupable"
+  ],
   "parts": [
     {
       "primitive": "tapered_vertical",

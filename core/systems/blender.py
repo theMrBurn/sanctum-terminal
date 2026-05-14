@@ -257,6 +257,74 @@ class WorldBlender:
         from core.systems import scan_library
         return scan_library.list_geometries()
 
+    # ── Thing library arm (spec 18 successor) ───────────────────
+
+    def pick_thing(
+        self,
+        include_tags: list[str] | None = None,
+        exclude_tags: list[str] | None = None,
+        *,
+        match_all: bool = False,
+        seed: int | None = None,
+    ) -> Any | None:
+        """Pick ONE thing matching the tag query. Returns a Thing
+        dataclass or None if nothing matches. Deterministic when
+        seeded.
+
+        Voice-of-restraint per `design_wont_tolerate`: returns the
+        thing AS-IS, no synthetic filler. Caller decides what to do
+        with None.
+        """
+        from core.systems import thing_library
+
+        candidates = thing_library.find_by_tags(
+            include=include_tags,
+            exclude=exclude_tags,
+            match_all=match_all,
+        )
+        if not candidates:
+            return None
+        rng = random.Random(seed)
+        return rng.choice(candidates)
+
+    def things_for_biome(
+        self,
+        biome: str,
+        *,
+        tension: str = "open",
+        count: int = 3,
+        seed: int | None = None,
+    ) -> list[Any]:
+        """Pick `count` things compatible with this biome's mood.
+
+        Maps biome → tag filter. Currently a small lookup; can grow
+        into a registry in `core/systems/biome_data.py` later.
+        """
+        # Biome → preferred register tags. Open to expansion.
+        biome_tags: dict[str, list[str]] = {
+            "cavern":   ["carcosa", "tolkien"],
+            "outdoor":  ["moebius", "tolkien"],
+            "workroom": [],          # accept anything; no filter
+            "hub":      ["moebius"],
+        }
+        tags = biome_tags.get(biome, [])
+
+        from core.systems import thing_library
+        candidates = thing_library.find_by_tags(
+            include=tags or None,
+            exclude=None,
+        )
+        if not candidates:
+            # Fallback — return any decorative things if biome-tag filter empty
+            candidates = thing_library.find_by_tags(
+                include=["decorative", "prop"],
+            )
+        if not candidates:
+            return []
+        rng = random.Random(seed)
+        n = min(count, len(candidates))
+        return rng.sample(candidates, n)
+
 
 # Convenience factory — single Blender instance with empty stub. Tests and
 # brain code can either import this default or build their own with a

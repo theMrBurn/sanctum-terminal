@@ -1,42 +1,100 @@
 {
   "name": "skull",
-  "real_size_m": [0.15, 0.18, 0.22],
+  "real_size_m": [
+    0.15,
+    0.18,
+    0.22
+  ],
   "anchor": "cranium",
-  "source": "hand-authored fixture — math sanity for rounded objects",
+  "source": "hand-authored fixture \u2014 math sanity for rounded objects",
+  "tags": [
+    "prop",
+    "decorative",
+    "carcosa",
+    "tolkien"
+  ],
   "parts": [
     {
-      "primitive":     "orb",
-      "role":          "cranium",
-      "rel_size":      [1.00, 1.00, 0.70],
-      "rel_position":  [0.0, 0.0, 0.15],
-      "tier":          "silhouette",
-      "color_base":    [0.85, 0.80, 0.70]
+      "primitive": "orb",
+      "role": "cranium",
+      "rel_size": [
+        1.0,
+        1.0,
+        0.7
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.15
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.85,
+        0.8,
+        0.7
+      ]
     },
     {
-      "primitive":     "octahedron",
-      "role":          "jaw",
-      "rel_size":      [0.70, 0.70, 0.30],
-      "rel_position":  [0.0, 0.0, -0.30],
-      "tier":          "silhouette",
-      "color_base":    [0.75, 0.70, 0.60]
+      "primitive": "octahedron",
+      "role": "jaw",
+      "rel_size": [
+        0.7,
+        0.7,
+        0.3
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.3
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.75,
+        0.7,
+        0.6
+      ]
     },
     {
-      "primitive":     "orb",
-      "role":          "left_eye",
-      "rel_size":      [0.20, 0.20, 0.20],
-      "rel_position":  [-0.22, 0.20, 0.15],
-      "tier":          "mid",
-      "color_base":    [0.08, 0.06, 0.04],
-      "negate":        true
+      "primitive": "orb",
+      "role": "left_eye",
+      "rel_size": [
+        0.2,
+        0.2,
+        0.2
+      ],
+      "rel_position": [
+        -0.22,
+        0.2,
+        0.15
+      ],
+      "tier": "mid",
+      "color_base": [
+        0.08,
+        0.06,
+        0.04
+      ],
+      "negate": true
     },
     {
-      "primitive":     "orb",
-      "role":          "right_eye",
-      "rel_size":      [0.20, 0.20, 0.20],
-      "rel_position":  [0.22, 0.20, 0.15],
-      "tier":          "mid",
-      "color_base":    [0.08, 0.06, 0.04],
-      "negate":        true
+      "primitive": "orb",
+      "role": "right_eye",
+      "rel_size": [
+        0.2,
+        0.2,
+        0.2
+      ],
+      "rel_position": [
+        0.22,
+        0.2,
+        0.15
+      ],
+      "tier": "mid",
+      "color_base": [
+        0.08,
+        0.06,
+        0.04
+      ],
+      "negate": true
     }
   ]
 }

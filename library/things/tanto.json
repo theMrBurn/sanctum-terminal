@@ -1,32 +1,80 @@
 {
   "name": "tanto",
-  "real_size_m": [0.08, 0.03, 0.30],
+  "real_size_m": [
+    0.08,
+    0.03,
+    0.3
+  ],
   "anchor": "blade",
-  "source": "hand-authored — short single-edge dagger, anno register",
+  "source": "hand-authored \u2014 short single-edge dagger, anno register",
+  "tags": [
+    "weapon",
+    "blade",
+    "dagger",
+    "anno",
+    "wieldable",
+    "pickupable"
+  ],
   "parts": [
     {
-      "primitive":     "tapered_vertical",
-      "role":          "blade",
-      "rel_size":      [0.50, 0.20, 0.55],
-      "rel_position":  [0.0, 0.0, 0.20],
-      "tier":          "silhouette",
-      "color_base":    [0.88, 0.92, 0.95]
+      "primitive": "tapered_vertical",
+      "role": "blade",
+      "rel_size": [
+        0.5,
+        0.2,
+        0.55
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.2
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.88,
+        0.92,
+        0.95
+      ]
     },
     {
-      "primitive":     "banner",
-      "role":          "habaki",
-      "rel_size":      [0.60, 0.20, 0.05],
-      "rel_position":  [0.0, 0.0, -0.10],
-      "tier":          "silhouette",
-      "color_base":    [0.85, 0.65, 0.25]
+      "primitive": "banner",
+      "role": "habaki",
+      "rel_size": [
+        0.6,
+        0.2,
+        0.05
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.1
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.85,
+        0.65,
+        0.25
+      ]
     },
     {
-      "primitive":     "cube",
-      "role":          "tsuka",
-      "rel_size":      [0.40, 0.40, 0.30],
-      "rel_position":  [0.0, 0.0, -0.32],
-      "tier":          "silhouette",
-      "color_base":    [0.08, 0.05, 0.03]
+      "primitive": "cube",
+      "role": "tsuka",
+      "rel_size": [
+        0.4,
+        0.4,
+        0.3
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.32
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.08,
+        0.05,
+        0.03
+      ]
     }
   ]
 }

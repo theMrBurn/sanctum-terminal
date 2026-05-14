@@ -287,6 +287,36 @@ def test_expand_unique_entity_ids_per_instance():
 # ── End-to-end: longsword fixture ──────────────────────────────
 
 
+# ── Tags ────────────────────────────────────────────────────────
+
+
+def test_tags_optional_default_empty():
+    d = _good_thing_dict()
+    t = thing_schema.parse_thing(d)
+    assert t.tags == []
+
+
+def test_tags_parse():
+    d = _good_thing_dict()
+    d["tags"] = ["weapon", "blade", "medieval"]
+    t = thing_schema.parse_thing(d)
+    assert t.tags == ["weapon", "blade", "medieval"]
+
+
+def test_tags_must_be_list():
+    d = _good_thing_dict()
+    d["tags"] = "weapon"
+    errs = thing_schema.validate_thing_dict(d)
+    assert any("tags" in str(e) for e in errs)
+
+
+def test_tag_must_be_non_empty_string():
+    d = _good_thing_dict()
+    d["tags"] = ["weapon", "", "medieval"]
+    errs = thing_schema.validate_thing_dict(d)
+    assert any("tags" in str(e) for e in errs)
+
+
 def test_longsword_fixture_validates():
     repo_root = Path(__file__).parent.parent
     p = repo_root / "library" / "things" / "longsword.json"

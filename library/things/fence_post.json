@@ -1,24 +1,58 @@
 {
   "name": "fence_post",
-  "real_size_m": [0.12, 0.12, 1.50],
+  "real_size_m": [
+    0.12,
+    0.12,
+    1.5
+  ],
   "anchor": "post",
-  "source": "hand-authored fixture — math sanity for thin vertical objects",
+  "source": "hand-authored fixture \u2014 math sanity for thin vertical objects",
+  "tags": [
+    "fixture",
+    "outdoor",
+    "medieval",
+    "decorative"
+  ],
   "parts": [
     {
-      "primitive":     "tapered_vertical",
-      "role":          "post",
-      "rel_size":      [0.83, 0.83, 0.95],
-      "rel_position":  [0.0, 0.0, -0.02],
-      "tier":          "silhouette",
-      "color_base":    [0.45, 0.32, 0.20]
+      "primitive": "tapered_vertical",
+      "role": "post",
+      "rel_size": [
+        0.83,
+        0.83,
+        0.95
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.02
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.45,
+        0.32,
+        0.2
+      ]
     },
     {
-      "primitive":     "cube",
-      "role":          "cap",
-      "rel_size":      [1.00, 1.00, 0.06],
-      "rel_position":  [0.0, 0.0, 0.47],
-      "tier":          "mid",
-      "color_base":    [0.30, 0.20, 0.12]
+      "primitive": "cube",
+      "role": "cap",
+      "rel_size": [
+        1.0,
+        1.0,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.47
+      ],
+      "tier": "mid",
+      "color_base": [
+        0.3,
+        0.2,
+        0.12
+      ]
     }
   ]
 }

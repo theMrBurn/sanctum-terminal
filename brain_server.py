@@ -486,6 +486,23 @@ def _load_thing_gallery() -> list[dict]:
     out = _expand_thing_gallery()
     print(f"  thing_gallery: loaded {len(out)} entities from "
           f"{len(things)} things ({things_dir})", flush=True)
+
+    # Sanity: query the Blender at boot so the synthesis loop is
+    # visibly working before the user does anything.
+    try:
+        from core.systems.blender import default_blender
+        from core.systems import thing_library
+        bl = default_blender()
+        tag_counts = thing_library.all_tags()
+        weapons = bl.pick_thing(include_tags=["weapon"], seed=0)
+        cavern = bl.things_for_biome("cavern", count=3, seed=0)
+        print(f"  blender_sanity: {len(tag_counts)} distinct tags, "
+              f"pick(weapon)={weapons.name if weapons else 'none'}, "
+              f"cavern_picks={[t.name for t in cavern]}",
+              flush=True)
+    except Exception as exc:                          # noqa: BLE001
+        print(f"  blender_sanity: failed: {exc!r}", flush=True)
+
     return out
 
 
@@ -585,6 +602,7 @@ def thing_save(thing_name: str) -> bool:
             "real_size_m":  list(thing.real_size_m),
             "anchor":       thing.anchor,
             "source":       thing.source or "live-tuned via B-mode",
+            "tags":         list(thing.tags),
             "parts": [
                 _part_to_json(p) for p in thing.parts
             ],
