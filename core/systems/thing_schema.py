@@ -44,6 +44,30 @@ PRIMITIVES: tuple[str, ...] = (
     "octahedron",
 )
 
+
+# Visual reference per primitive — what the recipe in
+# `clients/vector_terminal/recipes.py` actually RENDERS as, not what
+# the name suggests. Use when authoring: pick by silhouette, not by
+# english word.
+#
+# Hard-won lesson 2026-05-14: "vector_sprite" sounds like "any 2D
+# sprite shape" — it's actually a T-pose HUMANOID figure. Putting it
+# on a scimitar blade rendered a person standing on a hilt.
+PRIMITIVE_VISUAL: dict[str, str] = {
+    "orb":              "low-poly sphere (8x12 wireframe)",
+    "tapered_vertical": "vertical cylinder (8-segment), oriented along z-axis",
+    "banner":           "flat panel facing +z with inner cross — sign / poster",
+    "heptagonal_mote":  "horizontal 7-vertex ring at y=0, no faces — mote/spark",
+    "silhouette_void":  "STICK FIGURE — head+spine+shoulders+arms+legs skeleton",
+    "lattice_7":        "wheel / hub: center vertex + 6 spokes + outer ring",
+    "scatter_7":        "irregular 7-point cloud connected by cross-links",
+    "chain":            "three stacked link cubes along z, connectors between",
+    "ground_hug":       "flat disc at y≈0 — tile / decal / shadow plate",
+    "vector_sprite":    "T-POSE HUMANOID — head diamond + body + arms + legs",
+    "cube":             "cube — six faces, twelve edges",
+    "octahedron":       "diamond bipyramid — sharper crystal silhouette",
+}
+
 TIERS: tuple[str, ...] = ("silhouette", "mid", "hero")
 
 # Sanity bounds
