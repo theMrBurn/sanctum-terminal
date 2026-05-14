@@ -136,8 +136,11 @@ def handle_input(
     else:
         fb_x = fwd_x / fwd_mag_xz                     # brain x component of facing
         fb_y = fwd_z / fwd_mag_xz                     # brain y component of facing
-    # Player right vector (90° clockwise from facing in the XY plane)
-    rt_x, rt_y = fb_y, -fb_x
+    # Player right vector. The brain→raylib axis swap (brain.y ↔ raylib.z)
+    # effectively flips handedness, so the user's screen-right is the
+    # CCW perpendicular to facing in brain XY, not the CW one. UAT
+    # 2026-05-14: initial CW derivation made arrows feel reversed.
+    rt_x, rt_y = -fb_y, fb_x
 
     # RIGHT arrow → "to my right"
     if input_map.pressed("tune_pos_x_plus"):
