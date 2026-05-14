@@ -1,0 +1,48 @@
+{
+  "name": "greatsword",
+  "real_size_m": [0.20, 0.05, 1.55],
+  "anchor": "blade",
+  "source": "hand-authored — two-handed massive sword, tolkien register",
+  "parts": [
+    {
+      "primitive":     "tapered_vertical",
+      "role":          "blade",
+      "rel_size":      [0.30, 0.15, 0.62],
+      "rel_position":  [0.0, 0.0, 0.18],
+      "tier":          "silhouette",
+      "color_base":    [0.65, 0.70, 0.75]
+    },
+    {
+      "primitive":     "banner",
+      "role":          "crossguard",
+      "rel_size":      [1.00, 0.15, 0.04],
+      "rel_position":  [0.0, 0.0, -0.16],
+      "tier":          "silhouette",
+      "color_base":    [0.55, 0.42, 0.20]
+    },
+    {
+      "primitive":     "scatter_7",
+      "role":          "crossguard_ornament",
+      "rel_size":      [0.40, 0.20, 0.06],
+      "rel_position":  [0.0, 0.0, -0.16],
+      "tier":          "mid",
+      "color_base":    [0.80, 0.68, 0.30]
+    },
+    {
+      "primitive":     "tapered_vertical",
+      "role":          "grip",
+      "rel_size":      [0.20, 0.20, 0.20],
+      "rel_position":  [0.0, 0.0, -0.30],
+      "tier":          "silhouette",
+      "color_base":    [0.30, 0.20, 0.10]
+    },
+    {
+      "primitive":     "octahedron",
+      "role":          "pommel",
+      "rel_size":      [0.45, 0.45, 0.10],
+      "rel_position":  [0.0, 0.0, -0.45],
+      "tier":          "mid",
+      "color_base":    [0.85, 0.72, 0.30]
+    }
+  ]
+}

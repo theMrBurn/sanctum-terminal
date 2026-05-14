@@ -1,0 +1,40 @@
+{
+  "name": "rapier",
+  "real_size_m": [0.18, 0.03, 1.10],
+  "anchor": "blade",
+  "source": "hand-authored — thin court sword w/ ornate guard, carcosa register",
+  "parts": [
+    {
+      "primitive":     "chain",
+      "role":          "blade",
+      "rel_size":      [0.08, 0.08, 0.80],
+      "rel_position":  [0.0, 0.0, 0.10],
+      "tier":          "silhouette",
+      "color_base":    [0.80, 0.84, 0.86]
+    },
+    {
+      "primitive":     "lattice_7",
+      "role":          "swept_guard",
+      "rel_size":      [1.00, 0.20, 0.15],
+      "rel_position":  [0.0, 0.0, -0.30],
+      "tier":          "silhouette",
+      "color_base":    [0.18, 0.10, 0.05]
+    },
+    {
+      "primitive":     "cube",
+      "role":          "grip",
+      "rel_size":      [0.20, 0.20, 0.10],
+      "rel_position":  [0.0, 0.0, -0.41],
+      "tier":          "silhouette",
+      "color_base":    [0.10, 0.06, 0.03]
+    },
+    {
+      "primitive":     "orb",
+      "role":          "pommel",
+      "rel_size":      [0.25, 0.25, 0.06],
+      "rel_position":  [0.0, 0.0, -0.47],
+      "tier":          "mid",
+      "color_base":    [0.55, 0.40, 0.15]
+    }
+  ]
+}

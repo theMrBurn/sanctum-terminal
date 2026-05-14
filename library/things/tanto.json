@@ -1,0 +1,32 @@
+{
+  "name": "tanto",
+  "real_size_m": [0.08, 0.03, 0.30],
+  "anchor": "blade",
+  "source": "hand-authored — short single-edge dagger, anno register",
+  "parts": [
+    {
+      "primitive":     "tapered_vertical",
+      "role":          "blade",
+      "rel_size":      [0.50, 0.20, 0.55],
+      "rel_position":  [0.0, 0.0, 0.20],
+      "tier":          "silhouette",
+      "color_base":    [0.88, 0.92, 0.95]
+    },
+    {
+      "primitive":     "banner",
+      "role":          "habaki",
+      "rel_size":      [0.60, 0.20, 0.05],
+      "rel_position":  [0.0, 0.0, -0.10],
+      "tier":          "silhouette",
+      "color_base":    [0.85, 0.65, 0.25]
+    },
+    {
+      "primitive":     "cube",
+      "role":          "tsuka",
+      "rel_size":      [0.40, 0.40, 0.30],
+      "rel_position":  [0.0, 0.0, -0.32],
+      "tier":          "silhouette",
+      "color_base":    [0.08, 0.05, 0.03]
+    }
+  ]
+}
