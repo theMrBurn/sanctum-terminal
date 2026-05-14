@@ -24,7 +24,7 @@ import select
 import socket
 import sys
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from core.systems.biome_data import (
     BIOME_REGISTRY,
@@ -437,41 +437,187 @@ _SCAN_GALLERY_ENTITIES: list[dict] = _load_scan_gallery()
 # instead of hand-tuned absolute-scale entries, each Thing has
 # `real_size_m` + fractional positions. Brain expands them into N
 # entities at world coords using thing_renderer.expand_thing.
+_THING_GALLERY_THINGS: dict[str, Any] = {}     # name → Thing dataclass
+_THING_GALLERY_PLACEMENT: dict[str, dict[str, Any]] = {}   # name → {gx, gy, idx}
+_THING_GALLERY_DIR: "Any" = None               # Path; set on first load
+
+
 def _load_thing_gallery() -> list[dict]:
+    """Walk library/things/, parse each into a Thing dataclass, and
+    cache (name → Thing) plus its grid placement. Returns the
+    expanded entity list ready to merge into the manifest."""
     import os as _os
     from pathlib import Path as _P
     from core.systems import thing_schema, thing_renderer
+
+    global _THING_GALLERY_THINGS, _THING_GALLERY_PLACEMENT, _THING_GALLERY_DIR
+
     raw = _os.environ.get("SANCTUM_THINGS_DIR", "").strip()
     if raw:
         things_dir = _P(raw).expanduser()
     else:
         things_dir = _P(__file__).parent / "library" / "things"
+    _THING_GALLERY_DIR = things_dir
+
     if not things_dir.exists():
+        _THING_GALLERY_THINGS = {}
+        _THING_GALLERY_PLACEMENT = {}
         return []
+
     things = thing_schema.load_things_from_dir(things_dir)
     if not things:
+        _THING_GALLERY_THINGS = {}
+        _THING_GALLERY_PLACEMENT = {}
         return []
-    # Grid placement: 4m spacing, starting 6m in front of spawn
-    out: list[dict] = []
+
+    _THING_GALLERY_THINGS = dict(things)
+    _THING_GALLERY_PLACEMENT = {}
     spacing = 4.0
     forward = 6.0
-    for idx, (name, thing) in enumerate(sorted(things.items())):
+    for idx, name in enumerate(sorted(things.keys())):
         col = idx % 5
         row = idx // 5
-        gx = (col - 2.0) * spacing
-        gy = forward + row * spacing
-        entities = thing_renderer.expand_thing_to_world_z(
-            thing,
-            origin_xy=(gx, gy),
-            floor_z=0.0,
-            yaw_deg=0.0,
-            id_base=40_000,
-            instance_id=idx,
-        )
-        out.extend(entities)
+        _THING_GALLERY_PLACEMENT[name] = {
+            "gx":  (col - 2.0) * spacing,
+            "gy":  forward + row * spacing,
+            "idx": idx,
+        }
+
+    out = _expand_thing_gallery()
     print(f"  thing_gallery: loaded {len(out)} entities from "
           f"{len(things)} things ({things_dir})", flush=True)
     return out
+
+
+def _expand_thing_gallery() -> list[dict]:
+    """Expand all loaded Things → entity list at their current
+    placements. Called on load AND after every thing_edit so the
+    manifest reflects edits without restarting the brain."""
+    from core.systems import thing_renderer
+    out: list[dict] = []
+    for name, thing in _THING_GALLERY_THINGS.items():
+        place = _THING_GALLERY_PLACEMENT.get(name)
+        if place is None:
+            continue
+        entities = thing_renderer.expand_thing_to_world_z(
+            thing,
+            origin_xy=(place["gx"], place["gy"]),
+            floor_z=0.0,
+            yaw_deg=0.0,
+            id_base=40_000,
+            instance_id=place["idx"],
+        )
+        out.extend(entities)
+    return out
+
+
+# ── Live-edit handlers (B-mode tune) ─────────────────────────────
+
+
+def thing_edit(thing_name: str, part_role: str, field: str,
+                delta: list[float] | float) -> bool:
+    """Mutate ONE part's field of an in-memory Thing, regenerate the
+    gallery entity list, and return True on success.
+
+    Supported fields: rel_position (vec3), rel_size (vec3),
+    rotation_deg (scalar), color_base (vec3).
+
+    Delta is added to current value; result clamped against the
+    schema bounds. No-op if thing/part/field not found."""
+    global _THING_GALLERY_ENTITIES
+    thing = _THING_GALLERY_THINGS.get(thing_name)
+    if thing is None:
+        return False
+    part = next((p for p in thing.parts if p.role == part_role), None)
+    if part is None:
+        return False
+
+    if field == "rel_position":
+        if not isinstance(delta, (list, tuple)) or len(delta) != 3:
+            return False
+        new = (
+            _clamp(part.rel_position[0] + float(delta[0]), -0.5, 0.5),
+            _clamp(part.rel_position[1] + float(delta[1]), -0.5, 0.5),
+            _clamp(part.rel_position[2] + float(delta[2]), -0.5, 0.5),
+        )
+        part.rel_position = new
+    elif field == "rel_size":
+        if not isinstance(delta, (list, tuple)) or len(delta) != 3:
+            return False
+        new = (
+            _clamp(part.rel_size[0] + float(delta[0]), 0.001, 1.0),
+            _clamp(part.rel_size[1] + float(delta[1]), 0.001, 1.0),
+            _clamp(part.rel_size[2] + float(delta[2]), 0.001, 1.0),
+        )
+        part.rel_size = new
+    elif field == "rotation_deg":
+        d = float(delta if not isinstance(delta, (list, tuple)) else delta[0])
+        part.rotation_deg = (part.rotation_deg + d) % 360.0
+    elif field == "color_base":
+        if not isinstance(delta, (list, tuple)) or len(delta) != 3:
+            return False
+        base = part.color_base or (0.85, 0.66, 0.20)
+        part.color_base = (
+            _clamp(base[0] + float(delta[0]), 0.0, 1.0),
+            _clamp(base[1] + float(delta[1]), 0.0, 1.0),
+            _clamp(base[2] + float(delta[2]), 0.0, 1.0),
+        )
+    else:
+        return False
+
+    _THING_GALLERY_ENTITIES = _expand_thing_gallery()
+    return True
+
+
+def thing_save(thing_name: str) -> bool:
+    """Write the in-memory Thing back to disk at
+    library/things/<name>.json. Returns True on success."""
+    import json
+    from dataclasses import asdict
+    thing = _THING_GALLERY_THINGS.get(thing_name)
+    if thing is None or _THING_GALLERY_DIR is None:
+        return False
+    path = _THING_GALLERY_DIR / f"{thing_name}.json"
+    try:
+        # asdict-based serialization with tuples → lists for JSON
+        out = {
+            "name":         thing.name,
+            "real_size_m":  list(thing.real_size_m),
+            "anchor":       thing.anchor,
+            "source":       thing.source or "live-tuned via B-mode",
+            "parts": [
+                _part_to_json(p) for p in thing.parts
+            ],
+        }
+        path.write_text(json.dumps(out, indent=2) + "\n")
+        return True
+    except Exception as exc:                          # noqa: BLE001
+        print(f"  thing_save({thing_name!r}) failed: {exc!r}", flush=True)
+        return False
+
+
+def _part_to_json(part) -> dict:
+    out = {
+        "primitive":     part.primitive,
+        "role":          part.role,
+        "rel_size":      [round(v, 4) for v in part.rel_size],
+        "rel_position":  [round(v, 4) for v in part.rel_position],
+        "rotation_deg":  round(part.rotation_deg, 2),
+        "tier":          part.tier,
+    }
+    if part.color_base is not None:
+        out["color_base"] = [round(v, 4) for v in part.color_base]
+    if part.color_shadow is not None:
+        out["color_shadow"] = [round(v, 4) for v in part.color_shadow]
+    if part.color_accent is not None:
+        out["color_accent"] = [round(v, 4) for v in part.color_accent]
+    if part.negate:
+        out["negate"] = True
+    return out
+
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
 
 
 _THING_GALLERY_ENTITIES: list[dict] = _load_thing_gallery()
@@ -2427,6 +2573,45 @@ def run_server(biome_name, port=9877):
                     except (LookupError, AttributeError) as exc:
                         print(f"  engagement_abort failed: {exc!r}", flush=True)
                     _close_engagement(world, "aborted")
+                    continue
+
+                if msg.get("cmd") == "thing_edit":
+                    # B-mode tune — mutate one part of an in-memory Thing,
+                    # regen its entities. Manifest re-emits on next tick.
+                    tn = str(msg.get("thing_name", ""))
+                    pr = str(msg.get("part_role", ""))
+                    fd = str(msg.get("field", ""))
+                    dl = msg.get("delta", 0.0)
+                    ok = thing_edit(tn, pr, fd, dl)
+                    if not ok:
+                        print(f"  thing_edit rejected: {tn}/{pr}/{fd}",
+                              flush=True)
+                    last_wake_ids = set()        # force manifest re-emit
+                    continue
+
+                if msg.get("cmd") == "thing_save":
+                    tn = str(msg.get("thing_name", ""))
+                    ok = thing_save(tn)
+                    print(f"  thing_save({tn!r}): {'ok' if ok else 'FAILED'}",
+                          flush=True)
+                    continue
+
+                if msg.get("cmd") == "thing_revert":
+                    # Reload one thing from disk, discarding in-memory edits.
+                    tn = str(msg.get("thing_name", ""))
+                    from core.systems import thing_schema
+                    if _THING_GALLERY_DIR is not None:
+                        path = _THING_GALLERY_DIR / f"{tn}.json"
+                        try:
+                            reloaded = thing_schema.load_thing(path)
+                            _THING_GALLERY_THINGS[tn] = reloaded
+                            global _THING_GALLERY_ENTITIES
+                            _THING_GALLERY_ENTITIES = _expand_thing_gallery()
+                            print(f"  thing_revert({tn!r}): reloaded", flush=True)
+                        except Exception as exc:                  # noqa: BLE001
+                            print(f"  thing_revert({tn!r}) failed: {exc!r}",
+                                  flush=True)
+                    last_wake_ids = set()
                     continue
 
                 if msg.get("cmd") == "weapon_use":

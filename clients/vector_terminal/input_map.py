@@ -139,6 +139,22 @@ DEFAULT_BINDINGS: dict[str, list[Trigger]] = {
     "noclip_toggle":    [("key", "KEY_BACKSLASH")],
     "damage_self_debug":[("key", "KEY_K")],
 
+    # Thing tune mode — B-mode equivalent for live-tuning composite
+    # things (per spec/notes 2026-05-14). U toggles; while active,
+    # arrows/+- nudge the currently-aimed-at part.
+    "tune_toggle":      [("key", "KEY_U")],
+    "tune_save":        [("key", "KEY_ENTER")],
+    "tune_pos_x_plus":  [("key", "KEY_RIGHT")],
+    "tune_pos_x_minus": [("key", "KEY_LEFT")],
+    "tune_pos_y_plus":  [("key", "KEY_UP")],
+    "tune_pos_y_minus": [("key", "KEY_DOWN")],
+    "tune_pos_z_plus":  [("key", "KEY_PAGE_UP")],
+    "tune_pos_z_minus": [("key", "KEY_PAGE_DOWN")],
+    "tune_size_plus":   [("key", "KEY_EQUAL")],            # = / +
+    "tune_size_minus":  [("key", "KEY_MINUS")],
+    "tune_rot_plus":    [("key", "KEY_PERIOD")],           # >
+    "tune_rot_minus":   [("key", "KEY_COMMA")],            # <
+
     # Numeric slot keys (cast slots / encounter choices — context-gated by callers)
     "slot_1":           [("key", "KEY_ONE")],
     "slot_2":           [("key", "KEY_TWO")],

@@ -1,41 +1,101 @@
 {
   "name": "longsword",
-  "real_size_m": [0.15, 0.04, 1.10],
+  "real_size_m": [
+    0.15,
+    0.04,
+    1.1
+  ],
   "anchor": "blade",
-  "source": "hand-authored fixture — first proof of thing_schema math",
+  "source": "hand-authored fixture \u2014 first proof of thing_schema math",
   "parts": [
     {
-      "primitive":     "tapered_vertical",
-      "role":          "blade",
-      "rel_size":      [0.20, 0.10, 0.85],
-      "rel_position":  [0.0, 0.0, 0.10],
-      "tier":          "silhouette",
-      "color_base":    [0.78, 0.82, 0.88],
-      "color_shadow":  [0.30, 0.32, 0.36]
+      "primitive": "tapered_vertical",
+      "role": "blade",
+      "rel_size": [
+        0.2,
+        0.1,
+        0.85
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.1
+      ],
+      "rotation_deg": 0.0,
+      "tier": "silhouette",
+      "color_base": [
+        0.78,
+        0.82,
+        0.88
+      ],
+      "color_shadow": [
+        0.3,
+        0.32,
+        0.36
+      ]
     },
     {
-      "primitive":     "banner",
-      "role":          "crossguard",
-      "rel_size":      [1.00, 0.10, 0.06],
-      "rel_position":  [0.0, 0.0, -0.30],
-      "tier":          "silhouette",
-      "color_base":    [0.45, 0.35, 0.18]
+      "primitive": "banner",
+      "role": "crossguard",
+      "rel_size": [
+        1.0,
+        0.1,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.3
+      ],
+      "rotation_deg": 0.0,
+      "tier": "silhouette",
+      "color_base": [
+        0.45,
+        0.35,
+        0.18
+      ]
     },
     {
-      "primitive":     "cube",
-      "role":          "grip",
-      "rel_size":      [0.30, 0.30, 0.13],
-      "rel_position":  [0.0, 0.0, -0.39],
-      "tier":          "silhouette",
-      "color_base":    [0.20, 0.12, 0.08]
+      "primitive": "cube",
+      "role": "grip",
+      "rel_size": [
+        0.3,
+        0.3,
+        0.13
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.39
+      ],
+      "rotation_deg": 0.0,
+      "tier": "silhouette",
+      "color_base": [
+        0.2,
+        0.12,
+        0.08
+      ]
     },
     {
-      "primitive":     "orb",
-      "role":          "pommel",
-      "rel_size":      [0.40, 0.40, 0.10],
-      "rel_position":  [0.0, 0.0, -0.47],
-      "tier":          "mid",
-      "color_base":    [0.62, 0.46, 0.18]
+      "primitive": "orb",
+      "role": "pommel",
+      "rel_size": [
+        0.4,
+        0.4,
+        0.1
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.42
+      ],
+      "rotation_deg": 0.0,
+      "tier": "mid",
+      "color_base": [
+        0.62,
+        0.46,
+        0.18
+      ]
     }
   ]
 }

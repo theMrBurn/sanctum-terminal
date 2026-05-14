@@ -39,6 +39,7 @@ from clients.vector_terminal import input_map  # noqa: E402
 from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
 from clients.vector_terminal import engagement as engagement_overlay  # noqa: E402
+from clients.vector_terminal import tune_mode  # noqa: E402
 from clients.vector_terminal.seed_collision import compute_floor_height  # noqa: E402
 from clients.vector_terminal.seed_mesh_cache import SeedMeshCache  # noqa: E402
 from clients.vector_terminal import silhouette as silhouette_renderer  # noqa: E402
@@ -89,6 +90,7 @@ def main() -> int:
     journal_state = journal.JournalState()
     reflective_state = reflective_overlay.ReflectiveState()
     engagement_state = engagement_overlay.EngagementState()
+    tune_state = tune_mode.TuneState()
     build_state = build_mode.BuildState()
     seed_mesh_cache = SeedMeshCache()
     # Per-session cast counter — drives the negative `tag_id` namespace
@@ -223,6 +225,20 @@ def main() -> int:
                 if payload:
                     msg.update(payload)
                 client.send(msg)
+
+        # Tune mode — U toggles; while active, arrows / +- / ,. send
+        # thing_edit commands for the part under the crosshair.
+        # ENTER persists via thing_save. ESC exits via state_back below
+        # (handled along with other ESC consumers).
+        if (input_map.pressed("tune_toggle")
+                and not dial_active and not reflective_active
+                and not engagement_active
+                and not console_state.open):
+            tune_mode.toggle(tune_state)
+        if tune_state.active:
+            tune_cmds = tune_mode.handle_input(last_manifest, camera, tune_state)
+            for cmd in tune_cmds:
+                client.send(cmd)
 
         # Volley console — backtick toggles open/close. Trumps everything
         # else so the user can dismiss it from any state. ESC also closes.
@@ -1013,6 +1029,10 @@ def main() -> int:
 
         if noclip:
             hud.draw_status_chip("NOCLIP", rl.get_screen_width(), amber)
+
+        # Thing-tune mode HUD — top-right corner, only visible when active
+        tune_mode.draw_hud(
+            tune_state, last_manifest, rl.get_screen_width(), amber)
 
         # State event toasts — drawn last so they're on top of HUD/dial/etc.
         state_events_renderer.draw(
