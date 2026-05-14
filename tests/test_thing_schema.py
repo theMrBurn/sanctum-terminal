@@ -273,6 +273,28 @@ def test_expand_amber_fallback_when_color_missing():
     assert 0.0 < blade["g"] <= 1.0
 
 
+def test_anchor_part_gets_collision_radius():
+    """Per design 2026-05-14: anchor part carries the thing's collision
+    footprint so vector_terminal's resolve_collisions sees one
+    collision shape per thing. Non-anchor parts have no collision."""
+    t = _make_thing()                       # anchor='blade'
+    out = thing_renderer.expand_thing(t, origin=(0.0, 0.0, 0.0))
+    # blade is anchor
+    assert out[0]["_role"] == "blade"
+    assert "collision_radius" in out[0]
+    # crossguard is NOT anchor
+    assert out[1]["_role"] == "crossguard"
+    assert "collision_radius" not in out[1]
+
+
+def test_collision_radius_matches_bbox_half_width():
+    """Radius = max(real_size_m[0], real_size_m[1]) / 2."""
+    t = _make_thing()    # real_size_m = (0.15, 0.04, 1.10)
+    out = thing_renderer.expand_thing(t, origin=(0.0, 0.0, 0.0))
+    expected = max(0.15, 0.04) / 2.0
+    assert math.isclose(out[0]["collision_radius"], expected, abs_tol=1e-6)
+
+
 def test_expand_unique_entity_ids_per_instance():
     """Two instances of the same thing should produce non-overlapping
     entity IDs."""

@@ -50,6 +50,12 @@ def expand_thing(
     cos_y = math.cos(math.radians(yaw_deg))
     sin_y = math.sin(math.radians(yaw_deg))
 
+    # Thing-level collision footprint: cylindrical radius = half of
+    # the larger horizontal dimension of the bounding box. Stamped on
+    # the anchor part so the vector terminal's resolve_collisions sees
+    # one collision shape per thing, not per subpart.
+    collision_r = max(thing.real_size_m[0], thing.real_size_m[1]) / 2.0
+
     for part_idx, part in enumerate(thing.parts):
         # Local offset in meters
         lx = part.rel_position[0] * thing.real_size_m[0]
@@ -69,7 +75,7 @@ def expand_thing(
         # Color — base wins if specified; else amber default.
         r, g, b = part.color_base or _DEFAULT_COLOR
 
-        entities.append({
+        entity: dict[str, Any] = {
             "id":         id_base + instance_id * 100 + part_idx,
             "kind":       f"scan_{part.primitive}_{thing.name}_{part_idx:02d}",
             "x":          round(wx, 3),
@@ -87,7 +93,13 @@ def expand_thing(
             "_role":      part.role,
             "_tier":      part.tier,
             "_negate":    part.negate,
-        })
+        }
+        # Anchor part carries the thing's collision footprint. Other
+        # parts have no collision_radius and the client treats them
+        # as walk-through decoration.
+        if part.role == thing.anchor:
+            entity["collision_radius"] = round(collision_r, 3)
+        entities.append(entity)
 
     return entities
 
