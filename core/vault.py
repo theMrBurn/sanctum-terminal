@@ -301,6 +301,39 @@ class vault:
                     "CREATE INDEX IF NOT EXISTS idx_engagements_kind "
                     "ON engagements(kind, started_at DESC)"
                 )
+
+                # Greenhouse layer — per `feat/biome-greenhouse` 2026-05-15.
+                # When Blender.things_for_tile can't fill a biome's
+                # quota from the library, the gap is logged here so:
+                # (1) the player sees a placeholder seed in-world,
+                # (2) curation-time tooling surfaces unfilled demand,
+                # (3) once the library grows, lazy fulfillment is
+                #     automatic — this table is analytics, not a binding.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS greenhouse_requests (
+                        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                        biome              TEXT NOT NULL,
+                        tile_x             INTEGER NOT NULL,
+                        tile_y             INTEGER NOT NULL,
+                        slot               INTEGER NOT NULL,
+                        tag_profile_hash   TEXT NOT NULL,
+                        tag_profile_json   TEXT NOT NULL,
+                        first_requested_at TEXT NOT NULL,
+                        last_unfilled_at   TEXT NOT NULL,
+                        encounter_count    INTEGER NOT NULL DEFAULT 1,
+                        fulfilled_at       TEXT,
+                        fulfilled_by       TEXT,
+                        UNIQUE(biome, tile_x, tile_y, slot, tag_profile_hash)
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_greenhouse_profile "
+                    "ON greenhouse_requests(tag_profile_hash, fulfilled_at)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_greenhouse_biome "
+                    "ON greenhouse_requests(biome, last_unfilled_at DESC)"
+                )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -1312,6 +1345,160 @@ class vault:
                 }
                 for r in rows
             ]
+
+    # -- Greenhouse: unfilled biome-things demand ---------------------------
+
+    @staticmethod
+    def _tag_profile_hash(tags: list[str]) -> str:
+        """Stable hash of a sorted, deduplicated tag list."""
+        import hashlib
+        canonical = ",".join(sorted({str(t) for t in (tags or []) if t}))
+        return hashlib.sha1(canonical.encode()).hexdigest()[:12]
+
+    def greenhouse_record_demand(
+        self,
+        biome: str,
+        tile_x: int,
+        tile_y: int,
+        slot: int,
+        tag_profile: list[str],
+    ) -> int:
+        """Idempotent demand record. Same (biome, tile, slot, profile)
+        upserts to bump encounter_count + refresh last_unfilled_at.
+        Returns the row id."""
+        import time as _t
+        now = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())
+        tag_hash = self._tag_profile_hash(tag_profile)
+        tag_json = json.dumps(sorted({str(t) for t in (tag_profile or []) if t}))
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "INSERT INTO greenhouse_requests "
+                "(biome, tile_x, tile_y, slot, tag_profile_hash, "
+                " tag_profile_json, first_requested_at, last_unfilled_at, "
+                " encounter_count) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) "
+                "ON CONFLICT(biome, tile_x, tile_y, slot, tag_profile_hash) "
+                "DO UPDATE SET "
+                "  last_unfilled_at = excluded.last_unfilled_at, "
+                "  encounter_count  = encounter_count + 1, "
+                "  fulfilled_at     = NULL, "
+                "  fulfilled_by     = NULL ",
+                (str(biome), int(tile_x), int(tile_y), int(slot),
+                 tag_hash, tag_json, now, now),
+            )
+            conn.commit()
+            row_id = cur.lastrowid
+            if row_id == 0:
+                row = conn.execute(
+                    "SELECT id FROM greenhouse_requests WHERE "
+                    "biome=? AND tile_x=? AND tile_y=? AND slot=? "
+                    "AND tag_profile_hash=?",
+                    (str(biome), int(tile_x), int(tile_y), int(slot), tag_hash),
+                ).fetchone()
+                row_id = int(row[0]) if row else 0
+            return int(row_id)
+
+    def greenhouse_mark_filled(
+        self,
+        biome: str,
+        tile_x: int,
+        tile_y: int,
+        slot: int,
+        tag_profile: list[str],
+        fulfilled_by: str,
+    ) -> bool:
+        """Mark a request as filled. Idempotent — repeated calls just
+        update fulfilled_at. Returns True on update."""
+        import time as _t
+        now = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())
+        tag_hash = self._tag_profile_hash(tag_profile)
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "UPDATE greenhouse_requests SET "
+                "  fulfilled_at = ?, fulfilled_by = ? "
+                "WHERE biome=? AND tile_x=? AND tile_y=? AND slot=? "
+                "AND tag_profile_hash=?",
+                (now, str(fulfilled_by),
+                 str(biome), int(tile_x), int(tile_y), int(slot), tag_hash),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def greenhouse_list_unfilled(
+        self,
+        biome: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Unfilled requests, newest demand first. Optional biome filter."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if biome is None:
+                rows = conn.execute(
+                    "SELECT * FROM greenhouse_requests "
+                    "WHERE fulfilled_at IS NULL "
+                    "ORDER BY last_unfilled_at DESC LIMIT ?",
+                    (int(limit),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM greenhouse_requests "
+                    "WHERE fulfilled_at IS NULL AND biome = ? "
+                    "ORDER BY last_unfilled_at DESC LIMIT ?",
+                    (str(biome), int(limit)),
+                ).fetchall()
+        return [
+            {
+                "id":               r["id"],
+                "biome":            r["biome"],
+                "tile_x":           r["tile_x"],
+                "tile_y":           r["tile_y"],
+                "slot":             r["slot"],
+                "tag_profile":      json.loads(r["tag_profile_json"]),
+                "tag_profile_hash": r["tag_profile_hash"],
+                "encounter_count":  r["encounter_count"],
+                "first_requested_at": r["first_requested_at"],
+                "last_unfilled_at": r["last_unfilled_at"],
+            }
+            for r in rows
+        ]
+
+    def greenhouse_demand_by_profile(self, limit: int = 50) -> list[dict]:
+        """Aggregate unfilled requests by tag profile. Highest-demand
+        profiles surface first — these are the "you should author
+        something matching X" hints for curation."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT tag_profile_hash, tag_profile_json, "
+                "       COUNT(*) AS unfilled_count, "
+                "       SUM(encounter_count) AS total_encounters "
+                "FROM greenhouse_requests "
+                "WHERE fulfilled_at IS NULL "
+                "GROUP BY tag_profile_hash, tag_profile_json "
+                "ORDER BY total_encounters DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [
+            {
+                "tag_profile":      json.loads(r["tag_profile_json"]),
+                "tag_profile_hash": r["tag_profile_hash"],
+                "unfilled_count":   r["unfilled_count"],
+                "total_encounters": r["total_encounters"],
+            }
+            for r in rows
+        ]
+
+    def greenhouse_stats(self) -> dict:
+        with sqlite3.connect(self.db_path) as conn:
+            unfilled = conn.execute(
+                "SELECT COUNT(*) FROM greenhouse_requests "
+                "WHERE fulfilled_at IS NULL"
+            ).fetchone()[0]
+            filled = conn.execute(
+                "SELECT COUNT(*) FROM greenhouse_requests "
+                "WHERE fulfilled_at IS NOT NULL"
+            ).fetchone()[0]
+        return {"unfilled": int(unfilled), "filled": int(filled)}
 
     def activity_log_count_by_class(
         self,
