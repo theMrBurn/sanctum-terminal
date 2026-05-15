@@ -251,7 +251,7 @@ def main() -> int:
                 and not console_state.open
                 and not tune_state.active):
             interact_pick = interact_mod.pick_interactable(last_manifest, camera)
-            interact_mod.maybe_send_interact(client, interact_pick)
+            interact_mod.maybe_send_interact(client, camera, interact_pick)
 
         # Volley console — backtick toggles open/close. Trumps everything
         # else so the user can dismiss it from any state. ESC also closes.

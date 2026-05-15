@@ -16,7 +16,9 @@
     "pickupable"
   ],
   "interactions": {
-    "examine": "A two-handed massive blade. Heavier than you expected. The crossguard is filigreed."
+    "examine": "A two-handed massive blade. Heavier than you expected. The crossguard is filigreed.",
+    "pickup": "You grip the greatsword two-handed. You can feel the years in it.",
+    "kick": "Hard to kick something this heavy. It barely shifts."
   },
   "parts": [
     {

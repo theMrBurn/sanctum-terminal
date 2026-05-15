@@ -16,7 +16,9 @@
     "pickupable"
   ],
   "interactions": {
-    "examine": "A short single-edge dagger. The habaki has tarnished. It fits in a closed hand."
+    "examine": "A short single-edge dagger. The habaki has tarnished. It fits in a closed hand.",
+    "pickup": "You pocket the tanto. It disappears into your hand.",
+    "kick": "The dagger skates across the stone."
   },
   "parts": [
     {

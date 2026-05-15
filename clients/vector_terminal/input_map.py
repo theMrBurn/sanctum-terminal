@@ -139,6 +139,12 @@ DEFAULT_BINDINGS: dict[str, list[Trigger]] = {
     "noclip_toggle":    [("key", "KEY_BACKSLASH")],
     "damage_self_debug":[("key", "KEY_K")],
 
+    # Interact verbs — per-verb keys so the prompt UI can show
+    # "[F] examine [P] pickup" multi-prompt. Each verb binds to ONE
+    # key; the brain interact_request handler dispatches.
+    "interact_pickup":  [("key", "KEY_P")],
+    "interact_kick":    [("key", "KEY_N")],     # 'N' for nudge — K is debug
+
     # Thing tune mode — B-mode equivalent for live-tuning composite
     # things (per spec/notes 2026-05-14). U toggles; while active,
     # arrows/+- nudge the currently-aimed-at part.

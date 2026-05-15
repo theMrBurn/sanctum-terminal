@@ -16,7 +16,9 @@
     "pickupable"
   ],
   "interactions": {
-    "examine": "A curved single-edge saber. The blade catches what little light there is."
+    "examine": "A curved single-edge saber. The blade catches what little light there is.",
+    "pickup": "You sweep up the scimitar. Balanced for one hand.",
+    "kick": "The curved blade rattles across the floor."
   },
   "parts": [
     {

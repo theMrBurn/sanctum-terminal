@@ -16,7 +16,9 @@
     "pickupable"
   ],
   "interactions": {
-    "examine": "A thin court sword. The swept guard is an iron lattice. It hums when you touch it."
+    "examine": "A thin court sword. The swept guard is an iron lattice. It hums when you touch it.",
+    "pickup": "The rapier rings as you lift it. Lighter than it looked.",
+    "kick": "The thin blade chimes against the floor."
   },
   "parts": [
     {

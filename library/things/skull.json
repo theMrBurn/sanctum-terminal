@@ -14,7 +14,9 @@
     "tolkien"
   ],
   "interactions": {
-    "examine": "An old skull. Bone the color of old cream. Eye sockets dark as the spaces between."
+    "examine": "An old skull. Bone the color of old cream. Eye sockets dark as the spaces between.",
+    "pickup": "You pick up the skull. Cold. Lighter than a living head.",
+    "kick": "The skull tumbles, jaw clacking."
   },
   "parts": [
     {

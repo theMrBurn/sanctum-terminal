@@ -14,7 +14,9 @@
     "moebius"
   ],
   "interactions": {
-    "examine": "A round bale of hay. Dry to the touch. Strands of it have come loose at the top."
+    "examine": "A round bale of hay. Dry to the touch. Strands of it have come loose at the top.",
+    "pickup": "You drag the bale a few steps. Heavier than dry hay should be.",
+    "kick": "Your boot sinks into the bale. It scoots a hand's width."
   },
   "parts": [
     {

@@ -14,7 +14,9 @@
     "decorative"
   ],
   "interactions": {
-    "examine": "A weathered fence post. Splintered at the cap. Older than whatever fenced this."
+    "examine": "A weathered fence post. Splintered at the cap. Older than whatever fenced this.",
+    "pickup": "You pull the fence post free. Splinters bite your palm.",
+    "kick": "The post wobbles in its socket."
   },
   "parts": [
     {

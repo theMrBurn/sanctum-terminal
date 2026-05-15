@@ -440,6 +440,13 @@ _SCAN_GALLERY_ENTITIES: list[dict] = _load_scan_gallery()
 _THING_GALLERY_THINGS: dict[str, Any] = {}     # name → Thing dataclass
 _THING_GALLERY_PLACEMENT: dict[str, dict[str, Any]] = {}   # name → {gx, gy, idx}
 _THING_GALLERY_DIR: "Any" = None               # Path; set on first load
+# Per-thing runtime kick offset (dx, dy) — added on top of the static
+# placement on every gallery expansion. Not persisted; resets on
+# brain restart. Cleared when a thing is picked up.
+_THING_GALLERY_KICK_OFFSETS: dict[str, tuple[float, float]] = {}
+# Per-thing pickup tombstones — once picked up, the thing stops
+# rendering this session. Not persisted; restart re-spawns.
+_THING_GALLERY_PICKED_UP: set[str] = set()
 
 
 def _load_thing_gallery() -> list[dict]:
@@ -508,17 +515,20 @@ def _load_thing_gallery() -> list[dict]:
 
 def _expand_thing_gallery() -> list[dict]:
     """Expand all loaded Things → entity list at their current
-    placements. Called on load AND after every thing_edit so the
-    manifest reflects edits without restarting the brain."""
+    placements. Picked-up things are SKIPPED; kicked things have
+    their gallery offset added to placement."""
     from core.systems import thing_renderer
     out: list[dict] = []
     for name, thing in _THING_GALLERY_THINGS.items():
+        if name in _THING_GALLERY_PICKED_UP:
+            continue                                    # thing is "in inventory"
         place = _THING_GALLERY_PLACEMENT.get(name)
         if place is None:
             continue
+        ox, oy = _THING_GALLERY_KICK_OFFSETS.get(name, (0.0, 0.0))
         entities = thing_renderer.expand_thing_to_world_z(
             thing,
-            origin_xy=(place["gx"], place["gy"]),
+            origin_xy=(place["gx"] + ox, place["gy"] + oy),
             floor_z=0.0,
             yaw_deg=0.0,
             id_base=40_000,
@@ -2617,34 +2627,81 @@ def run_server(biome_name, port=9877):
 
                 if msg.get("cmd") == "interact_request":
                     # NetHack-shaped: target a thing + verb → emit a
-                    # StateEvent with the response text. Player sees
-                    # it as a toast. Per "old-dev cheats" 2026-05-14:
-                    # the crosshair is the verb selector, the text
-                    # does the work.
+                    # StateEvent with the response text, then apply
+                    # verb-specific mechanics. Per "old-dev cheats"
+                    # 2026-05-14: crosshair is the verb selector,
+                    # text does the work.
                     tn = str(msg.get("thing_name", ""))
                     verb = str(msg.get("verb", "examine"))
                     thing = _THING_GALLERY_THINGS.get(tn)
                     if thing is None:
                         continue
+                    if tn in _THING_GALLERY_PICKED_UP:
+                        continue          # picked up; nothing left to interact with
                     interactions = thing.interactions or {}
                     text = interactions.get(verb)
                     if not text:
-                        # Verb not declared on this kind — silent ignore.
-                        # Future: emit a generic "nothing happens" toast.
                         continue
+                    # Emit the response text as a StateEvent toast.
                     world.state_events.emit(
                         "interact_response",
                         text,
                         {"thing_name": tn, "verb": verb},
                         REG_LOOP,
                     )
-                    activity_loop.emit_activity(
-                        activity_loop.ActivityClass.UNWIND,
-                        intensity=1,
-                        primitive="interact_examine",
-                        source_brain="thing_library",
-                        payload={"thing": tn, "verb": verb},
-                    )
+
+                    # Per-verb side effects + activity emit.
+                    if verb == "examine":
+                        activity_loop.emit_activity(
+                            activity_loop.ActivityClass.UNWIND,
+                            intensity=1,
+                            primitive="interact_examine",
+                            source_brain="thing_library",
+                            payload={"thing": tn},
+                        )
+                    elif verb == "pickup":
+                        _THING_GALLERY_PICKED_UP.add(tn)
+                        global _THING_GALLERY_ENTITIES
+                        _THING_GALLERY_ENTITIES = _expand_thing_gallery()
+                        activity_loop.emit_activity(
+                            activity_loop.ActivityClass.MAKE,
+                            intensity=1,
+                            primitive="interact_pickup",
+                            source_brain="thing_library",
+                            payload={"thing": tn},
+                        )
+                        last_wake_ids = set()       # force manifest re-emit
+                    elif verb == "kick":
+                        # Push the thing 0.5m away from the player.
+                        # The cmd payload may carry direction; if not,
+                        # default to +y (forward in brain coords).
+                        raw_dir = msg.get("direction") or [0.0, 1.0]
+                        try:
+                            dx = float(raw_dir[0])
+                            dy = float(raw_dir[1])
+                        except (TypeError, ValueError, IndexError):
+                            dx, dy = 0.0, 1.0
+                        # Normalize + scale
+                        mag = (dx * dx + dy * dy) ** 0.5
+                        if mag < 1e-6:
+                            dx, dy = 0.0, 1.0
+                            mag = 1.0
+                        push_m = 0.5
+                        cur = _THING_GALLERY_KICK_OFFSETS.get(tn, (0.0, 0.0))
+                        _THING_GALLERY_KICK_OFFSETS[tn] = (
+                            cur[0] + dx / mag * push_m,
+                            cur[1] + dy / mag * push_m,
+                        )
+                        _THING_GALLERY_ENTITIES = _expand_thing_gallery()
+                        activity_loop.emit_activity(
+                            activity_loop.ActivityClass.HUNT,
+                            intensity=1,
+                            primitive="interact_kick",
+                            source_brain="thing_library",
+                            payload={"thing": tn,
+                                     "offset": _THING_GALLERY_KICK_OFFSETS[tn]},
+                        )
+                        last_wake_ids = set()
                     print(f"  interact: {tn}/{verb} → {text[:60]}",
                           flush=True)
                     continue
@@ -2658,7 +2715,6 @@ def run_server(biome_name, port=9877):
                         try:
                             reloaded = thing_schema.load_thing(path)
                             _THING_GALLERY_THINGS[tn] = reloaded
-                            global _THING_GALLERY_ENTITIES
                             _THING_GALLERY_ENTITIES = _expand_thing_gallery()
                             print(f"  thing_revert({tn!r}): reloaded", flush=True)
                         except Exception as exc:                  # noqa: BLE001
