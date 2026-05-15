@@ -571,6 +571,50 @@ class vault:
             ).fetchone()
         return dict(row) if row else None
 
+    def lexicon_terms(
+        self,
+        category: str | None = None,
+        min_occurrences: int = 2,
+        limit: int = 50,
+        *,
+        require_category: bool = True,
+    ) -> list[dict]:
+        """Read lexicon terms for synthesis-time substitution.
+
+        Per `design_lexicon_architecture`: returns verbatim term + its
+        category + occurrence count. Caller picks one to weave into
+        a response.
+
+        category=None returns all categorized terms.
+        require_category=True (default) skips rows with NULL category
+        — those are sub-token fragments that read as nonsense in
+        substitution. Pass False to include them.
+        """
+        clauses = ["occurrences >= ?"]
+        args: list = [int(min_occurrences)]
+        if category is not None:
+            clauses.append("category = ?")
+            args.append(str(category))
+        elif require_category:
+            clauses.append("category IS NOT NULL")
+        sql = (
+            "SELECT term, category, occurrences FROM lexicon "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY occurrences DESC LIMIT ?"
+        )
+        args.append(int(limit))
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(sql, args).fetchall()
+        return [
+            {
+                "term":        r["term"],
+                "category":    r["category"],
+                "occurrences": r["occurrences"],
+            }
+            for r in rows
+        ]
+
     # -- Permanent Objects journal: user-defined seed categories --------------
 
     def user_seed_category(self, term: str) -> str | None:

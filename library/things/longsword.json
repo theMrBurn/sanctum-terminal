@@ -16,7 +16,7 @@
     "pickupable"
   ],
   "interactions": {
-    "examine": "A long iron sword. The pommel is worn smooth where a hand has gripped it for years.",
+    "examine": "A long iron sword. The pommel is worn smooth where a hand has gripped it for years. You think of {lex}.",
     "pickup": "You take the longsword in hand. Heavier than it looked.",
     "kick": "Your boot rings off the blade. The sword skitters a half-meter."
   },

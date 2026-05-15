@@ -24,6 +24,7 @@ import select
 import socket
 import sys
 import time
+import re
 from typing import Any, Optional
 
 from core.systems.biome_data import (
@@ -650,6 +651,45 @@ def _clamp(v: float, lo: float, hi: float) -> float:
 
 
 _THING_GALLERY_ENTITIES: list[dict] = _load_thing_gallery()
+
+
+# Lexicon placeholder substitution for interact response text.
+# Per `design_lexicon_architecture` + `feedback_her_voice`: the player's
+# wife's vocabulary is woven into world descriptions verbatim. The
+# Blender's lexicon arm provides the data; this function does the
+# string substitution at request time. Air-gap clean — no LLM in the
+# path.
+_LEXICON_PLACEHOLDER_RE = re.compile(r"\{lex(?::([\w_]+))?\}")
+
+
+def _substitute_lexicon(text: str, rng_seed: int = 0) -> str:
+    """Replace {lex} or {lex:CATEGORY} placeholders with a verbatim
+    term from vault.lexicon. Falls back gracefully — if no matching
+    term, the placeholder is removed (not left in)."""
+    if "{lex" not in text:
+        return text                # fast path
+    try:
+        import random as _rand
+        rng = _rand.Random(rng_seed)
+        vault = _get_vault()
+
+        def repl(m: re.Match) -> str:
+            category = m.group(1)
+            try:
+                terms = vault.lexicon_terms(
+                    category=category,
+                    min_occurrences=2,
+                    limit=30,
+                )
+            except Exception:                              # noqa: BLE001
+                return ""
+            if not terms:
+                return ""              # graceful: empty string, not leftover placeholder
+            return str(rng.choice(terms)["term"])
+
+        return _LEXICON_PLACEHOLDER_RE.sub(repl, text)
+    except Exception:                                       # noqa: BLE001
+        return text
 
 
 _WEAPON_CLASS_TO_ACTIVITY: dict[str, tuple] = {
@@ -2642,6 +2682,9 @@ def run_server(biome_name, port=9877):
                     text = interactions.get(verb)
                     if not text:
                         continue
+                    # Lexicon substitution — weave her verbatim phrases
+                    # into the response when {lex} placeholders present.
+                    text = _substitute_lexicon(text, rng_seed=hash((tn, verb)))
                     # Emit the response text as a StateEvent toast.
                     world.state_events.emit(
                         "interact_response",
@@ -2702,8 +2745,7 @@ def run_server(biome_name, port=9877):
                                      "offset": _THING_GALLERY_KICK_OFFSETS[tn]},
                         )
                         last_wake_ids = set()
-                    print(f"  interact: {tn}/{verb} → {text[:60]}",
-                          flush=True)
+                    print(f"  interact: {tn}/{verb} → {text!r}", flush=True)
                     continue
 
                 if msg.get("cmd") == "thing_revert":
