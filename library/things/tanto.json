@@ -15,6 +15,9 @@
     "wieldable",
     "pickupable"
   ],
+  "interactions": {
+    "examine": "A short single-edge dagger. The habaki has tarnished. It fits in a closed hand."
+  },
   "parts": [
     {
       "primitive": "tapered_vertical",

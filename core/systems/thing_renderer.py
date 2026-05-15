@@ -99,6 +99,11 @@ def expand_thing(
         # as walk-through decoration.
         if part.role == thing.anchor:
             entity["collision_radius"] = round(collision_r, 3)
+            # Also stamp the verb list — clients use this to draw
+            # crosshair prompts ("F examine"). Brain has the response
+            # text; client only needs to know the verb names.
+            if thing.interactions:
+                entity["_interactions"] = sorted(thing.interactions.keys())
         entities.append(entity)
 
     return entities

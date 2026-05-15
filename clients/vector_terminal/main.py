@@ -40,6 +40,7 @@ from clients.vector_terminal import journal  # noqa: E402
 from clients.vector_terminal import reflective as reflective_overlay  # noqa: E402
 from clients.vector_terminal import engagement as engagement_overlay  # noqa: E402
 from clients.vector_terminal import tune_mode  # noqa: E402
+from clients.vector_terminal import interact as interact_mod  # noqa: E402
 from clients.vector_terminal.seed_collision import compute_floor_height  # noqa: E402
 from clients.vector_terminal.seed_mesh_cache import SeedMeshCache  # noqa: E402
 from clients.vector_terminal import silhouette as silhouette_renderer  # noqa: E402
@@ -239,6 +240,18 @@ def main() -> int:
             tune_cmds = tune_mode.handle_input(last_manifest, camera, tune_state)
             for cmd in tune_cmds:
                 client.send(cmd)
+
+        # Interaction picker — runs every frame (when no modal active)
+        # so the crosshair prompt updates as the player moves.
+        # F press while a pick is live sends `interact_request`; brain
+        # emits the response as a StateEvent toast.
+        interact_pick = None
+        if (not dial_active and not reflective_active
+                and not engagement_active
+                and not console_state.open
+                and not tune_state.active):
+            interact_pick = interact_mod.pick_interactable(last_manifest, camera)
+            interact_mod.maybe_send_interact(client, interact_pick)
 
         # Volley console — backtick toggles open/close. Trumps everything
         # else so the user can dismiss it from any state. ESC also closes.
@@ -1055,6 +1068,14 @@ def main() -> int:
         # Thing-tune mode HUD — top-right corner, only visible when active
         tune_mode.draw_hud(
             tune_state, last_manifest, rl.get_screen_width(), amber)
+
+        # Crosshair interaction prompt — small "[F] examine — longsword"
+        # below the crosshair when looking at an interactable.
+        interact_mod.draw_prompt(
+            interact_pick,
+            rl.get_screen_width(), rl.get_screen_height(),
+            amber,
+        )
 
         # State event toasts — drawn last so they're on top of HUD/dial/etc.
         state_events_renderer.draw(

@@ -15,6 +15,9 @@
     "wieldable",
     "pickupable"
   ],
+  "interactions": {
+    "examine": "A two-handed massive blade. Heavier than you expected. The crossguard is filigreed."
+  },
   "parts": [
     {
       "primitive": "tapered_vertical",

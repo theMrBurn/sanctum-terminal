@@ -13,6 +13,9 @@
     "medieval",
     "decorative"
   ],
+  "interactions": {
+    "examine": "A weathered fence post. Splintered at the cap. Older than whatever fenced this."
+  },
   "parts": [
     {
       "primitive": "tapered_vertical",

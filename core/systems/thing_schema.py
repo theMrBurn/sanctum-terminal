@@ -105,6 +105,10 @@ class Thing:
     parts: list[ThingPart] = field(default_factory=list)
     source: str | None = None      # provenance — image/description/etc.
     tags:   list[str] = field(default_factory=list)   # query keys for the Blender
+    # Verb → response text. V1 vocabulary: "examine" (the classic
+    # NetHack/Doom move). Future verbs (pickup, kick, break, light)
+    # land as code + handler additions, not schema changes.
+    interactions: dict[str, str] = field(default_factory=dict)
 
 
 # ── Validation ───────────────────────────────────────────────────
@@ -148,6 +152,24 @@ def validate_thing_dict(data: Any) -> list[ValidationError]:
     anchor = data.get("anchor")
     if not isinstance(anchor, str):
         errors.append(ValidationError("$.anchor", "must be string"))
+
+    # interactions (optional dict[verb_str → text_str])
+    if "interactions" in data:
+        actions = data["interactions"]
+        if not isinstance(actions, dict):
+            errors.append(ValidationError(
+                "$.interactions",
+                f"must be object, got {type(actions).__name__}"))
+        else:
+            for verb, response in actions.items():
+                if not isinstance(verb, str) or not verb.strip():
+                    errors.append(ValidationError(
+                        f"$.interactions.{verb!r}",
+                        "verb must be non-empty string"))
+                if not isinstance(response, str):
+                    errors.append(ValidationError(
+                        f"$.interactions.{verb}",
+                        f"response must be string, got {type(response).__name__}"))
 
     # tags (optional list of non-empty strings)
     if "tags" in data:
@@ -287,6 +309,7 @@ def parse_thing(data: dict[str, Any]) -> Thing:
     """
     parts = [_parse_part(p) for p in data["parts"]]
     raw_tags = data.get("tags") or []
+    raw_interactions = data.get("interactions") or {}
     return Thing(
         name=str(data["name"]),
         real_size_m=tuple(float(v) for v in data["real_size_m"]),
@@ -294,6 +317,10 @@ def parse_thing(data: dict[str, Any]) -> Thing:
         parts=parts,
         source=data.get("source"),
         tags=[str(t) for t in raw_tags if isinstance(t, str) and t.strip()],
+        interactions={
+            str(k): str(v) for k, v in raw_interactions.items()
+            if isinstance(k, str) and k.strip() and isinstance(v, str)
+        },
     )
 
 

@@ -15,6 +15,9 @@
     "wieldable",
     "pickupable"
   ],
+  "interactions": {
+    "examine": "A thin court sword. The swept guard is an iron lattice. It hums when you touch it."
+  },
   "parts": [
     {
       "primitive": "chain",

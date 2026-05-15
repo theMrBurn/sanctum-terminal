@@ -13,6 +13,9 @@
     "carcosa",
     "tolkien"
   ],
+  "interactions": {
+    "examine": "An old skull. Bone the color of old cream. Eye sockets dark as the spaces between."
+  },
   "parts": [
     {
       "primitive": "orb",

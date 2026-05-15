@@ -15,6 +15,9 @@
     "wieldable",
     "pickupable"
   ],
+  "interactions": {
+    "examine": "A long iron sword. The pommel is worn smooth where a hand has gripped it for years."
+  },
   "parts": [
     {
       "primitive": "tapered_vertical",

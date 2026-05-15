@@ -15,6 +15,9 @@
     "wieldable",
     "pickupable"
   ],
+  "interactions": {
+    "examine": "A curved single-edge saber. The blade catches what little light there is."
+  },
   "parts": [
     {
       "primitive": "tapered_vertical",

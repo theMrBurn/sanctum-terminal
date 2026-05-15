@@ -603,6 +603,7 @@ def thing_save(thing_name: str) -> bool:
             "anchor":       thing.anchor,
             "source":       thing.source or "live-tuned via B-mode",
             "tags":         list(thing.tags),
+            "interactions": dict(thing.interactions),
             "parts": [
                 _part_to_json(p) for p in thing.parts
             ],
@@ -2611,6 +2612,40 @@ def run_server(biome_name, port=9877):
                     tn = str(msg.get("thing_name", ""))
                     ok = thing_save(tn)
                     print(f"  thing_save({tn!r}): {'ok' if ok else 'FAILED'}",
+                          flush=True)
+                    continue
+
+                if msg.get("cmd") == "interact_request":
+                    # NetHack-shaped: target a thing + verb → emit a
+                    # StateEvent with the response text. Player sees
+                    # it as a toast. Per "old-dev cheats" 2026-05-14:
+                    # the crosshair is the verb selector, the text
+                    # does the work.
+                    tn = str(msg.get("thing_name", ""))
+                    verb = str(msg.get("verb", "examine"))
+                    thing = _THING_GALLERY_THINGS.get(tn)
+                    if thing is None:
+                        continue
+                    interactions = thing.interactions or {}
+                    text = interactions.get(verb)
+                    if not text:
+                        # Verb not declared on this kind — silent ignore.
+                        # Future: emit a generic "nothing happens" toast.
+                        continue
+                    world.state_events.emit(
+                        "interact_response",
+                        text,
+                        {"thing_name": tn, "verb": verb},
+                        REG_LOOP,
+                    )
+                    activity_loop.emit_activity(
+                        activity_loop.ActivityClass.UNWIND,
+                        intensity=1,
+                        primitive="interact_examine",
+                        source_brain="thing_library",
+                        payload={"thing": tn, "verb": verb},
+                    )
+                    print(f"  interact: {tn}/{verb} → {text[:60]}",
                           flush=True)
                     continue
 
