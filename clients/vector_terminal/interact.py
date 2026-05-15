@@ -19,9 +19,10 @@ import pyray as rl
 from clients.vector_terminal import hud, input_map
 
 
-# Pick range — how far in front of the player to scan
-PICK_RANGE_M: float = 8.0
-PICK_ALIGN_MIN: float = 0.92      # tighter than tune mode — only when CENTERED
+# Pick range — close-proximity only. Per UAT 2026-05-15: 8m felt
+# like "examine across the room"; 2m means "I'm RIGHT next to this."
+PICK_RANGE_M: float = 2.0
+PICK_ALIGN_MIN: float = 0.92      # tight: only when looking ~directly at it
 
 
 def pick_interactable(
