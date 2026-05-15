@@ -85,6 +85,35 @@ class LexiconStub:
         return list(self._voice)
 
 
+# ── Biome → things config ──────────────────────────────────────────────
+#
+# Per `design_cohesive_illusion` + `design_config_as_code`: every biome
+# uses the same code path; this config table differentiates. Add a new
+# biome by adding a row. Workroom keeps the curated gallery via per_tile=0.
+
+BIOME_THING_CONFIG: dict[str, dict[str, Any]] = {
+    "cavern":   {"tags": ["carcosa", "tolkien"],
+                 "exclude_tags": ["outdoor"],
+                 "per_tile": 2},
+    "outdoor":  {"tags": ["moebius", "tolkien", "outdoor"],
+                 "exclude_tags": ["carcosa"],
+                 "per_tile": 3},
+    "hub":      {"tags": ["moebius"],
+                 "exclude_tags": [],
+                 "per_tile": 1},
+    "workroom": {"tags": [],
+                 "exclude_tags": [],
+                 "per_tile": 0},
+}
+
+# Unknown biomes fall back to this — empty filter, no things. Forces an
+# explicit config row when new biomes are added rather than silent default
+# behavior.
+BIOME_THING_CONFIG_DEFAULT: dict[str, Any] = {
+    "tags": [], "exclude_tags": [], "per_tile": 0,
+}
+
+
 # ── Role → class mapping ──────────────────────────────────────────────
 
 
@@ -300,19 +329,14 @@ class WorldBlender:
         Maps biome → tag filter. Currently a small lookup; can grow
         into a registry in `core/systems/biome_data.py` later.
         """
-        # Biome → preferred register tags. Open to expansion.
-        biome_tags: dict[str, list[str]] = {
-            "cavern":   ["carcosa", "tolkien"],
-            "outdoor":  ["moebius", "tolkien"],
-            "workroom": [],          # accept anything; no filter
-            "hub":      ["moebius"],
-        }
-        tags = biome_tags.get(biome, [])
+        cfg = BIOME_THING_CONFIG.get(biome, BIOME_THING_CONFIG_DEFAULT)
+        tags = cfg.get("tags", []) or []
+        exclude_tags = cfg.get("exclude_tags", []) or []
 
         from core.systems import thing_library
         candidates = thing_library.find_by_tags(
             include=tags or None,
-            exclude=None,
+            exclude=exclude_tags or None,
         )
         if not candidates:
             # Fallback — return any decorative things if biome-tag filter empty
@@ -324,6 +348,54 @@ class WorldBlender:
         rng = random.Random(seed)
         n = min(count, len(candidates))
         return rng.sample(candidates, n)
+
+    def things_for_tile(
+        self,
+        biome: str,
+        tile_x: int,
+        tile_y: int,
+        base_seed: int = 0,
+    ) -> tuple[list[Any], list[list[str]]]:
+        """Per-tile pick driven by BIOME_THING_CONFIG.
+
+        Returns (filled_things, unfilled_tag_profiles). The caller
+        spawns each filled thing as a normal entity; each unfilled
+        slot becomes a greenhouse demand row + a placeholder seed.
+
+        Deterministic per (tile_x, tile_y, base_seed): re-visiting
+        the same tile produces the same picks (per
+        `design_path_memory`).
+        """
+        cfg = BIOME_THING_CONFIG.get(biome, BIOME_THING_CONFIG_DEFAULT)
+        tags = cfg.get("tags", []) or []
+        exclude_tags = cfg.get("exclude_tags", []) or []
+        per_tile = int(cfg.get("per_tile", 0))
+
+        if per_tile <= 0:
+            return [], []
+
+        from core.systems import thing_library
+        candidates = thing_library.find_by_tags(
+            include=tags or None,
+            exclude=exclude_tags or None,
+        )
+        if not candidates:
+            # Whole tile is unfilled — every slot demands the biome's tags.
+            return [], [list(tags) for _ in range(per_tile)]
+
+        # Deterministic per-tile RNG
+        tile_seed = hash((biome, int(tile_x), int(tile_y), int(base_seed)))
+        rng = random.Random(tile_seed)
+
+        if len(candidates) >= per_tile:
+            picks = rng.sample(candidates, per_tile)
+            return picks, []
+        # Partial fill — return what we have, log the rest as demand
+        picks = list(candidates)
+        rng.shuffle(picks)
+        unfilled = per_tile - len(picks)
+        unfilled_profiles = [list(tags) for _ in range(unfilled)]
+        return picks, unfilled_profiles
 
 
 # Convenience factory — single Blender instance with empty stub. Tests and

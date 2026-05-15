@@ -199,3 +199,76 @@ def test_things_for_biome_empty_when_no_library(synth_library):
     b = default_blender()
     things = b.things_for_biome("cavern", count=3)
     assert things == []
+
+
+# ── things_for_tile (deterministic per-tile picks for biome integration) ──
+
+
+def test_things_for_tile_returns_picks_when_library_has_matches(synth_library):
+    _write_thing(synth_library, "skull",  ["prop", "carcosa"])
+    _write_thing(synth_library, "torch",  ["fixture", "tolkien"])
+    _write_thing(synth_library, "fence",  ["fixture", "outdoor"])
+    b = default_blender()
+    picks, unfilled = b.things_for_tile("cavern", tile_x=3, tile_y=4, base_seed=42)
+    # cavern wants 2 per tile from carcosa/tolkien/decorative/fixture tags
+    assert len(picks) == 2
+    assert unfilled == []
+
+
+def test_things_for_tile_is_deterministic(synth_library):
+    """Same tile coord + seed = same picks. `design_path_memory`."""
+    for name in ("a", "b", "c", "d", "e"):
+        _write_thing(synth_library, name, ["carcosa"])
+    b = default_blender()
+    picks_1, _ = b.things_for_tile("cavern", 3, 4, base_seed=99)
+    picks_2, _ = b.things_for_tile("cavern", 3, 4, base_seed=99)
+    assert [p.name for p in picks_1] == [p.name for p in picks_2]
+
+
+def test_things_for_tile_different_tiles_different_picks(synth_library):
+    """Different tile coords likely give different picks (statistical)."""
+    for name in ("a", "b", "c", "d", "e", "f"):
+        _write_thing(synth_library, name, ["carcosa"])
+    b = default_blender()
+    sigs = set()
+    for tx in range(8):
+        picks, _ = b.things_for_tile("cavern", tx, 0, base_seed=1)
+        sigs.add(tuple(p.name for p in picks))
+    assert len(sigs) >= 3       # at least some variety across tiles
+
+
+def test_things_for_tile_records_unfilled_when_library_partial(synth_library):
+    """Library has 1 carcosa thing; cavern wants 2 per tile.
+    Returns 1 pick + 1 unfilled profile."""
+    _write_thing(synth_library, "skull", ["carcosa"])
+    b = default_blender()
+    picks, unfilled = b.things_for_tile("cavern", 0, 0, base_seed=0)
+    assert len(picks) == 1
+    assert len(unfilled) == 1
+    assert "carcosa" in unfilled[0]
+
+
+def test_things_for_tile_records_full_demand_when_library_empty(synth_library):
+    """No things in library at all — every cavern slot demands the tags."""
+    b = default_blender()
+    picks, unfilled = b.things_for_tile("cavern", 0, 0, base_seed=0)
+    assert picks == []
+    assert len(unfilled) == 2          # cavern wants 2 per_tile
+
+
+def test_things_for_tile_workroom_returns_empty(synth_library):
+    """workroom config has per_tile=0 — gallery is separate."""
+    _write_thing(synth_library, "anything", ["whatever"])
+    b = default_blender()
+    picks, unfilled = b.things_for_tile("workroom", 0, 0, base_seed=0)
+    assert picks == []
+    assert unfilled == []
+
+
+def test_things_for_tile_unknown_biome_returns_empty(synth_library):
+    """Unknown biomes fall back to BIOME_THING_CONFIG_DEFAULT (per_tile=0)."""
+    _write_thing(synth_library, "anything", ["whatever"])
+    b = default_blender()
+    picks, unfilled = b.things_for_tile("ghost_biome", 0, 0, base_seed=0)
+    assert picks == []
+    assert unfilled == []
