@@ -653,6 +653,13 @@ def _clamp(v: float, lo: float, hi: float) -> float:
 _THING_GALLERY_ENTITIES: list[dict] = _load_thing_gallery()
 
 
+# Biome-things entities — Blender-driven per-tile thing placements +
+# greenhouse placeholder seeds for unfilled demand. Populated at
+# run_server() boot via _build_biome_things(). Per
+# `feat/biome-greenhouse` PR 3.
+_BIOME_THINGS_ENTITIES: list[dict] = []
+
+
 # Lexicon placeholder substitution for interact response text.
 # Per `design_lexicon_architecture` + `feedback_her_voice`: the player's
 # wife's vocabulary is woven into world descriptions verbatim. The
@@ -2342,8 +2349,120 @@ class BrainWorld:
 
 # -- TCP server ---------------------------------------------------------------
 
+def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
+                          tile_range: int = 2) -> list[dict]:
+    """Precompute biome-things entities for a (2*tile_range+1)² tile grid
+    around origin. Each tile gets Blender-picked things at deterministic
+    procedural positions; unfilled slots become greenhouse demands +
+    placeholder seeds.
+
+    Per `feat/biome-greenhouse` PR 3. Runs once at biome init. V1 only;
+    procedural per-tick expansion is V2.
+    """
+    import random as _rand
+    from core.systems import thing_renderer
+    from core.systems.blender import default_blender, BIOME_THING_CONFIG
+
+    cfg = BIOME_THING_CONFIG.get(biome_name, {})
+    per_tile = int(cfg.get("per_tile", 0))
+    if per_tile <= 0:
+        # workroom or unknown biome — no procedural things.
+        return []
+
+    bl = default_blender()
+    vault = _get_vault()
+    out: list[dict] = []
+    total_picks = 0
+    total_unfilled = 0
+    edge_pad = max(2.0, tile_size * 0.15)
+
+    for tx in range(-tile_range, tile_range + 1):
+        for ty in range(-tile_range, tile_range + 1):
+            try:
+                picks, unfilled_profiles = bl.things_for_tile(
+                    biome_name, tx, ty, base_seed=base_seed,
+                )
+            except Exception as exc:                              # noqa: BLE001
+                print(f"  biome_things: things_for_tile({tx},{ty}) "
+                      f"failed: {exc!r}", flush=True)
+                continue
+
+            # Deterministic placement RNG seeded by tile coord.
+            place_rng = _rand.Random(
+                hash((biome_name, tx, ty, base_seed, "place")) & 0xffffffff
+            )
+            tile_origin_x = tx * tile_size
+            tile_origin_y = ty * tile_size
+
+            for slot_idx, thing in enumerate(picks):
+                ox = place_rng.uniform(edge_pad, tile_size - edge_pad)
+                oy = place_rng.uniform(edge_pad, tile_size - edge_pad)
+                entities = thing_renderer.expand_thing_to_world_z(
+                    thing,
+                    origin_xy=(tile_origin_x + ox, tile_origin_y + oy),
+                    floor_z=0.0,
+                    id_base=50_000,
+                    instance_id=hash((tx, ty, slot_idx)) % 100_000,
+                )
+                out.extend(entities)
+                total_picks += 1
+
+            for slot_idx, profile in enumerate(unfilled_profiles,
+                                                start=len(picks)):
+                # Demand log
+                try:
+                    vault.greenhouse_record_demand(
+                        biome=biome_name,
+                        tile_x=tx, tile_y=ty,
+                        slot=slot_idx,
+                        tag_profile=profile,
+                    )
+                except Exception as exc:                          # noqa: BLE001
+                    print(f"  biome_things: greenhouse record failed: "
+                          f"{exc!r}", flush=True)
+
+                # Placeholder seed entity — a small heptagonal_mote
+                # at waist height. Visible reminder, not scenery noise.
+                ox = place_rng.uniform(edge_pad, tile_size - edge_pad)
+                oy = place_rng.uniform(edge_pad, tile_size - edge_pad)
+                placeholder = {
+                    "id":        60_000 + (hash((biome_name, tx, ty, slot_idx))
+                                            & 0xffff),
+                    "kind":      "scan_heptagonal_mote_greenhouse",
+                    "x":         round(tile_origin_x + ox, 3),
+                    "y":         round(tile_origin_y + oy, 3),
+                    "z":         0.35,
+                    "sx":        0.30, "sy": 0.30, "sz": 0.30,
+                    "r":         0.55, "g": 0.42, "b": 0.20,
+                    "_greenhouse":  True,
+                    "_profile":     profile,
+                    "_tile":        [tx, ty],
+                    "_slot":        slot_idx,
+                }
+                out.append(placeholder)
+                total_unfilled += 1
+
+    print(
+        f"  biome_things: precomputed {len(out)} entities — "
+        f"{total_picks} library picks + {total_unfilled} greenhouse "
+        f"placeholders across {(2*tile_range+1)**2} tiles",
+        flush=True,
+    )
+    return out
+
+
 def run_server(biome_name, port=9877):
     world = BrainWorld(biome_name)
+
+    # Biome-things — precompute Blender-driven thing placements +
+    # greenhouse demand log for tiles around origin. Per
+    # `feat/biome-greenhouse` PR 3. Empty for workroom (per_tile=0).
+    global _BIOME_THINGS_ENTITIES
+    _BIOME_THINGS_ENTITIES = _build_biome_things(
+        biome_name,
+        base_seed=getattr(world, "base_seed", 0),
+        tile_size=getattr(world, "tile_size", 12.0),
+    )
 
     # Make-brain activation — if the biome registry binds an instance_id
     # for this biome, instantiate + register the handler. Idempotent
@@ -3865,6 +3984,13 @@ def run_server(biome_name, port=9877):
                 if _THING_GALLERY_ENTITIES:
                     manifest.setdefault("entities", []).extend(
                         _THING_GALLERY_ENTITIES)
+
+                # Biome-things injection — Blender-driven per-tile picks
+                # + greenhouse placeholder seeds for unfilled demand.
+                # Per `feat/biome-greenhouse` PR 3.
+                if _BIOME_THINGS_ENTITIES:
+                    manifest.setdefault("entities", []).extend(
+                        _BIOME_THINGS_ENTITIES)
 
                 # Encounter session snapshot (HUD/orb/log data).
                 if encounter is not None:
