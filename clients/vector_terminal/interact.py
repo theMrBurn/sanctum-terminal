@@ -27,14 +27,16 @@ PICK_ALIGN_MIN: float = 0.92      # tight: only when looking ~directly at it
 
 def pick_interactable(
     manifest: dict, camera,
-) -> tuple[str, list[str]] | None:
-    """Return (thing_name, available_verbs) for the entity under the
-    crosshair, or None if nothing interactable is in front of the
+) -> tuple[str, list[str], list[int] | None] | None:
+    """Return (thing_name, available_verbs, tile) for the entity under
+    the crosshair, or None if nothing interactable is in front of the
     player.
 
-    Picks the closest entity within PICK_RANGE_M whose camera-forward
-    alignment is at least PICK_ALIGN_MIN and which carries an
-    `_interactions` list."""
+    `tile` is [tile_x, tile_y] for biome-things; None for gallery
+    items. The brain uses this to dispatch state mutations to the
+    correct persistence store (vault.biome_thing_state vs in-memory
+    gallery).
+    """
     cam_pos = camera.position
     fx = camera.target.x - cam_pos.x
     fy = camera.target.y - cam_pos.y
@@ -44,7 +46,7 @@ def pick_interactable(
         return None
     fx /= fmag; fy /= fmag; fz /= fmag
 
-    best: tuple[str, list[str]] | None = None
+    best: tuple[str, list[str], list[int] | None] | None = None
     best_score = -1.0
     for ent in manifest.get("entities", []) or []:
         verbs = ent.get("_interactions")
@@ -67,7 +69,8 @@ def pick_interactable(
         score = align - (dist / PICK_RANGE_M) * 0.2
         if score > best_score:
             best_score = score
-            best = (str(thing), list(verbs))
+            tile = ent.get("_tile")           # [tx, ty] for biome-things, None for gallery
+            best = (str(thing), list(verbs), list(tile) if tile else None)
     return best
 
 
@@ -84,7 +87,7 @@ _VERB_KEYS: dict[str, str] = {
 def maybe_send_interact(
     client,
     camera,
-    pick: tuple[str, list[str]] | None,
+    pick: tuple[str, list[str], list[int] | None] | None,
 ) -> bool:
     """For each verb the picked thing declares, check the matching key.
     Send a cmd for the first matching press (one verb per frame max).
@@ -93,10 +96,13 @@ def maybe_send_interact(
     converted to brain coords (x=lateral, y=forward) — so the brain
     can offset the thing AWAY from the player.
 
+    `tile` is included for biome-things (carries [tx, ty]) so the
+    brain routes the mutation to the right persistence store.
+
     Returns True if a cmd was sent."""
     if pick is None:
         return False
-    thing_name, verbs = pick
+    thing_name, verbs, tile = pick
     if not verbs:
         return False
     for verb in verbs:
@@ -110,6 +116,8 @@ def maybe_send_interact(
             "thing_name": thing_name,
             "verb":       verb,
         }
+        if tile is not None:
+            cmd["tile"] = tile
         if verb == "kick":
             cmd["direction"] = _player_facing_brain_xy(camera)
         client.send(cmd)
@@ -137,7 +145,7 @@ _VERB_KEY_LABEL: dict[str, str] = {
 
 
 def draw_prompt(
-    pick: tuple[str, list[str]] | None,
+    pick: tuple[str, list[str], list[int] | None] | None,
     screen_w: int,
     screen_h: int,
     color,
@@ -147,7 +155,7 @@ def draw_prompt(
     target supports so the player can see their options."""
     if pick is None:
         return
-    thing_name, verbs = pick
+    thing_name, verbs, _tile = pick
     if not verbs:
         return
 

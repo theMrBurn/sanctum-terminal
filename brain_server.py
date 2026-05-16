@@ -2394,9 +2394,19 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
             tile_origin_x = tx * tile_size
             tile_origin_y = ty * tile_size
 
+            # Persisted per-tile state — pickup tombstones + kick offsets.
+            tile_state = vault.biome_thing_state_for_tile(biome_name, tx, ty)
+
             for slot_idx, thing in enumerate(picks):
+                tname = thing.name
+                state = tile_state.get(tname, {})
+                if state.get("picked_up"):
+                    continue                                # already picked up
                 ox = place_rng.uniform(edge_pad, tile_size - edge_pad)
                 oy = place_rng.uniform(edge_pad, tile_size - edge_pad)
+                # Apply persisted kick offset
+                ox += float(state.get("kick_dx", 0.0))
+                oy += float(state.get("kick_dy", 0.0))
                 entities = thing_renderer.expand_thing_to_world_z(
                     thing,
                     origin_xy=(tile_origin_x + ox, tile_origin_y + oy),
@@ -2404,6 +2414,9 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
                     id_base=50_000,
                     instance_id=hash((tx, ty, slot_idx)) % 100_000,
                 )
+                # Stamp _tile on every entity for client-side targeting
+                for ent in entities:
+                    ent["_tile"] = [tx, ty]
                 out.extend(entities)
                 total_picks += 1
 
@@ -2452,12 +2465,18 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
 
 
 def run_server(biome_name, port=9877):
+    # All module-globals this function reassigns. Hoisted so later
+    # branches that do `global X` don't conflict with the first
+    # assignment (Python: global declaration must precede all
+    # assignments in the function).
+    global _BIOME_THINGS_ENTITIES
+    global _THING_GALLERY_ENTITIES
+
     world = BrainWorld(biome_name)
 
     # Biome-things — precompute Blender-driven thing placements +
     # greenhouse demand log for tiles around origin. Per
     # `feat/biome-greenhouse` PR 3. Empty for workroom (per_tile=0).
-    global _BIOME_THINGS_ENTITIES
     _BIOME_THINGS_ENTITIES = _build_biome_things(
         biome_name,
         base_seed=getattr(world, "base_seed", 0),
@@ -2822,46 +2841,82 @@ def run_server(biome_name, port=9877):
                             payload={"thing": tn},
                         )
                     elif verb == "pickup":
-                        _THING_GALLERY_PICKED_UP.add(tn)
-                        global _THING_GALLERY_ENTITIES
-                        _THING_GALLERY_ENTITIES = _expand_thing_gallery()
+                        # Route by tile presence — biome-things persist
+                        # state to vault; gallery items live in-memory.
+                        raw_tile = msg.get("tile")
+                        if raw_tile and len(raw_tile) == 2:
+                            try:
+                                tile_x = int(raw_tile[0])
+                                tile_y = int(raw_tile[1])
+                                _get_vault().biome_thing_state_set_picked_up(
+                                    biome=world.biome_name,
+                                    tile_x=tile_x, tile_y=tile_y,
+                                    thing_name=tn,
+                                )
+                                _BIOME_THINGS_ENTITIES = _build_biome_things(
+                                    world.biome_name,
+                                    base_seed=getattr(world, "base_seed", 0),
+                                    tile_size=getattr(world, "tile_size", 12.0),
+                                )
+                            except Exception as exc:                  # noqa: BLE001
+                                print(f"  pickup persist failed: {exc!r}", flush=True)
+                        else:
+                            _THING_GALLERY_PICKED_UP.add(tn)
+                            _THING_GALLERY_ENTITIES = _expand_thing_gallery()
                         activity_loop.emit_activity(
                             activity_loop.ActivityClass.MAKE,
                             intensity=1,
                             primitive="interact_pickup",
                             source_brain="thing_library",
-                            payload={"thing": tn},
+                            payload={"thing": tn, "tile": raw_tile},
                         )
                         last_wake_ids = set()       # force manifest re-emit
                     elif verb == "kick":
-                        # Push the thing 0.5m away from the player.
-                        # The cmd payload may carry direction; if not,
-                        # default to +y (forward in brain coords).
                         raw_dir = msg.get("direction") or [0.0, 1.0]
                         try:
                             dx = float(raw_dir[0])
                             dy = float(raw_dir[1])
                         except (TypeError, ValueError, IndexError):
                             dx, dy = 0.0, 1.0
-                        # Normalize + scale
                         mag = (dx * dx + dy * dy) ** 0.5
                         if mag < 1e-6:
                             dx, dy = 0.0, 1.0
                             mag = 1.0
                         push_m = 0.5
-                        cur = _THING_GALLERY_KICK_OFFSETS.get(tn, (0.0, 0.0))
-                        _THING_GALLERY_KICK_OFFSETS[tn] = (
-                            cur[0] + dx / mag * push_m,
-                            cur[1] + dy / mag * push_m,
-                        )
-                        _THING_GALLERY_ENTITIES = _expand_thing_gallery()
+                        kick_dx = dx / mag * push_m
+                        kick_dy = dy / mag * push_m
+                        raw_tile = msg.get("tile")
+                        if raw_tile and len(raw_tile) == 2:
+                            try:
+                                tile_x = int(raw_tile[0])
+                                tile_y = int(raw_tile[1])
+                                _get_vault().biome_thing_state_add_kick(
+                                    biome=world.biome_name,
+                                    tile_x=tile_x, tile_y=tile_y,
+                                    thing_name=tn,
+                                    dx=kick_dx, dy=kick_dy,
+                                )
+                                _BIOME_THINGS_ENTITIES = _build_biome_things(
+                                    world.biome_name,
+                                    base_seed=getattr(world, "base_seed", 0),
+                                    tile_size=getattr(world, "tile_size", 12.0),
+                                )
+                            except Exception as exc:                  # noqa: BLE001
+                                print(f"  kick persist failed: {exc!r}", flush=True)
+                        else:
+                            cur = _THING_GALLERY_KICK_OFFSETS.get(tn, (0.0, 0.0))
+                            _THING_GALLERY_KICK_OFFSETS[tn] = (
+                                cur[0] + kick_dx,
+                                cur[1] + kick_dy,
+                            )
+                            _THING_GALLERY_ENTITIES = _expand_thing_gallery()
                         activity_loop.emit_activity(
                             activity_loop.ActivityClass.HUNT,
                             intensity=1,
                             primitive="interact_kick",
                             source_brain="thing_library",
-                            payload={"thing": tn,
-                                     "offset": _THING_GALLERY_KICK_OFFSETS[tn]},
+                            payload={"thing": tn, "tile": raw_tile,
+                                     "offset": [kick_dx, kick_dy]},
                         )
                         last_wake_ids = set()
                     print(f"  interact: {tn}/{verb} → {text!r}", flush=True)

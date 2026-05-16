@@ -334,6 +334,29 @@ class vault:
                     "CREATE INDEX IF NOT EXISTS idx_greenhouse_biome "
                     "ON greenhouse_requests(biome, last_unfilled_at DESC)"
                 )
+
+                # Per-tile biome-thing interaction state — pickup
+                # tombstones + accumulated kick offsets. Persists
+                # across brain restarts so caverns remember what the
+                # player did. Per `design_path_memory`.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS biome_thing_state (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        biome       TEXT NOT NULL,
+                        tile_x      INTEGER NOT NULL,
+                        tile_y      INTEGER NOT NULL,
+                        thing_name  TEXT NOT NULL,
+                        picked_up   INTEGER NOT NULL DEFAULT 0,
+                        kick_dx     REAL NOT NULL DEFAULT 0.0,
+                        kick_dy     REAL NOT NULL DEFAULT 0.0,
+                        updated_at  TEXT NOT NULL,
+                        UNIQUE(biome, tile_x, tile_y, thing_name)
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_biome_thing_state_tile "
+                    "ON biome_thing_state(biome, tile_x, tile_y)"
+                )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -1499,6 +1522,130 @@ class vault:
                 "WHERE fulfilled_at IS NOT NULL"
             ).fetchone()[0]
         return {"unfilled": int(unfilled), "filled": int(filled)}
+
+    # -- Biome-thing per-tile state (pickup + kick offsets) -----------------
+
+    def biome_thing_state_set_picked_up(
+        self,
+        biome: str,
+        tile_x: int,
+        tile_y: int,
+        thing_name: str,
+    ) -> None:
+        """Mark a thing as picked up in this tile. Persists across restart.
+
+        Idempotent — repeat calls just update timestamp."""
+        import time as _t
+        now = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO biome_thing_state "
+                "(biome, tile_x, tile_y, thing_name, picked_up, updated_at) "
+                "VALUES (?, ?, ?, ?, 1, ?) "
+                "ON CONFLICT(biome, tile_x, tile_y, thing_name) "
+                "DO UPDATE SET picked_up = 1, updated_at = excluded.updated_at",
+                (str(biome), int(tile_x), int(tile_y),
+                 str(thing_name), now),
+            )
+            conn.commit()
+
+    def biome_thing_state_add_kick(
+        self,
+        biome: str,
+        tile_x: int,
+        tile_y: int,
+        thing_name: str,
+        dx: float,
+        dy: float,
+    ) -> tuple[float, float]:
+        """Accumulate kick offset. Returns new total (kick_dx, kick_dy)."""
+        import time as _t
+        now = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT kick_dx, kick_dy FROM biome_thing_state "
+                "WHERE biome=? AND tile_x=? AND tile_y=? AND thing_name=?",
+                (str(biome), int(tile_x), int(tile_y), str(thing_name)),
+            ).fetchone()
+            cur_dx = float(row[0]) if row else 0.0
+            cur_dy = float(row[1]) if row else 0.0
+            new_dx = cur_dx + float(dx)
+            new_dy = cur_dy + float(dy)
+            conn.execute(
+                "INSERT INTO biome_thing_state "
+                "(biome, tile_x, tile_y, thing_name, kick_dx, kick_dy, "
+                " updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(biome, tile_x, tile_y, thing_name) "
+                "DO UPDATE SET kick_dx = excluded.kick_dx, "
+                "              kick_dy = excluded.kick_dy, "
+                "              updated_at = excluded.updated_at",
+                (str(biome), int(tile_x), int(tile_y),
+                 str(thing_name), new_dx, new_dy, now),
+            )
+            conn.commit()
+        return (new_dx, new_dy)
+
+    def biome_thing_state_get(
+        self,
+        biome: str,
+        tile_x: int,
+        tile_y: int,
+        thing_name: str,
+    ) -> dict | None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM biome_thing_state "
+                "WHERE biome=? AND tile_x=? AND tile_y=? AND thing_name=?",
+                (str(biome), int(tile_x), int(tile_y), str(thing_name)),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "picked_up":  bool(row["picked_up"]),
+            "kick_dx":    float(row["kick_dx"]),
+            "kick_dy":    float(row["kick_dy"]),
+            "updated_at": row["updated_at"],
+        }
+
+    def biome_thing_state_for_tile(
+        self,
+        biome: str,
+        tile_x: int,
+        tile_y: int,
+    ) -> dict[str, dict]:
+        """All state rows for one tile, keyed by thing_name. Used by
+        brain biome-things builder to apply persisted state at boot."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM biome_thing_state "
+                "WHERE biome=? AND tile_x=? AND tile_y=?",
+                (str(biome), int(tile_x), int(tile_y)),
+            ).fetchall()
+        return {
+            r["thing_name"]: {
+                "picked_up":  bool(r["picked_up"]),
+                "kick_dx":    float(r["kick_dx"]),
+                "kick_dy":    float(r["kick_dy"]),
+                "updated_at": r["updated_at"],
+            }
+            for r in rows
+        }
+
+    def biome_thing_state_clear(self, biome: str | None = None) -> int:
+        """Drop all state rows (or just one biome's). Returns row count."""
+        with sqlite3.connect(self.db_path) as conn:
+            if biome is None:
+                cur = conn.execute("DELETE FROM biome_thing_state")
+            else:
+                cur = conn.execute(
+                    "DELETE FROM biome_thing_state WHERE biome=?",
+                    (str(biome),),
+                )
+            conn.commit()
+            return cur.rowcount
 
     def activity_log_count_by_class(
         self,
