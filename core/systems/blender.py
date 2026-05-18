@@ -118,6 +118,29 @@ BIOME_THING_CONFIG_DEFAULT: dict[str, Any] = {
 }
 
 
+# Stamp placement policy per biome — same shape as BIOME_THING_CONFIG,
+# but `tile_chance` (float 0..1) replaces `per_tile` because
+# architecture is rare/intentional, not density scatter. A stamp is a
+# multi-meter assembly (bridge, ladder, staircase, doorway).
+#
+# Per the 2026-05-17 "stamps as data" PR. Greenhouse path is shared
+# with things — unfilled stamp demand records the same way.
+BIOME_STAMP_CONFIG: dict[str, dict[str, Any]] = {
+    "outdoor":  {"tags": ["pnw", "architecture"],
+                 "exclude_tags": ["carcosa"],
+                 "tile_chance": 0.10},
+    "cavern":   {"tags": ["architecture"],
+                 "exclude_tags": ["pnw"],
+                 "tile_chance": 0.0},     # no stamps for cavern yet
+    "hub":      {"tags": [], "exclude_tags": [], "tile_chance": 0.0},
+    "workroom": {"tags": [], "exclude_tags": [], "tile_chance": 0.0},
+}
+
+BIOME_STAMP_CONFIG_DEFAULT: dict[str, Any] = {
+    "tags": [], "exclude_tags": [], "tile_chance": 0.0,
+}
+
+
 # ── Role → class mapping ──────────────────────────────────────────────
 
 
@@ -400,6 +423,51 @@ class WorldBlender:
         unfilled = per_tile - len(picks)
         unfilled_profiles = [list(tags) for _ in range(unfilled)]
         return picks, unfilled_profiles
+
+
+    def stamps_for_tile(
+        self,
+        biome: str,
+        tile_x: int,
+        tile_y: int,
+        base_seed: int = 0,
+    ) -> tuple[list[Any], list[list[str]]]:
+        """Per-tile stamp pick — analogous to things_for_tile but
+        uses BIOME_STAMP_CONFIG and the stamps library.
+
+        Returns (filled_stamps, unfilled_tag_profiles). Most tiles
+        return ([], []) — `tile_chance` gates whether this tile gets
+        a stamp at all. When it does, a single stamp is picked.
+
+        Deterministic per (tile_x, tile_y, base_seed) — the gate, the
+        pick, and the placement all share the seed lineage.
+        """
+        cfg = BIOME_STAMP_CONFIG.get(biome, BIOME_STAMP_CONFIG_DEFAULT)
+        tags = cfg.get("tags", []) or []
+        exclude_tags = cfg.get("exclude_tags", []) or []
+        tile_chance = float(cfg.get("tile_chance", 0.0))
+
+        if tile_chance <= 0.0:
+            return [], []
+
+        # Deterministic per-tile gate
+        tile_seed = hash((biome, "stamp", int(tile_x), int(tile_y),
+                          int(base_seed)))
+        rng = random.Random(tile_seed)
+        if rng.random() >= tile_chance:
+            return [], []
+
+        from core.systems import thing_library
+        candidates = thing_library.find_stamps_by_tags(
+            include=tags or None,
+            exclude=exclude_tags or None,
+        )
+        if not candidates:
+            # Tile won the gate but library has nothing — record one
+            # greenhouse demand row so authoring sees the gap.
+            return [], [list(tags)]
+
+        return [rng.choice(candidates)], []
 
 
 # Convenience factory — single Blender instance with empty stub. Tests and

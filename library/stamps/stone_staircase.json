@@ -1,0 +1,204 @@
+{
+  "name": "stone_staircase",
+  "real_size_m": [
+    3.0,
+    6.0,
+    4.0
+  ],
+  "anchor": "step_0",
+  "source": "hand-authored stamp — diagonal climb, frames 4 / 14 / 19",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "architecture",
+    "stair",
+    "stone"
+  ],
+  "interactions": {
+    "examine": "A flight of stone steps. Mossed at the edges, cracked but solid. Cut from local rock.",
+    "pickup": "Each step is too heavy to budge.",
+    "kick": "Your boot makes a flat slap against the stone."
+  },
+  "parts": [
+    {
+      "primitive": "cube",
+      "role": "step_0",
+      "rel_size": [
+        0.95,
+        0.18,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        -0.42,
+        -0.43
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.42,
+        0.40,
+        0.36
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "step_1",
+      "rel_size": [
+        0.95,
+        0.18,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        -0.30,
+        -0.30
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.42,
+        0.40,
+        0.36
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "step_2",
+      "rel_size": [
+        0.95,
+        0.18,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        -0.18,
+        -0.17
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.42,
+        0.40,
+        0.36
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "step_3",
+      "rel_size": [
+        0.95,
+        0.18,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        -0.06,
+        -0.04
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.42,
+        0.40,
+        0.36
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "step_4",
+      "rel_size": [
+        0.95,
+        0.18,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        0.06,
+        0.09
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.42,
+        0.40,
+        0.36
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "step_5",
+      "rel_size": [
+        0.95,
+        0.18,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        0.18,
+        0.22
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.42,
+        0.40,
+        0.36
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "step_6",
+      "rel_size": [
+        0.95,
+        0.18,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        0.30,
+        0.35
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.42,
+        0.40,
+        0.36
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "step_7",
+      "rel_size": [
+        0.95,
+        0.18,
+        0.06
+      ],
+      "rel_position": [
+        0.0,
+        0.42,
+        0.48
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.42,
+        0.40,
+        0.36
+      ]
+    },
+    {
+      "primitive": "ground_hug",
+      "role": "shadow",
+      "rel_size": [
+        1.0,
+        1.0,
+        0.02
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.50
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.05,
+        0.05,
+        0.05
+      ]
+    }
+  ]
+}

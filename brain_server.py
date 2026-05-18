@@ -671,6 +671,12 @@ _BIOME_ELEVATION_FIELD: dict[tuple[int, int], int] = {}
 # init. Static across the brain's lifetime.
 _BIOME_TERRAIN_WALLS: list[dict] = []
 
+# Precomputed biome-stamps — architecture assemblies (bridges,
+# ladders, staircases, doorways) placed sparsely via
+# BIOME_STAMP_CONFIG.tile_chance. Per the 2026-05-17 "stamps as data"
+# PR. Shipped culled-by-camera per frame, same path as biome_things.
+_BIOME_STAMPS_ENTITIES: list[dict] = []
+
 
 # Lexicon placeholder substitution for interact response text.
 # Per `design_lexicon_architecture` + `feedback_her_voice`: the player's
@@ -2492,6 +2498,101 @@ def _build_terrain_walls(
     return out
 
 
+def _build_biome_stamps(biome_name: str, base_seed: int, tile_size: float,
+                          tile_range: int = 2) -> list[dict]:
+    """Precompute biome-stamp entities — architecture assemblies
+    placed sparsely via BIOME_STAMP_CONFIG.tile_chance. Same iteration
+    + greenhouse + per-thing-elev pattern as _build_biome_things, just
+    a different library + sparser placement.
+
+    Per the 2026-05-17 "stamps as data" PR. V1: stamps land at random
+    XY within each stamp-bearing tile; alignment to terrain features
+    (ledges/cliffs) is a follow-up authoring layer.
+    """
+    import random as _rand
+    from core.systems import thing_renderer, biome_elevation
+    from core.systems.blender import (
+        default_blender, BIOME_STAMP_CONFIG, BIOME_STAMP_CONFIG_DEFAULT,
+    )
+
+    cfg = BIOME_STAMP_CONFIG.get(biome_name, BIOME_STAMP_CONFIG_DEFAULT)
+    if float(cfg.get("tile_chance", 0.0)) <= 0.0:
+        return []
+
+    bl = default_blender()
+    vault = _get_vault()
+    out: list[dict] = []
+    total_picks = 0
+    total_unfilled = 0
+    edge_pad = max(2.0, tile_size * 0.15)
+
+    for tx in range(-tile_range, tile_range + 1):
+        for ty in range(-tile_range, tile_range + 1):
+            try:
+                picks, unfilled_profiles = bl.stamps_for_tile(
+                    biome_name, tx, ty, base_seed=base_seed,
+                )
+            except Exception as exc:                          # noqa: BLE001
+                print(f"  biome_stamps: stamps_for_tile({tx},{ty}) "
+                      f"failed: {exc!r}", flush=True)
+                continue
+
+            if not picks and not unfilled_profiles:
+                continue                                      # tile lost the gate
+
+            place_rng = _rand.Random(
+                hash((biome_name, tx, ty, base_seed, "stamp_place"))
+                & 0xffffffff
+            )
+            tile_origin_x = tx * tile_size
+            tile_origin_y = ty * tile_size
+
+            for slot_idx, stamp in enumerate(picks):
+                ox = place_rng.uniform(edge_pad, tile_size - edge_pad)
+                oy = place_rng.uniform(edge_pad, tile_size - edge_pad)
+                world_x = tile_origin_x + ox
+                world_y = tile_origin_y + oy
+                etx, ety = biome_elevation.world_xy_to_elev_tile(
+                    world_x, world_y,
+                )
+                elev_level = _BIOME_ELEVATION_FIELD.get((etx, ety), 0)
+                tile_floor_z = biome_elevation.field_to_floor_z(elev_level)
+                entities = thing_renderer.expand_thing_to_world_z(
+                    stamp,
+                    origin_xy=(world_x, world_y),
+                    floor_z=tile_floor_z,
+                    id_base=80_000,                  # stamp id namespace
+                    instance_id=hash((tx, ty, slot_idx, "stamp"))
+                                 % 100_000,
+                )
+                for ent in entities:
+                    ent["_tile"] = [tx, ty]
+                    ent["_stamp"] = stamp.name
+                out.extend(entities)
+                total_picks += 1
+
+            for profile in unfilled_profiles:
+                try:
+                    vault.greenhouse_record_demand(
+                        biome=biome_name,
+                        tile_x=tx, tile_y=ty,
+                        slot=999,                    # stamp slot sentinel
+                        tag_profile=profile,
+                    )
+                except Exception as exc:                      # noqa: BLE001
+                    print(f"  biome_stamps: greenhouse record failed: "
+                          f"{exc!r}", flush=True)
+                total_unfilled += 1
+
+    print(
+        f"  biome_stamps: precomputed {len(out)} entities — "
+        f"{total_picks} library picks + {total_unfilled} greenhouse "
+        f"demands across {(2*tile_range+1)**2} tiles",
+        flush=True,
+    )
+    return out
+
+
 def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
                           tile_range: int = 2) -> list[dict]:
     """Precompute biome-things entities for a (2*tile_range+1)² tile grid
@@ -2638,6 +2739,7 @@ def run_server(biome_name, port=9877):
     global _THING_GALLERY_ENTITIES
     global _BIOME_ELEVATION_FIELD
     global _BIOME_TERRAIN_WALLS
+    global _BIOME_STAMPS_ENTITIES
 
     world = BrainWorld(biome_name)
 
@@ -2661,6 +2763,15 @@ def run_server(biome_name, port=9877):
     # greenhouse demand log for tiles around origin. Per
     # `feat/biome-greenhouse` PR 3. Empty for workroom (per_tile=0).
     _BIOME_THINGS_ENTITIES = _build_biome_things(
+        biome_name,
+        base_seed=getattr(world, "base_seed", 0),
+        tile_size=getattr(world, "tile_size", 12.0),
+    )
+
+    # Biome-stamps — architecture assemblies (bridges/ladders/stairs/
+    # doors) placed sparsely via BIOME_STAMP_CONFIG.tile_chance.
+    # Per the 2026-05-17 "stamps as data" PR.
+    _BIOME_STAMPS_ENTITIES = _build_biome_stamps(
         biome_name,
         base_seed=getattr(world, "base_seed", 0),
         tile_size=getattr(world, "tile_size", 12.0),
@@ -4257,6 +4368,23 @@ def run_server(biome_name, port=9877):
                     if nearby_walls:
                         manifest.setdefault("entities", []).extend(
                             nearby_walls)
+
+                # Biome-stamps — architecture assemblies (bridges,
+                # ladders, staircases, doorways). Per the 2026-05-17
+                # "stamps as data" PR. Same 90m cull as things.
+                # Stamps are sparse (tile_chance ~0.1) so the full
+                # list is typically <30 entries; cull is still applied
+                # for consistency + cost-bound on biome growth.
+                if _BIOME_STAMPS_ENTITIES:
+                    stamp_cull_r2 = 90.0 * 90.0
+                    nearby_stamps = [
+                        s for s in _BIOME_STAMPS_ENTITIES
+                        if (s["x"] - cam_x) ** 2
+                           + (s["y"] - cam_y) ** 2 <= stamp_cull_r2
+                    ]
+                    if nearby_stamps:
+                        manifest.setdefault("entities", []).extend(
+                            nearby_stamps)
 
                 # Encounter session snapshot (HUD/orb/log data).
                 if encounter is not None:

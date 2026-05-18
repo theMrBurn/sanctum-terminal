@@ -1,0 +1,244 @@
+{
+  "name": "rope_bridge",
+  "real_size_m": [
+    12.0,
+    2.4,
+    2.8
+  ],
+  "anchor": "post_left",
+  "source": "hand-authored stamp — span crossing, frames 3 / 5 / 23",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "architecture",
+    "bridge",
+    "rope"
+  ],
+  "interactions": {
+    "examine": "A rope bridge. Planks lashed between two posts, side ropes sagging gently. Sways with the wind.",
+    "pickup": "Too large to carry.",
+    "kick": "The bridge bounces and creaks but holds."
+  },
+  "parts": [
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_left",
+      "rel_size": [
+        0.05,
+        0.30,
+        0.85
+      ],
+      "rel_position": [
+        -0.45,
+        0.0,
+        0.05
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.30,
+        0.20,
+        0.12
+      ]
+    },
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_right",
+      "rel_size": [
+        0.05,
+        0.30,
+        0.85
+      ],
+      "rel_position": [
+        0.45,
+        0.0,
+        0.05
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.30,
+        0.20,
+        0.12
+      ]
+    },
+    {
+      "primitive": "chain",
+      "role": "rail_front",
+      "rel_size": [
+        0.95,
+        0.05,
+        0.15
+      ],
+      "rel_position": [
+        0.0,
+        -0.30,
+        0.10
+      ],
+      "tier": "mid",
+      "color_base": [
+        0.50,
+        0.40,
+        0.25
+      ]
+    },
+    {
+      "primitive": "chain",
+      "role": "rail_back",
+      "rel_size": [
+        0.95,
+        0.05,
+        0.15
+      ],
+      "rel_position": [
+        0.0,
+        0.30,
+        0.10
+      ],
+      "tier": "mid",
+      "color_base": [
+        0.50,
+        0.40,
+        0.25
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "plank_0",
+      "rel_size": [
+        0.06,
+        0.80,
+        0.02
+      ],
+      "rel_position": [
+        -0.35,
+        0.0,
+        -0.20
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.40,
+        0.27,
+        0.14
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "plank_1",
+      "rel_size": [
+        0.06,
+        0.80,
+        0.02
+      ],
+      "rel_position": [
+        -0.22,
+        0.0,
+        -0.22
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.40,
+        0.27,
+        0.14
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "plank_2",
+      "rel_size": [
+        0.06,
+        0.80,
+        0.02
+      ],
+      "rel_position": [
+        -0.09,
+        0.0,
+        -0.23
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.40,
+        0.27,
+        0.14
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "plank_3",
+      "rel_size": [
+        0.06,
+        0.80,
+        0.02
+      ],
+      "rel_position": [
+        0.04,
+        0.0,
+        -0.23
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.40,
+        0.27,
+        0.14
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "plank_4",
+      "rel_size": [
+        0.06,
+        0.80,
+        0.02
+      ],
+      "rel_position": [
+        0.17,
+        0.0,
+        -0.22
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.40,
+        0.27,
+        0.14
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "plank_5",
+      "rel_size": [
+        0.06,
+        0.80,
+        0.02
+      ],
+      "rel_position": [
+        0.30,
+        0.0,
+        -0.21
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.40,
+        0.27,
+        0.14
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "plank_6",
+      "rel_size": [
+        0.06,
+        0.80,
+        0.02
+      ],
+      "rel_position": [
+        0.40,
+        0.0,
+        -0.20
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.40,
+        0.27,
+        0.14
+      ]
+    }
+  ]
+}

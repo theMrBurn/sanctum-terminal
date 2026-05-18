@@ -30,6 +30,18 @@ def things_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "library" / "things"
 
 
+def stamps_dir() -> Path:
+    """Where the stamp library lives. Stamps are 'big things' —
+    architecture, multi-meter assemblies (bridges, ladders, stairs,
+    doors). Same JSON schema as things; separated by directory so
+    tag filters can't cross-contaminate (per the 2026-05-17 'stamps
+    as data' promotion)."""
+    raw = os.environ.get("SANCTUM_STAMPS_DIR", "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path(__file__).resolve().parents[2] / "library" / "stamps"
+
+
 # ── Listing + direct lookup ──────────────────────────────────────
 
 
@@ -128,3 +140,65 @@ def stats() -> dict[str, int]:
         "untagged":   sum(1 for t in things.values() if not t.tags),
         "unique_tags": len(all_tags()),
     }
+
+
+# ── Stamp library ─────────────────────────────────────────────────
+#
+# Stamps share the Thing schema but live in `library/stamps/`. They
+# represent multi-meter architecture — bridges, ladders, staircases,
+# doorways — composed of the same primitives as things, just at a
+# larger scale. Per the 2026-05-17 "stamps as data" PR.
+#
+# Kept as separate accessors (not merged into get_all()) so a biome's
+# things filter never accidentally pulls in a stamp.
+
+
+def list_stamp_names() -> list[str]:
+    d = stamps_dir()
+    if not d.exists():
+        return []
+    return [p.stem for p in sorted(d.iterdir()) if p.suffix == ".json"]
+
+
+def get_stamp(name: str) -> Thing | None:
+    d = stamps_dir()
+    p = d / f"{name}.json"
+    if not p.exists():
+        return None
+    try:
+        return thing_schema.load_thing(p)
+    except (ValueError, Exception):                          # noqa: BLE001
+        return None
+
+
+def get_all_stamps() -> dict[str, Thing]:
+    d = stamps_dir()
+    if not d.exists():
+        return {}
+    return thing_schema.load_things_from_dir(d)
+
+
+def find_stamps_by_tags(
+    include: Iterable[str] | None = None,
+    exclude: Iterable[str] | None = None,
+    *,
+    match_all: bool = False,
+) -> list[Thing]:
+    """Same semantics as find_by_tags(), but queries the stamp library."""
+    include_set = {t for t in (include or []) if t}
+    exclude_set = {t for t in (exclude or []) if t}
+    matches: list[Thing] = []
+    for stamp in get_all_stamps().values():
+        stamp_tags = set(stamp.tags or [])
+        if exclude_set & stamp_tags:
+            continue
+        if not include_set:
+            matches.append(stamp)
+            continue
+        if match_all:
+            if include_set.issubset(stamp_tags):
+                matches.append(stamp)
+        else:
+            if include_set & stamp_tags:
+                matches.append(stamp)
+    return matches

@@ -1,0 +1,125 @@
+{
+  "name": "wooden_door",
+  "real_size_m": [
+    1.4,
+    0.3,
+    2.4
+  ],
+  "anchor": "panel",
+  "source": "hand-authored stamp — passage / portal, frame 12",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "architecture",
+    "door",
+    "portal",
+    "wooden"
+  ],
+  "interactions": {
+    "examine": "A wooden door set into a stout frame. Iron banding, a single ring handle. Closed.",
+    "pickup": "Anchored in its frame. Won't budge.",
+    "kick": "Your boot rings on the plank. The door does not open."
+  },
+  "parts": [
+    {
+      "primitive": "tapered_vertical",
+      "role": "jamb_left",
+      "rel_size": [
+        0.15,
+        1.0,
+        1.0
+      ],
+      "rel_position": [
+        -0.40,
+        0.0,
+        0.0
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.30,
+        0.22,
+        0.14
+      ]
+    },
+    {
+      "primitive": "tapered_vertical",
+      "role": "jamb_right",
+      "rel_size": [
+        0.15,
+        1.0,
+        1.0
+      ],
+      "rel_position": [
+        0.40,
+        0.0,
+        0.0
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.30,
+        0.22,
+        0.14
+      ]
+    },
+    {
+      "primitive": "cube",
+      "role": "lintel",
+      "rel_size": [
+        0.95,
+        1.0,
+        0.10
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.45
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.30,
+        0.22,
+        0.14
+      ]
+    },
+    {
+      "primitive": "banner",
+      "role": "panel",
+      "rel_size": [
+        0.70,
+        0.05,
+        0.90
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.04
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.45,
+        0.30,
+        0.16
+      ]
+    },
+    {
+      "primitive": "orb",
+      "role": "handle",
+      "rel_size": [
+        0.08,
+        0.10,
+        0.08
+      ],
+      "rel_position": [
+        0.22,
+        -0.05,
+        -0.10
+      ],
+      "tier": "mid",
+      "color_base": [
+        0.55,
+        0.50,
+        0.40
+      ]
+    }
+  ]
+}
