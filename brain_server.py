@@ -2346,7 +2346,7 @@ class BrainWorld:
             # at; [/] cycles via variant_roll, \ commits via
             # variant_lock.
             "variant_deck": {
-                "current_seed":     int(getattr(world, "base_seed", 0)),
+                "current_seed":     int(getattr(self, "base_seed", 0)),
                 "active_index":     int(_active_variant_index),
                 "deck_size":        int(_VARIANT_DECK_SIZE),
                 "is_locked":        _active_variant_index < 0,
