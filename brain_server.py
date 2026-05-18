@@ -2498,16 +2498,117 @@ def _build_terrain_walls(
     return out
 
 
+_TERRAIN_STAMP_TAGS: dict[str, tuple[int, int]] = {
+    # tag → (min_diff, max_diff) — which elevation transitions this
+    # stamp belongs on. Per the 2026-05-17 terrain-aware placement PR.
+    "bridge": (2, 2),     # ledge spans (2m drop)
+    "stair":  (3, 3),     # cliff face (3m climb)
+    "ladder": (4, 99),    # wall face (4m+ climb)
+}
+
+
+def _terrain_keyed_stamps(
+    biome_name: str,
+    base_seed: int,
+    elevation_field: dict[tuple[int, int], int] | None = None,
+) -> list[dict]:
+    """Scan the elevation field for transitions; emit stamps keyed to
+    matching tier (bridges on ledges, stairs on cliffs, ladders on
+    walls). Per the 2026-05-17 terrain-aware placement PR.
+
+    Stamps placed by this pass bypass the tile_chance gate — they're
+    keyed to features that already exist. Capped per-tag to avoid
+    clutter (max ~2 per tier in the visible area).
+
+    `elevation_field` defaults to the brain module's
+    `_BIOME_ELEVATION_FIELD` when None — pass an explicit dict in
+    tests so the function is exercisable without brain globals.
+    """
+    import random as _rand
+    from core.systems import thing_renderer, biome_elevation, thing_library
+
+    field = (elevation_field if elevation_field is not None
+             else _BIOME_ELEVATION_FIELD)
+    if not field:
+        return []
+
+    # Index stamps by terrain tag — each tag → list[Thing].
+    stamps_by_tag: dict[str, list] = {tag: [] for tag in _TERRAIN_STAMP_TAGS}
+    for stamp in thing_library.get_all_stamps().values():
+        for tag in stamp.tags or []:
+            if tag in stamps_by_tag:
+                stamps_by_tag[tag].append(stamp)
+
+    # Walk every elev-tile pair, classify the transition.
+    candidates_by_tag: dict[str, list[dict]] = {
+        tag: [] for tag in _TERRAIN_STAMP_TAGS
+    }
+    elev_m = biome_elevation.ELEV_TILE_M
+    for (tx, ty), level in field.items():
+        for dx, dy in ((1, 0), (0, 1)):
+            n_coord = (tx + dx, ty + dy)
+            if n_coord not in field:
+                continue
+            n_level = field[n_coord]
+            diff = abs(n_level - level)
+            for tag, (lo, hi) in _TERRAIN_STAMP_TAGS.items():
+                if lo <= diff <= hi and stamps_by_tag[tag]:
+                    # Place at the midpoint of the transition; orient
+                    # along the transition axis (90° if +Y boundary).
+                    mid_x = (tx + dx * 0.5) * elev_m
+                    mid_y = (ty + dy * 0.5) * elev_m
+                    yaw = 90.0 if dy == 1 else 0.0
+                    # Floor = the LOWER tile's z (so stairs/ladders
+                    # rise from the floor; bridges sit at the lower
+                    # rim and reach across).
+                    low_level = min(level, n_level)
+                    floor_z = biome_elevation.field_to_floor_z(low_level)
+                    candidates_by_tag[tag].append({
+                        "mid_x": mid_x, "mid_y": mid_y,
+                        "yaw": yaw, "floor_z": floor_z,
+                        "diff": diff, "tag": tag,
+                    })
+
+    # Per-tag deterministic sample, capped to MAX_PER_TAG to avoid
+    # clutter. Cap chosen low — these are landmarks, not density.
+    MAX_PER_TAG = 2
+    rng = _rand.Random(hash((biome_name, "terrain_stamps", base_seed))
+                       & 0xffffffff)
+    out: list[dict] = []
+    for tag, cands in candidates_by_tag.items():
+        if not cands or not stamps_by_tag[tag]:
+            continue
+        rng.shuffle(cands)
+        chosen = cands[:MAX_PER_TAG]
+        for idx, cand in enumerate(chosen):
+            stamp = rng.choice(stamps_by_tag[tag])
+            entities = thing_renderer.expand_thing_to_world_z(
+                stamp,
+                origin_xy=(cand["mid_x"], cand["mid_y"]),
+                floor_z=cand["floor_z"],
+                yaw_deg=cand["yaw"],
+                id_base=85_000,
+                instance_id=hash((tag, idx, base_seed)) % 100_000,
+            )
+            for ent in entities:
+                ent["_stamp"] = stamp.name
+                ent["_stamp_placement"] = "terrain"
+                ent["_stamp_tier"] = tag
+            out.extend(entities)
+    return out
+
+
 def _build_biome_stamps(biome_name: str, base_seed: int, tile_size: float,
                           tile_range: int = 2) -> list[dict]:
-    """Precompute biome-stamp entities — architecture assemblies
-    placed sparsely via BIOME_STAMP_CONFIG.tile_chance. Same iteration
-    + greenhouse + per-thing-elev pattern as _build_biome_things, just
-    a different library + sparser placement.
+    """Precompute biome-stamp entities — architecture assemblies.
 
-    Per the 2026-05-17 "stamps as data" PR. V1: stamps land at random
-    XY within each stamp-bearing tile; alignment to terrain features
-    (ledges/cliffs) is a follow-up authoring layer.
+    Two-pass placement (per 2026-05-17 terrain-aware PR):
+      1. Terrain-keyed pass — bridges on ledges, stairs on cliffs,
+         ladders on walls. Bypasses tile_chance gate.
+      2. Random tile pass — gazebos/signposts/fences/logs/doors at
+         random tile XY via BIOME_STAMP_CONFIG.tile_chance. Skips
+         stamps that carry a terrain affinity tag (those only place
+         via pass 1).
     """
     import random as _rand
     from core.systems import thing_renderer, biome_elevation
@@ -2516,12 +2617,19 @@ def _build_biome_stamps(biome_name: str, base_seed: int, tile_size: float,
     )
 
     cfg = BIOME_STAMP_CONFIG.get(biome_name, BIOME_STAMP_CONFIG_DEFAULT)
+
+    # Pass 1: terrain-keyed placements (independent of tile_chance).
+    out = _terrain_keyed_stamps(biome_name, base_seed)
+    terrain_count = len(out)
+
     if float(cfg.get("tile_chance", 0.0)) <= 0.0:
-        return []
+        if terrain_count:
+            print(f"  biome_stamps: {terrain_count} terrain-keyed "
+                  f"entities (random gate disabled)", flush=True)
+        return out
 
     bl = default_blender()
     vault = _get_vault()
-    out: list[dict] = []
     total_picks = 0
     total_unfilled = 0
     edge_pad = max(2.0, tile_size * 0.15)
@@ -2548,6 +2656,11 @@ def _build_biome_stamps(biome_name: str, base_seed: int, tile_size: float,
             tile_origin_y = ty * tile_size
 
             for slot_idx, stamp in enumerate(picks):
+                # Terrain-affinity stamps are placed by pass 1 only.
+                # Skip them in the random pass to prevent doubling.
+                stamp_tags = set(stamp.tags or [])
+                if stamp_tags & set(_TERRAIN_STAMP_TAGS):
+                    continue
                 ox = place_rng.uniform(edge_pad, tile_size - edge_pad)
                 oy = place_rng.uniform(edge_pad, tile_size - edge_pad)
                 world_x = tile_origin_x + ox
@@ -2568,6 +2681,7 @@ def _build_biome_stamps(biome_name: str, base_seed: int, tile_size: float,
                 for ent in entities:
                     ent["_tile"] = [tx, ty]
                     ent["_stamp"] = stamp.name
+                    ent["_stamp_placement"] = "random"
                 out.extend(entities)
                 total_picks += 1
 
@@ -2586,8 +2700,9 @@ def _build_biome_stamps(biome_name: str, base_seed: int, tile_size: float,
 
     print(
         f"  biome_stamps: precomputed {len(out)} entities — "
-        f"{total_picks} library picks + {total_unfilled} greenhouse "
-        f"demands across {(2*tile_range+1)**2} tiles",
+        f"{terrain_count} terrain-keyed + {total_picks} random picks "
+        f"+ {total_unfilled} greenhouse demands across "
+        f"{(2*tile_range+1)**2} tiles",
         flush=True,
     )
     return out
