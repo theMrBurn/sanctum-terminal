@@ -95,7 +95,11 @@ BIOME_THING_CONFIG: dict[str, dict[str, Any]] = {
     "cavern":   {"tags": ["carcosa", "tolkien"],
                  "exclude_tags": ["outdoor"],
                  "per_tile": 2},
-    "outdoor":  {"tags": ["moebius", "tolkien", "outdoor"],
+    # Outdoor = PNW forest as of 2026-05-17. Doug fir / sword fern /
+    # moss as the library anchor; greenhouse layer logs any unfilled
+    # demand. Excludes carcosa (cavern's mythos register) so a stray
+    # tag overlap can't leak fungal/bone things into the forest.
+    "outdoor":  {"tags": ["pnw"],
                  "exclude_tags": ["carcosa"],
                  "per_tile": 3},
     "hub":      {"tags": ["moebius"],

@@ -1,0 +1,64 @@
+{
+  "name": "moss_patch",
+  "real_size_m": [
+    0.7,
+    0.7,
+    0.08
+  ],
+  "anchor": "mat",
+  "source": "hand-authored fixture — PNW ground decal, wet moss carpet",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "flora",
+    "moss",
+    "ground"
+  ],
+  "interactions": {
+    "examine": "A patch of moss. Damp, sponge-springy underfoot. Tiny capsule-stalks rise from the surface. Smells of {lex:scent}.",
+    "pickup": "You peel a corner of the mat. It comes away with a sucking sigh and leaves a wet print.",
+    "kick": "Your boot squelches into the moss. The dent slowly fills back in."
+  },
+  "parts": [
+    {
+      "primitive": "ground_hug",
+      "role": "mat",
+      "rel_size": [
+        1.0,
+        1.0,
+        0.30
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.30
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.12,
+        0.26,
+        0.10
+      ]
+    },
+    {
+      "primitive": "scatter_7",
+      "role": "stalks",
+      "rel_size": [
+        0.85,
+        0.85,
+        0.60
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.10
+      ],
+      "tier": "mid",
+      "color_base": [
+        0.18,
+        0.32,
+        0.14
+      ]
+    }
+  ]
+}

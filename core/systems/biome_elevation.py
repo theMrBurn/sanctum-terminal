@@ -43,11 +43,16 @@ ELEVATION_RULES: dict[str, dict[str, Any]] = {
         "level_weights":     {0: 1.0, 1: 1.5, 2: 1.5, 3: 0.8, 4: 0.4},
         "policy":            "vertical_exploration",
     },
+    # Outdoor = PNW forest as of 2026-05-17. Cascade foothills feel —
+    # rolling base with occasional ledges + the odd cliff where a
+    # stream cut through. max_adjacent_diff=2 = ledges allowed
+    # (player can jump up). Cliff (diff=3) shows up rarely via the
+    # level_weights bias toward middle values.
     "outdoor": {
-        "levels":            (0, 2),
-        "max_adjacent_diff": 1,                  # smooth only
-        "level_weights":     {0: 2.0, 1: 1.0, 2: 0.5},
-        "policy":            "gentle_hills",
+        "levels":            (0, 4),
+        "max_adjacent_diff": 2,
+        "level_weights":     {0: 1.5, 1: 2.0, 2: 1.8, 3: 1.0, 4: 0.4},
+        "policy":            "cascade_foothills",
     },
     "hub": {
         "levels":            (0, 0),             # flat

@@ -86,11 +86,13 @@ brain: meshes
 brain-cavern: meshes
 	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py cavern
 
-# Brain for vector_terminal use — same stamp_world mode as brain-cavern but
-# skips the meshes prereq since vector_terminal renders wireframes from
-# kind_config bounds, never loads GLB meshes. Pair with `make vector`.
+# Brain for vector_terminal use — outdoor biome (PNW forest as of
+# 2026-05-17). Skips meshes prereq since vector_terminal renders
+# wireframes from kind_config bounds. Pair with `make vector`.
+# Was `cavern` before the elevation+greenhouse rework; cavern remains
+# available via `brain-cavern`.
 brain-vector:
-	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py cavern
+	SANCTUM_STAMP=1 PYTHONPATH=. ./.venv/bin/python brain_server.py outdoor
 
 # Brain for the vector-workroom authoring sandbox. Per
 # `.claude/feature/feat_vector-workroom.md`. Empty procedural pool,

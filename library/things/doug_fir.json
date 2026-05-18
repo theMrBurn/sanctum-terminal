@@ -1,0 +1,124 @@
+{
+  "name": "doug_fir",
+  "real_size_m": [
+    3.0,
+    3.0,
+    18.0
+  ],
+  "anchor": "trunk",
+  "source": "hand-authored fixture — PNW biome anchor, conifer silhouette",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "flora",
+    "tree",
+    "conifer"
+  ],
+  "interactions": {
+    "examine": "A Douglas fir. Bark deep-furrowed, grey-brown. Needles soft on the lower branches. Smells of {lex:scent}.",
+    "pickup": "Far too large to carry. Your hand rests on the trunk a moment, then falls away.",
+    "kick": "Your boot meets the trunk. The tree does not notice."
+  },
+  "parts": [
+    {
+      "primitive": "tapered_vertical",
+      "role": "trunk",
+      "rel_size": [
+        0.18,
+        0.18,
+        1.0
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.28,
+        0.20,
+        0.13
+      ]
+    },
+    {
+      "primitive": "scatter_7",
+      "role": "canopy_low",
+      "rel_size": [
+        0.90,
+        0.90,
+        0.30
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.05
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.10,
+        0.20,
+        0.12
+      ]
+    },
+    {
+      "primitive": "scatter_7",
+      "role": "canopy_mid",
+      "rel_size": [
+        0.75,
+        0.75,
+        0.25
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.25
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.12,
+        0.23,
+        0.14
+      ]
+    },
+    {
+      "primitive": "scatter_7",
+      "role": "canopy_top",
+      "rel_size": [
+        0.55,
+        0.55,
+        0.20
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.42
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.15,
+        0.27,
+        0.16
+      ]
+    },
+    {
+      "primitive": "ground_hug",
+      "role": "shadow",
+      "rel_size": [
+        1.0,
+        1.0,
+        0.02
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.50
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.04,
+        0.03,
+        0.02
+      ]
+    }
+  ]
+}

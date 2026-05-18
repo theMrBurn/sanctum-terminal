@@ -63,16 +63,23 @@ def test_cavern_uses_full_level_range():
     assert len(distinct_levels) >= 3
 
 
-def test_outdoor_smooth_no_large_jumps():
-    """Outdoor max_adjacent_diff=1 — no large cliffs."""
+def test_outdoor_pnw_allows_ledges_but_not_cliffs():
+    """Outdoor (PNW forest, 2026-05-17) max_adjacent_diff=2 — ledges
+    allowed (player can jump up), no full cliffs at the boundary."""
     field = biome_elevation.solve_elevation_field("outdoor", base_seed=3)
     for (x, y), v in field.items():
         for nx, ny in [(x+1, y), (x, y+1)]:
             if (nx, ny) in field:
-                assert abs(v - field[(nx, ny)]) <= 1, (
-                    f"outdoor allowed adjacency diff > 1 at "
+                assert abs(v - field[(nx, ny)]) <= 2, (
+                    f"outdoor allowed adjacency diff > 2 at "
                     f"({x},{y})={v} vs ({nx},{ny})={field[(nx,ny)]}"
                 )
+
+
+def test_outdoor_uses_full_pnw_range():
+    """PNW outdoor should hit at least 3 distinct levels statistically."""
+    field = biome_elevation.solve_elevation_field("outdoor", base_seed=1)
+    assert len(set(field.values())) >= 3
 
 
 def test_cavern_can_have_cliffs():

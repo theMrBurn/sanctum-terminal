@@ -1,0 +1,83 @@
+{
+  "name": "sword_fern",
+  "real_size_m": [
+    0.9,
+    0.9,
+    0.6
+  ],
+  "anchor": "fronds_lower",
+  "source": "hand-authored fixture — PNW ground cover, low frond cluster",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "flora",
+    "fern"
+  ],
+  "interactions": {
+    "examine": "A sword fern. Fronds arched out from a low crown, deep green, leathery. New fiddleheads coiled at the center. {lex:scent} clings to the underside.",
+    "pickup": "You uproot a frond. It breaks at the rachis with a wet snap.",
+    "kick": "The fronds part around your boot and spring back."
+  },
+  "parts": [
+    {
+      "primitive": "scatter_7",
+      "role": "fronds_lower",
+      "rel_size": [
+        1.0,
+        1.0,
+        0.45
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.10
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.10,
+        0.24,
+        0.10
+      ]
+    },
+    {
+      "primitive": "scatter_7",
+      "role": "fronds_upper",
+      "rel_size": [
+        0.75,
+        0.75,
+        0.40
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        0.15
+      ],
+      "tier": "mid",
+      "color_base": [
+        0.14,
+        0.30,
+        0.13
+      ]
+    },
+    {
+      "primitive": "ground_hug",
+      "role": "shadow",
+      "rel_size": [
+        0.9,
+        0.9,
+        0.02
+      ],
+      "rel_position": [
+        0.0,
+        0.0,
+        -0.48
+      ],
+      "tier": "silhouette",
+      "color_base": [
+        0.04,
+        0.06,
+        0.03
+      ]
+    }
+  ]
+}
