@@ -659,6 +659,12 @@ _THING_GALLERY_ENTITIES: list[dict] = _load_thing_gallery()
 # `feat/biome-greenhouse` PR 3.
 _BIOME_THINGS_ENTITIES: list[dict] = []
 
+# Per-biome elevation field — {(tile_x, tile_y): integer_level}.
+# Solved once at biome init via biome_elevation.solve_elevation_field.
+# Things-on-tile-elevation + future slope/wall rendering both query
+# this dict. Per `feat/biome-greenhouse` elevation extension.
+_BIOME_ELEVATION_FIELD: dict[tuple[int, int], int] = {}
+
 
 # Lexicon placeholder substitution for interact response text.
 # Per `design_lexicon_architecture` + `feedback_her_voice`: the player's
@@ -2349,6 +2355,25 @@ class BrainWorld:
 
 # -- TCP server ---------------------------------------------------------------
 
+def _build_biome_elevation(biome_name: str, base_seed: int,
+                             tile_range: int = 2) -> dict:
+    """Solve a per-tile elevation field for the biome. Cached in
+    _BIOME_ELEVATION_FIELD module-level dict for thing placement +
+    future slope rendering. Per `feat/biome-greenhouse` elevation."""
+    from core.systems import biome_elevation
+    field = biome_elevation.solve_elevation_field(
+        biome_name, tile_range=tile_range, base_seed=base_seed,
+    )
+    desc = biome_elevation.describe_field(field)
+    print(
+        f"  biome_elevation: solved {desc['tile_count']} tiles "
+        f"(levels {desc['level_min']}..{desc['level_max']}, "
+        f"transitions={desc['transitions']})",
+        flush=True,
+    )
+    return field
+
+
 def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
                           tile_range: int = 2) -> list[dict]:
     """Precompute biome-things entities for a (2*tile_range+1)² tile grid
@@ -2356,11 +2381,15 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
     procedural positions; unfilled slots become greenhouse demands +
     placeholder seeds.
 
+    Things now sit at their tile's elevation (per `feat/biome-greenhouse`
+    elevation extension 2026-05-17) — _BIOME_ELEVATION_FIELD must be
+    populated before this is called.
+
     Per `feat/biome-greenhouse` PR 3. Runs once at biome init. V1 only;
     procedural per-tick expansion is V2.
     """
     import random as _rand
-    from core.systems import thing_renderer
+    from core.systems import thing_renderer, biome_elevation
     from core.systems.blender import default_blender, BIOME_THING_CONFIG
 
     cfg = BIOME_THING_CONFIG.get(biome_name, {})
@@ -2397,6 +2426,12 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
             # Persisted per-tile state — pickup tombstones + kick offsets.
             tile_state = vault.biome_thing_state_for_tile(biome_name, tx, ty)
 
+            # Tile's elevation in world meters — things sit ON terrain,
+            # not at z=0. Falls back to 0.0 if elevation field missing
+            # (workroom + unknown biomes).
+            tile_level = _BIOME_ELEVATION_FIELD.get((tx, ty), 0)
+            tile_floor_z = biome_elevation.field_to_floor_z(tile_level)
+
             for slot_idx, thing in enumerate(picks):
                 tname = thing.name
                 state = tile_state.get(tname, {})
@@ -2410,7 +2445,7 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
                 entities = thing_renderer.expand_thing_to_world_z(
                     thing,
                     origin_xy=(tile_origin_x + ox, tile_origin_y + oy),
-                    floor_z=0.0,
+                    floor_z=tile_floor_z,
                     id_base=50_000,
                     instance_id=hash((tx, ty, slot_idx)) % 100_000,
                 )
@@ -2444,7 +2479,7 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
                     "kind":      "scan_heptagonal_mote_greenhouse",
                     "x":         round(tile_origin_x + ox, 3),
                     "y":         round(tile_origin_y + oy, 3),
-                    "z":         0.35,
+                    "z":         round(tile_floor_z + 0.35, 3),
                     "sx":        0.30, "sy": 0.30, "sz": 0.30,
                     "r":         0.55, "g": 0.42, "b": 0.20,
                     "_greenhouse":  True,
@@ -2471,8 +2506,17 @@ def run_server(biome_name, port=9877):
     # assignments in the function).
     global _BIOME_THINGS_ENTITIES
     global _THING_GALLERY_ENTITIES
+    global _BIOME_ELEVATION_FIELD
 
     world = BrainWorld(biome_name)
+
+    # Biome elevation field — must be solved BEFORE biome-things so
+    # thing placement knows the per-tile floor Z. Per
+    # `feat/biome-greenhouse` elevation extension 2026-05-17.
+    _BIOME_ELEVATION_FIELD = _build_biome_elevation(
+        biome_name,
+        base_seed=getattr(world, "base_seed", 0),
+    )
 
     # Biome-things — precompute Blender-driven thing placements +
     # greenhouse demand log for tiles around origin. Per
