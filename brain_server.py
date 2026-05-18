@@ -2479,9 +2479,16 @@ def _build_terrain_walls(
             diff = abs(n_level - level)
             if diff == 0:
                 continue
-            if diff == 1:
-                # step tier — auto-resolved by client floor clamp.
-                # No wall needed. Per 2026-05-17 perf cleanup.
+            if diff <= 2:
+                # step (diff=1) + ledge (diff=2) tiers — the
+                # client-side terrain floor wireframes
+                # (_draw_terrain_floors) already show these
+                # transitions visually, and the floor-clamp resolves
+                # the physics. Emitting walls here just adds noisy
+                # vertical slabs between two stepped wireframe tiles.
+                # Reserve walls for cliff (diff=3) + wall (diff>=4),
+                # where they actually function as barriers + drama.
+                # Per 2026-05-18 wireframe-clutter pass.
                 continue
             tier = biome_elevation.classify_transition(diff)
             high_z = biome_elevation.field_to_floor_z(max(level, n_level))

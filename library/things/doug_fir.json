@@ -6,7 +6,7 @@
     18.0
   ],
   "anchor": "trunk",
-  "source": "hand-authored fixture — PNW biome anchor, conifer silhouette",
+  "source": "hand-authored fixture — PNW biome anchor, conifer silhouette. Canopy reauthored as nested orbs 2026-05-18 to read as foliage mass instead of scatter_7 spider-web.",
   "tags": [
     "pnw",
     "outdoor",
@@ -23,102 +23,50 @@
     {
       "primitive": "tapered_vertical",
       "role": "trunk",
-      "rel_size": [
-        0.18,
-        0.18,
-        1.0
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        0.0
-      ],
+      "rel_size": [0.18, 0.18, 1.0],
+      "rel_position": [0.0, 0.0, 0.0],
       "tier": "silhouette",
-      "color_base": [
-        0.28,
-        0.20,
-        0.13
-      ]
+      "color_base": [0.28, 0.20, 0.13]
     },
     {
-      "primitive": "scatter_7",
+      "primitive": "orb",
       "role": "canopy_low",
-      "rel_size": [
-        0.90,
-        0.90,
-        0.30
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        0.05
-      ],
+      "rel_size": [0.95, 0.95, 0.30],
+      "rel_position": [0.0, 0.0, 0.05],
       "tier": "silhouette",
-      "color_base": [
-        0.10,
-        0.20,
-        0.12
-      ]
+      "color_base": [0.10, 0.20, 0.12]
     },
     {
-      "primitive": "scatter_7",
+      "primitive": "orb",
       "role": "canopy_mid",
-      "rel_size": [
-        0.75,
-        0.75,
-        0.25
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        0.25
-      ],
+      "rel_size": [0.80, 0.80, 0.28],
+      "rel_position": [0.0, 0.0, 0.22],
       "tier": "silhouette",
-      "color_base": [
-        0.12,
-        0.23,
-        0.14
-      ]
+      "color_base": [0.13, 0.24, 0.14]
     },
     {
-      "primitive": "scatter_7",
+      "primitive": "orb",
       "role": "canopy_top",
-      "rel_size": [
-        0.55,
-        0.55,
-        0.20
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        0.42
-      ],
+      "rel_size": [0.55, 0.55, 0.25],
+      "rel_position": [0.0, 0.0, 0.38],
       "tier": "silhouette",
-      "color_base": [
-        0.15,
-        0.27,
-        0.16
-      ]
+      "color_base": [0.16, 0.28, 0.16]
+    },
+    {
+      "primitive": "octahedron",
+      "role": "crown",
+      "rel_size": [0.30, 0.30, 0.15],
+      "rel_position": [0.0, 0.0, 0.48],
+      "tier": "silhouette",
+      "color_base": [0.18, 0.32, 0.18]
     },
     {
       "primitive": "ground_hug",
       "role": "shadow",
-      "rel_size": [
-        1.0,
-        1.0,
-        0.02
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        -0.50
-      ],
+      "rel_size": [1.0, 1.0, 0.02],
+      "rel_position": [0.0, 0.0, -0.50],
       "tier": "silhouette",
-      "color_base": [
-        0.04,
-        0.03,
-        0.02
-      ]
+      "color_base": [0.04, 0.03, 0.02]
     }
   ]
 }

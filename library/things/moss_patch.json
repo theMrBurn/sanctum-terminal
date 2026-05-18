@@ -6,7 +6,7 @@
     0.08
   ],
   "anchor": "mat",
-  "source": "hand-authored fixture — PNW ground decal, wet moss carpet",
+  "source": "hand-authored fixture — PNW ground decal. 2026-05-18 reauthored — single ground_hug + sparse mote crown, no scatter_7 stalks.",
   "tags": [
     "pnw",
     "outdoor",
@@ -23,42 +23,18 @@
     {
       "primitive": "ground_hug",
       "role": "mat",
-      "rel_size": [
-        1.0,
-        1.0,
-        0.30
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        -0.30
-      ],
+      "rel_size": [1.0, 1.0, 0.30],
+      "rel_position": [0.0, 0.0, -0.30],
       "tier": "silhouette",
-      "color_base": [
-        0.12,
-        0.26,
-        0.10
-      ]
+      "color_base": [0.12, 0.26, 0.10]
     },
     {
-      "primitive": "scatter_7",
-      "role": "stalks",
-      "rel_size": [
-        0.85,
-        0.85,
-        0.60
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        0.10
-      ],
+      "primitive": "heptagonal_mote",
+      "role": "crown",
+      "rel_size": [0.65, 0.65, 0.30],
+      "rel_position": [0.0, 0.0, 0.05],
       "tier": "mid",
-      "color_base": [
-        0.18,
-        0.32,
-        0.14
-      ]
+      "color_base": [0.18, 0.32, 0.14]
     }
   ]
 }

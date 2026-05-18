@@ -5,8 +5,8 @@
     0.9,
     0.6
   ],
-  "anchor": "fronds_lower",
-  "source": "hand-authored fixture — PNW ground cover, low frond cluster",
+  "anchor": "crown",
+  "source": "hand-authored fixture — PNW ground cover. Reauthored 2026-05-18 — orb + ground_hug instead of scatter_7 fronds (which spider-webbed at scale).",
   "tags": [
     "pnw",
     "outdoor",
@@ -20,64 +20,28 @@
   },
   "parts": [
     {
-      "primitive": "scatter_7",
-      "role": "fronds_lower",
-      "rel_size": [
-        1.0,
-        1.0,
-        0.45
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        -0.10
-      ],
+      "primitive": "orb",
+      "role": "crown",
+      "rel_size": [1.0, 1.0, 0.70],
+      "rel_position": [0.0, 0.0, 0.05],
       "tier": "silhouette",
-      "color_base": [
-        0.10,
-        0.24,
-        0.10
-      ]
+      "color_base": [0.12, 0.26, 0.12]
     },
     {
-      "primitive": "scatter_7",
-      "role": "fronds_upper",
-      "rel_size": [
-        0.75,
-        0.75,
-        0.40
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        0.15
-      ],
-      "tier": "mid",
-      "color_base": [
-        0.14,
-        0.30,
-        0.13
-      ]
+      "primitive": "ground_hug",
+      "role": "skirt",
+      "rel_size": [1.0, 1.0, 0.08],
+      "rel_position": [0.0, 0.0, -0.42],
+      "tier": "silhouette",
+      "color_base": [0.10, 0.22, 0.10]
     },
     {
       "primitive": "ground_hug",
       "role": "shadow",
-      "rel_size": [
-        0.9,
-        0.9,
-        0.02
-      ],
-      "rel_position": [
-        0.0,
-        0.0,
-        -0.48
-      ],
+      "rel_size": [0.9, 0.9, 0.02],
+      "rel_position": [0.0, 0.0, -0.48],
       "tier": "silhouette",
-      "color_base": [
-        0.04,
-        0.06,
-        0.03
-      ]
+      "color_base": [0.04, 0.06, 0.03]
     }
   ]
 }
