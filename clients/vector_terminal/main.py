@@ -416,7 +416,20 @@ def main() -> int:
         camera.position.y += vy * dt
         vy -= cfg.GRAVITY * dt
         if camera.position.y <= floor_y:
-            camera.position.y = floor_y
+            # Snap when below — gravity-grounded. Snap when the gap
+            # is tiny — sub-frame jitter. Lerp otherwise — smooth
+            # rise/fall onto stepped terrain so a 1-2m elevation
+            # transition reads as a step-up rather than a teleport.
+            # Per 2026-05-17 elevation visibility fix.
+            gap = floor_y - camera.position.y
+            if gap < 0.05:
+                camera.position.y = floor_y
+            else:
+                # ~6 m/s vertical climb — matches a brisk step.
+                camera.position.y = min(
+                    floor_y,
+                    camera.position.y + 6.0 * dt,
+                )
             vy = 0.0
 
         if not noclip:
@@ -902,6 +915,11 @@ def main() -> int:
 
         _draw_floor_blockout(camera)
         _draw_floor_grid(camera)
+        # Per-tile terrain floor wireframes — paint the elevation
+        # field as physical ground so the player can SEE the levels
+        # they're walking onto, not just feel a vertical teleport.
+        # Per 2026-05-17 elevation visibility fix.
+        _draw_terrain_floors(camera, terrain_cache)
         biome = str(last_manifest.get("biome", ""))
         if cfg.DRAW_CEILING_GRID and biome == "cavern":
             _draw_ceiling_grid(camera, cfg.CAVERN_CEILING_HEIGHT)
@@ -1264,6 +1282,44 @@ def _draw_floor_blockout(camera) -> None:
 def _draw_floor_grid(camera) -> None:
     """Wireframe floor at y=0, snapped to camera xz so it reads as infinite."""
     _draw_horizontal_grid(camera, 0.0, cfg.FLOOR_GRID_SPACING)
+
+
+def _draw_terrain_floors(camera, terrain_cache) -> None:
+    """Paint each elevation tile as a horizontal wireframe square at
+    its world Y, so the player sees the terrain they're walking onto.
+    Without this the floor stays at y=0 and the camera silently
+    teleports up — feels broken. Per 2026-05-17 elevation visibility
+    fix.
+
+    Culled to a generous view radius around the camera. Cheap: ~50
+    quads per frame, no faces (edges only)."""
+    if not terrain_cache.has_data or not terrain_cache.field:
+        return
+    ts = terrain_cache.tile_size or 12.0
+    half = ts * 0.5
+    cx = camera.position.x
+    cz = camera.position.z
+    view_r2 = 60.0 * 60.0
+    for (tx, ty), level in terrain_cache.field.items():
+        # Tile center in world coords (raylib XZ; brain X→raylib X,
+        # brain Y→raylib Z).
+        wx = tx * ts
+        wz = ty * ts
+        if (wx - cx) ** 2 + (wz - cz) ** 2 > view_r2:
+            continue
+        wy = level * terrain_cache.level_height_m
+        # Distance fade for depth read.
+        dist = math.hypot(wx - cx, wz - cz)
+        color = _amber(_intensity_for_distance(dist))
+        # Square: 4 verts + 4 edges.
+        x0, x1 = wx - half, wx + half
+        z0, z1 = wz - half, wz + half
+        rl.draw_line_3d(rl.Vector3(x0, wy, z0), rl.Vector3(x1, wy, z0), color)
+        rl.draw_line_3d(rl.Vector3(x1, wy, z0), rl.Vector3(x1, wy, z1), color)
+        rl.draw_line_3d(rl.Vector3(x1, wy, z1), rl.Vector3(x0, wy, z1), color)
+        rl.draw_line_3d(rl.Vector3(x0, wy, z1), rl.Vector3(x0, wy, z0), color)
+        # Diagonal cross for tile-level read (helps eye parse stepping).
+        rl.draw_line_3d(rl.Vector3(x0, wy, z0), rl.Vector3(x1, wy, z1), color)
 
 
 def _draw_ceiling_grid(camera, height: float) -> None:
