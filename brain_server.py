@@ -2312,6 +2312,18 @@ class BrainWorld:
             # re-dispatches spawn + clears entity caches so the world
             # transition lands within one manifest cycle.
             "world_revision": self.world_revision,
+            # Per-tile elevation field — for client-side floor clamping
+            # so player camera Y rests on tile floor. Per
+            # `feat/biome-greenhouse` elevation extension. Empty for
+            # flat biomes (workroom/hub/unknown).
+            "elevation": {
+                "tile_size":       float(getattr(self, "tile_size", 12.0)),
+                "level_height_m":  1.0,
+                "tiles":           [
+                    [tx, ty, lvl]
+                    for (tx, ty), lvl in _BIOME_ELEVATION_FIELD.items()
+                ],
+            },
             "tension_state": self.tension.state,
             "tension_budget": round(self.tension.budget, 3),
             "tension_envelope": {

@@ -41,6 +41,7 @@ from clients.vector_terminal import reflective as reflective_overlay  # noqa: E4
 from clients.vector_terminal import engagement as engagement_overlay  # noqa: E402
 from clients.vector_terminal import tune_mode  # noqa: E402
 from clients.vector_terminal import interact as interact_mod  # noqa: E402
+from clients.vector_terminal import terrain as terrain_mod  # noqa: E402
 from clients.vector_terminal.seed_collision import compute_floor_height  # noqa: E402
 from clients.vector_terminal.seed_mesh_cache import SeedMeshCache  # noqa: E402
 from clients.vector_terminal import silhouette as silhouette_renderer  # noqa: E402
@@ -92,6 +93,7 @@ def main() -> int:
     reflective_state = reflective_overlay.ReflectiveState()
     engagement_state = engagement_overlay.EngagementState()
     tune_state = tune_mode.TuneState()
+    terrain_cache = terrain_mod.ElevationCache()
     build_state = build_mode.BuildState()
     seed_mesh_cache = SeedMeshCache()
     # Per-session cast counter — drives the negative `tag_id` namespace
@@ -381,6 +383,10 @@ def main() -> int:
         # STEP_HEIGHT_MAX of current camera Y. Falls back to EYE_HEIGHT
         # when no seed surface applies. This is what makes ramps/stairs/
         # platforms traversable without lateral collision against walls.
+        # Refresh terrain elevation cache from manifest (no-op if no
+        # elevation block, e.g. workroom + hub).
+        terrain_mod.update_from_manifest(terrain_cache, last_manifest)
+
         floor_y = compute_floor_height(
             seeds=last_manifest.get("seeds") or [],
             world_x=camera.position.x,
@@ -389,6 +395,14 @@ def main() -> int:
             ground_y=cfg.EYE_HEIGHT,
             cache=seed_mesh_cache,
         )
+        # Terrain elevation — bias the floor up by the player's current
+        # tile's level. The MAX of (seed surface, terrain tier, ground)
+        # is the actual standing surface. Per `feat/biome-greenhouse`
+        # elevation extension 2026-05-17.
+        terrain_floor = terrain_mod.floor_y_at(
+            terrain_cache, camera.position.x, camera.position.z,
+        )
+        floor_y = max(floor_y, terrain_floor + cfg.EYE_HEIGHT)
 
         # SPACE in BUILD/PLACE drops a seed (handled by build_mode), so it
         # must NOT also trigger jump here. Jump is only available when
