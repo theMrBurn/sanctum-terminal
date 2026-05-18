@@ -661,9 +661,14 @@ _BIOME_THINGS_ENTITIES: list[dict] = []
 
 # Per-biome elevation field — {(tile_x, tile_y): integer_level}.
 # Solved once at biome init via biome_elevation.solve_elevation_field.
-# Things-on-tile-elevation + future slope/wall rendering both query
-# this dict. Per `feat/biome-greenhouse` elevation extension.
+# Things-on-tile-elevation + slope/wall rendering both query this
+# dict. Per `feat/biome-greenhouse` elevation extension.
 _BIOME_ELEVATION_FIELD: dict[tuple[int, int], int] = {}
+
+# Terrain walls — wireframe boundaries between adjacent tiles at
+# different elevations. Built from _BIOME_ELEVATION_FIELD at biome
+# init. Static across the brain's lifetime.
+_BIOME_TERRAIN_WALLS: list[dict] = []
 
 
 # Lexicon placeholder substitution for interact response text.
@@ -2374,6 +2379,78 @@ def _build_biome_elevation(biome_name: str, base_seed: int,
     return field
 
 
+def _build_terrain_walls(
+    elevation_field: dict[tuple[int, int], int],
+    tile_size: float,
+) -> list[dict]:
+    """Emit wireframe walls at every tile boundary where adjacent
+    tiles differ in elevation. One wall per pair (4-connectivity,
+    iterated via +x/+y to avoid double-emission).
+
+    Per `feat/biome-greenhouse` elevation extension 2026-05-17 — the
+    tiered transition visuals. Wall height = level_diff × LEVEL_HEIGHT_M.
+
+    Walls carry collision_radius so the player gets pushed back when
+    walking into one (V1 — cylindrical approximation; perfect wall
+    collision is a future client refactor). Tier label stored on
+    entity for client-side rendering decisions later (e.g. dim walls
+    for steps vs bright for cliffs).
+    """
+    from core.systems import biome_elevation
+
+    out: list[dict] = []
+    for (tx, ty), level in elevation_field.items():
+        for dx, dy in ((1, 0), (0, 1)):
+            n_coord = (tx + dx, ty + dy)
+            if n_coord not in elevation_field:
+                continue
+            n_level = elevation_field[n_coord]
+            diff = abs(n_level - level)
+            if diff == 0:
+                continue
+            tier = biome_elevation.classify_transition(diff)
+            high_z = biome_elevation.field_to_floor_z(max(level, n_level))
+            low_z  = biome_elevation.field_to_floor_z(min(level, n_level))
+            wall_h = high_z - low_z
+            tile_center_x = tx * tile_size
+            tile_center_y = ty * tile_size
+            if dx == 1:
+                # boundary along +X (right edge of tile)
+                wall_x = tile_center_x + tile_size * 0.5
+                wall_y = tile_center_y
+                wall_sx, wall_sy = 0.15, tile_size
+            else:
+                # boundary along +Y
+                wall_x = tile_center_x
+                wall_y = tile_center_y + tile_size * 0.5
+                wall_sx, wall_sy = tile_size, 0.15
+
+            # Tier-driven color: dim for steps, brighter for cliffs.
+            tier_color = {
+                "step":  (0.55, 0.42, 0.20),
+                "ledge": (0.70, 0.52, 0.22),
+                "cliff": (0.85, 0.60, 0.25),
+                "wall":  (1.00, 0.70, 0.28),
+            }.get(tier, (0.55, 0.42, 0.20))
+
+            out.append({
+                "id":       70_000 + (hash((tx, ty, dx, dy)) & 0xffff),
+                "kind":     "scan_cube_terrain_wall",
+                "x":        round(wall_x, 3),
+                "y":        round(wall_y, 3),
+                "z":        round(low_z + wall_h / 2.0, 3),
+                "sx":       wall_sx, "sy": wall_sy, "sz": wall_h,
+                "r":        tier_color[0],
+                "g":        tier_color[1],
+                "b":        tier_color[2],
+                "collision_radius": max(wall_sx, wall_sy) / 2.0,
+                "_terrain_wall":    True,
+                "_tier":            tier,
+                "_level_diff":      diff,
+            })
+    return out
+
+
 def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
                           tile_range: int = 2) -> list[dict]:
     """Precompute biome-things entities for a (2*tile_range+1)² tile grid
@@ -2507,6 +2584,7 @@ def run_server(biome_name, port=9877):
     global _BIOME_THINGS_ENTITIES
     global _THING_GALLERY_ENTITIES
     global _BIOME_ELEVATION_FIELD
+    global _BIOME_TERRAIN_WALLS
 
     world = BrainWorld(biome_name)
 
@@ -2517,6 +2595,16 @@ def run_server(biome_name, port=9877):
         biome_name,
         base_seed=getattr(world, "base_seed", 0),
     )
+
+    # Terrain walls — wireframe boundaries at every level change.
+    # Tier-colored (step/ledge/cliff/wall) per the design.
+    _BIOME_TERRAIN_WALLS = _build_terrain_walls(
+        _BIOME_ELEVATION_FIELD,
+        tile_size=getattr(world, "tile_size", 12.0),
+    )
+    if _BIOME_TERRAIN_WALLS:
+        print(f"  terrain_walls: built {len(_BIOME_TERRAIN_WALLS)} walls",
+              flush=True)
 
     # Biome-things — precompute Blender-driven thing placements +
     # greenhouse demand log for tiles around origin. Per
@@ -4090,6 +4178,13 @@ def run_server(biome_name, port=9877):
                 if _BIOME_THINGS_ENTITIES:
                     manifest.setdefault("entities", []).extend(
                         _BIOME_THINGS_ENTITIES)
+
+                # Terrain walls — wireframe boundaries between adjacent
+                # tiles at different elevations. Per
+                # `feat/biome-greenhouse` elevation extension.
+                if _BIOME_TERRAIN_WALLS:
+                    manifest.setdefault("entities", []).extend(
+                        _BIOME_TERRAIN_WALLS)
 
                 # Encounter session snapshot (HUD/orb/log data).
                 if encounter is not None:
