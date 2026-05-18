@@ -72,6 +72,7 @@ from core.systems import make_brain_commands
 from core.systems import make_brain_registry
 from core.systems.character_draft import CharacterDraft
 from core.systems import activity_loop
+from core.systems import biome_elevation as _biome_elevation
 from core.systems import strike as strike_module
 from core.systems import strike_runtime
 from core.systems import weapons as weapons_pkg
@@ -2316,8 +2317,12 @@ class BrainWorld:
             # so player camera Y rests on tile floor. Per
             # `feat/biome-greenhouse` elevation extension. Empty for
             # flat biomes (workroom/hub/unknown).
+            # Per-tile elevation field for client floor clamp. Spacing
+            # is ELEV_TILE_M (12m) — decoupled from biome stamp
+            # tile_size (288m) per the 2026-05-17 fix. Field is empty
+            # for flat biomes (workroom/hub).
             "elevation": {
-                "tile_size":       float(getattr(self, "tile_size", 12.0)),
+                "tile_size":       _biome_elevation.ELEV_TILE_M,
                 "level_height_m":  1.0,
                 "tiles":           [
                     [tx, ty, lvl]
@@ -2373,17 +2378,25 @@ class BrainWorld:
 # -- TCP server ---------------------------------------------------------------
 
 def _build_biome_elevation(biome_name: str, base_seed: int,
-                             tile_range: int = 2) -> dict:
+                             tile_range: int | None = None) -> dict:
     """Solve a per-tile elevation field for the biome. Cached in
     _BIOME_ELEVATION_FIELD module-level dict for thing placement +
-    future slope rendering. Per `feat/biome-greenhouse` elevation."""
+    future slope rendering. Per `feat/biome-greenhouse` elevation.
+
+    Spacing uses biome_elevation.ELEV_TILE_M (12m by default) —
+    independent of the biome's stamp tile_size (288m), so transitions
+    appear close to spawn. Per the 2026-05-17 decouple fix.
+    """
     from core.systems import biome_elevation
+    if tile_range is None:
+        tile_range = biome_elevation.ELEV_TILE_RANGE_DEFAULT
     field = biome_elevation.solve_elevation_field(
         biome_name, tile_range=tile_range, base_seed=base_seed,
     )
     desc = biome_elevation.describe_field(field)
     print(
         f"  biome_elevation: solved {desc['tile_count']} tiles "
+        f"@ {biome_elevation.ELEV_TILE_M}m "
         f"(levels {desc['level_min']}..{desc['level_max']}, "
         f"transitions={desc['transitions']})",
         flush=True,
@@ -2393,7 +2406,7 @@ def _build_biome_elevation(biome_name: str, base_seed: int,
 
 def _build_terrain_walls(
     elevation_field: dict[tuple[int, int], int],
-    tile_size: float,
+    tile_size: float | None = None,
 ) -> list[dict]:
     """Emit wireframe walls at every tile boundary where adjacent
     tiles differ in elevation. One wall per pair (4-connectivity,
@@ -2402,6 +2415,15 @@ def _build_terrain_walls(
     Per `feat/biome-greenhouse` elevation extension 2026-05-17 — the
     tiered transition visuals. Wall height = level_diff × LEVEL_HEIGHT_M.
 
+    Spacing uses biome_elevation.ELEV_TILE_M (12m) by default —
+    decoupled from biome stamp tile_size per the 2026-05-17 fix.
+    Callers may pass an explicit tile_size for legacy tests.
+
+    SKIPS the 'step' tier (level_diff = 1, ~1m): these auto-resolve
+    via the client floor-clamp; emitting walls for them is cosmetic
+    noise + manifest bloat. Ledges + cliffs + walls are kept since
+    those need visual+collision presence.
+
     Walls carry collision_radius so the player gets pushed back when
     walking into one (V1 — cylindrical approximation; perfect wall
     collision is a future client refactor). Tier label stored on
@@ -2409,6 +2431,9 @@ def _build_terrain_walls(
     for steps vs bright for cliffs).
     """
     from core.systems import biome_elevation
+
+    if tile_size is None:
+        tile_size = biome_elevation.ELEV_TILE_M
 
     out: list[dict] = []
     for (tx, ty), level in elevation_field.items():
@@ -2419,6 +2444,10 @@ def _build_terrain_walls(
             n_level = elevation_field[n_coord]
             diff = abs(n_level - level)
             if diff == 0:
+                continue
+            if diff == 1:
+                # step tier — auto-resolved by client floor clamp.
+                # No wall needed. Per 2026-05-17 perf cleanup.
                 continue
             tier = biome_elevation.classify_transition(diff)
             high_z = biome_elevation.field_to_floor_z(max(level, n_level))
@@ -2515,12 +2544,6 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
             # Persisted per-tile state — pickup tombstones + kick offsets.
             tile_state = vault.biome_thing_state_for_tile(biome_name, tx, ty)
 
-            # Tile's elevation in world meters — things sit ON terrain,
-            # not at z=0. Falls back to 0.0 if elevation field missing
-            # (workroom + unknown biomes).
-            tile_level = _BIOME_ELEVATION_FIELD.get((tx, ty), 0)
-            tile_floor_z = biome_elevation.field_to_floor_z(tile_level)
-
             for slot_idx, thing in enumerate(picks):
                 tname = thing.name
                 state = tile_state.get(tname, {})
@@ -2531,9 +2554,20 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
                 # Apply persisted kick offset
                 ox += float(state.get("kick_dx", 0.0))
                 oy += float(state.get("kick_dy", 0.0))
+                # Per-thing elevation lookup: the elevation grid is
+                # finer (12m) than the things grid (288m), so each
+                # thing within a stamp tile may land on a different
+                # elevation. Decouple per 2026-05-17 fix.
+                world_x = tile_origin_x + ox
+                world_y = tile_origin_y + oy
+                etx, ety = biome_elevation.world_xy_to_elev_tile(
+                    world_x, world_y,
+                )
+                elev_level = _BIOME_ELEVATION_FIELD.get((etx, ety), 0)
+                tile_floor_z = biome_elevation.field_to_floor_z(elev_level)
                 entities = thing_renderer.expand_thing_to_world_z(
                     thing,
-                    origin_xy=(tile_origin_x + ox, tile_origin_y + oy),
+                    origin_xy=(world_x, world_y),
                     floor_z=tile_floor_z,
                     id_base=50_000,
                     instance_id=hash((tx, ty, slot_idx)) % 100_000,
@@ -2562,13 +2596,20 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
                 # at waist height. Visible reminder, not scenery noise.
                 ox = place_rng.uniform(edge_pad, tile_size - edge_pad)
                 oy = place_rng.uniform(edge_pad, tile_size - edge_pad)
+                world_x = tile_origin_x + ox
+                world_y = tile_origin_y + oy
+                etx, ety = biome_elevation.world_xy_to_elev_tile(
+                    world_x, world_y,
+                )
+                ph_level = _BIOME_ELEVATION_FIELD.get((etx, ety), 0)
+                ph_floor_z = biome_elevation.field_to_floor_z(ph_level)
                 placeholder = {
                     "id":        60_000 + (hash((biome_name, tx, ty, slot_idx))
                                             & 0xffff),
                     "kind":      "scan_heptagonal_mote_greenhouse",
-                    "x":         round(tile_origin_x + ox, 3),
-                    "y":         round(tile_origin_y + oy, 3),
-                    "z":         round(tile_floor_z + 0.35, 3),
+                    "x":         round(world_x, 3),
+                    "y":         round(world_y, 3),
+                    "z":         round(ph_floor_z + 0.35, 3),
                     "sx":        0.30, "sy": 0.30, "sz": 0.30,
                     "r":         0.55, "g": 0.42, "b": 0.20,
                     "_greenhouse":  True,
@@ -2609,11 +2650,9 @@ def run_server(biome_name, port=9877):
     )
 
     # Terrain walls — wireframe boundaries at every level change.
-    # Tier-colored (step/ledge/cliff/wall) per the design.
-    _BIOME_TERRAIN_WALLS = _build_terrain_walls(
-        _BIOME_ELEVATION_FIELD,
-        tile_size=getattr(world, "tile_size", 12.0),
-    )
+    # Tier-colored (ledge/cliff/wall) per the design. Spacing is
+    # ELEV_TILE_M (12m), decoupled from biome stamp tile_size.
+    _BIOME_TERRAIN_WALLS = _build_terrain_walls(_BIOME_ELEVATION_FIELD)
     if _BIOME_TERRAIN_WALLS:
         print(f"  terrain_walls: built {len(_BIOME_TERRAIN_WALLS)} walls",
               flush=True)
@@ -4186,17 +4225,38 @@ def run_server(biome_name, port=9877):
 
                 # Biome-things injection — Blender-driven per-tile picks
                 # + greenhouse placeholder seeds for unfilled demand.
-                # Per `feat/biome-greenhouse` PR 3.
+                # Per `feat/biome-greenhouse` PR 3. Per-frame distance
+                # cull (90m radius) — saves manifest bandwidth +
+                # rendering work for things outside fog range.
                 if _BIOME_THINGS_ENTITIES:
-                    manifest.setdefault("entities", []).extend(
-                        _BIOME_THINGS_ENTITIES)
+                    thing_cull_r2 = 90.0 * 90.0
+                    nearby_things = [
+                        t for t in _BIOME_THINGS_ENTITIES
+                        if (t["x"] - cam_x) ** 2
+                           + (t["y"] - cam_y) ** 2 <= thing_cull_r2
+                    ]
+                    if nearby_things:
+                        manifest.setdefault("entities", []).extend(
+                            nearby_things)
 
                 # Terrain walls — wireframe boundaries between adjacent
                 # tiles at different elevations. Per
                 # `feat/biome-greenhouse` elevation extension.
+                # Per-frame distance cull: only ship walls within a
+                # generous draw radius around the camera. Saves
+                # manifest bandwidth + client draw calls — the field
+                # is 17×17 (~200m square) but only ~30 walls are ever
+                # visible at once. Per 2026-05-17 perf fix.
                 if _BIOME_TERRAIN_WALLS:
-                    manifest.setdefault("entities", []).extend(
-                        _BIOME_TERRAIN_WALLS)
+                    wall_cull_r2 = 90.0 * 90.0       # 90m radius²
+                    nearby_walls = [
+                        w for w in _BIOME_TERRAIN_WALLS
+                        if (w["x"] - cam_x) ** 2
+                           + (w["y"] - cam_y) ** 2 <= wall_cull_r2
+                    ]
+                    if nearby_walls:
+                        manifest.setdefault("entities", []).extend(
+                            nearby_walls)
 
                 # Encounter session snapshot (HUD/orb/log data).
                 if encounter is not None:

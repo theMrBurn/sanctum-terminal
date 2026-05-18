@@ -79,6 +79,26 @@ ELEVATION_RULES_DEFAULT: dict[str, Any] = {
 # 2026-05-17.
 LEVEL_HEIGHT_M: float = 1.0
 
+# World spacing per elevation tile (meters). Decoupled from biome
+# stamp tile_size (288m) — elevation lives on its own finer grid so
+# transitions appear within walking distance of spawn. Matches the
+# client-side terrain.ElevationCache default. Per the 2026-05-17
+# "decouple elevation from stamp" fix.
+ELEV_TILE_M: float = 12.0
+
+# Default per-biome-init grid extent: (2*ELEV_TILE_RANGE_DEFAULT+1)²
+# tiles centered on origin. With 12m tiles + range 8 → 17×17 grid
+# covering ±96m. Beyond this, things & terrain fall back to flat.
+ELEV_TILE_RANGE_DEFAULT: int = 8
+
+
+def world_xy_to_elev_tile(world_x: float, world_y: float) -> tuple[int, int]:
+    """Snap a world-space (x, y) to its elevation tile coordinate."""
+    return (
+        int(round(world_x / ELEV_TILE_M)),
+        int(round(world_y / ELEV_TILE_M)),
+    )
+
 
 # ── Tier classification ──────────────────────────────────────────
 

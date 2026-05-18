@@ -128,6 +128,42 @@ def test_field_to_floor_z_scales_by_level_height():
     assert biome_elevation.field_to_floor_z(3) == 3.0 * biome_elevation.LEVEL_HEIGHT_M
 
 
+# ── ELEV_TILE_M + helpers (2026-05-17 decouple) ─────────────────
+
+
+def test_elev_tile_m_is_finer_than_biome_stamp():
+    # ELEV_TILE_M (12m) must be much smaller than typical biome stamp
+    # tile_size (288m) — that's the whole point of the decouple.
+    assert biome_elevation.ELEV_TILE_M < 50.0
+    assert biome_elevation.ELEV_TILE_M == 12.0
+
+
+def test_elev_tile_range_default_covers_visible_radius():
+    # Default range × spacing should cover at least cavern fog far.
+    r = biome_elevation.ELEV_TILE_RANGE_DEFAULT
+    assert r * biome_elevation.ELEV_TILE_M >= 80.0
+
+
+def test_world_xy_to_elev_tile_at_origin():
+    assert biome_elevation.world_xy_to_elev_tile(0.0, 0.0) == (0, 0)
+
+
+def test_world_xy_to_elev_tile_rounds_to_nearest():
+    # Tiles centered on integer*ELEV_TILE_M (12m).
+    assert biome_elevation.world_xy_to_elev_tile(11.9, 0.0) == (1, 0)
+    assert biome_elevation.world_xy_to_elev_tile(5.9, -23.5) == (0, -2)
+
+
+def test_world_xy_to_elev_tile_round_trip():
+    # Snap a few points back & forth — within tile, coords map to
+    # same integer tile.
+    for wx, wy in [(0, 0), (3.5, -2.0), (50.0, 100.0), (-30.0, 12.0)]:
+        tx, ty = biome_elevation.world_xy_to_elev_tile(wx, wy)
+        rx = tx * biome_elevation.ELEV_TILE_M
+        ry = ty * biome_elevation.ELEV_TILE_M
+        assert biome_elevation.world_xy_to_elev_tile(rx, ry) == (tx, ty)
+
+
 # ── Description ─────────────────────────────────────────────────
 
 
