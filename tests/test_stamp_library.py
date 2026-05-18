@@ -15,10 +15,12 @@ def test_stamps_dir_resolves():
 
 def test_get_all_stamps_loads_fixtures():
     stamps = thing_library.get_all_stamps()
-    assert "wooden_ladder" in stamps
-    assert "stone_staircase" in stamps
-    assert "rope_bridge" in stamps
-    assert "wooden_door" in stamps
+    for expected in (
+        "wooden_ladder", "stone_staircase", "rope_bridge", "wooden_door",
+        "gazebo", "signpost", "fence_section", "fallen_log",
+        "mineshaft_entrance",
+    ):
+        assert expected in stamps, f"missing stamp fixture: {expected}"
 
 
 def test_list_stamp_names_sorted():
@@ -43,7 +45,7 @@ def test_get_stamp_unknown_returns_none():
 
 def test_find_stamps_by_tags_architecture():
     arch = thing_library.find_stamps_by_tags(include=["architecture"])
-    assert len(arch) == 4
+    assert len(arch) >= 9
 
 
 def test_find_stamps_by_tags_exclude():
@@ -64,7 +66,7 @@ def test_find_stamps_by_tags_match_all():
 
 def test_find_stamps_no_filter_returns_all():
     everything = thing_library.find_stamps_by_tags()
-    assert len(everything) == 4
+    assert len(everything) >= 9
 
 
 # ── Schema sanity ───────────────────────────────────────────────

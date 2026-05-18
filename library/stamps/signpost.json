@@ -1,0 +1,40 @@
+{
+  "name": "signpost",
+  "real_size_m": [
+    0.6,
+    0.3,
+    2.4
+  ],
+  "anchor": "post",
+  "source": "hand-authored stamp — wayfinding marker, frame-of-reference object",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "architecture",
+    "wayfinding",
+    "wooden"
+  ],
+  "interactions": {
+    "examine": "A wooden signpost. Letters faint, weather-rubbed. Points toward something.",
+    "pickup": "Set deep in the earth. Won't come up.",
+    "kick": "The signpost rocks. Settles back."
+  },
+  "parts": [
+    {
+      "primitive": "tapered_vertical",
+      "role": "post",
+      "rel_size": [0.12, 0.18, 0.95],
+      "rel_position": [0.0, 0.0, -0.05],
+      "tier": "silhouette",
+      "color_base": [0.30, 0.20, 0.12]
+    },
+    {
+      "primitive": "banner",
+      "role": "sign",
+      "rel_size": [0.85, 0.05, 0.30],
+      "rel_position": [0.0, 0.0, 0.30],
+      "tier": "silhouette",
+      "color_base": [0.45, 0.32, 0.18]
+    }
+  ]
+}

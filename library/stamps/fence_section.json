@@ -1,0 +1,64 @@
+{
+  "name": "fence_section",
+  "real_size_m": [
+    3.0,
+    0.15,
+    1.1
+  ],
+  "anchor": "post_left",
+  "source": "hand-authored stamp — boundary marker, edge cue",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "architecture",
+    "boundary",
+    "wooden"
+  ],
+  "interactions": {
+    "examine": "A short stretch of split-rail fence. Two rails, three posts.",
+    "pickup": "The posts are sunk deep. Stays put.",
+    "kick": "A rail shifts but stays in its notches."
+  },
+  "parts": [
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_left",
+      "rel_size": [0.05, 1.0, 1.0],
+      "rel_position": [-0.45, 0.0, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.30, 0.20, 0.12]
+    },
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_mid",
+      "rel_size": [0.05, 1.0, 1.0],
+      "rel_position": [0.0, 0.0, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.30, 0.20, 0.12]
+    },
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_right",
+      "rel_size": [0.05, 1.0, 1.0],
+      "rel_position": [0.45, 0.0, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.30, 0.20, 0.12]
+    },
+    {
+      "primitive": "cube",
+      "role": "rail_top",
+      "rel_size": [0.95, 0.30, 0.08],
+      "rel_position": [0.0, 0.0, 0.22],
+      "tier": "silhouette",
+      "color_base": [0.36, 0.25, 0.14]
+    },
+    {
+      "primitive": "cube",
+      "role": "rail_bottom",
+      "rel_size": [0.95, 0.30, 0.08],
+      "rel_position": [0.0, 0.0, -0.22],
+      "tier": "silhouette",
+      "color_base": [0.36, 0.25, 0.14]
+    }
+  ]
+}

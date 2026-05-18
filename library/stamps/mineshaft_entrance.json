@@ -1,0 +1,65 @@
+{
+  "name": "mineshaft_entrance",
+  "real_size_m": [
+    3.2,
+    2.5,
+    3.0
+  ],
+  "anchor": "lintel",
+  "source": "hand-authored stamp — biome edge / dungeon portal, frames 16 cousin",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "architecture",
+    "portal",
+    "mine",
+    "wooden"
+  ],
+  "interactions": {
+    "examine": "A timber-framed mineshaft entrance. Hewn beams set into the hillside. The darkness inside has its own weather.",
+    "pickup": "The frame is part of the hill. Stays.",
+    "kick": "Your boot meets the beam. It does not yield."
+  },
+  "parts": [
+    {
+      "primitive": "tapered_vertical",
+      "role": "jamb_left",
+      "rel_size": [0.18, 1.0, 1.0],
+      "rel_position": [-0.40, 0.0, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.25, 0.18, 0.10]
+    },
+    {
+      "primitive": "tapered_vertical",
+      "role": "jamb_right",
+      "rel_size": [0.18, 1.0, 1.0],
+      "rel_position": [0.40, 0.0, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.25, 0.18, 0.10]
+    },
+    {
+      "primitive": "cube",
+      "role": "lintel",
+      "rel_size": [1.0, 1.0, 0.18],
+      "rel_position": [0.0, 0.0, 0.40],
+      "tier": "silhouette",
+      "color_base": [0.25, 0.18, 0.10]
+    },
+    {
+      "primitive": "silhouette_void",
+      "role": "darkness",
+      "rel_size": [0.70, 1.0, 0.80],
+      "rel_position": [0.0, 0.0, -0.05],
+      "tier": "silhouette",
+      "color_base": [0.02, 0.01, 0.01]
+    },
+    {
+      "primitive": "scatter_7",
+      "role": "rubble",
+      "rel_size": [0.95, 0.40, 0.20],
+      "rel_position": [0.0, 0.20, -0.42],
+      "tier": "mid",
+      "color_base": [0.30, 0.27, 0.22]
+    }
+  ]
+}

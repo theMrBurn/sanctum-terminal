@@ -1,0 +1,50 @@
+{
+  "name": "fallen_log",
+  "real_size_m": [
+    4.0,
+    0.7,
+    0.7
+  ],
+  "anchor": "trunk",
+  "source": "hand-authored stamp — natural barrier or seat, PNW understory",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "architecture",
+    "natural",
+    "wood",
+    "log"
+  ],
+  "interactions": {
+    "examine": "A fallen Douglas fir, mossed over on the upper side, bark peeling. Damp underneath.",
+    "pickup": "Too heavy to move.",
+    "kick": "Your boot thuds on the bark. A piece flakes off."
+  },
+  "parts": [
+    {
+      "primitive": "tapered_vertical",
+      "role": "trunk",
+      "rel_size": [1.0, 1.0, 0.85],
+      "rel_position": [0.0, 0.0, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.28, 0.20, 0.13],
+      "rotation_deg": 90
+    },
+    {
+      "primitive": "ground_hug",
+      "role": "moss_cover",
+      "rel_size": [0.95, 0.85, 0.12],
+      "rel_position": [0.0, 0.0, 0.30],
+      "tier": "mid",
+      "color_base": [0.14, 0.28, 0.12]
+    },
+    {
+      "primitive": "ground_hug",
+      "role": "shadow",
+      "rel_size": [1.0, 1.0, 0.02],
+      "rel_position": [0.0, 0.0, -0.48],
+      "tier": "silhouette",
+      "color_base": [0.04, 0.03, 0.02]
+    }
+  ]
+}

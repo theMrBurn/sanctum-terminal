@@ -1,0 +1,72 @@
+{
+  "name": "gazebo",
+  "real_size_m": [
+    4.0,
+    4.0,
+    3.2
+  ],
+  "anchor": "post_nw",
+  "source": "hand-authored stamp — sheltered landmark, hub-adjacent",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "architecture",
+    "shelter",
+    "wooden"
+  ],
+  "interactions": {
+    "examine": "A small wooden gazebo. Four posts, shingled roof, bench around the inside.",
+    "pickup": "Far too large to take.",
+    "kick": "Your boot meets a post. The whole structure thrums."
+  },
+  "parts": [
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_nw",
+      "rel_size": [0.10, 0.10, 0.85],
+      "rel_position": [-0.40, -0.40, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.32, 0.22, 0.13]
+    },
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_ne",
+      "rel_size": [0.10, 0.10, 0.85],
+      "rel_position": [0.40, -0.40, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.32, 0.22, 0.13]
+    },
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_sw",
+      "rel_size": [0.10, 0.10, 0.85],
+      "rel_position": [-0.40, 0.40, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.32, 0.22, 0.13]
+    },
+    {
+      "primitive": "tapered_vertical",
+      "role": "post_se",
+      "rel_size": [0.10, 0.10, 0.85],
+      "rel_position": [0.40, 0.40, 0.0],
+      "tier": "silhouette",
+      "color_base": [0.32, 0.22, 0.13]
+    },
+    {
+      "primitive": "octahedron",
+      "role": "roof",
+      "rel_size": [1.0, 1.0, 0.30],
+      "rel_position": [0.0, 0.0, 0.40],
+      "tier": "silhouette",
+      "color_base": [0.40, 0.28, 0.16]
+    },
+    {
+      "primitive": "ground_hug",
+      "role": "deck",
+      "rel_size": [0.95, 0.95, 0.04],
+      "rel_position": [0.0, 0.0, -0.45],
+      "tier": "silhouette",
+      "color_base": [0.38, 0.26, 0.14]
+    }
+  ]
+}
