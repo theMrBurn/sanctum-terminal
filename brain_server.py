@@ -677,6 +677,22 @@ _BIOME_TERRAIN_WALLS: list[dict] = []
 # PR. Shipped culled-by-camera per frame, same path as biome_things.
 _BIOME_STAMPS_ENTITIES: list[dict] = []
 
+# Variant deck state (variant_deck PR 2026-05-17). The deck is a
+# bounded list of deterministic seed candidates per biome; player
+# cycles through them with [/] keys; lock-in writes the chosen seed
+# to vault.biome_locks for persistence. _active_variant_index = -1
+# means "locked seed in use, not part of the cycling deck."
+_VARIANT_DECK_SIZE: int = 7
+_active_variant_index: int = 0
+
+
+def _variant_seeds(biome: str, n: int = _VARIANT_DECK_SIZE) -> list[int]:
+    """Return N deterministic seed candidates for a biome. Stable
+    across brain restarts — variant 3 of cavern is always the same
+    world. Used by the variant-deck UI so the player can browse and
+    lock one in."""
+    return [hash((biome, "variant", i)) & 0x7fffffff for i in range(n)]
+
 
 # Lexicon placeholder substitution for interact response text.
 # Per `design_lexicon_architecture` + `feedback_her_voice`: the player's
@@ -2323,6 +2339,18 @@ class BrainWorld:
             # so player camera Y rests on tile floor. Per
             # `feat/biome-greenhouse` elevation extension. Empty for
             # flat biomes (workroom/hub/unknown).
+            # Variant deck (variant_deck PR 2026-05-17). Tells the
+            # client which seed is active, whether it's locked, and
+            # how many candidates are in the cycle. The HUD shows
+            # "variant N/7" so the player knows what they're looking
+            # at; [/] cycles via variant_roll, \ commits via
+            # variant_lock.
+            "variant_deck": {
+                "current_seed":     int(getattr(world, "base_seed", 0)),
+                "active_index":     int(_active_variant_index),
+                "deck_size":        int(_VARIANT_DECK_SIZE),
+                "is_locked":        _active_variant_index < 0,
+            },
             # Per-tile elevation field for client floor clamp. Spacing
             # is ELEV_TILE_M (12m) — decoupled from biome stamp
             # tile_size (288m) per the 2026-05-17 fix. Field is empty
@@ -2845,6 +2873,35 @@ def _build_biome_things(biome_name: str, base_seed: int, tile_size: float,
     return out
 
 
+def _rebuild_world_substrates(world) -> None:
+    """Re-solve elevation field + terrain walls + biome-things +
+    biome-stamps for the current world.base_seed. Updates module
+    globals in place. Called at boot AND whenever the variant seed
+    changes (variant_roll/variant_lock paths). Per 2026-05-17
+    variant deck PR.
+    """
+    global _BIOME_ELEVATION_FIELD, _BIOME_TERRAIN_WALLS
+    global _BIOME_THINGS_ENTITIES, _BIOME_STAMPS_ENTITIES
+
+    biome_name = world.biome_name
+    base_seed = getattr(world, "base_seed", 0)
+    tile_size = getattr(world, "tile_size", 12.0)
+
+    _BIOME_ELEVATION_FIELD = _build_biome_elevation(
+        biome_name, base_seed=base_seed,
+    )
+    _BIOME_TERRAIN_WALLS = _build_terrain_walls(_BIOME_ELEVATION_FIELD)
+    if _BIOME_TERRAIN_WALLS:
+        print(f"  terrain_walls: built {len(_BIOME_TERRAIN_WALLS)} walls",
+              flush=True)
+    _BIOME_THINGS_ENTITIES = _build_biome_things(
+        biome_name, base_seed=base_seed, tile_size=tile_size,
+    )
+    _BIOME_STAMPS_ENTITIES = _build_biome_stamps(
+        biome_name, base_seed=base_seed, tile_size=tile_size,
+    )
+
+
 def run_server(biome_name, port=9877):
     # All module-globals this function reassigns. Hoisted so later
     # branches that do `global X` don't conflict with the first
@@ -2855,42 +2912,30 @@ def run_server(biome_name, port=9877):
     global _BIOME_ELEVATION_FIELD
     global _BIOME_TERRAIN_WALLS
     global _BIOME_STAMPS_ENTITIES
+    global _active_variant_index
 
     world = BrainWorld(biome_name)
 
-    # Biome elevation field — must be solved BEFORE biome-things so
-    # thing placement knows the per-tile floor Z. Per
-    # `feat/biome-greenhouse` elevation extension 2026-05-17.
-    _BIOME_ELEVATION_FIELD = _build_biome_elevation(
-        biome_name,
-        base_seed=getattr(world, "base_seed", 0),
-    )
+    # Variant deck — check for persisted lock first. If locked,
+    # override world.base_seed before any substrate is built. Per
+    # 2026-05-17 variant deck PR.
+    vault_inst = _get_vault()
+    locked_seed = vault_inst.biome_locked_seed(biome_name)
+    if locked_seed is not None:
+        world.base_seed = locked_seed
+        _active_variant_index = -1               # locked: not in cycle
+        print(f"  variant_deck: biome {biome_name!r} locked at "
+              f"seed {locked_seed}", flush=True)
+    else:
+        # Use variant 0 as the default unlocked seed. This makes
+        # cycling start at a known location in the deck.
+        world.base_seed = _variant_seeds(biome_name)[0]
+        _active_variant_index = 0
+        print(f"  variant_deck: biome {biome_name!r} unlocked, "
+              f"variant {_active_variant_index + 1}/{_VARIANT_DECK_SIZE} "
+              f"(seed {world.base_seed})", flush=True)
 
-    # Terrain walls — wireframe boundaries at every level change.
-    # Tier-colored (ledge/cliff/wall) per the design. Spacing is
-    # ELEV_TILE_M (12m), decoupled from biome stamp tile_size.
-    _BIOME_TERRAIN_WALLS = _build_terrain_walls(_BIOME_ELEVATION_FIELD)
-    if _BIOME_TERRAIN_WALLS:
-        print(f"  terrain_walls: built {len(_BIOME_TERRAIN_WALLS)} walls",
-              flush=True)
-
-    # Biome-things — precompute Blender-driven thing placements +
-    # greenhouse demand log for tiles around origin. Per
-    # `feat/biome-greenhouse` PR 3. Empty for workroom (per_tile=0).
-    _BIOME_THINGS_ENTITIES = _build_biome_things(
-        biome_name,
-        base_seed=getattr(world, "base_seed", 0),
-        tile_size=getattr(world, "tile_size", 12.0),
-    )
-
-    # Biome-stamps — architecture assemblies (bridges/ladders/stairs/
-    # doors) placed sparsely via BIOME_STAMP_CONFIG.tile_chance.
-    # Per the 2026-05-17 "stamps as data" PR.
-    _BIOME_STAMPS_ENTITIES = _build_biome_stamps(
-        biome_name,
-        base_seed=getattr(world, "base_seed", 0),
-        tile_size=getattr(world, "tile_size", 12.0),
-    )
+    _rebuild_world_substrates(world)
 
     # Make-brain activation — if the biome registry binds an instance_id
     # for this biome, instantiate + register the handler. Idempotent
@@ -3210,6 +3255,55 @@ def run_server(biome_name, port=9877):
                     ok = thing_save(tn)
                     print(f"  thing_save({tn!r}): {'ok' if ok else 'FAILED'}",
                           flush=True)
+                    continue
+
+                # Variant deck (variant_deck PR 2026-05-17).
+                # variant_roll: cycle to next deterministic variant
+                # seed for this biome, regen substrates, bump
+                # world_revision so client re-spawns.
+                if msg.get("cmd") == "variant_roll":
+                    direction = int(msg.get("direction", 1))
+                    if _active_variant_index < 0:
+                        # Locked → leaving lock cycles back to variant 0.
+                        _active_variant_index = 0
+                    else:
+                        _active_variant_index = (
+                            (_active_variant_index + direction)
+                            % _VARIANT_DECK_SIZE
+                        )
+                    seeds = _variant_seeds(world.biome_name)
+                    new_seed = seeds[_active_variant_index]
+                    world.regen_world(new_seed)
+                    _rebuild_world_substrates(world)
+                    last_wake_ids = set()        # force manifest re-emit
+                    print(f"  variant_roll: → variant "
+                          f"{_active_variant_index + 1}/{_VARIANT_DECK_SIZE} "
+                          f"(seed {new_seed})", flush=True)
+                    continue
+
+                # variant_lock: persist current seed for this biome.
+                # Locked seed survives brain restarts via vault.biome_locks.
+                if msg.get("cmd") == "variant_lock":
+                    _get_vault().biome_lock(world.biome_name,
+                                              int(world.base_seed))
+                    _active_variant_index = -1   # locked indicator
+                    last_wake_ids = set()
+                    print(f"  variant_lock: biome {world.biome_name!r} "
+                          f"locked at seed {world.base_seed}", flush=True)
+                    continue
+
+                # variant_unlock: drop the persisted lock; resume the
+                # variant cycle starting at variant 0.
+                if msg.get("cmd") == "variant_unlock":
+                    _get_vault().biome_unlock(world.biome_name)
+                    _active_variant_index = 0
+                    new_seed = _variant_seeds(world.biome_name)[0]
+                    world.regen_world(new_seed)
+                    _rebuild_world_substrates(world)
+                    last_wake_ids = set()
+                    print(f"  variant_unlock: biome {world.biome_name!r} "
+                          f"reset to variant 1/{_VARIANT_DECK_SIZE} "
+                          f"(seed {new_seed})", flush=True)
                     continue
 
                 if msg.get("cmd") == "interact_request":

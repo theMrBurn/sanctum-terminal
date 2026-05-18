@@ -498,6 +498,16 @@ def main() -> int:
             if input_map.pressed("noclip_toggle"):
                 noclip = not noclip
 
+            # Variant deck (variant_deck PR 2026-05-17).
+            if input_map.pressed("variant_next"):
+                client.send({"cmd": "variant_roll", "direction": 1})
+            if input_map.pressed("variant_prev"):
+                client.send({"cmd": "variant_roll", "direction": -1})
+            if input_map.pressed("variant_lock"):
+                client.send({"cmd": "variant_lock"})
+            if input_map.pressed("variant_unlock"):
+                client.send({"cmd": "variant_unlock"})
+
             # Volley resets (PR 6). R = reset current rally (preserves
             # match score). SHIFT+R = reset entire match. Only meaningful
             # in volley_chamber; no-op in other biomes.
@@ -1009,6 +1019,22 @@ def main() -> int:
                 hud.draw_build_overlay(
                     build_mode.hud_lines(build_state, last_manifest), amber,
                 )
+
+            # Variant deck banner — top-right strip showing current
+            # seed + lock state. Per 2026-05-17 variant_deck PR.
+            vd = last_manifest.get("variant_deck") or {}
+            if vd:
+                is_locked = bool(vd.get("is_locked"))
+                ai = int(vd.get("active_index", 0))
+                ds = int(vd.get("deck_size", 7))
+                seed = int(vd.get("current_seed", 0))
+                if is_locked:
+                    line = f"LOCKED  seed {seed}  [' unlock]"
+                else:
+                    line = (f"variant {ai + 1}/{ds}  seed {seed}  "
+                            f"[ [/] cycle  ' lock ]")
+                screen_w = rl.get_screen_width()
+                rl.draw_text(line, screen_w - 360, 8, 16, amber)
 
         # Volley console — drawn last so it sits over the HUD when open.
         # Backdrop already sets its own alpha, so it composes cleanly.

@@ -139,6 +139,13 @@ DEFAULT_BINDINGS: dict[str, list[Trigger]] = {
     "noclip_toggle":    [("key", "KEY_BACKSLASH")],
     "damage_self_debug":[("key", "KEY_K")],
 
+    # Variant deck (variant_deck PR 2026-05-17). Right-hand cluster on
+    # US layout — easy to find without taking eyes off the world.
+    "variant_prev":     [("key", "KEY_LEFT_BRACKET")],
+    "variant_next":     [("key", "KEY_RIGHT_BRACKET")],
+    "variant_lock":     [("key", "KEY_APOSTROPHE")],
+    "variant_unlock":   [("key", "KEY_SEMICOLON")],
+
     # Interact verbs — per-verb keys so the prompt UI can show
     # "[F] examine [P] pickup" multi-prompt. Each verb binds to ONE
     # key; the brain interact_request handler dispatches.

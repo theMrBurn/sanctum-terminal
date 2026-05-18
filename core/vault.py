@@ -357,6 +357,19 @@ class vault:
                     "CREATE INDEX IF NOT EXISTS idx_biome_thing_state_tile "
                     "ON biome_thing_state(biome, tile_x, tile_y)"
                 )
+
+                # Per the 2026-05-17 variant deck PR. When a biome
+                # has a row here, the brain ignores its default seed
+                # and uses locked_seed instead — so a player's chosen
+                # world variant survives restarts. Authoring loop:
+                # roll → preview → lock.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS biome_locks (
+                        biome        TEXT PRIMARY KEY,
+                        locked_seed  INTEGER NOT NULL,
+                        locked_at    TEXT NOT NULL
+                    )
+                """)
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -1646,6 +1659,52 @@ class vault:
                 )
             conn.commit()
             return cur.rowcount
+
+    # -- Biome variant locks (variant deck PR 2026-05-17) ----------------------
+
+    def biome_locked_seed(self, biome: str) -> int | None:
+        """Return the locked seed for this biome, or None if unlocked.
+        When set, the brain uses this seed at boot instead of its
+        default — so the player's chosen world variant survives
+        restarts."""
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT locked_seed FROM biome_locks WHERE biome=?",
+                (str(biome),),
+            ).fetchone()
+        return int(row[0]) if row else None
+
+    def biome_lock(self, biome: str, seed: int) -> None:
+        """Lock a biome to the given seed. Idempotent (UPSERT)."""
+        from datetime import datetime
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO biome_locks (biome, locked_seed, locked_at) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(biome) DO UPDATE SET "
+                "locked_seed=excluded.locked_seed, "
+                "locked_at=excluded.locked_at",
+                (str(biome), int(seed), datetime.utcnow().isoformat()),
+            )
+            conn.commit()
+
+    def biome_unlock(self, biome: str) -> bool:
+        """Drop the lock. Returns True if a row was deleted."""
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "DELETE FROM biome_locks WHERE biome=?",
+                (str(biome),),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def biome_locks_all(self) -> dict[str, int]:
+        """All current locks, biome → seed. For debug/UAT introspection."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT biome, locked_seed FROM biome_locks"
+            ).fetchall()
+        return {r[0]: int(r[1]) for r in rows}
 
     def activity_log_count_by_class(
         self,
