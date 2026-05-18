@@ -42,6 +42,7 @@ PRIMITIVES: tuple[str, ...] = (
     "vector_sprite",
     "cube",
     "octahedron",
+    "water_plane",
 )
 
 
@@ -66,6 +67,7 @@ PRIMITIVE_VISUAL: dict[str, str] = {
     "vector_sprite":    "T-POSE HUMANOID — head diamond + body + arms + legs",
     "cube":             "cube — six faces, twelve edges",
     "octahedron":       "diamond bipyramid — sharper crystal silhouette",
+    "water_plane":      "6x6 horizontal grid — animated sin-wave Y displacement, reads as flowing water (river/pool/lake/ocean)",
 }
 
 TIERS: tuple[str, ...] = ("silhouette", "mid", "hero")

@@ -29,6 +29,10 @@ class WireframeRecipe:
     vertices: tuple[tuple[float, float, float], ...]
     edges: tuple[tuple[int, int], ...]
     faces: tuple[tuple[int, int, int], ...] = field(default_factory=tuple)
+    # Per the 2026-05-17 water primitive PR. When True, the renderer
+    # applies a per-vertex sin-wave Y displacement keyed by world XZ +
+    # time. Reads as flowing water. No-op for static recipes.
+    animate_water: bool = False
 
 
 # ── Atom generators ──────────────────────────────────────────────────────────
@@ -294,6 +298,37 @@ def ground_hug_disc() -> WireframeRecipe:
     return WireframeRecipe(vertices=tuple(verts), edges=tuple(e))
 
 
+def water_grid(rows: int = 6) -> WireframeRecipe:
+    """Flat NxN grid in (x, 0, z) plane with edges connecting adjacent
+    vertices. The animate_water flag tells the renderer to bob each
+    vertex up/down per sin(world_x*k + world_z*k + time*phase), reading
+    as flowing water. Suits rivers, lakes, ocean tiles, waterfall pools.
+
+    Per the 2026-05-17 water primitive PR. The grid is light (6×6 = 36
+    verts) and stays cheap even at high frame counts; for larger water
+    expanses, multiple water_plane entities tile."""
+    verts: list[tuple[float, float, float]] = []
+    for ri in range(rows):
+        for ci in range(rows):
+            u = -0.5 + ci / (rows - 1)
+            v = -0.5 + ri / (rows - 1)
+            # y=0 — neutral surface; the renderer displaces.
+            verts.append((u, 0.0, v))
+    edges: list[tuple[int, int]] = []
+    for ri in range(rows):
+        for ci in range(rows):
+            i = ri * rows + ci
+            if ci + 1 < rows:
+                edges.append((i, i + 1))           # +x edge
+            if ri + 1 < rows:
+                edges.append((i, i + rows))        # +z edge
+    return WireframeRecipe(
+        vertices=tuple(verts),
+        edges=tuple(edges),
+        animate_water=True,
+    )
+
+
 def vector_sprite_tpose() -> WireframeRecipe:
     """T-pose figure — richer than stick_figure. Head circle + body box +
     outstretched arms + base. Reads as a character glyph more than a
@@ -338,6 +373,7 @@ _SCATTER7 = scatter_7()
 _CHAIN = chain_vertical()
 _GROUND_HUG = ground_hug_disc()
 _VECTOR_SPRITE = vector_sprite_tpose()
+_WATER_PLANE = water_grid()
 
 
 # ── Heuristic dispatch ───────────────────────────────────────────────────────
@@ -362,7 +398,11 @@ def recipe_for_kind(kind: str) -> WireframeRecipe:
         if "chain" in name:              return _CHAIN
         if "ground_hug" in name:         return _GROUND_HUG
         if "vector_sprite" in name:      return _VECTOR_SPRITE
+        if "water_plane" in name:        return _WATER_PLANE
         return _CUBE
+    if any(s in name for s in ("water", "river", "stream", "pond", "lake",
+                                "pool", "wave", "ocean", "sea")):
+        return _WATER_PLANE
     if "mote" in name or "spark" in name or "wisp" in name:
         return _HEPTAGON
     if any(s in name for s in ("rock", "stone", "boulder", "rubble", "pebble", "scree")):

@@ -1,0 +1,39 @@
+{
+  "name": "pond",
+  "real_size_m": [
+    4.0,
+    4.0,
+    0.4
+  ],
+  "anchor": "water",
+  "source": "hand-authored fixture — animated water surface for PNW biome",
+  "tags": [
+    "pnw",
+    "outdoor",
+    "water",
+    "flora"
+  ],
+  "interactions": {
+    "examine": "A pond. Water dark as iron, surface rippling. {lex:scent} rises off it.",
+    "pickup": "You cup a handful. It runs through your fingers before you can move it.",
+    "kick": "You splash. The pond shrugs."
+  },
+  "parts": [
+    {
+      "primitive": "water_plane",
+      "role": "water",
+      "rel_size": [1.0, 1.0, 0.40],
+      "rel_position": [0.0, 0.0, 0.20],
+      "tier": "silhouette",
+      "color_base": [0.18, 0.34, 0.42]
+    },
+    {
+      "primitive": "ground_hug",
+      "role": "shore",
+      "rel_size": [1.0, 1.0, 0.05],
+      "rel_position": [0.0, 0.0, -0.45],
+      "tier": "silhouette",
+      "color_base": [0.20, 0.16, 0.10]
+    }
+  ]
+}

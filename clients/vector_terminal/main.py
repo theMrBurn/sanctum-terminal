@@ -1173,6 +1173,13 @@ def _draw_recipe(
     behind get occluded by the depth buffer."""
     cy = math.cos(math.radians(yaw_deg))
     sy_ = math.sin(math.radians(yaw_deg))
+    # Water animation — per the 2026-05-17 water primitive PR.
+    # When recipe.animate_water is set, each vertex's Y bobs by a
+    # sin-wave keyed to its WORLD XZ + monotonic time. Reads as
+    # flowing surface. Static recipes pay zero cost.
+    if recipe.animate_water:
+        t = rl.get_time()
+        amp = max(rsy * 0.4, 0.15)   # half-bbox height, min 15cm
     transformed: list[tuple[float, float, float]] = []
     for vx, vy, vz in recipe.vertices:
         x = vx * rsx
@@ -1180,7 +1187,12 @@ def _draw_recipe(
         z = vz * rsz
         x_rot = x * cy + z * sy_
         z_rot = -x * sy_ + z * cy
-        transformed.append((px + x_rot, py + y, pz + z_rot))
+        wx = px + x_rot
+        wz = pz + z_rot
+        wy = py + y
+        if recipe.animate_water:
+            wy += amp * math.sin(wx * 0.6 + wz * 0.45 + t * 1.8)
+        transformed.append((wx, wy, wz))
 
     if recipe.faces:
         # BLACK fills — hides back-faces via depth buffer (opacity) without
