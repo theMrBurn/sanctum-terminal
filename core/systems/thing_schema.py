@@ -111,6 +111,31 @@ class Thing:
     # NetHack/Doom move). Future verbs (pickup, kick, break, light)
     # land as code + handler additions, not schema changes.
     interactions: dict[str, str] = field(default_factory=dict)
+    # World-attach mode — what world feature the bbox-bottom snaps to.
+    # Per the 2026-05-18 attach_mode primitive PR (Unity/Unreal-style
+    # "pivot on floor" convention extended for elevation transitions).
+    # See ATTACH_MODES for the enum.
+    attach_mode: str = "floor"
+
+
+# Bounded vocabulary for Thing.attach_mode. Authors pick one; placement
+# code resolves the world Y reference accordingly.
+#
+#   floor          — bbox-bottom on the standing tile's floor. Default.
+#                    Trees, posts, ferns, props, ladders, stairs, doors.
+#   upper_floor    — bbox-bottom on the HIGHER of two adjacent tiles
+#                    at a terrain transition. Bridges, gantries, ramps
+#                    whose deck must align with the destination tier.
+#   water_surface  — bbox-bottom on the water plane. Lily pads, boats,
+#                    floating debris. (Reserved — no fixtures yet.)
+#
+# Per the "one anchor per asset, attach mode picks the world feature"
+# convention across Unity / Unreal / Bethesda / modular kit games.
+ATTACH_MODES: tuple[str, ...] = (
+    "floor",
+    "upper_floor",
+    "water_surface",
+)
 
 
 # ── Validation ───────────────────────────────────────────────────
@@ -172,6 +197,21 @@ def validate_thing_dict(data: Any) -> list[ValidationError]:
                     errors.append(ValidationError(
                         f"$.interactions.{verb}",
                         f"response must be string, got {type(response).__name__}"))
+
+    # attach_mode (optional, defaults to "floor"). Bounded vocab per
+    # ATTACH_MODES — author can pick how the bbox relates to world
+    # features (floor, upper tile floor at terrain transitions, water
+    # surface). Per the 2026-05-18 attach_mode primitive PR.
+    if "attach_mode" in data:
+        am = data["attach_mode"]
+        if not isinstance(am, str):
+            errors.append(ValidationError(
+                "$.attach_mode",
+                f"must be string, got {type(am).__name__}"))
+        elif am not in ATTACH_MODES:
+            errors.append(ValidationError(
+                "$.attach_mode",
+                f"unknown mode {am!r}; allowed: {ATTACH_MODES}"))
 
     # tags (optional list of non-empty strings)
     if "tags" in data:
@@ -323,6 +363,7 @@ def parse_thing(data: dict[str, Any]) -> Thing:
             str(k): str(v) for k, v in raw_interactions.items()
             if isinstance(k, str) and k.strip() and isinstance(v, str)
         },
+        attach_mode=str(data.get("attach_mode", "floor")),
     )
 
 

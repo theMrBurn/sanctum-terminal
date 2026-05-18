@@ -3,10 +3,11 @@
   "real_size_m": [
     12.0,
     2.4,
-    2.8
+    2.4
   ],
-  "anchor": "post_left",
-  "source": "hand-authored stamp — span crossing, frames 3 / 5 / 23",
+  "anchor": "deck_left",
+  "attach_mode": "upper_floor",
+  "source": "hand-authored stamp — span crossing, frames 3 / 5 / 23. Deck authored at bbox-bottom (rel_z=-0.48) so attach_mode=upper_floor lands the planks ON the higher tile, not buried inside it.",
   "tags": [
     "pnw",
     "outdoor",
@@ -26,12 +27,12 @@
       "rel_size": [
         0.05,
         0.30,
-        0.85
+        0.95
       ],
       "rel_position": [
         -0.45,
         0.0,
-        0.05
+        0.0
       ],
       "tier": "silhouette",
       "color_base": [
@@ -46,12 +47,12 @@
       "rel_size": [
         0.05,
         0.30,
-        0.85
+        0.95
       ],
       "rel_position": [
         0.45,
         0.0,
-        0.05
+        0.0
       ],
       "tier": "silhouette",
       "color_base": [
@@ -66,12 +67,12 @@
       "rel_size": [
         0.95,
         0.05,
-        0.15
+        0.30
       ],
       "rel_position": [
         0.0,
         -0.30,
-        0.10
+        0.20
       ],
       "tier": "mid",
       "color_base": [
@@ -86,12 +87,12 @@
       "rel_size": [
         0.95,
         0.05,
-        0.15
+        0.30
       ],
       "rel_position": [
         0.0,
         0.30,
-        0.10
+        0.20
       ],
       "tier": "mid",
       "color_base": [
@@ -102,16 +103,16 @@
     },
     {
       "primitive": "cube",
-      "role": "plank_0",
+      "role": "deck_left",
       "rel_size": [
-        0.06,
+        0.10,
         0.80,
-        0.02
+        0.04
       ],
       "rel_position": [
         -0.35,
         0.0,
-        -0.20
+        -0.48
       ],
       "tier": "silhouette",
       "color_base": [
@@ -122,16 +123,16 @@
     },
     {
       "primitive": "cube",
-      "role": "plank_1",
+      "role": "deck_mid_left",
       "rel_size": [
-        0.06,
+        0.10,
         0.80,
-        0.02
+        0.04
       ],
       "rel_position": [
-        -0.22,
+        -0.20,
         0.0,
-        -0.22
+        -0.48
       ],
       "tier": "silhouette",
       "color_base": [
@@ -142,16 +143,16 @@
     },
     {
       "primitive": "cube",
-      "role": "plank_2",
+      "role": "deck_center",
       "rel_size": [
-        0.06,
+        0.10,
         0.80,
-        0.02
+        0.04
       ],
       "rel_position": [
-        -0.09,
+        -0.05,
         0.0,
-        -0.23
+        -0.48
       ],
       "tier": "silhouette",
       "color_base": [
@@ -162,16 +163,16 @@
     },
     {
       "primitive": "cube",
-      "role": "plank_3",
+      "role": "deck_mid_right",
       "rel_size": [
-        0.06,
+        0.10,
         0.80,
-        0.02
+        0.04
       ],
       "rel_position": [
-        0.04,
+        0.10,
         0.0,
-        -0.23
+        -0.48
       ],
       "tier": "silhouette",
       "color_base": [
@@ -182,16 +183,16 @@
     },
     {
       "primitive": "cube",
-      "role": "plank_4",
+      "role": "deck_right",
       "rel_size": [
-        0.06,
+        0.10,
         0.80,
-        0.02
+        0.04
       ],
       "rel_position": [
-        0.17,
+        0.25,
         0.0,
-        -0.22
+        -0.48
       ],
       "tier": "silhouette",
       "color_base": [
@@ -202,36 +203,16 @@
     },
     {
       "primitive": "cube",
-      "role": "plank_5",
+      "role": "deck_far_right",
       "rel_size": [
-        0.06,
+        0.10,
         0.80,
-        0.02
-      ],
-      "rel_position": [
-        0.30,
-        0.0,
-        -0.21
-      ],
-      "tier": "silhouette",
-      "color_base": [
-        0.40,
-        0.27,
-        0.14
-      ]
-    },
-    {
-      "primitive": "cube",
-      "role": "plank_6",
-      "rel_size": [
-        0.06,
-        0.80,
-        0.02
+        0.04
       ],
       "rel_position": [
         0.40,
         0.0,
-        -0.20
+        -0.48
       ],
       "tier": "silhouette",
       "color_base": [

@@ -2586,14 +2586,20 @@ def _terrain_keyed_stamps(
                     mid_x = (tx + dx * 0.5) * elev_m
                     mid_y = (ty + dy * 0.5) * elev_m
                     yaw = 90.0 if dy == 1 else 0.0
-                    # Floor = the LOWER tile's z (so stairs/ladders
-                    # rise from the floor; bridges sit at the lower
-                    # rim and reach across).
+                    # World-Y reference deferred until we know the
+                    # stamp's attach_mode (per 2026-05-18 attach_mode
+                    # primitive PR). Default candidate carries both
+                    # tile heights; the placement loop picks one based
+                    # on the chosen stamp's attach_mode.
                     low_level = min(level, n_level)
-                    floor_z = biome_elevation.field_to_floor_z(low_level)
+                    high_level = max(level, n_level)
                     candidates_by_tag[tag].append({
                         "mid_x": mid_x, "mid_y": mid_y,
-                        "yaw": yaw, "floor_z": floor_z,
+                        "yaw": yaw,
+                        "lower_floor_z":
+                            biome_elevation.field_to_floor_z(low_level),
+                        "upper_floor_z":
+                            biome_elevation.field_to_floor_z(high_level),
                         "diff": diff, "tag": tag,
                     })
 
@@ -2610,10 +2616,22 @@ def _terrain_keyed_stamps(
         chosen = cands[:MAX_PER_TAG]
         for idx, cand in enumerate(chosen):
             stamp = rng.choice(stamps_by_tag[tag])
+            # Resolve world-floor reference from the stamp's
+            # attach_mode (per 2026-05-18 attach_mode primitive PR).
+            # 'upper_floor' = bbox-bottom on higher tile (bridges
+            # whose deck must align with the destination tier).
+            # 'water_surface' reserved — no fixtures yet, falls
+            # through to lower_floor_z. 'floor' (default) = bbox-
+            # bottom on lower tile.
+            mode = getattr(stamp, "attach_mode", "floor")
+            if mode == "upper_floor":
+                floor_z = cand["upper_floor_z"]
+            else:
+                floor_z = cand["lower_floor_z"]
             entities = thing_renderer.expand_thing_to_world_z(
                 stamp,
                 origin_xy=(cand["mid_x"], cand["mid_y"]),
-                floor_z=cand["floor_z"],
+                floor_z=floor_z,
                 yaw_deg=cand["yaw"],
                 id_base=85_000,
                 instance_id=hash((tag, idx, base_seed)) % 100_000,
