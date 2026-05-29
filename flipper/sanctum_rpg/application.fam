@@ -1,0 +1,24 @@
+# Sanctum RPG — field-instrument expression of sanctum-engage.
+# Spec: ../../sanctum-os/docs/specs/43_app_sanctum_rpg_flipper.md
+# Read: ../../AGENTS.md (sanctum-engage rules apply)
+
+App(
+    appid="sanctum_rpg",
+    name="Sanctum RPG",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="sanctum_rpg_app",
+    requires=["gui", "notification"],
+    # Explicit source list — the .fap is ONLY these. Excludes test/ (the
+    # host gcc harness, built via `make test`, never compiled into the
+    # .fap). Add new app .c files here as they're created.
+    sources=["sanctum_rpg.c", "save_io.c", "world.c", "deltas.c", "rng.c", "loot.c", "biome.c", "fov.c"],
+    # 16 KB: AppState (~2 KB incl. ChunkDeltas + LoadPicker) plus the
+    # 4 KB delta read buffer in deltas_load plus save_io locals. The
+    # original 4 KB overflowed the moment deltas landed (v0.3.2 freeze).
+    stack_size=16 * 1024,
+    fap_category="Games",
+    fap_icon="sanctum_rpg.png",
+    fap_version="0.1",
+    fap_description="Sanctum-engage on the Flipper",
+    fap_author="themrburn",
+)
