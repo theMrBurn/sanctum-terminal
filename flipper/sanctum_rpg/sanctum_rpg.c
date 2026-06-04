@@ -44,6 +44,7 @@
 #include "stamps.h"
 #include "bearing.h"
 #include "names.h"
+#include "render_fpv.h"
 #include "trade.h"
 #include "weather.h"
 #include "world.h"
@@ -113,6 +114,7 @@ typedef enum {
     ScreenShop,      /* slice 4 — sell items for credits */
     ScreenStash,     /* slice 2026-06-03d/C — home-chunk vault deposit/withdraw */
     ScreenQuest,     /* slice 49.F5 — quest surfaced, branch A/B choice */
+    ScreenFpvDemo,   /* slice 2026-06-03e — Etrian-style FPV prototype (UAT) */
 } Screen;
 
 typedef enum {
@@ -1390,6 +1392,24 @@ static void stash_withdraw(AppState* st) {
 
 /* Stash screen: two columns showing inv_qty vs vault_qty per kind.
  * Cursor selects a row; focus toggles Bag/Vault; OK transfers one. */
+/* FPV demo (slice 2026-06-03e) — Etrian-style first-person prototype.
+ * Static composed scene: standing inside the Sanctum facing a cold
+ * hearth at mid distance. UAT the visual direction before committing
+ * to the full FPV/top-down conversion. Long-press OK on ScreenWorld
+ * to enter; any key returns to top-down. */
+static void draw_fpv_demo_screen(Canvas* canvas, const AppState* st) {
+    render_fpv_demo(canvas);
+    /* Status strip below the view — same baseline as world screen so
+     * the UAT feels like the actual game, not a separate test mode. */
+    canvas_draw_line(canvas, 0, WORLD_VIEW_H, SCREEN_W - 1, WORLD_VIEW_H);
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str(canvas, 0, WORLD_STATUS_BASELINE, "the Sanctum is cold.");
+    canvas_draw_str_aligned(
+        canvas, SCREEN_W, WORLD_HINT_BASELINE, AlignRight, AlignBottom,
+        "any key back");
+    (void)st;
+}
+
 static void draw_stash_screen(Canvas* canvas, const AppState* st) {
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str(canvas, 0, TITLE_BASELINE_Y, "Vault");
@@ -2070,6 +2090,7 @@ static void title_draw(Canvas* canvas, void* ctx) {
     case ScreenShop:        draw_shop_screen(canvas, st); break;
     case ScreenStash:       draw_stash_screen(canvas, st); break;
     case ScreenQuest:       draw_quest_screen(canvas, st); break;
+    case ScreenFpvDemo:     draw_fpv_demo_screen(canvas, st); break;
     }
 }
 
@@ -2863,7 +2884,9 @@ int32_t sanctum_rpg_app(void* p) {
         FuriStatus s =
             furi_message_queue_get(input_queue, &event, FuriWaitForever);
         if(s != FuriStatusOk) continue;
-        if(event.type != InputTypeShort && event.type != InputTypeRepeat) continue;
+        if(event.type != InputTypeShort && event.type != InputTypeRepeat &&
+           event.type != InputTypeLong)
+            continue;
 
         /* Each input is a fresh frame — transient status cleared on title/picker,
          * preserved on world only when the move sets it. */
@@ -2957,6 +2980,16 @@ int32_t sanctum_rpg_app(void* p) {
                 default: break;
                 }
             } else {
+                /* Long-press OK on the world screen → FPV demo (slice
+                 * 2026-06-03e). Lets us UAT the Etrian-style renderer
+                 * side-by-side with the current top-down view without
+                 * rewiring inputs. */
+                if(event.type == InputTypeLong && event.key == InputKeyOk) {
+                    state.screen = ScreenFpvDemo;
+                    state.status_line = NULL;
+                    break;
+                }
+                if(event.type == InputTypeLong) break; /* ignore other long-presses for now */
                 switch(event.key) {
                 case InputKeyUp:
                 case InputKeyDown:
@@ -3135,6 +3168,13 @@ int32_t sanctum_rpg_app(void* p) {
                 break;
             default: break;
             }
+            break;
+
+        case ScreenFpvDemo:
+            /* Any input returns to top-down world view. The alt view
+             * stays available indefinitely; this is just the UAT path. */
+            state.screen = ScreenWorld;
+            state.status_line = NULL;
             break;
 
         case ScreenStash:
