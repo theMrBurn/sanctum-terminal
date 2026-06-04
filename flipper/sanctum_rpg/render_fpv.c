@@ -234,6 +234,137 @@ static int cast_ray(
     return perp;
 }
 
+/* ─── Floor detail (perceptual ground plane) ──────────────────────
+ *
+ * "Carefully placed here and there to provide the illusion of a ground
+ * plane" — playtest 2026-06-04 design note. The 1-bit screen + black
+ * background register: small white embellishments suggest cobblestone /
+ * slate / panels (cavern) or grass blades / leaf tufts (outdoor). The
+ * brain does the gestalt; we just place a few pixels.
+ *
+ * Per visible floor tile: project the tile center to screen, stamp a
+ * small (2-4 dot) pattern. Deterministic per (tile_x, tile_y) hash —
+ * same chunk paints the same texture each visit.
+ *
+ * Drawn BEFORE walls so the wall pass naturally occludes any details
+ * that fall behind walls (Z-correct by paint order).
+ */
+
+static uint32_t tile_hash(int tx, int ty) {
+    uint32_t h = (uint32_t)tx * 0x9E3779B9u;
+    h ^= (uint32_t)ty * 0x85EBCA77u;
+    h ^= h >> 16;
+    h *= 0x7FEB352Du;
+    h ^= h >> 15;
+    return h;
+}
+
+static void draw_floor_detail(
+    Canvas* canvas, int col, int row, bool open_biome, uint32_t h) {
+    int variant = (int)(h & 3u);
+    /* Subtle 0..1 px offsets per tile, from the same hash. */
+    col += (int)((h >> 2) & 1u);
+    row += (int)((h >> 3) & 1u);
+
+    /* Guard: keep details inside the floor zone strip (just below
+     * horizon down to view bottom-1). */
+    if(col < 0 || col >= FPV_VIEW_W) return;
+    if(row < FPV_HORIZON_Y + 1 || row > FPV_VIEW_H - 2) return;
+
+    if(open_biome) {
+        /* Outdoor — grass blade / leaf register. Vertical and
+         * V-shaped silhouettes. */
+        switch(variant) {
+        case 0: /* single blade — two dots vertical */
+            canvas_draw_dot(canvas, col, row);
+            canvas_draw_dot(canvas, col, row - 1);
+            break;
+        case 1: /* grass tuft — V */
+            canvas_draw_dot(canvas, col - 1, row);
+            canvas_draw_dot(canvas, col + 1, row);
+            canvas_draw_dot(canvas, col, row - 1);
+            break;
+        case 2: /* leaning blade */
+            canvas_draw_dot(canvas, col, row);
+            canvas_draw_dot(canvas, col + 1, row - 1);
+            break;
+        case 3: /* scatter pair — two leaves */
+            canvas_draw_dot(canvas, col - 1, row);
+            canvas_draw_dot(canvas, col + 1, row + 1);
+            break;
+        }
+    } else {
+        /* Cavern — slate / pebble / crack register. Angular shapes. */
+        switch(variant) {
+        case 0: /* single pebble */
+            canvas_draw_dot(canvas, col, row);
+            break;
+        case 1: /* slate corner — L */
+            canvas_draw_dot(canvas, col, row);
+            canvas_draw_dot(canvas, col + 1, row);
+            canvas_draw_dot(canvas, col, row + 1);
+            break;
+        case 2: /* crack — short diagonal */
+            canvas_draw_dot(canvas, col - 1, row);
+            canvas_draw_dot(canvas, col, row);
+            canvas_draw_dot(canvas, col + 1, row + 1);
+            break;
+        case 3: /* scattered pebbles */
+            canvas_draw_dot(canvas, col, row);
+            canvas_draw_dot(canvas, col + 2, row + 1);
+            break;
+        }
+    }
+}
+
+static void render_floor_detail_pass(
+    Canvas* canvas, const World* world,
+    int player_x, int player_y, uint8_t facing, bool open_biome) {
+    int fdx = fpv_facing_dx(facing);
+    int fdy = fpv_facing_dy(facing);
+    int rdx = -fdy;   /* perpendicular right of facing */
+    int rdy = fdx;
+
+    /* Iterate the visible cone: forward 1..5 tiles, sideways ±fwd. The
+     * FOV cone narrows the actually-visible set; out-of-FOV columns are
+     * filtered by the projection check below. */
+    for(int fwd = 1; fwd <= 5; fwd++) {
+        for(int side = -fwd; side <= fwd; side++) {
+            int tx = player_x + fdx * fwd + rdx * side;
+            int ty = player_y + fdy * fwd + rdy * side;
+            if(tx < 0 || tx >= WORLD_COLS || ty < 0 || ty >= WORLD_ROWS) continue;
+            if(world_is_blocking(world->tiles[ty][tx])) continue;
+
+            /* Coarse occlusion: walk a line from player toward tile,
+             * sample at each fwd step. Any blocking tile in between =
+             * occluded. Approximate but cheap. */
+            bool occluded = false;
+            for(int t = 1; t < fwd && !occluded; t++) {
+                int sn = (side * t) / fwd;
+                int cx = player_x + fdx * t + rdx * sn;
+                int cy = player_y + fdy * t + rdy * sn;
+                if(cx < 0 || cx >= WORLD_COLS || cy < 0 || cy >= WORLD_ROWS) {
+                    occluded = true;
+                    break;
+                }
+                if(world_is_blocking(world->tiles[cy][cx])) occluded = true;
+            }
+            if(occluded) continue;
+
+            /* Project tile center to screen.
+             *   col  = W/2 + (side * (W/2) * FP_ONE) / (fwd * PLANE_SCALE)
+             *   row  = HORIZON + (WALL_HEIGHT_SCALE / 2) / (fwd * FP_ONE) */
+            int col = FPV_VIEW_W / 2 +
+                      (side * (FPV_VIEW_W / 2) * FP_ONE) / (fwd * PLANE_SCALE);
+            int row = FPV_HORIZON_Y + (WALL_HEIGHT_SCALE / (2 * FP_ONE)) / fwd;
+            if(col < 0 || col >= FPV_VIEW_W) continue;
+
+            uint32_t h = tile_hash(tx, ty);
+            draw_floor_detail(canvas, col, row, open_biome, h);
+        }
+    }
+}
+
 /* ─── Public entry points ──────────────────────────────────────── */
 
 void render_fpv_demo(Canvas* canvas) {
@@ -279,7 +410,23 @@ void render_fpv_world(
      * never reaches off-grid before hitting that wall. */
     bool open_biome = (biome_terrain(world->biome) == TERRAIN_OPEN);
 
-    /* Per-column ray cast. */
+    /* Step 1: floor detail pass — sparse biome-specific dots in the
+     * floor zone, anchored at each visible tile's projected center.
+     * Drawn FIRST so the wall pass naturally overdraws (Z-correct by
+     * paint order). */
+    render_floor_detail_pass(canvas, world, player_x, player_y, facing, open_biome);
+
+    /* Step 2: horizon baseline — a thin line at HORIZON_Y across the
+     * whole view. Provides visual orientation when no walls fill the
+     * column (open outdoor space). The wall raycast pass below
+     * overdraws this where walls exist, so cavern interiors look
+     * exactly as before, while open outdoor reads as "horizon
+     * visible" instead of "renderer is dead". */
+    for(int c = 0; c < FPV_VIEW_W; c++) {
+        canvas_draw_dot(canvas, c, FPV_HORIZON_Y);
+    }
+
+    /* Step 3: per-column ray cast — walls. */
     for(int c = 0; c < FPV_VIEW_W; c++) {
         int rdx, rdy;
         ray_dir_for_column(facing, c, &rdx, &rdy);
