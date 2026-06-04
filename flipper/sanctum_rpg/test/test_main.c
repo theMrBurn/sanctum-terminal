@@ -27,6 +27,7 @@
 #include "../recipes.h"
 #include "../loot.h"
 #include "../names.h"
+#include "../trade.h"
 #include "../rng.h"
 #include "../weather.h"
 #include "../world.h"
@@ -269,6 +270,117 @@ static void test_names_distribution(void) {
           "names: hash spreads prefixes across multiple bins");
     CHECK(suffix_bins_used >= 4,
           "names: hash spreads suffixes across multiple bins");
+}
+
+/* ── trade (economy bundle slice B) ─────────────────────────────────
+ *
+ * Determinism + bounds + the chunk-(0,0)-is-not-vendor invariant + the
+ * vendor-placement distribution. */
+
+static void test_trade_determinism(void) {
+    /* Same inputs → byte-equal outputs (port stability). */
+    int8_t a = chunk_price_delta(0xCAFEBABE, 3, -2, 4);
+    int8_t b = chunk_price_delta(0xCAFEBABE, 3, -2, 4);
+    CHECK(a == b, "trade: chunk_price_delta deterministic");
+
+    bool va = chunk_has_vendor(0xCAFEBABE, 5, 7);
+    bool vb = chunk_has_vendor(0xCAFEBABE, 5, 7);
+    CHECK(va == vb, "trade: chunk_has_vendor deterministic");
+
+    int x1, y1, x2, y2;
+    vendor_position(0xCAFEBABE, 5, 7, &x1, &y1);
+    vendor_position(0xCAFEBABE, 5, 7, &x2, &y2);
+    CHECK(x1 == x2 && y1 == y2, "trade: vendor_position deterministic");
+}
+
+static void test_trade_home_chunk_not_vendor(void) {
+    /* Chunk (0,0) is reserved for the home/vault tile (slice C). It must
+     * never get a vendor regardless of seed. */
+    uint32_t seeds[] = {0, 0xCAFEBABE, 0xDEADBEEF, 0x12345678, 0xFFFFFFFFu};
+    for(int i = 0; i < (int)(sizeof(seeds)/sizeof(seeds[0])); i++) {
+        CHECK(!chunk_has_vendor(seeds[i], 0, 0),
+              "trade: chunk (0,0) is never a vendor");
+    }
+}
+
+static void test_trade_delta_bounds(void) {
+    /* chunk_price_delta is supposed to stay in [-50, +50]. Sweep widely. */
+    int min_d = 127, max_d = -128;
+    for(int cy = -8; cy <= 8; cy++) {
+        for(int cx = -8; cx <= 8; cx++) {
+            for(uint8_t k = 0; k < 16; k++) {
+                int8_t d = chunk_price_delta(0xABCDEF12u, cx, cy, k);
+                if(d < min_d) min_d = d;
+                if(d > max_d) max_d = d;
+            }
+        }
+    }
+    CHECK(min_d >= -50, "trade: delta never below -50");
+    CHECK(max_d <=  50, "trade: delta never above +50");
+}
+
+static void test_trade_vendor_rate(void) {
+    /* Spread vendors across many chunks; expect ~1 in 6 chunks (16%).
+     * Allow a generous band [10%, 24%]. */
+    int hits = 0, total = 0;
+    for(int cy = -16; cy <= 16; cy++) {
+        for(int cx = -16; cx <= 16; cx++) {
+            if(cx == 0 && cy == 0) continue; /* home reserved */
+            total++;
+            if(chunk_has_vendor(0x12345678u, cx, cy)) hits++;
+        }
+    }
+    int pct = (hits * 100) / total;
+    printf("  trade: vendor rate %d/%d = %d%%\n", hits, total, pct);
+    CHECK(pct >= 10 && pct <= 24, "trade: ~1-in-6 vendor placement rate");
+}
+
+static void test_trade_pricing(void) {
+    /* Buy ≥ sell at the same delta (spread keeps the vendor's margin). */
+    for(int d = -50; d <= 50; d += 10) {
+        uint16_t buy  = trade_buy_price(100, (int8_t)d);
+        uint16_t sell = trade_sell_price(100, (int8_t)d);
+        CHECK(buy >= sell, "trade: vendor ask >= vendor bid (spread)");
+    }
+    /* Scrap is half of base, floored at 1. */
+    CHECK(trade_scrap_price(20) == 10, "trade: scrap = base/2 (20)");
+    CHECK(trade_scrap_price(1)  == 1,  "trade: scrap floors at 1");
+
+    /* Sanity: surplus chunk (delta -50) cheap to buy from; scarce chunk
+     * (delta +50) good to sell to. */
+    CHECK(trade_buy_price(100, -50)  < 100, "trade: surplus cheap to buy");
+    CHECK(trade_sell_price(100, +50) > 100, "trade: scarce pays well to sell");
+
+    /* The trade triangle is profitable round-trip: buy at surplus, sell
+     * at scarcity. Net should be positive. */
+    uint16_t cost = trade_buy_price(100, -50);
+    uint16_t gain = trade_sell_price(100, +50);
+    CHECK(gain > cost,
+          "trade: surplus→scarcity round-trip is profitable");
+}
+
+static void test_trade_vendor_placement_walkable(void) {
+    /* Across a sweep, generate cavern + outdoor chunks; any vendor that
+     * exists must sit on a walkable TILE_VENDOR (not buried by a stamp). */
+    int seen = 0;
+    for(int cy = -8; cy <= 8; cy++) {
+        for(int cx = -8; cx <= 8; cx++) {
+            World w;
+            world_generate_chunk(0xC0FFEE12u, cx, cy, &w);
+            int vx = -1, vy = -1;
+            for(int y = 0; y < WORLD_ROWS; y++) {
+                for(int x = 0; x < WORLD_COLS; x++) {
+                    if(w.tiles[y][x] == TILE_VENDOR) { vx = x; vy = y; }
+                }
+            }
+            if(vx >= 0) {
+                seen++;
+                CHECK(world_walkable(&w, vx, vy),
+                      "trade: vendor tile is walkable in-world");
+            }
+        }
+    }
+    CHECK(seen > 0, "trade: sweep observed at least one vendor chunk");
 }
 
 /* ── egress (carve_egress anti-trap) ─────────────────────────────────
@@ -1349,6 +1461,12 @@ int main(void) {
     test_names_biome_distinct();
     test_names_cap_truncates();
     test_names_distribution();
+    test_trade_determinism();
+    test_trade_home_chunk_not_vendor();
+    test_trade_delta_bounds();
+    test_trade_vendor_rate();
+    test_trade_pricing();
+    test_trade_vendor_placement_walkable();
     test_cavern_egress_known_traps();
     test_cavern_egress_no_trap();
     test_creatures_catalog_integrity();

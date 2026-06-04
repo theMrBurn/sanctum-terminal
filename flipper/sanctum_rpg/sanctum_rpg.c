@@ -43,6 +43,7 @@
 #include "save_io.h"
 #include "stamps.h"
 #include "names.h"
+#include "trade.h"
 #include "weather.h"
 #include "world.h"
 
@@ -189,6 +190,13 @@ typedef struct {
     int8_t inv_cursor;      /* slice 2 — selected slot in ScreenInventory */
     int8_t craft_cursor;    /* slice 4 — recipe index in ScreenCraft */
     int8_t shop_cursor;     /* slice 4 — sellable-list index in ScreenShop */
+    /* Slice 2026-06-03d (economy bundle, B): shop opens in two flavors.
+     * `shop_is_vendor` = entered by stepping onto a TILE_VENDOR — full
+     * chunk-modulated prices + buy/sell toggle. Else = inventory→Down
+     * scrap dealer (half price, sell-only). `shop_mode` 0=SELL 1=BUY,
+     * BUY available only when shop_is_vendor. */
+    bool shop_is_vendor;
+    uint8_t shop_mode;
 
     NotificationApp* notif;  /* haptic/LED/sound feedback (v0.3.5d) */
     bool muted;              /* default ON during dev; toggled in Settings */
@@ -715,6 +723,7 @@ static const char* examine_name(const AppState* st, int x, int y) {
     case TILE_WALL:        return "rock wall";
     case TILE_ROCK:        return "boulder";
     case TILE_DOOR:        return "doorway";
+    case TILE_VENDOR:      return "vendor";
     case TILE_STAIRS_UP:   return "stairs up";
     case TILE_STAIRS_DOWN: return "stairs down";
     case TILE_FLOOR:
@@ -1303,7 +1312,46 @@ static void craft_pull(AppState* st) {
     save_io_write_character(&st->character);
 }
 
-/* Sell one of the cursor's item for its KindDef.value credits. */
+/* Build the list of kinds this vendor sells in THIS chunk. A first-cut
+ * stock model: every catalog kind that's pickupable + has a value + has
+ * biome affinity matching the vendor's chunk biome. Carrying capacity
+ * (8 inventory slots) is the natural throttle; per-vendor finite stock
+ * lands in a later slice. */
+static int build_buyable_list(uint8_t biome, uint8_t* out, int max) {
+    int n = 0;
+    uint8_t bbit = BIOME_BIT((Biome)biome);
+    for(int i = 0; i < KIND_COUNT && n < max; i++) {
+        const KindDef* k = kind_by_id((uint8_t)i);
+        if(!k) continue;
+        if(!(k->flags & KF_PICKUPABLE)) continue;
+        if(k->value == 0) continue;
+        if(!(k->biomes & bbit)) continue;
+        out[n++] = (uint8_t)i;
+    }
+    return n;
+}
+
+/* Current shop's price for a given kind. At a vendor: sell uses
+ * trade_sell_price (vendor bid), buy uses trade_buy_price (vendor ask).
+ * From inventory→Down (no vendor): scrap_price for sells only — buy
+ * mode is unreachable there. */
+static uint16_t shop_price_for(
+    const AppState* st, uint8_t kind_id, uint16_t base, bool is_buy) {
+    if(st->shop_is_vendor) {
+        int8_t delta = chunk_price_delta(
+            st->campaign_seed,
+            (int)st->character.chunk_x,
+            (int)st->character.chunk_y,
+            kind_id);
+        return is_buy ? trade_buy_price(base, delta)
+                      : trade_sell_price(base, delta);
+    }
+    /* Scrap dealer is sell-only; the BUY branch never reaches here in
+     * normal flow, but if it did, treat as the same scrap rate. */
+    return trade_scrap_price(base);
+}
+
+/* Sell one of the cursor's item at the shop's current bid price. */
 static void shop_sell(AppState* st) {
     uint8_t sellable[KIND_COUNT];
     int n = build_sellable_list(&st->character, sellable, KIND_COUNT);
@@ -1316,9 +1364,43 @@ static void shop_sell(AppState* st) {
     uint8_t id = sellable[st->shop_cursor];
     const KindDef* k = kind_by_id(id);
     if(!k) return;
+    uint16_t price = shop_price_for(st, id, k->value, false);
     st->character.inv_qty[id]--;
-    st->character.credits += k->value;
-    set_statusf(st, "sold %s +%uc", k->true_name, (unsigned)k->value);
+    st->character.credits += price;
+    set_statusf(st, "sold %s +%uc", k->true_name, (unsigned)price);
+    notify(st, &sequence_success);
+    save_io_write_character(&st->character);
+}
+
+/* Buy one of the cursor's item at the vendor's ask price. Vendor only —
+ * the scrap dealer (inventory→Down) doesn't expose BUY mode. */
+static void shop_buy(AppState* st) {
+    if(!st->shop_is_vendor) return;
+    uint8_t buyable[KIND_COUNT];
+    int n = build_buyable_list((uint8_t)st->world.biome, buyable, KIND_COUNT);
+    if(n == 0) {
+        set_status(st, "(vendor has nothing for you)");
+        return;
+    }
+    if(st->shop_cursor < 0) st->shop_cursor = 0;
+    if(st->shop_cursor >= n) st->shop_cursor = (int8_t)(n - 1);
+    uint8_t id = buyable[st->shop_cursor];
+    const KindDef* k = kind_by_id(id);
+    if(!k) return;
+    uint16_t price = shop_price_for(st, id, k->value, true);
+    if(st->character.credits < price) {
+        set_statusf(st, "need %uc", (unsigned)price);
+        notify(st, &sequence_error);
+        return;
+    }
+    if(id >= SAVE_INV_KINDS_MAX || st->character.inv_qty[id] >= 255) {
+        set_status(st, "bag full");
+        return;
+    }
+    st->character.credits -= price;
+    st->character.inv_qty[id]++;
+    st->character.identified |= (1ull << id); /* you bought it — you know it */
+    set_statusf(st, "bought %s -%uc", k->true_name, (unsigned)price);
     notify(st, &sequence_success);
     save_io_write_character(&st->character);
 }
@@ -1421,10 +1503,17 @@ static void draw_craft_screen(Canvas* canvas, const AppState* st) {
         "OK pull  Back done");
 }
 
-/* Shop (slice 4) — sell items for credits. List of sellable kinds with prices. */
+/* Shop — buy/sell list. Two flavors:
+ *   shop_is_vendor=false (from inventory→Down): SELL only, scrap price
+ *   shop_is_vendor=true  (stepped onto V):     SELL + BUY, chunk-priced
+ * shop_mode 0=SELL list, 1=BUY list (BUY available only at vendor). */
 static void draw_shop_screen(Canvas* canvas, const AppState* st) {
+    bool buy_mode = (st->shop_mode == 1) && st->shop_is_vendor;
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str(canvas, 0, TITLE_BASELINE_Y, "Shop");
+    const char* title = st->shop_is_vendor
+                            ? (buy_mode ? "Vendor: Buy" : "Vendor: Sell")
+                            : "Scrap";
+    canvas_draw_str(canvas, 0, TITLE_BASELINE_Y, title);
     canvas_set_font(canvas, FontSecondary);
     char balance[24];
     snprintf(
@@ -1433,29 +1522,37 @@ static void draw_shop_screen(Canvas* canvas, const AppState* st) {
         canvas, SCREEN_W, TITLE_BASELINE_Y, AlignRight, AlignBottom, balance);
     canvas_draw_line(canvas, 0, DIVIDER_Y, SCREEN_W - 1, DIVIDER_Y);
 
-    uint8_t sellable[KIND_COUNT];
-    int n = build_sellable_list(&st->character, sellable, KIND_COUNT);
+    uint8_t list[KIND_COUNT];
+    int n = buy_mode
+                ? build_buyable_list((uint8_t)st->world.biome, list, KIND_COUNT)
+                : build_sellable_list(&st->character, list, KIND_COUNT);
     int cursor = st->shop_cursor;
     if(cursor < 0) cursor = 0;
     if(n > 0 && cursor >= n) cursor = n - 1;
 
     if(n == 0) {
-        canvas_draw_str(canvas, 0, 32, "(nothing to sell)");
+        canvas_draw_str(canvas, 0, 32,
+                        buy_mode ? "(vendor empty)" : "(nothing to sell)");
     } else {
-        /* Up to 4 rows visible. Simple scrolling: keep cursor in view. */
         int first = 0;
         if(cursor > 3) first = cursor - 3;
         int last = first + 4;
         if(last > n) last = n;
         for(int row = first, i = 0; row < last; row++, i++) {
             int y = 22 + i * 8;
-            uint8_t id = sellable[row];
+            uint8_t id = list[row];
             const KindDef* k = kind_by_id(id);
             if(!k) continue;
+            uint16_t price = shop_price_for(st, id, k->value, buy_mode);
             char line[40];
-            snprintf(
-                line, sizeof(line), "%c %s x%u  %uc", k->glyph, k->true_name,
-                (unsigned)st->character.inv_qty[id], (unsigned)k->value);
+            if(buy_mode) {
+                snprintf(line, sizeof(line), "%c %s  %uc",
+                         k->glyph, k->true_name, (unsigned)price);
+            } else {
+                snprintf(line, sizeof(line), "%c %s x%u  %uc",
+                         k->glyph, k->true_name,
+                         (unsigned)st->character.inv_qty[id], (unsigned)price);
+            }
             if(row == cursor) {
                 canvas_draw_box(canvas, 0, y - 7, SCREEN_W, 8);
                 canvas_invert_color(canvas);
@@ -1467,9 +1564,15 @@ static void draw_shop_screen(Canvas* canvas, const AppState* st) {
         }
     }
 
+    const char* footer;
+    if(st->shop_is_vendor) {
+        footer = buy_mode ? "OK buy   <> sell  Back" : "OK sell  <> buy   Back";
+    } else {
+        footer = "OK sell  Back done";
+    }
     canvas_draw_str_aligned(
         canvas, SCREEN_W / 2, FOOTER_BASELINE_Y, AlignCenter, AlignBottom,
-        "OK sell  Back done");
+        footer);
 }
 
 /* Quest (slice 49.F5) — surfaces when entering an anchored chunk. Shows
@@ -2441,9 +2544,12 @@ static void on_world_move(AppState* st, MoveDir dir) {
 
     switch(r) {
     case MovePickedUpItem: {
-        /* Map the picked glyph → kind. Torches (fuel>0) immediate-refuel as
-         * before. Everything else goes into the bag (slice 2); materials still
-         * grant credits on pickup until the shop sink lands in slice 4. */
+        /* Slice 2026-06-03d (economy bundle): pickup grants NO credits.
+         * The slice-4 placeholder "materials grant credits on pickup"
+         * was waiting for the shop sink, which now exists. All value
+         * flows through the shop (scrap at half, vendor at chunk price).
+         * Torches still immediate-refuel — they're a consumable for the
+         * torch system, not a tradeable. */
         const KindDef* k = kind_by_glyph(dest_glyph);
         if(k) {
             st->character.identified |= (1ull << k->id);
@@ -2457,13 +2563,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
                    st->character.inv_qty[k->id] < 255) {
                     st->character.inv_qty[k->id]++;
                 }
-                if(!(k->flags & (KF_EQUIP | KF_CONSUMABLE))) {
-                    st->character.credits += k->value;
-                    set_statusf(
-                        st, "got %s +%uc", k->true_name, (unsigned)k->value);
-                } else {
-                    set_statusf(st, "got %s", k->true_name);
-                }
+                set_statusf(st, "got %s", k->true_name);
             }
         } else {
             set_status(st, "found item");
@@ -2476,6 +2576,16 @@ static void on_world_move(AppState* st, MoveDir dir) {
     }
     case MoveSteppedOnDoor:
         door_transition(st);
+        break;
+    case MoveSteppedOnVendor:
+        /* Open the shop in vendor flavor (full chunk prices + buy/sell
+         * toggle). The vendor tile stays — the player can step off and
+         * back on freely. */
+        st->shop_is_vendor = true;
+        st->shop_mode = 0; /* land on SELL by default — players usually want to unload */
+        st->shop_cursor = 0;
+        st->screen = ScreenShop;
+        st->status_line = NULL;
         break;
     case MoveWalkedOffEdge:
         do_transition(st, dir,
@@ -2839,16 +2949,40 @@ int32_t sanctum_rpg_app(void* p) {
                 if(state.shop_cursor > 0) state.shop_cursor--;
                 break;
             case InputKeyDown: {
-                uint8_t sellable[KIND_COUNT];
-                int n = build_sellable_list(&state.character, sellable, KIND_COUNT);
+                uint8_t list[KIND_COUNT];
+                int n;
+                if(state.shop_is_vendor && state.shop_mode == 1) {
+                    n = build_buyable_list(
+                        (uint8_t)state.world.biome, list, KIND_COUNT);
+                } else {
+                    n = build_sellable_list(&state.character, list, KIND_COUNT);
+                }
                 if(state.shop_cursor < n - 1) state.shop_cursor++;
                 break;
             }
+            case InputKeyLeft:
+            case InputKeyRight:
+                /* Toggle BUY/SELL only at a real vendor — the scrap dealer
+                 * has no BUY surface. */
+                if(state.shop_is_vendor) {
+                    state.shop_mode = (uint8_t)(state.shop_mode ^ 1u);
+                    state.shop_cursor = 0;
+                }
+                break;
             case InputKeyOk:
-                shop_sell(&state);
+                if(state.shop_is_vendor && state.shop_mode == 1) {
+                    shop_buy(&state);
+                } else {
+                    shop_sell(&state);
+                }
                 break;
             case InputKeyBack:
-                state.screen = ScreenInventory;
+                /* Vendor shop opened FROM world → return to world.
+                 * Scrap shop opened FROM inventory → return to inventory. */
+                state.screen =
+                    state.shop_is_vendor ? ScreenWorld : ScreenInventory;
+                state.shop_is_vendor = false;
+                state.shop_mode = 0;
                 break;
             default: break;
             }

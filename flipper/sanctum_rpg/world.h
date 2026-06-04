@@ -30,6 +30,7 @@
 #define TILE_ITEM   '*'   /* legacy/starter-room item glyph (loot.c is canonical) */
 #define TILE_STAIRS_UP    '<'
 #define TILE_STAIRS_DOWN  '>'
+#define TILE_VENDOR 'V'   /* slice 2026-06-03d — economy bundle */
 
 /* Movement intents. */
 typedef enum {
@@ -49,6 +50,7 @@ typedef enum {
     MovePickedUpItem,
     MoveSteppedOnDoor,
     MoveSteppedOnStairs,
+    MoveSteppedOnVendor,
 } MoveResult;
 
 typedef struct {

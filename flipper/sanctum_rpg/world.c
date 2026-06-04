@@ -14,6 +14,7 @@
 #include "pool.h"
 #include "rng.h"
 #include "stamps.h"
+#include "trade.h"
 
 /* ─── procgen tunables ───────────────────────────────────────────── */
 
@@ -316,7 +317,19 @@ static void carve_egress(World* out) {
  * edge per spec 50 §F1.5 / §C.4); the Pool-biased stamp composer fills
  * the interior. The old blob algorithm is gone — variety now comes from
  * the stamp catalog (10 cavern stamps) × Pool bias × rotation. */
-static void gen_cavern_stamped(Rng* rng, const Pool* pool, World* out) {
+/* Place a single TILE_VENDOR if this chunk is a vendor chunk. Pre-compose
+ * so the composer's "refuses to overwrite non-floor" rule protects it,
+ * the same way it protects the 4 cavern doors. */
+static void place_vendor_if_any(uint32_t seed, int cx, int cy, World* out) {
+    if(!chunk_has_vendor(seed, cx, cy)) return;
+    int vx, vy;
+    vendor_position(seed, cx, cy, &vx, &vy);
+    if(vx < 0 || vx >= WORLD_COLS || vy < 0 || vy >= WORLD_ROWS) return;
+    out->tiles[vy][vx] = TILE_VENDOR;
+}
+
+static void gen_cavern_stamped(
+    uint32_t seed, int cx, int cy, Rng* rng, const Pool* pool, World* out) {
     fill_floor_with_border(out);
     /* Doors first — the composer respects them (refuses to overwrite
      * non-floor tiles). Mid-edge positions stay unchanged so the existing
@@ -327,6 +340,7 @@ static void gen_cavern_stamped(Rng* rng, const Pool* pool, World* out) {
     out->tiles[WORLD_ROWS - 1][mid_col] = TILE_DOOR;
     out->tiles[mid_row][0] = TILE_DOOR;
     out->tiles[mid_row][WORLD_COLS - 1] = TILE_DOOR;
+    place_vendor_if_any(seed, cx, cy, out);
     (void)pick_door_tile;
     (void)place_blob; /* slice 50.F1 — blob algorithm retired */
     compose_stamps_into_interior(rng, pool, STAMP_BIOME_CAVERN, out);
@@ -344,12 +358,14 @@ static void gen_cavern_stamped(Rng* rng, const Pool* pool, World* out) {
  * Stamps fill the interior; the outer ring stays bare floor so edge
  * traversal works. The old rock-scatter algorithm is gone — variety now
  * comes from the outdoor stamp catalog (10 stamps) × Pool bias × rotation. */
-static void gen_outdoor_stamped(Rng* rng, const Pool* pool, World* out) {
+static void gen_outdoor_stamped(
+    uint32_t seed, int cx, int cy, Rng* rng, const Pool* pool, World* out) {
     for(int y = 0; y < WORLD_ROWS; y++) {
         for(int x = 0; x < WORLD_COLS; x++) {
             out->tiles[y][x] = TILE_FLOOR;
         }
     }
+    place_vendor_if_any(seed, cx, cy, out);
     compose_stamps_into_interior(rng, pool, STAMP_BIOME_OUTDOOR, out);
     scatter_items(out, rng, pool);
     find_spawn(out);
@@ -374,9 +390,9 @@ void world_generate_chunk(
     pool_at(base_seed, pool_biome, chunk_x, chunk_y, &pool);
 
     if(biome_terrain(out->biome) == TERRAIN_OPEN) {
-        gen_outdoor_stamped(&rng, &pool, out);
+        gen_outdoor_stamped(base_seed, chunk_x, chunk_y, &rng, &pool, out);
     } else {
-        gen_cavern_stamped(&rng, &pool, out);
+        gen_cavern_stamped(base_seed, chunk_x, chunk_y, &rng, &pool, out);
     }
 }
 
@@ -429,6 +445,8 @@ MoveResult world_try_move(World* w, MoveDir dir, int* px, int* py, char* out_des
     case TILE_STAIRS_UP:
     case TILE_STAIRS_DOWN:
         return MoveSteppedOnStairs;
+    case TILE_VENDOR:
+        return MoveSteppedOnVendor;
     default:
         return MoveOk;
     }
