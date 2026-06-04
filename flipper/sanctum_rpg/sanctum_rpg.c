@@ -1404,7 +1404,8 @@ static void draw_fpv_world_screen(Canvas* canvas, const AppState* st) {
     render_fpv_world(
         canvas, &st->world,
         (int)st->character.player_x, (int)st->character.player_y,
-        st->character.facing);
+        st->character.facing,
+        st->creatures, st->creature_count);
     /* Divider + status strip, identical to draw_world_screen so the
      * HUD doesn't visibly shift between view modes. */
     canvas_draw_line(canvas, 0, WORLD_VIEW_H, SCREEN_W - 1, WORLD_VIEW_H);

@@ -154,26 +154,47 @@ int fpv_facing_dy(uint8_t facing) {
     }
 }
 
-/* Per-tile sprite lookup — which 32x32 XBM (if any) represents a given
- * world tile glyph in FPV. NULL = render as floor (no sprite). Walls /
- * doors are handled by the perspective itself (back wall + clear
- * opening), not a sprite. */
+/* Per-glyph sprite lookup — which 32x32 XBM (if any) represents a given
+ * world tile glyph or creature glyph in FPV. NULL = no sprite (floor or
+ * unknown). Tables grow as the kit grows; missing glyphs fall back to
+ * the perspective's structural rendering (no sprite drawn). */
 static const uint8_t* sprite_for_tile(char glyph) {
     switch(glyph) {
     case TILE_VAULT:  return vault_xbm;
-    /* TILE_HEARTH glyph isn't defined yet (slice C2 — Sanctum chunk).
-     * Future: case TILE_HEARTH: return hearth_low_xbm; */
-    case TILE_VENDOR: /* fall-through: vendor uses no sprite yet — drawn
-                       * as a wireframe shape by the perspective when
-                       * the per-kind table lands in C3. */
+    case TILE_DOOR:   return door_xbm;
+    /* Loot kinds (mirrors KIND_CATALOG glyphs in loot.c). */
+    case '*':         return crystal_xbm;   /* crystal shard */
+    case 'i':         return torch_xbm;     /* torch */
+    case 'T':         return vault_xbm;     /* chest — reuse vault until a dedicated chest sprite lands */
+    /* TILE_HEARTH glyph not yet defined (Sanctum chunk slice C2). */
+    case TILE_VENDOR: /* vendor stays no-sprite — drawn as a wireframe
+                       * shape by the perspective until C3b's
+                       * dedicated vendor pictogram lands. */
     default:          return NULL;
+    }
+}
+
+/* Per-creature-family-glyph sprite lookup. Glyphs match
+ * CREATURE_FAMILIES in creatures.c. */
+static const uint8_t* sprite_for_creature_glyph(char glyph) {
+    switch(glyph) {
+    case 'r': return rat_xbm;       /* rat */
+    case 's': return spider_xbm;    /* spider */
+    /* beetle 'b', bat 'B', slime 'S' fall through to NULL — next C3 commit. */
+    default:  return NULL;
     }
 }
 
 /* Draw the perspective frame + convergence lines + depth markers up to
  * `back_depth` (inclusive). The back wall closes the corridor at that
- * depth. Shared by render_fpv_demo and render_fpv_world. */
-static void draw_perspective_frame(Canvas* canvas, int back_depth) {
+ * depth.
+ *
+ * `left_open` / `right_open` are 5-bit bitmasks, one bit per depth
+ * (0..4). When set, the cross-wall lip on that side at that depth is
+ * BROKEN — the player sees a passage opens that way. NULL pointer →
+ * solid walls everywhere (used by the static demo). */
+static void draw_perspective_frame(
+    Canvas* canvas, int back_depth, uint8_t left_open, uint8_t right_open) {
     if(back_depth < 1) back_depth = 1;
     if(back_depth > 4) back_depth = 4;
 
@@ -189,14 +210,27 @@ static void draw_perspective_frame(Canvas* canvas, int back_depth) {
     draw_jittered_line(canvas, FPV_FRAME_X0, FPV_FRAME_Y1, FPV_VANISH_X, FPV_VANISH_Y);
     draw_jittered_line(canvas, FPV_FRAME_X1, FPV_FRAME_Y1, FPV_VANISH_X, FPV_VANISH_Y);
 
-    /* Depth-marker cross-walls up to (but not including) back_depth. */
+    /* Depth-marker cross-walls up to (but not including) back_depth.
+     * Each lip is two halves (left/right of the central vanishing
+     * column); each half is drawn only when that side is CLOSED at
+     * that depth. Result: a passage to the left reads as a clean
+     * break in the wall at that depth. */
     for(int d = 1; d < back_depth; d++) {
         int lx = FPV_VANISH_X - depth_x_inset[d];
         int rx = FPV_VANISH_X + depth_x_inset[d];
+        int mx = FPV_VANISH_X;
         int ty = FPV_VANISH_Y - depth_y_inset[d];
         int by = FPV_VANISH_Y + depth_y_inset[d];
-        canvas_draw_line(canvas, lx, ty, rx, ty);
-        canvas_draw_line(canvas, lx, by, rx, by);
+        bool lopen = (left_open  >> d) & 1u;
+        bool ropen = (right_open >> d) & 1u;
+        if(!lopen) {
+            canvas_draw_line(canvas, lx, ty, mx, ty);
+            canvas_draw_line(canvas, lx, by, mx, by);
+        }
+        if(!ropen) {
+            canvas_draw_line(canvas, mx, ty, rx, ty);
+            canvas_draw_line(canvas, mx, by, rx, by);
+        }
     }
 
     /* Back wall at back_depth. */
@@ -220,7 +254,7 @@ static void place_sprite_at_depth(Canvas* canvas, const uint8_t* xbm, int depth)
 
 void render_fpv_demo(Canvas* canvas) {
     canvas_clear(canvas);
-    draw_perspective_frame(canvas, 4);
+    draw_perspective_frame(canvas, 4, 0u, 0u);
     place_sprite_at_depth(canvas, hearth_low_xbm, 1);
 }
 
@@ -228,29 +262,31 @@ void render_fpv_world(
     Canvas* canvas,
     const World* world,
     int player_x, int player_y,
-    uint8_t facing) {
+    uint8_t facing,
+    const Creature* creatures, int creature_count) {
     canvas_clear(canvas);
     if(!world) {
-        draw_perspective_frame(canvas, 4);
+        draw_perspective_frame(canvas, 4, 0u, 0u);
         return;
     }
 
     int fdx = fpv_facing_dx(facing);
     int fdy = fpv_facing_dy(facing);
+    /* Perpendicular vectors (90° rotations of forward). */
+    int ldx = fdy,  ldy = -fdx;   /* left of facing */
+    int rdx = -fdy, rdy = fdx;    /* right of facing */
 
-    /* Sample the forward column at depths 1..4. The corridor terminates
-     * (back wall) at the first blocking tile or at depth 4 if all four
-     * tiles ahead are open. Doors are walkable but we treat them as a
-     * "depth break" so the player sees the doorway frame. */
+    /* Sample the forward column at depths 1..4. Corridor terminates
+     * (back wall) at the first blocking tile, or depth 4 if all open.
+     * Doors are walkable — they don't terminate. */
     char tile_at_depth[5] = {0};
+    uint8_t left_open  = 0u;
+    uint8_t right_open = 0u;
     int back_depth = 4;
     for(int d = 1; d <= 4; d++) {
         int tx = player_x + fdx * d;
         int ty = player_y + fdy * d;
         if(tx < 0 || tx >= WORLD_COLS || ty < 0 || ty >= WORLD_ROWS) {
-            /* Off-grid: in an OPEN biome you'd see the chunk boundary
-             * (renders as door-like opening). In a WALLED biome, no
-             * exit there. Either way: terminate the corridor. */
             back_depth = d;
             tile_at_depth[d] = TILE_WALL;
             break;
@@ -261,15 +297,44 @@ void render_fpv_world(
             back_depth = d;
             break;
         }
+        /* Side-cell sample — left and right of the forward tile at
+         * this depth. Walkable side = passage = lip break (Etrian). */
+        int lx_t = tx + ldx, ly_t = ty + ldy;
+        int rx_t = tx + rdx, ry_t = ty + rdy;
+        if(lx_t >= 0 && lx_t < WORLD_COLS && ly_t >= 0 && ly_t < WORLD_ROWS &&
+           !world_is_blocking(world->tiles[ly_t][lx_t])) {
+            left_open |= (1u << d);
+        }
+        if(rx_t >= 0 && rx_t < WORLD_COLS && ry_t >= 0 && ry_t < WORLD_ROWS &&
+           !world_is_blocking(world->tiles[ry_t][rx_t])) {
+            right_open |= (1u << d);
+        }
     }
 
-    draw_perspective_frame(canvas, back_depth);
+    draw_perspective_frame(canvas, back_depth, left_open, right_open);
 
-    /* Render sprites for any tile features (vault, future hearth, etc.)
-     * along the forward column. Painted back-to-front so closer sprites
-     * overdraw farther ones. */
+    /* Paint back-to-front so closer items overdraw farther ones. For
+     * each forward-column depth, render in this order (back of stack
+     * first): (1) tile feature sprite (vault/door/loot), (2) creature
+     * sprite if a creature occupies that tile. Creature draws over
+     * tile so the encounter reads cleanly. */
     for(int d = back_depth; d >= 1; d--) {
-        const uint8_t* sprite = sprite_for_tile(tile_at_depth[d]);
-        if(sprite) place_sprite_at_depth(canvas, sprite, d);
+        const uint8_t* tile_sprite = sprite_for_tile(tile_at_depth[d]);
+        if(tile_sprite) place_sprite_at_depth(canvas, tile_sprite, d);
+
+        if(creatures && creature_count > 0) {
+            int tx = player_x + fdx * d;
+            int ty = player_y + fdy * d;
+            for(int i = 0; i < creature_count; i++) {
+                const Creature* c = &creatures[i];
+                if(!c->alive) continue;
+                if(c->x != (uint8_t)tx || c->y != (uint8_t)ty) continue;
+                const Family* f = creature_family(c->family_id);
+                if(!f) continue;
+                const uint8_t* csprite = sprite_for_creature_glyph(f->glyph);
+                if(csprite) place_sprite_at_depth(canvas, csprite, d);
+                break; /* one creature per tile */
+            }
+        }
     }
 }

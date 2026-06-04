@@ -18,6 +18,7 @@
 #include <gui/canvas.h>
 #include <stdint.h>
 
+#include "creatures.h"
 #include "world.h"
 
 /* Facing direction — packed into 2 bits in CharacterState.facing. */
@@ -40,10 +41,17 @@ int fpv_facing_dy(uint8_t facing);
 void render_fpv_demo(Canvas* canvas);
 
 /* Live world FPV render. Samples the world starting at (player_x,
- * player_y), looking in `facing`. Renders the forward column up to
- * depth 4, terminating at the first blocking tile (back wall). */
+ * player_y), looking in `facing`. Renders:
+ *   - The forward column to back-wall (or depth 4 if no walls)
+ *   - Side-cell openings: cross-wall lips broken where there's a
+ *     turnable passage to immediate left/right at each depth
+ *   - Tile sprites in the forward column (vault, door, loot kinds)
+ *   - Creature sprites at any forward-column position
+ *
+ * `creatures`/`creature_count` may be NULL/0 to skip creature render. */
 void render_fpv_world(
     Canvas* canvas,
     const World* world,
     int player_x, int player_y,
-    uint8_t facing);
+    uint8_t facing,
+    const Creature* creatures, int creature_count);
