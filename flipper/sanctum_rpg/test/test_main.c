@@ -26,6 +26,7 @@
 #include "../pool.h"
 #include "../recipes.h"
 #include "../loot.h"
+#include "../names.h"
 #include "../rng.h"
 #include "../weather.h"
 #include "../world.h"
@@ -193,6 +194,81 @@ static void test_chunk_golden(void) {
                (unsigned long)fp);
         CHECK(fp == cases[i].fp, "chunk golden-master fingerprint");
     }
+}
+
+/* ── names (procedural place names, slice 2026-06-03c) ──────────────
+ *
+ * Determinism + cap-handling + biome-distinct dictionaries. */
+
+static void test_names_determinism(void) {
+    char a[NAME_MAX_LEN], b[NAME_MAX_LEN];
+    name_for_chunk(0xCAFEBABE, 3, -2, BIOME_OUTDOOR, a, sizeof(a));
+    name_for_chunk(0xCAFEBABE, 3, -2, BIOME_OUTDOOR, b, sizeof(b));
+    CHECK(strcmp(a, b) == 0, "names: deterministic for same inputs");
+
+    char c[NAME_MAX_LEN];
+    name_for_chunk(0xCAFEBABE, 3, -1, BIOME_OUTDOOR, c, sizeof(c));
+    /* Neighbour chunks should almost-always pick different names. Not a
+     * hard guarantee (16x16 = 256 possible names per biome → collisions
+     * exist) but should hold for these specific inputs. */
+    CHECK(strcmp(a, c) != 0, "names: neighbour chunk gets different name");
+}
+
+static void test_names_biome_distinct(void) {
+    /* Same seed + coords + different biome → different name (different
+     * dictionary). */
+    char outdoor[NAME_MAX_LEN], cavern[NAME_MAX_LEN];
+    name_for_chunk(0xDEADBEEF, 0, 0, BIOME_OUTDOOR, outdoor, sizeof(outdoor));
+    name_for_chunk(0xDEADBEEF, 0, 0, BIOME_CAVERN, cavern, sizeof(cavern));
+    CHECK(strcmp(outdoor, cavern) != 0, "names: outdoor vs cavern differ");
+
+    /* And the names produced are non-empty (defensive — earlier bugs in
+     * hash digit-mask logic produced empty strings). */
+    CHECK(strlen(outdoor) > 0, "names: outdoor name non-empty");
+    CHECK(strlen(cavern)  > 0, "names: cavern name non-empty");
+}
+
+static void test_names_cap_truncates(void) {
+    /* A tiny cap should truncate cleanly, ending in '\0'. */
+    char tiny[4];
+    name_for_chunk(0xCAFEBABE, 0, 0, BIOME_OUTDOOR, tiny, sizeof(tiny));
+    CHECK(tiny[3] == '\0', "names: truncated name is null-terminated");
+    CHECK(strlen(tiny) <= 3, "names: truncated within cap");
+
+    /* Cap of 1 is no-op (need at least 2 for empty string). */
+    char one[2] = {'?', '?'};
+    name_for_chunk(0xCAFEBABE, 0, 0, BIOME_OUTDOOR, one, 1);
+    CHECK(one[0] == '?', "names: cap=1 is no-op");
+}
+
+static void test_names_distribution(void) {
+    /* Sweep many chunks; assert the population uses BOTH halves of each
+     * dictionary table — protects against accidental low-bit collisions
+     * that would jam the world into 16 names. */
+    int prefix_hit[16] = {0};
+    int suffix_hit[16] = {0};
+    /* Since we can't introspect the chosen index directly, infer by
+     * matching the first 4 chars (a unique prefix prefix in the OUT
+     * table) — coarse but enough to detect "all hash to slot 0". */
+    char buf[NAME_MAX_LEN];
+    for(int cx = -16; cx <= 16; cx++) {
+        for(int cy = -16; cy <= 16; cy++) {
+            name_for_chunk(0xABCDEF12u, cx, cy, BIOME_OUTDOOR, buf, sizeof(buf));
+            /* Hash of first char → bin into 16; just a coarse spread check. */
+            prefix_hit[(int)buf[0] & 0xF]++;
+            size_t l = strlen(buf);
+            if(l > 0) suffix_hit[(int)buf[l-1] & 0xF]++;
+        }
+    }
+    int prefix_bins_used = 0, suffix_bins_used = 0;
+    for(int i = 0; i < 16; i++) {
+        if(prefix_hit[i] > 0) prefix_bins_used++;
+        if(suffix_hit[i] > 0) suffix_bins_used++;
+    }
+    CHECK(prefix_bins_used >= 4,
+          "names: hash spreads prefixes across multiple bins");
+    CHECK(suffix_bins_used >= 4,
+          "names: hash spreads suffixes across multiple bins");
 }
 
 /* ── egress (carve_egress anti-trap) ─────────────────────────────────
@@ -1269,6 +1345,10 @@ int main(void) {
     test_chunk_determinism();
     test_chunk_invariants();
     test_chunk_golden();
+    test_names_determinism();
+    test_names_biome_distinct();
+    test_names_cap_truncates();
+    test_names_distribution();
     test_cavern_egress_known_traps();
     test_cavern_egress_no_trap();
     test_creatures_catalog_integrity();

@@ -42,6 +42,7 @@
 #include "recipes.h"
 #include "save_io.h"
 #include "stamps.h"
+#include "names.h"
 #include "weather.h"
 #include "world.h"
 
@@ -436,10 +437,20 @@ static void enter_world_phase2(
     st->examining = false;
     st->campaign_loaded = true;
     st->screen = ScreenWorld;
-    /* Emit weather chunk-enter hint if present (rain/fog/storm). */
+    /* Initial chunk-enter status: weather hint precedence, then procgen
+     * place name. Mirrors do_transition (see chunk-transition handler). */
     {
         const char* hint = weather_enter_hint(&st->current_weather);
-        st->status_line = hint;
+        if(hint) {
+            set_status(st, hint);
+        } else {
+            char place[NAME_MAX_LEN];
+            name_for_chunk(
+                st->campaign_seed,
+                st->character.chunk_x, st->character.chunk_y,
+                (uint8_t)st->world.biome, place, sizeof(place));
+            set_statusf(st, "%s", place);
+        }
     }
 
     /* Slice 49.F4 — surface a quest on initial chunk arrival too (not just
@@ -707,8 +718,21 @@ static const char* examine_name(const AppState* st, int x, int y) {
     case TILE_STAIRS_UP:   return "stairs up";
     case TILE_STAIRS_DOWN: return "stairs down";
     case TILE_FLOOR:
-    default:
-        return (st->world.biome == BIOME_OUTDOOR) ? "open ground" : "cave floor";
+    default: {
+        /* Examine on empty ground → the chunk's procedural name + coords,
+         * so navigation remains possible (the status line shows the name
+         * alone, no coords; examine is where the player keeps both). */
+        static char fbuf[NAME_MAX_LEN + 16];
+        char place[NAME_MAX_LEN];
+        name_for_chunk(
+            st->campaign_seed,
+            st->character.chunk_x, st->character.chunk_y,
+            (uint8_t)st->world.biome, place, sizeof(place));
+        snprintf(fbuf, sizeof(fbuf), "%s (%d, %d)",
+                 place,
+                 (int)st->character.chunk_x, (int)st->character.chunk_y);
+        return fbuf;
+    }
     }
 }
 
@@ -1970,12 +1994,21 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     refresh_weather(st);
     populate_creatures(st); /* after player placement — never spawn on the player */
     reset_visibility(st);
-    /* Weather chunk-enter hint wins over the chunk-coords status; it's
-     * the more interesting line. Falls through to coords if no weather. */
+    /* Weather chunk-enter hint wins over the place name; the rain begins
+     * is the more interesting line. CLEAR weather falls through to the
+     * procgen name ("Vethal Hollow") — coords remain reachable via the
+     * examine cursor on any empty floor tile. */
     {
         const char* hint = weather_enter_hint(&st->current_weather);
-        if(hint) set_status(st, hint);
-        else     set_statusf(st, "chunk (%d, %d)", cx, cy);
+        if(hint) {
+            set_status(st, hint);
+        } else {
+            char place[NAME_MAX_LEN];
+            name_for_chunk(
+                st->campaign_seed, cx, cy, (uint8_t)st->world.biome,
+                place, sizeof(place));
+            set_statusf(st, "%s", place);
+        }
     }
 
     /* Slice 49.F4 — quest surfacing on chunk arrival. If this chunk is
