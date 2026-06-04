@@ -36,18 +36,33 @@
 
 #define FPV_VIEW_W      128
 #define FPV_VIEW_H       48   /* leaves 16 px for status strip (matches world view) */
+
+/* Perspective frame — narrower than the full screen to tame the
+ * fisheye / force-perspective squeeze (playtest 2026-06-03e v1: "a
+ * bit wide in the force perspective"). The viewport sits inside a
+ * margin on each side; the player reads the margins as "I cannot see
+ * further to the side from this facing." Etrian's classic framed
+ * perspective lives in this same negative space. */
+#define FPV_FRAME_X0    16   /* left edge of perspective frame */
+#define FPV_FRAME_X1    111  /* right edge (inclusive) — 96-px-wide viewport */
+#define FPV_FRAME_Y0     2
+#define FPV_FRAME_Y1    45
+
 #define FPV_VANISH_X     64
-#define FPV_VANISH_Y     24
+/* Vanishing point pulled up slightly — gives the floor more screen
+ * area than the ceiling, reads as "looking forward" not "floating". */
+#define FPV_VANISH_Y     18
 
 /* Depth-slot wall extents — the trapezoid inset at each depth. Each
  * pair is (x_offset_from_center, y_offset_from_vanishing) — the wall's
- * inner corner at that depth. depth 0 is the screen edge; depth 4 is
- * nearly the vanishing point. */
-static const int8_t depth_x_inset[5] = { 64, 48, 32, 20, 10 };
-static const int8_t depth_y_inset[5] = { 24, 18, 12,  7,  4 };
+ * inner corner at that depth. depth 0 is the frame edge; depth 4 is
+ * nearly the vanishing point. Tuned for ~70° apparent FOV. */
+static const int8_t depth_x_inset[5] = { 48, 36, 26, 16,  8 };
+static const int8_t depth_y_inset[5] = { 22, 17, 12,  8,  4 };
 
-/* Sprite scales per depth — how big the sprite renders. */
-static const uint8_t depth_sprite_size[5] = { 32, 28, 22, 16, 10 };
+/* Sprite scales per depth — how big the sprite renders. Bumped at near
+ * depths so foreground entities dominate the framed viewport. */
+static const uint8_t depth_sprite_size[5] = { 32, 28, 24, 18, 12 };
 
 /* Soft jitter per row — purely deterministic. Adds Sable-register
  * hand-drawn feel; replaces pure-geometric look. */
@@ -121,33 +136,34 @@ static void draw_sprite_at_depth(
 void render_fpv_demo(Canvas* canvas) {
     canvas_clear(canvas);
 
-    /* Step 1: floor + ceiling lines converging to vanishing point.
-     * These define the "tube" we're standing in. */
-    /* Top wall edges (ceiling angle) */
-    draw_jittered_line(canvas, 0, 0, FPV_VANISH_X, FPV_VANISH_Y);
-    draw_jittered_line(canvas, FPV_VIEW_W - 1, 0, FPV_VANISH_X, FPV_VANISH_Y);
-    /* Bottom wall edges (floor angle) */
-    draw_jittered_line(canvas, 0, FPV_VIEW_H - 1, FPV_VANISH_X, FPV_VANISH_Y);
-    draw_jittered_line(
-        canvas, FPV_VIEW_W - 1, FPV_VIEW_H - 1, FPV_VANISH_X, FPV_VANISH_Y);
+    /* Step 1: perspective frame outline — a thin border around the
+     * framed viewport. Reads as "this is what you can see"; the
+     * outside-frame margin reads as "the rest is out of your sight
+     * line". Etrian's classic framed perspective. */
+    canvas_draw_frame(
+        canvas, FPV_FRAME_X0, FPV_FRAME_Y0,
+        FPV_FRAME_X1 - FPV_FRAME_X0 + 1,
+        FPV_FRAME_Y1 - FPV_FRAME_Y0 + 1);
 
-    /* Step 2: depth-marker cross-walls at each Etrian depth slot. Each
-     * is a small trapezoid lip suggesting "this is a tile boundary".
-     * Drawn as four short lines at the depth's inset frame. */
+    /* Step 2: floor + ceiling lines converging from the frame corners
+     * to the vanishing point. Narrower starting positions = narrower
+     * apparent FOV = less fisheye squeeze. */
+    draw_jittered_line(canvas, FPV_FRAME_X0, FPV_FRAME_Y0, FPV_VANISH_X, FPV_VANISH_Y);
+    draw_jittered_line(canvas, FPV_FRAME_X1, FPV_FRAME_Y0, FPV_VANISH_X, FPV_VANISH_Y);
+    draw_jittered_line(canvas, FPV_FRAME_X0, FPV_FRAME_Y1, FPV_VANISH_X, FPV_VANISH_Y);
+    draw_jittered_line(canvas, FPV_FRAME_X1, FPV_FRAME_Y1, FPV_VANISH_X, FPV_VANISH_Y);
+
+    /* Step 3: depth-marker cross-walls at each Etrian depth slot. */
     for(int d = 1; d < 4; d++) {
         int lx = FPV_VANISH_X - depth_x_inset[d];
         int rx = FPV_VANISH_X + depth_x_inset[d];
         int ty = FPV_VANISH_Y - depth_y_inset[d];
         int by = FPV_VANISH_Y + depth_y_inset[d];
-        /* Top edge of the depth slot */
         canvas_draw_line(canvas, lx, ty, rx, ty);
-        /* Bottom edge */
         canvas_draw_line(canvas, lx, by, rx, by);
     }
 
-    /* Step 3: back wall — at depth 4 (deepest), draw a closed
-     * rectangle. Gives the "corridor terminates here" feel of the
-     * Sanctum interior (one room, not infinite corridor). */
+    /* Step 4: back wall — closed rectangle at depth 4 (deepest). */
     {
         int lx = FPV_VANISH_X - depth_x_inset[4];
         int rx = FPV_VANISH_X + depth_x_inset[4];
@@ -156,20 +172,16 @@ void render_fpv_demo(Canvas* canvas) {
         canvas_draw_frame(canvas, lx, ty, rx - lx + 1, by - ty + 1);
     }
 
-    /* Step 4: place the hearth sprite at depth 2 (mid). Centered on
-     * the vanishing point, slightly elevated so it sits on the floor
-     * at the right depth — bottom of sprite at depth 2's floor line. */
+    /* Step 5: hearth at depth 1 (close enough to dominate the scene).
+     * Pulling it forward by one depth slot stops the perspective from
+     * "eating" the sprite — playtest v1 read as squeezed because the
+     * hearth was a tiny silhouette in a very wide-angle viewport. */
     {
-        int sz = depth_sprite_size[2];
+        int sz = depth_sprite_size[1];
         int cx = FPV_VANISH_X;
-        int cy = FPV_VANISH_Y + depth_y_inset[2] - sz / 2;
-        draw_sprite_at_depth(canvas, hearth_ember_xbm, cx, cy, sz);
+        /* Place sprite so its bottom sits on the floor line at depth 1. */
+        int floor_y_at_depth_1 = FPV_VANISH_Y + depth_y_inset[1];
+        int cy = floor_y_at_depth_1 - sz / 2;
+        draw_sprite_at_depth(canvas, hearth_low_xbm, cx, cy, sz);
     }
-
-    /* Step 5: ground a "you-glyph" tease in the lower-center — a tiny
-     * silhouette telegraphs the player's presence. Placed at depth 0
-     * (foreground), scaled small so it doesn't dominate. */
-    /* (Skipped for the first demo — the player is the camera; showing
-     * a sprite contradicts the FPV idiom. Left as a deliberate
-     * decision so the screen reads as "you are here, looking at this".) */
 }
