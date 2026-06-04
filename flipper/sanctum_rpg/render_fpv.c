@@ -1,139 +1,66 @@
 /*
- * render_fpv.c — Etrian-style first-person renderer.
+ * render_fpv.c — first-person renderer.
  *
- * Layout (128x64 screen, status strip reserved at the bottom):
+ * Wolfenstein-3D-style raycaster, integer-only, 1-bit output. Replaces
+ * the previous "5 fixed depth slots" fake perspective (which suggested
+ * 3D but didn't project the world — playtest 2026-06-04: "incoherent
+ * compared to the top down"). The raycaster reads the SAME chunk grid
+ * the top-down view reads, so both views agree on geometry.
  *
- *   y=0  ┌─────────────────────────────────┐
- *        │ vanishing point at (64, 24)     │
- *        │                                 │
- *        │       perspective view          │
- *        │       (height 48 px)            │
- *        │                                 │
- *   y=48 ├─────────────────────────────────┤
- *        │ status line (same as world view)│
- *   y=63 └─────────────────────────────────┘
+ * Algorithm (per frame):
+ *   For each screen column c in [0, FPV_VIEW_W):
+ *     1. Compute ray direction (rdx, rdy) in 8.8 fixed-point from the
+ *        player's facing and the column's FOV offset.
+ *     2. DDA-walk the tile grid until the ray hits a blocking tile (or
+ *        runs off-grid).
+ *     3. Compute the perpendicular wall distance (fish-eye-corrected).
+ *     4. Wall column height = WALL_HEIGHT_SCALE / distance, clipped.
+ *     5. Draw a vertical line of that height, centered on the view's
+ *        horizon. Side hint: horizontal-grid hits draw solid, vertical
+ *        hits draw dithered — gives wall corners visual contrast.
  *
- * Walls converge to the central vanishing point. Five depth slots:
- *   depth 0  near (player tile)        — wall segments at screen edges
- *   depth 1  mid-near                  — sprite at ~24x24
- *   depth 2  mid                       — sprite at ~20x20
- *   depth 3  mid-far                   — sprite at ~16x16
- *   depth 4  far / horizon             — sprite at ~12x12
+ * Sprites (vault, hearth, doors, creatures, loot) are billboarded —
+ * placed in world-space, projected, scaled by 1/distance, drawn with
+ * Z-ordering. Deferred to a follow-up commit; this commit ships walls
+ * only (the load-bearing "coherent geometry" win).
  *
- * Sprites in this slice (demo): a hearth at depth 2 (mid), a vault to
- * the east (off-frame for the demo; future commit places it via the
- * side-cell logic).
+ * Fixed-point: 8.8 (1.0 == 256). Distances + ray directions live in
+ * this format. No floats anywhere.
  *
- * Hand-drawn jitter: each wall line gets a 1-px deterministic per-row
- * offset so walls don't read as CAD — Sable register.
+ * The previous helpers (jittered lines, depth-slot insets, frame
+ * outline, sprite-at-depth placement) are retired — they don't apply
+ * to the raycaster. Sprite handling will return via billboard math.
  */
 
 #include "render_fpv.h"
 
 #include <gui/canvas.h>
+#include <stdlib.h>
 
 #include "sprites.h"
 
 #define FPV_VIEW_W      128
-#define FPV_VIEW_H       48   /* leaves 16 px for status strip (matches world view) */
+#define FPV_VIEW_H       48   /* leaves 16 px for status strip */
+#define FPV_HORIZON_Y   (FPV_VIEW_H / 2)
 
-/* Perspective frame — narrower than the full screen to tame the
- * fisheye / force-perspective squeeze (playtest 2026-06-03e v1: "a
- * bit wide in the force perspective"). The viewport sits inside a
- * margin on each side; the player reads the margins as "I cannot see
- * further to the side from this facing." Etrian's classic framed
- * perspective lives in this same negative space. */
-#define FPV_FRAME_X0    16   /* left edge of perspective frame */
-#define FPV_FRAME_X1    111  /* right edge (inclusive) — 96-px-wide viewport */
-#define FPV_FRAME_Y0     2
-#define FPV_FRAME_Y1    45
+/* Fixed-point: 8.8. One tile = 256 fixed-point units. */
+#define FP_ONE 256
 
-#define FPV_VANISH_X     64
-/* Vanishing point pulled up slightly — gives the floor more screen
- * area than the ceiling, reads as "looking forward" not "floating". */
-#define FPV_VANISH_Y     18
+/* Wall sizing — wall_height = WALL_HEIGHT_SCALE / perpWallDist (both
+ * in fixed-point tile units). Tuned so a wall 1 tile away fills ~3/4
+ * of the view height. */
+#define WALL_HEIGHT_SCALE (FPV_VIEW_H * 3 / 4 * FP_ONE)
 
-/* Depth-slot wall extents — the trapezoid inset at each depth. Each
- * pair is (x_offset_from_center, y_offset_from_vanishing) — the wall's
- * inner corner at that depth. depth 0 is the frame edge; depth 4 is
- * nearly the vanishing point. Tuned for ~70° apparent FOV. */
-static const int8_t depth_x_inset[5] = { 48, 36, 26, 16,  8 };
-static const int8_t depth_y_inset[5] = { 22, 17, 12,  8,  4 };
+/* FOV half-angle = 30° → tan(30°) ≈ 0.577 ≈ 148/256.
+ * For a column at horizontal offset (c - W/2), the camera-plane
+ * contribution scales linearly from -PLANE_SCALE to +PLANE_SCALE. */
+#define PLANE_SCALE 148  /* tan(30°) × 256 */
 
-/* Sprite scales per depth — how big the sprite renders. Bumped at near
- * depths so foreground entities dominate the framed viewport. */
-static const uint8_t depth_sprite_size[5] = { 32, 28, 24, 18, 12 };
+/* Max DDA steps before giving up — bounded by chunk size + a margin.
+ * Chunks are 16×6 tiles; 32 steps is plenty for any ray. */
+#define DDA_MAX_STEPS 64
 
-/* Soft jitter per row — purely deterministic. Adds Sable-register
- * hand-drawn feel; replaces pure-geometric look. */
-static int row_jitter(int row) {
-    /* Cheap deterministic pseudo-random in [-1, +1] from row index. */
-    uint32_t h = (uint32_t)row * 2654435761u;
-    h ^= h >> 16;
-    int v = (int)(h & 3u) - 1; /* in [-1, +2], close enough */
-    if(v > 1) v = 1;
-    return v;
-}
-
-/* Draw a single line from (x0,y0) to (x1,y1) but offset each pixel by
- * deterministic jitter to give the hand-drawn feel. Bresenham-style. */
-static void draw_jittered_line(Canvas* canvas, int x0, int y0, int x1, int y1) {
-    int dx = x1 - x0;
-    int dy = y1 - y0;
-    int adx = dx < 0 ? -dx : dx;
-    int ady = dy < 0 ? -dy : dy;
-    int steps = adx > ady ? adx : ady;
-    if(steps == 0) return;
-    for(int i = 0; i <= steps; i++) {
-        int x = x0 + (dx * i) / steps;
-        int y = y0 + (dy * i) / steps;
-        /* Jitter only every few px so the line still reads as a line. */
-        if((i & 3) == 0) {
-            int j = row_jitter(i + x0 * 7 + y0 * 13);
-            /* Jitter perpendicular to the dominant axis. */
-            if(adx > ady) y += j;
-            else          x += j;
-        }
-        if(x >= 0 && x < FPV_VIEW_W && y >= 0 && y < FPV_VIEW_H) {
-            canvas_draw_dot(canvas, x, y);
-        }
-    }
-}
-
-/* Draw a sprite centered at (cx, cy) at the depth's sprite size. For
- * sizes equal to 32, draws the raw 32x32 XBM. For smaller sizes, the
- * first pass scales naively by skipping rows/columns — simple but
- * acceptable for the prototype. (Pixel-perfect downscaling is a future
- * commit; right now we just want the silhouette readable.) */
-static void draw_sprite_at_depth(
-    Canvas* canvas, const uint8_t* xbm, int cx, int cy, uint8_t size) {
-    if(size >= 32) {
-        canvas_draw_xbm(canvas, cx - 16, cy - 16, 32, 32, xbm);
-        return;
-    }
-    /* Downscale by 32/size — draw only every (32/size)-th pixel. Crude
-     * but readable; the silhouette survives. */
-    int draw_x = cx - size / 2;
-    int draw_y = cy - size / 2;
-    for(int dy = 0; dy < size; dy++) {
-        int sy = (dy * 32) / size;
-        for(int dx = 0; dx < size; dx++) {
-            int sx = (dx * 32) / size;
-            /* Read XBM bit at (sx, sy). LSB-first per byte. */
-            int byte_idx = sy * 4 + (sx >> 3);
-            int bit = sx & 7;
-            if(xbm[byte_idx] & (1 << bit)) {
-                int x = draw_x + dx;
-                int y = draw_y + dy;
-                if(x >= 0 && x < FPV_VIEW_W && y >= 0 && y < FPV_VIEW_H) {
-                    canvas_draw_dot(canvas, x, y);
-                }
-            }
-        }
-    }
-}
-
-/* Facing helpers. */
+/* ─── Facing helpers (exported) ────────────────────────────────── */
 
 uint8_t fpv_turn_left(uint8_t facing) { return (uint8_t)((facing + 3u) & 3u); }
 uint8_t fpv_turn_right(uint8_t facing) { return (uint8_t)((facing + 1u) & 3u); }
@@ -154,108 +81,153 @@ int fpv_facing_dy(uint8_t facing) {
     }
 }
 
-/* Per-glyph sprite lookup — which 32x32 XBM (if any) represents a given
- * world tile glyph or creature glyph in FPV. NULL = no sprite (floor or
- * unknown). Tables grow as the kit grows; missing glyphs fall back to
- * the perspective's structural rendering (no sprite drawn). */
-static const uint8_t* sprite_for_tile(char glyph) {
-    switch(glyph) {
-    case TILE_VAULT:  return vault_xbm;
-    case TILE_DOOR:   return door_xbm;
-    /* Loot kinds (mirrors KIND_CATALOG glyphs in loot.c). */
-    case '*':         return crystal_xbm;   /* crystal shard */
-    case 'i':         return torch_xbm;     /* torch */
-    case 'T':         return vault_xbm;     /* chest — reuse vault until a dedicated chest sprite lands */
-    /* TILE_HEARTH glyph not yet defined (Sanctum chunk slice C2). */
-    case TILE_VENDOR: /* vendor stays no-sprite — drawn as a wireframe
-                       * shape by the perspective until C3b's
-                       * dedicated vendor pictogram lands. */
-    default:          return NULL;
-    }
-}
-
-/* Per-creature-family-glyph sprite lookup. Glyphs match
- * CREATURE_FAMILIES in creatures.c. */
-static const uint8_t* sprite_for_creature_glyph(char glyph) {
-    switch(glyph) {
-    case 'r': return rat_xbm;       /* rat */
-    case 's': return spider_xbm;    /* spider */
-    /* beetle 'b', bat 'B', slime 'S' fall through to NULL — next C3 commit. */
-    default:  return NULL;
-    }
-}
-
-/* Draw the perspective frame + convergence lines + depth markers up to
- * `back_depth` (inclusive). The back wall closes the corridor at that
- * depth.
+/* ─── Ray direction setup ───────────────────────────────────────────
  *
- * `left_open` / `right_open` are 5-bit bitmasks, one bit per depth
- * (0..4). When set, the cross-wall lip on that side at that depth is
- * BROKEN — the player sees a passage opens that way. NULL pointer →
- * solid walls everywhere (used by the static demo). */
-static void draw_perspective_frame(
-    Canvas* canvas, int back_depth, uint8_t left_open, uint8_t right_open) {
-    if(back_depth < 1) back_depth = 1;
-    if(back_depth > 4) back_depth = 4;
+ * For each facing, the camera frame has:
+ *   forward vector — unit vector in the facing direction
+ *   plane vector   — perpendicular, scaled by tan(FOV/2)
+ *
+ * Ray for column c: rd = forward + plane × (2c/W - 1)
+ *
+ * In 8.8 fixed-point (FP_ONE = 256):
+ *   forward = ±256 along axis
+ *   plane   = ±PLANE_SCALE along perpendicular axis
+ */
 
-    /* Frame outline. */
-    canvas_draw_frame(
-        canvas, FPV_FRAME_X0, FPV_FRAME_Y0,
-        FPV_FRAME_X1 - FPV_FRAME_X0 + 1,
-        FPV_FRAME_Y1 - FPV_FRAME_Y0 + 1);
+static void ray_dir_for_column(uint8_t facing, int col, int* rdx, int* rdy) {
+    /* offset in [-PLANE_SCALE, +PLANE_SCALE] across the screen width. */
+    int offset = ((col * 2 - FPV_VIEW_W) * PLANE_SCALE) / FPV_VIEW_W;
+    switch(facing & 3u) {
+    case FPV_FACE_N:
+        *rdx = offset;       /* plane is +x; forward is -y */
+        *rdy = -FP_ONE;
+        break;
+    case FPV_FACE_E:
+        *rdx = FP_ONE;       /* forward is +x; plane is +y */
+        *rdy = offset;
+        break;
+    case FPV_FACE_S:
+        *rdx = -offset;      /* plane is -x; forward is +y */
+        *rdy = FP_ONE;
+        break;
+    case FPV_FACE_W:
+        *rdx = -FP_ONE;      /* forward is -x; plane is -y */
+        *rdy = -offset;
+        break;
+    default:
+        *rdx = 0;
+        *rdy = -FP_ONE;
+        break;
+    }
+}
 
-    /* Convergence lines from frame corners to vanishing point. */
-    draw_jittered_line(canvas, FPV_FRAME_X0, FPV_FRAME_Y0, FPV_VANISH_X, FPV_VANISH_Y);
-    draw_jittered_line(canvas, FPV_FRAME_X1, FPV_FRAME_Y0, FPV_VANISH_X, FPV_VANISH_Y);
-    draw_jittered_line(canvas, FPV_FRAME_X0, FPV_FRAME_Y1, FPV_VANISH_X, FPV_VANISH_Y);
-    draw_jittered_line(canvas, FPV_FRAME_X1, FPV_FRAME_Y1, FPV_VANISH_X, FPV_VANISH_Y);
+/* ─── DDA grid walker ──────────────────────────────────────────────
+ *
+ * Standard Wolfenstein-3D DDA: from a starting position (in tile-
+ * fixed-point), step through the grid in whichever axis has the
+ * nearest grid line, until a blocking tile is hit.
+ *
+ * Returns the perpendicular distance to the wall (8.8 fixed-point),
+ * the tile coordinates of the hit, and the "side" (0=we crossed a
+ * vertical grid line / hit an X-aligned wall face; 1=horizontal grid
+ * line / Y-aligned wall face). Side is used as a render hint.
+ */
 
-    /* Depth-marker cross-walls up to (but not including) back_depth.
-     * Each lip is two halves (left/right of the central vanishing
-     * column); each half is drawn only when that side is CLOSED at
-     * that depth. Result: a passage to the left reads as a clean
-     * break in the wall at that depth. */
-    for(int d = 1; d < back_depth; d++) {
-        int lx = FPV_VANISH_X - depth_x_inset[d];
-        int rx = FPV_VANISH_X + depth_x_inset[d];
-        int mx = FPV_VANISH_X;
-        int ty = FPV_VANISH_Y - depth_y_inset[d];
-        int by = FPV_VANISH_Y + depth_y_inset[d];
-        bool lopen = (left_open  >> d) & 1u;
-        bool ropen = (right_open >> d) & 1u;
-        if(!lopen) {
-            canvas_draw_line(canvas, lx, ty, mx, ty);
-            canvas_draw_line(canvas, lx, by, mx, by);
+static int cast_ray(
+    const World* world,
+    int px_fp, int py_fp,  /* player position in 8.8 fp tile units */
+    int rdx, int rdy,
+    int* out_hit_x, int* out_hit_y, int* out_side) {
+
+    int map_x = px_fp >> 8;
+    int map_y = py_fp >> 8;
+
+    /* delta_dist_X = |1 / rdx| in fixed-point. Distance the ray
+     * travels (in fp units) to cross one full tile in X. */
+    int abs_rdx = rdx < 0 ? -rdx : rdx;
+    int abs_rdy = rdy < 0 ? -rdy : rdy;
+    int delta_dist_x = (abs_rdx == 0) ? 0x7FFFFFFF : (FP_ONE * FP_ONE) / abs_rdx;
+    int delta_dist_y = (abs_rdy == 0) ? 0x7FFFFFFF : (FP_ONE * FP_ONE) / abs_rdy;
+
+    int step_x, step_y;
+    int side_dist_x, side_dist_y;
+
+    /* Initial side distance — how far along the ray until we cross the
+     * first grid line in X (or Y). */
+    if(rdx < 0) {
+        step_x = -1;
+        side_dist_x = ((px_fp - (map_x << 8)) * delta_dist_x) / FP_ONE;
+    } else {
+        step_x = 1;
+        side_dist_x = (((map_x + 1) << 8) - px_fp) * delta_dist_x / FP_ONE;
+    }
+    if(rdy < 0) {
+        step_y = -1;
+        side_dist_y = ((py_fp - (map_y << 8)) * delta_dist_y) / FP_ONE;
+    } else {
+        step_y = 1;
+        side_dist_y = (((map_y + 1) << 8) - py_fp) * delta_dist_y / FP_ONE;
+    }
+
+    int side = 0;
+    bool hit = false;
+    for(int step = 0; step < DDA_MAX_STEPS && !hit; step++) {
+        if(side_dist_x < side_dist_y) {
+            side_dist_x += delta_dist_x;
+            map_x += step_x;
+            side = 0;
+        } else {
+            side_dist_y += delta_dist_y;
+            map_y += step_y;
+            side = 1;
         }
-        if(!ropen) {
-            canvas_draw_line(canvas, mx, ty, rx, ty);
-            canvas_draw_line(canvas, mx, by, rx, by);
+        if(map_x < 0 || map_x >= WORLD_COLS || map_y < 0 || map_y >= WORLD_ROWS) {
+            hit = true;
+            break;
+        }
+        if(world_is_blocking(world->tiles[map_y][map_x])) {
+            hit = true;
+            break;
         }
     }
 
-    /* Back wall at back_depth. */
-    int lx = FPV_VANISH_X - depth_x_inset[back_depth];
-    int rx = FPV_VANISH_X + depth_x_inset[back_depth];
-    int ty = FPV_VANISH_Y - depth_y_inset[back_depth];
-    int by = FPV_VANISH_Y + depth_y_inset[back_depth];
-    canvas_draw_frame(canvas, lx, ty, rx - lx + 1, by - ty + 1);
+    *out_hit_x = map_x;
+    *out_hit_y = map_y;
+    *out_side = side;
+
+    /* Perpendicular distance — fish-eye-corrected. */
+    int perp;
+    if(side == 0) {
+        perp = ((((map_x << 8) - px_fp) + (step_x < 0 ? FP_ONE : 0)) * FP_ONE) / (rdx == 0 ? 1 : rdx);
+        if(perp < 0) perp = -perp;
+    } else {
+        perp = ((((map_y << 8) - py_fp) + (step_y < 0 ? FP_ONE : 0)) * FP_ONE) / (rdy == 0 ? 1 : rdy);
+        if(perp < 0) perp = -perp;
+    }
+    if(perp < 1) perp = 1;
+    return perp;
 }
 
-/* Place a sprite at the given depth slot, bottom-aligned to the floor
- * line at that depth so it reads as standing on the ground. */
-static void place_sprite_at_depth(Canvas* canvas, const uint8_t* xbm, int depth) {
-    if(depth < 1 || depth > 4) return;
-    uint8_t sz = depth_sprite_size[depth];
-    int cx = FPV_VANISH_X;
-    int floor_y = FPV_VANISH_Y + depth_y_inset[depth];
-    int cy = floor_y - sz / 2;
-    draw_sprite_at_depth(canvas, xbm, cx, cy, sz);
-}
+/* ─── Public entry points ──────────────────────────────────────── */
 
 void render_fpv_demo(Canvas* canvas) {
+    /* Demo retains a minimal hardcoded scene for back-compat / visual
+     * regression. Just draws a flat corridor and the hearth at fixed
+     * mid-distance. Will be replaced with a synthetic test chunk in
+     * a follow-up; for now, callers should use render_fpv_world. */
     canvas_clear(canvas);
-    draw_perspective_frame(canvas, 4, 0u, 0u);
-    place_sprite_at_depth(canvas, hearth_low_xbm, 1);
+    /* Draw a fixed wall pattern proving the renderer is alive. */
+    for(int c = 0; c < FPV_VIEW_W; c++) {
+        int dist = 256 + (c < FPV_VIEW_W / 2 ? c : FPV_VIEW_W - c) * 4;
+        int h = WALL_HEIGHT_SCALE / dist;
+        if(h > FPV_VIEW_H) h = FPV_VIEW_H;
+        int top = FPV_HORIZON_Y - h / 2;
+        int bot = top + h;
+        for(int y = top; y <= bot; y++) {
+            if(y >= 0 && y < FPV_VIEW_H) canvas_draw_dot(canvas, c, y);
+        }
+    }
+    canvas_draw_xbm(canvas, 48, 8, 32, 32, hearth_low_xbm);
 }
 
 void render_fpv_world(
@@ -265,76 +237,48 @@ void render_fpv_world(
     uint8_t facing,
     const Creature* creatures, int creature_count) {
     canvas_clear(canvas);
-    if(!world) {
-        draw_perspective_frame(canvas, 4, 0u, 0u);
-        return;
-    }
+    (void)creatures;       /* sprites land in C3b */
+    (void)creature_count;
 
-    int fdx = fpv_facing_dx(facing);
-    int fdy = fpv_facing_dy(facing);
-    /* Perpendicular vectors (90° rotations of forward). */
-    int ldx = fdy,  ldy = -fdx;   /* left of facing */
-    int rdx = -fdy, rdy = fdx;    /* right of facing */
+    if(!world) return;
 
-    /* Sample the forward column at depths 1..4. Corridor terminates
-     * (back wall) at the first blocking tile, or depth 4 if all open.
-     * Doors are walkable — they don't terminate. */
-    char tile_at_depth[5] = {0};
-    uint8_t left_open  = 0u;
-    uint8_t right_open = 0u;
-    int back_depth = 4;
-    for(int d = 1; d <= 4; d++) {
-        int tx = player_x + fdx * d;
-        int ty = player_y + fdy * d;
-        if(tx < 0 || tx >= WORLD_COLS || ty < 0 || ty >= WORLD_ROWS) {
-            back_depth = d;
-            tile_at_depth[d] = TILE_WALL;
-            break;
-        }
-        char t = world->tiles[ty][tx];
-        tile_at_depth[d] = t;
-        if(world_is_blocking(t)) {
-            back_depth = d;
-            break;
-        }
-        /* Side-cell sample — left and right of the forward tile at
-         * this depth. Walkable side = passage = lip break (Etrian). */
-        int lx_t = tx + ldx, ly_t = ty + ldy;
-        int rx_t = tx + rdx, ry_t = ty + rdy;
-        if(lx_t >= 0 && lx_t < WORLD_COLS && ly_t >= 0 && ly_t < WORLD_ROWS &&
-           !world_is_blocking(world->tiles[ly_t][lx_t])) {
-            left_open |= (1u << d);
-        }
-        if(rx_t >= 0 && rx_t < WORLD_COLS && ry_t >= 0 && ry_t < WORLD_ROWS &&
-           !world_is_blocking(world->tiles[ry_t][rx_t])) {
-            right_open |= (1u << d);
-        }
-    }
+    /* Player position in 8.8 fixed-point — tile center. */
+    int px_fp = (player_x << 8) + (FP_ONE / 2);
+    int py_fp = (player_y << 8) + (FP_ONE / 2);
 
-    draw_perspective_frame(canvas, back_depth, left_open, right_open);
+    /* Per-column ray cast. */
+    for(int c = 0; c < FPV_VIEW_W; c++) {
+        int rdx, rdy;
+        ray_dir_for_column(facing, c, &rdx, &rdy);
 
-    /* Paint back-to-front so closer items overdraw farther ones. For
-     * each forward-column depth, render in this order (back of stack
-     * first): (1) tile feature sprite (vault/door/loot), (2) creature
-     * sprite if a creature occupies that tile. Creature draws over
-     * tile so the encounter reads cleanly. */
-    for(int d = back_depth; d >= 1; d--) {
-        const uint8_t* tile_sprite = sprite_for_tile(tile_at_depth[d]);
-        if(tile_sprite) place_sprite_at_depth(canvas, tile_sprite, d);
+        int hit_x, hit_y, side;
+        int perp = cast_ray(world, px_fp, py_fp, rdx, rdy, &hit_x, &hit_y, &side);
 
-        if(creatures && creature_count > 0) {
-            int tx = player_x + fdx * d;
-            int ty = player_y + fdy * d;
-            for(int i = 0; i < creature_count; i++) {
-                const Creature* c = &creatures[i];
-                if(!c->alive) continue;
-                if(c->x != (uint8_t)tx || c->y != (uint8_t)ty) continue;
-                const Family* f = creature_family(c->family_id);
-                if(!f) continue;
-                const uint8_t* csprite = sprite_for_creature_glyph(f->glyph);
-                if(csprite) place_sprite_at_depth(canvas, csprite, d);
-                break; /* one creature per tile */
+        /* Wall column height. Clamp to view height. */
+        int wall_h = WALL_HEIGHT_SCALE / perp;
+        if(wall_h > FPV_VIEW_H) wall_h = FPV_VIEW_H;
+        if(wall_h < 1) wall_h = 1;
+
+        int top_y = FPV_HORIZON_Y - wall_h / 2;
+        int bot_y = top_y + wall_h - 1;
+        if(top_y < 0) top_y = 0;
+        if(bot_y >= FPV_VIEW_H) bot_y = FPV_VIEW_H - 1;
+
+        /* Side cue: horizontal-grid hits (side==0) draw solid; vertical
+         * (side==1) draw dithered. The dither gives corners and wall-
+         * face turns visual contrast — without it, all walls read the
+         * same. Mono 1-bit equivalent of DOOM's "darker for one side". */
+        if(side == 0) {
+            for(int y = top_y; y <= bot_y; y++) canvas_draw_dot(canvas, c, y);
+        } else {
+            for(int y = top_y; y <= bot_y; y++) {
+                if(((y + c) & 1) == 0) canvas_draw_dot(canvas, c, y);
             }
         }
     }
+
+    /* Floor / ceiling: leave blank in this commit. A future polish
+     * pass will add light horizontal-distance dither so floor + ceiling
+     * have texture; keeping it empty now reads as "void" but proves the
+     * walls in isolation. */
 }
