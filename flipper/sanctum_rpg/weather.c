@@ -186,3 +186,16 @@ int weather_apply_fov(const Weather* w, int base_radius) {
     if(r < 1) r = 1; /* never blind the player completely */
     return r;
 }
+
+char weather_hud_glyph(const Weather* w) {
+    if(!w) return '\0';
+    switch(w->kind) {
+    case WEATHER_FOG:        return '~';
+    case WEATHER_RAIN:       return '\'';
+    case WEATHER_STORM:      return '*';
+    case WEATHER_HEAT:       return '^';
+    case WEATHER_DUST_STORM: return '_';
+    case WEATHER_CLEAR:
+    default:                 return '\0';
+    }
+}

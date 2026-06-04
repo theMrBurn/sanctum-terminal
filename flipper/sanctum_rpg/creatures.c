@@ -275,7 +275,8 @@ static int tile_taken(const Creature* cs, int n, int self, int x, int y) {
 /* Decide one creature's FSM state + take a single step. */
 static void creature_act(
     Creature* cs, int n, int self, const CreatureDef* d, const World* world,
-    int px, int py, int torch_radius, uint32_t chunk_seed, uint32_t turn, int act) {
+    int px, int py, int torch_radius, uint32_t chunk_seed, uint32_t turn, int act,
+    const Weather* weather) {
     Creature* c = &cs[self];
     int ddx = px - (int)c->x, ddy = py - (int)c->y;
     int adx = ddx < 0 ? -ddx : ddx;
@@ -284,17 +285,45 @@ static void creature_act(
     int aware = (dist <= torch_radius); /* lit = within the awareness zone */
     int dark = (torch_radius <= 1);     /* torch nearly out → emboldening (§5.5) */
 
+    /* Weather-modified CreatureDef. Shadow `d` with the local copy so every
+     * downstream `d->...` reference reads the modified values automatically.
+     * Determinism: the weather pedigree is the same for everyone in this
+     * chunk this turn, so the modifications are uniform across slots. */
+    CreatureDef d_local = *d;
+    if(weather) {
+        /* STORM / DUST_STORM grounds flyers — the wind tears them down.
+         * Creature loses CF_FLIGHT for this turn; creature_can_enter then
+         * refuses TILE_ROCK like a non-flyer would. */
+        if(weather->kind == WEATHER_STORM || weather->kind == WEATHER_DUST_STORM) {
+            d_local.flags = (uint8_t)(d_local.flags & ~CF_FLIGHT);
+        }
+        /* FOG extends stealth-affinity notice by 1: spiders + bats stalk
+         * the player 1 tile further into mist. The reciprocal cap on the
+         * player's lit pool already lives in weather_apply_fov. */
+        if(weather->kind == WEATHER_FOG && (d_local.glyph == 's' || d_local.glyph == 'B')) {
+            if(d_local.notice < 255) d_local.notice = (uint8_t)(d_local.notice + 1);
+        }
+    }
+    d = &d_local;
+
     /* Aggression (spec §4.8): rises while you crowd it — more in the dark,
      * more inside its flight bubble — and decays when you leave its awareness.
      * A non-hostile creature driven past `provoke` turns hostile and drifts
      * back as aggro decays. (Chunk-exit reset is free — RAM regen.) */
+    int heat_dampen = (weather && weather->kind == WEATHER_HEAT) ? 1 : 0;
+    int fire_pacify =
+        (weather && weather->kind == WEATHER_RAIN && d->element == ELEM_FIRE) ? 1 : 0;
     if(aware && dist <= d->notice) {
         int rise = 1 + (dark ? 1 : 0) + ((d->flee > 0 && dist <= d->flee) ? 1 : 0);
+        rise -= heat_dampen; /* HEAT lethargy — the air saps will */
+        if(rise < 0) rise = 0;
         int cap = (d->provoke > 0) ? (int)d->provoke + 8 : 255;
         int a = (int)c->aggro + rise;
         c->aggro = (uint8_t)(a > cap ? cap : a); /* bounded so it drifts back, §4.8 */
     } else if(c->aggro > 0) {
-        c->aggro = (uint8_t)(c->aggro >= 2 ? c->aggro - 2 : 0); /* decay ~2/turn */
+        int decay = 2 + (fire_pacify ? 2 : 0); /* RAIN doubles decay for fire creatures */
+        int a = (int)c->aggro - decay;
+        c->aggro = (uint8_t)(a < 0 ? 0 : a);
     }
     uint8_t eff = d->disposition;
     if(d->provoke > 0 && c->aggro >= d->provoke) eff = DISP_HOSTILE;
@@ -367,7 +396,7 @@ int creature_is_hostile(uint8_t disposition, uint8_t provoke, uint8_t aggro) {
 
 int creatures_tick(
     Creature* cs, int n, const World* world, int px, int py, int torch_radius,
-    uint32_t chunk_seed, uint32_t turn) {
+    uint32_t chunk_seed, uint32_t turn, const Weather* weather) {
     if(!cs || !world) return 0;
     for(int i = 0; i < n; i++) {
         if(!cs[i].alive) continue;
@@ -377,7 +406,8 @@ int creatures_tick(
         int act = 0;
         while(e >= ENERGY_THRESHOLD && act < CREATURE_MAX_ACT) {
             e -= ENERGY_THRESHOLD;
-            creature_act(cs, n, i, &d, world, px, py, torch_radius, chunk_seed, turn, act);
+            creature_act(cs, n, i, &d, world, px, py, torch_radius, chunk_seed, turn, act,
+                         weather);
             act++;
         }
         cs[i].energy = (uint8_t)(e < 0 ? 0 : (e > 255 ? 255 : e));

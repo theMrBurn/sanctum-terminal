@@ -22,6 +22,7 @@
 
 #include "biome.h"
 #include "rng.h"
+#include "weather.h"
 #include "world.h"
 
 /* Innate base behaviour (spec 45 §4.8). The live `aggro` accumulator can
@@ -203,9 +204,18 @@ void creatures_mark_dead_at_spawn(
  * port-reproducible. Mutates `cs` in place. Returns the count of hostile
  * creatures now adjacent to the player (innately hostile or provoked past
  * their threshold) — the caller applies the contact fuel "flicker". */
+/* Weather affects the AI per spec 50 — see creature_act in creatures.c.
+ * The slice 2026-06-03: STORM/DUST_STORM grounds flyers (CF_FLIGHT
+ * cleared); FOG extends stealth-affinity notice by 1; HEAT dampens
+ * aggro rise by 1 (floored at 0); RAIN doubles aggro decay for
+ * ELEM_FIRE trait creatures. `weather` may be NULL for callers (early
+ * boot, host tests) that don't care — behaviour collapses to the
+ * pre-weather baseline. Determinism unchanged: same
+ * (chunk_seed, turn, slot, weather.pedigree) → same outcome. */
 int creatures_tick(
     Creature* cs, int n, const World* world, int player_x, int player_y,
-    int torch_radius, uint32_t chunk_seed, uint32_t turn);
+    int torch_radius, uint32_t chunk_seed, uint32_t turn,
+    const Weather* weather);
 
 /* Is this creature currently hostile — innately HOSTILE, or provoked past its
  * threshold (spec 45 §4.8)? Shared by the contact count + the combat trigger. */

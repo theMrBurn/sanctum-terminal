@@ -580,8 +580,8 @@ static void test_creatures_tick(void) {
     int px = w.spawn_x, py = w.spawn_y;
     int same = (na == nb);
     for(uint32_t t = 1; t <= 25 && same; t++) {
-        creatures_tick(a, na, &w, px, py, 4, cs, t);
-        creatures_tick(b, nb, &w, px, py, 4, cs, t);
+        creatures_tick(a, na, &w, px, py, 4, cs, t, NULL);
+        creatures_tick(b, nb, &w, px, py, 4, cs, t, NULL);
         for(int i = 0; i < na && same; i++) {
             if(a[i].x != b[i].x || a[i].y != b[i].y || a[i].state != b[i].state ||
                a[i].aggro != b[i].aggro)
@@ -657,7 +657,7 @@ static void test_creatures_aggro(void) {
     uint8_t start = c.aggro;
     int turned_hostile = 0;
     for(uint32_t t = 1; t <= 20; t++) {
-        if(creatures_tick(&c, 1, &w, px, py, 4, 0xABCDu, t) > 0) turned_hostile = 1;
+        if(creatures_tick(&c, 1, &w, px, py, 4, 0xABCDu, t, NULL) > 0) turned_hostile = 1;
     }
     CHECK(c.aggro > start, "aggro: crowding a creature raises its aggression");
     CHECK(turned_hostile, "aggro: a crowded passive creature turns hostile");
@@ -665,9 +665,164 @@ static void test_creatures_aggro(void) {
     /* it calms once you leave its awareness (player off in the void) */
     uint8_t high = c.aggro;
     for(uint32_t t = 21; t <= 80; t++) {
-        creatures_tick(&c, 1, &w, 50, 50, 4, 0xABCDu, t);
+        creatures_tick(&c, 1, &w, 50, 50, 4, 0xABCDu, t, NULL);
     }
     CHECK(c.aggro < high, "aggro: decays when you leave its awareness");
+}
+
+/* ── weather × creatures (slice 2026-06-03b) ────────────────────────
+ *
+ * Make weather strategic: HUD glyph + creature AI weather-aware. The
+ * rules under test:
+ *   STORM / DUST_STORM grounds flyers (CF_FLIGHT cleared this turn)
+ *   FOG extends stealth-affinity notice by +1 (spiders + bats)
+ *   HEAT dampens aggro rise by 1 (floored at 0)
+ *   RAIN doubles aggro decay for ELEM_FIRE trait creatures
+ *
+ * Each test isolates ONE rule by holding everything else constant
+ * across a CLEAR control and a non-CLEAR test condition. */
+
+static void test_weather_hud_glyph(void) {
+    Weather clear = { .kind = WEATHER_CLEAR };
+    Weather fog   = { .kind = WEATHER_FOG };
+    Weather rain  = { .kind = WEATHER_RAIN };
+    Weather storm = { .kind = WEATHER_STORM };
+    Weather heat  = { .kind = WEATHER_HEAT };
+    Weather dust  = { .kind = WEATHER_DUST_STORM };
+    CHECK(weather_hud_glyph(&clear) == '\0', "hud: clear has no glyph");
+    CHECK(weather_hud_glyph(&fog)   == '~',  "hud: fog is wave");
+    CHECK(weather_hud_glyph(&rain)  == '\'', "hud: rain is drop");
+    CHECK(weather_hud_glyph(&storm) == '*',  "hud: storm is chaos");
+    CHECK(weather_hud_glyph(&heat)  == '^',  "hud: heat rises");
+    CHECK(weather_hud_glyph(&dust)  == '_',  "hud: dust blows low");
+    CHECK(weather_hud_glyph(NULL)   == '\0', "hud: null weather is silent");
+}
+
+/* Bat (family 3, CF_FLIGHT) wants to approach the player but a TILE_ROCK
+ * sits between them. CLEAR weather: CF_FLIGHT lets the bat overfly the
+ * rock — it advances. STORM weather: the wind grounds it — CF_FLIGHT is
+ * cleared for the turn, the bat is stopped at the rock. */
+static void test_creatures_storm_grounds_flyers(void) {
+    World w;
+    memset(&w, 0, sizeof(w));
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
+    w.tiles[2][5] = TILE_ROCK; /* obstacle between bat and player */
+    w.biome = BIOME_OUTDOOR;
+
+    Creature c_clear;
+    memset(&c_clear, 0, sizeof(c_clear));
+    c_clear.family_id = 3; /* bat */
+    c_clear.x = 5; c_clear.y = 3; c_clear.alive = 1;
+    Creature c_storm = c_clear;
+
+    Weather clear = { .kind = WEATHER_CLEAR };
+    Weather storm = { .kind = WEATHER_STORM };
+    int px = 5, py = 0; /* north of the bat, behind the rock */
+
+    creatures_tick(&c_clear, 1, &w, px, py, 4, 0xAAAAu, 1, &clear);
+    creatures_tick(&c_storm, 1, &w, px, py, 4, 0xAAAAu, 1, &storm);
+
+    CHECK(c_clear.y < 3, "storm-grounds: CLEAR — bat overflies the rock toward player");
+    CHECK(c_storm.x == 5 && c_storm.y == 3,
+          "storm-grounds: STORM — bat held at the rock (flight suppressed)");
+}
+
+/* Spider (family 2, notice=4) standing exactly one tile beyond its
+ * normal awareness. CLEAR: dist > notice → aggro never rises. FOG:
+ * notice extends to 5; dist ≤ notice → aggro accumulates. */
+static void test_creatures_fog_extends_stealth_notice(void) {
+    World w;
+    memset(&w, 0, sizeof(w));
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
+    w.biome = BIOME_CAVERN;
+
+    Creature c_clear;
+    memset(&c_clear, 0, sizeof(c_clear));
+    c_clear.family_id = 2; /* spider, notice=4 */
+    c_clear.x = 0; c_clear.y = 0; c_clear.alive = 1;
+    Creature c_fog = c_clear;
+
+    Weather clear = { .kind = WEATHER_CLEAR };
+    Weather fog   = { .kind = WEATHER_FOG };
+    /* Player at (5, 0): Chebyshev dist = 5 from spider. Spider notice
+     * is 4 normally; fog extends to 5. torch_radius=6 so aware=true. */
+    int px = 5, py = 0;
+
+    creatures_tick(&c_clear, 1, &w, px, py, 6, 0xBBBBu, 1, &clear);
+    creatures_tick(&c_fog,   1, &w, px, py, 6, 0xBBBBu, 1, &fog);
+
+    CHECK(c_clear.aggro == 0,
+          "fog-notice: CLEAR — spider outside notice radius stays unprovoked");
+    CHECK(c_fog.aggro > 0,
+          "fog-notice: FOG — spider stalks one tile further into mist");
+}
+
+/* Beetle (family 1, flee=1, provoke=10) standing adjacent to the player.
+ * Energy mechanics: beetle speed=8, threshold=12 — it acts roughly every
+ * other turn. Aggro rise per ACT: 1 base + 1 flee-bubble bonus = 2.
+ * Over 20 turns CLEAR easily crosses provoke (matches the baseline
+ * test_creatures_aggro). HEAT subtracts 1 from rise (floored at 0) so
+ * each act rises by 1 — significantly slower aggression. The control
+ * vs heat delta is the rule under test. */
+static void test_creatures_heat_dampens_aggro(void) {
+    World w;
+    memset(&w, 0, sizeof(w));
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
+    w.biome = BIOME_OUTDOOR;
+
+    Creature c_clear;
+    memset(&c_clear, 0, sizeof(c_clear));
+    c_clear.family_id = 1; /* beetle */
+    c_clear.x = 5; c_clear.y = 4; c_clear.alive = 1;
+    Creature c_heat = c_clear;
+
+    Weather clear = { .kind = WEATHER_CLEAR };
+    Weather heat  = { .kind = WEATHER_HEAT };
+    int px = 5, py = 5; /* adjacent — ENGAGE state, no movement, aggro accumulates */
+
+    for(uint32_t t = 1; t <= 20; t++) {
+        creatures_tick(&c_clear, 1, &w, px, py, 4, 0xCCCCu, t, &clear);
+        creatures_tick(&c_heat,  1, &w, px, py, 4, 0xCCCCu, t, &heat);
+    }
+    CHECK(c_heat.aggro < c_clear.aggro,
+          "heat-dampens: aggro accumulates slower in the summer air");
+    CHECK(c_clear.aggro >= 10,
+          "heat-dampens: CLEAR baseline crosses provoke (sanity)");
+}
+
+/* Rat with ember- trait (family 0, trait 4 — ELEM_FIRE), preset aggro
+ * 50, player off the grid (out of awareness). Decay branch fires every
+ * turn. CLEAR: decay 2/turn → after 10 turns aggro = 30. RAIN: decay
+ * 4/turn → after 10 turns aggro = 10. */
+static void test_creatures_rain_pacifies_fire(void) {
+    World w;
+    memset(&w, 0, sizeof(w));
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
+    w.biome = BIOME_OUTDOOR;
+
+    Creature c_clear;
+    memset(&c_clear, 0, sizeof(c_clear));
+    c_clear.family_id = 0; /* rat */
+    c_clear.trait_id = 4;  /* ember- → ELEM_FIRE */
+    c_clear.x = 5; c_clear.y = 3; c_clear.alive = 1;
+    c_clear.aggro = 50;
+    Creature c_rain = c_clear;
+
+    Weather clear = { .kind = WEATHER_CLEAR };
+    Weather rain  = { .kind = WEATHER_RAIN };
+    /* Player way off the grid — out of awareness; decay branch dominates. */
+    int px = 50, py = 50;
+
+    for(uint32_t t = 1; t <= 10; t++) {
+        creatures_tick(&c_clear, 1, &w, px, py, 4, 0xDDDDu, t, &clear);
+        creatures_tick(&c_rain,  1, &w, px, py, 4, 0xDDDDu, t, &rain);
+    }
+    CHECK(c_rain.aggro < c_clear.aggro,
+          "rain-pacify: fire-affinity rat calms faster in rain");
 }
 
 static void test_creatures_kill_persistence(void) {
@@ -1141,6 +1296,11 @@ int main(void) {
     test_weather_overlay_density();
     test_weather_biome_temperature();
     test_weather_hot_biome_distribution();
+    test_weather_hud_glyph();
+    test_creatures_storm_grounds_flyers();
+    test_creatures_fog_extends_stealth_notice();
+    test_creatures_heat_dampens_aggro();
+    test_creatures_rain_pacifies_fire();
     test_recipes();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

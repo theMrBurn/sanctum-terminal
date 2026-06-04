@@ -842,6 +842,20 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
         canvas_draw_str(canvas, 0, WORLD_STATUS_BASELINE, stats);
     }
 
+    /* Persistent weather indicator (slice 2026-06-03b — make weather
+     * strategic). Right-anchored on the status strip so it's visible
+     * EVERY frame even after the chunk-enter hint times out. CLEAR
+     * weather draws nothing — absence reads as clarity. */
+    {
+        char wg = weather_hud_glyph(&st->current_weather);
+        if(wg != '\0') {
+            char wbuf[2] = {wg, '\0'};
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W, WORLD_STATUS_BASELINE,
+                AlignRight, AlignBottom, wbuf);
+        }
+    }
+
     /* Corner hint */
     canvas_draw_str_aligned(
         canvas, SCREEN_W, WORLD_HINT_BASELINE, AlignRight, AlignBottom,
@@ -2020,7 +2034,7 @@ static void advance_turn(AppState* st) {
         st->creatures, st->creature_count, &st->world, st->character.player_x,
         st->character.player_y, fov_radius_for_fuel(fuel),
         rng_chunk_seed(st->campaign_seed, st->character.chunk_x, st->character.chunk_y),
-        st->character.turn);
+        st->character.turn, &st->current_weather);
 
     /* Light alarms: torch out, or dimmed a band. */
     uint16_t newf = st->character.torch_fuel;

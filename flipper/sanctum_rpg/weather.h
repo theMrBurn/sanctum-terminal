@@ -81,3 +81,11 @@ const char* weather_enter_hint(const Weather* w);
 /* Convenience: weather effects collapsed into a single applied-FOV radius.
  * Pass the base radius; returns the weather-modified radius. */
 int weather_apply_fov(const Weather* w, int base_radius);
+
+/* Persistent 1-character HUD indicator for the current weather. Returns
+ * '\0' if no indicator should be shown (CLEAR — silence reads as clear
+ * by absence). Same glyph indoor and outdoor; biome context tells the
+ * player whether they're hearing it from above or feeling it locally.
+ *
+ *   FOG  -> ~   RAIN -> '   STORM -> *   HEAT -> ^   DUST_STORM -> _ */
+char weather_hud_glyph(const Weather* w);
