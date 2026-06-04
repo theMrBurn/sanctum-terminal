@@ -365,6 +365,121 @@ static void render_floor_detail_pass(
     }
 }
 
+/* ─── Sprite billboard pass ─────────────────────────────────────────
+ *
+ * For each visible sprite-bearing tile in the player's forward cone,
+ * project to screen, scale by distance, and draw the 32x32 source at
+ * the appropriate size. Per-pixel Z-check against per-column wall
+ * distance — sprites occluded by closer walls don't draw.
+ *
+ * Sprite scaling: a 1-tile-tall sprite at distance D (fp) renders at
+ * WALL_HEIGHT_SCALE / D pixels — same scale as a 1-tile-tall wall at
+ * the same distance. Bottom-aligned to the floor line at that depth.
+ *
+ * Render after walls (which populate wall_dist[]). Iterate FAR-to-NEAR
+ * so closer sprites overdraw farther ones when they overlap.
+ */
+
+static const uint8_t* sprite_for_tile_fpv(char glyph) {
+    switch(glyph) {
+    case TILE_VAULT:  return vault_xbm;
+    case TILE_DOOR:   return door_xbm;
+    case TILE_VENDOR: return you_xbm;       /* humanoid stand-in until vendor sprite */
+    case '*':         return crystal_xbm;   /* crystal shard */
+    case 'i':         return torch_xbm;     /* torch */
+    case 'T':         return vault_xbm;     /* chest — vault fallback */
+    default:          return NULL;
+    }
+}
+
+static const uint8_t* sprite_for_creature_glyph_fpv(char glyph) {
+    switch(glyph) {
+    case 'r': return rat_xbm;
+    case 's': return spider_xbm;
+    /* beetle 'b', bat 'B', slime 'S' — pictograms not yet drawn. */
+    default:  return NULL;
+    }
+}
+
+static void draw_billboard(
+    Canvas* canvas, const uint8_t* xbm, int cx, int floor_y, int size,
+    int sprite_dist_fp, const int* wall_dist) {
+    if(size < 4) return;        /* too small — reads as noise */
+    if(size > 32) size = 32;    /* sprite is 32x32 native; clip */
+
+    int x0 = cx - size / 2;
+    int y0 = floor_y - size;
+
+    for(int dy = 0; dy < size; dy++) {
+        int y = y0 + dy;
+        if(y < 0 || y >= FPV_VIEW_H) continue;
+        int sy_src = (dy * 32) / size;  /* nearest-neighbor downscale */
+        for(int dx = 0; dx < size; dx++) {
+            int x = x0 + dx;
+            if(x < 0 || x >= FPV_VIEW_W) continue;
+            /* Z-check: sprite occluded by closer wall? */
+            if(wall_dist[x] <= sprite_dist_fp) continue;
+            int sx_src = (dx * 32) / size;
+            int byte_idx = sy_src * 4 + (sx_src >> 3);
+            int bit = sx_src & 7;
+            if(xbm[byte_idx] & (1u << bit)) {
+                canvas_draw_dot(canvas, x, y);
+            }
+        }
+    }
+}
+
+static void render_sprite_pass(
+    Canvas* canvas, const World* world,
+    int player_x, int player_y, uint8_t facing,
+    const Creature* creatures, int creature_count,
+    const int* wall_dist) {
+    int fdx = fpv_facing_dx(facing);
+    int fdy = fpv_facing_dy(facing);
+    int rdx = -fdy;
+    int rdy = fdx;
+
+    /* Far-to-near so closer sprites overdraw farther ones. */
+    for(int fwd = 5; fwd >= 1; fwd--) {
+        int sprite_dist_fp = fwd * FP_ONE;
+        int center_y = FPV_HORIZON_Y + (WALL_HEIGHT_SCALE / (2 * FP_ONE)) / fwd;
+        int sprite_size = (WALL_HEIGHT_SCALE / FP_ONE) / fwd;
+
+        for(int side = -fwd; side <= fwd; side++) {
+            int tx = player_x + fdx * fwd + rdx * side;
+            int ty = player_y + fdy * fwd + rdy * side;
+            if(tx < 0 || tx >= WORLD_COLS || ty < 0 || ty >= WORLD_ROWS) continue;
+
+            char tile = world->tiles[ty][tx];
+
+            /* Pick the sprite. Creature on tile wins over tile feature
+             * (a creature standing on a vault is what you see). */
+            const uint8_t* sprite = NULL;
+            if(creatures && creature_count > 0) {
+                for(int i = 0; i < creature_count; i++) {
+                    const Creature* c = &creatures[i];
+                    if(!c->alive) continue;
+                    if(c->x != (uint8_t)tx || c->y != (uint8_t)ty) continue;
+                    const Family* f = creature_family(c->family_id);
+                    if(f) sprite = sprite_for_creature_glyph_fpv(f->glyph);
+                    break;
+                }
+            }
+            if(!sprite) sprite = sprite_for_tile_fpv(tile);
+            if(!sprite) continue;
+
+            /* Project tile center to screen column. */
+            int center_col = FPV_VIEW_W / 2 +
+                             (side * (FPV_VIEW_W / 2) * FP_ONE) /
+                                 (fwd * PLANE_SCALE);
+
+            draw_billboard(
+                canvas, sprite, center_col, center_y, sprite_size,
+                sprite_dist_fp, wall_dist);
+        }
+    }
+}
+
 /* ─── Public entry points ──────────────────────────────────────── */
 
 void render_fpv_demo(Canvas* canvas) {
@@ -394,9 +509,6 @@ void render_fpv_world(
     uint8_t facing,
     const Creature* creatures, int creature_count) {
     canvas_clear(canvas);
-    (void)creatures;       /* sprites land in C3b */
-    (void)creature_count;
-
     if(!world) return;
 
     /* Player position in 8.8 fixed-point — tile center. */
@@ -426,7 +538,11 @@ void render_fpv_world(
         canvas_draw_dot(canvas, c, FPV_HORIZON_Y);
     }
 
-    /* Step 3: per-column ray cast — walls. */
+    /* Step 3: per-column ray cast — walls. Per-column wall perpendicular
+     * distance saved into wall_dist[] for the sprite pass's Z-check.
+     * Columns with no wall (off-grid in open biome) get INT_MAX so any
+     * sprite beats them — the sprite IS visible past the chunk edge. */
+    int wall_dist[FPV_VIEW_W];
     for(int c = 0; c < FPV_VIEW_W; c++) {
         int rdx, rdy;
         ray_dir_for_column(facing, c, &rdx, &rdy);
@@ -436,11 +552,12 @@ void render_fpv_world(
         int perp = cast_ray(
             world, px_fp, py_fp, rdx, rdy, &hit_x, &hit_y, &side, &off_grid);
 
-        /* Outdoor + off-grid = walkable edge, not a wall. Leave the
-         * column blank (reads as horizon / open void). */
-        if(off_grid && open_biome) continue;
+        if(off_grid && open_biome) {
+            wall_dist[c] = 0x7FFFFFFF; /* no wall here — sprites pass through */
+            continue;
+        }
+        wall_dist[c] = perp;
 
-        /* Wall column height. Clamp to view height. */
         int wall_h = WALL_HEIGHT_SCALE / perp;
         if(wall_h > FPV_VIEW_H) wall_h = FPV_VIEW_H;
         if(wall_h < 1) wall_h = 1;
@@ -450,8 +567,6 @@ void render_fpv_world(
         if(top_y < 0) top_y = 0;
         if(bot_y >= FPV_VIEW_H) bot_y = FPV_VIEW_H - 1;
 
-        /* Side cue: horizontal-grid hits (side==0) draw solid; vertical
-         * (side==1) draw dithered. */
         if(side == 0) {
             for(int y = top_y; y <= bot_y; y++) canvas_draw_dot(canvas, c, y);
         } else {
@@ -461,8 +576,11 @@ void render_fpv_world(
         }
     }
 
-    /* Floor / ceiling: leave blank in this commit. A future polish
-     * pass will add light horizontal-distance dither so floor + ceiling
-     * have texture; keeping it empty now reads as "void" but proves the
-     * walls in isolation. */
+    /* Step 4: sprite billboard pass — vault, doors, vendor, loot,
+     * creatures. Each is placed at world-tile position, projected to
+     * screen, scaled by distance, Z-checked per pixel against
+     * wall_dist[]. */
+    render_sprite_pass(
+        canvas, world, player_x, player_y, facing,
+        creatures, creature_count, wall_dist);
 }
