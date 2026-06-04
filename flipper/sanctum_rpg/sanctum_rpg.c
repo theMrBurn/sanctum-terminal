@@ -2822,7 +2822,11 @@ static void on_world_move(AppState* st, MoveDir dir) {
         break;
     case MoveBlockedByWall:
     case MoveBlockedByEdge:
-        st->status_line = NULL;
+        /* Slice 2026-06-04 — give collision a voice. In FPV especially,
+         * an unmoved view doesn't read as "you bumped a wall" without
+         * the status line saying so. Top-down still benefits — the
+         * player gets confirmation their input registered. */
+        set_status(st, "blocked.");
         break;
     case MoveOk:
         st->status_line = NULL;

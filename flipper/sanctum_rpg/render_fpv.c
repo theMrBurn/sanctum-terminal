@@ -37,6 +37,7 @@
 #include <gui/canvas.h>
 #include <stdlib.h>
 
+#include "biome.h"
 #include "sprites.h"
 
 #define FPV_VIEW_W      128
@@ -133,44 +134,59 @@ static void ray_dir_for_column(uint8_t facing, int col, int* rdx, int* rdy) {
  * line / Y-aligned wall face). Side is used as a render hint.
  */
 
+/* Cast one ray. Returns perpendicular wall distance (8.8 fp), the
+ * hit-tile map coords, the side hint, and whether the hit was an
+ * actual wall vs running off-grid. Off-grid is meaningful: in OPEN
+ * biomes (outdoor), off-grid is NOT a wall — it's a chunk crossing
+ * the player can walk through. The renderer uses this to skip wall
+ * draw at outdoor chunk edges.
+ *
+ * Uses int64 for side/delta distances. The DDA setup for near-axis-
+ * aligned rays (rdx==0 or rdy==0) produces astronomically large
+ * delta values that overflow int32 in the initial side_dist
+ * multiplication — that overflow was the column-64 vertical artifact
+ * (playtest 2026-06-04). 64-bit math fixes it cleanly without
+ * special-casing the axis-aligned rays.
+ */
 static int cast_ray(
     const World* world,
     int px_fp, int py_fp,  /* player position in 8.8 fp tile units */
     int rdx, int rdy,
-    int* out_hit_x, int* out_hit_y, int* out_side) {
+    int* out_hit_x, int* out_hit_y, int* out_side, bool* out_off_grid) {
 
     int map_x = px_fp >> 8;
     int map_y = py_fp >> 8;
 
-    /* delta_dist_X = |1 / rdx| in fixed-point. Distance the ray
-     * travels (in fp units) to cross one full tile in X. */
     int abs_rdx = rdx < 0 ? -rdx : rdx;
     int abs_rdy = rdy < 0 ? -rdy : rdy;
-    int delta_dist_x = (abs_rdx == 0) ? 0x7FFFFFFF : (FP_ONE * FP_ONE) / abs_rdx;
-    int delta_dist_y = (abs_rdy == 0) ? 0x7FFFFFFF : (FP_ONE * FP_ONE) / abs_rdy;
+    int64_t delta_dist_x = (abs_rdx == 0)
+        ? (int64_t)0x100000000LL
+        : ((int64_t)FP_ONE * FP_ONE) / abs_rdx;
+    int64_t delta_dist_y = (abs_rdy == 0)
+        ? (int64_t)0x100000000LL
+        : ((int64_t)FP_ONE * FP_ONE) / abs_rdy;
 
     int step_x, step_y;
-    int side_dist_x, side_dist_y;
+    int64_t side_dist_x, side_dist_y;
 
-    /* Initial side distance — how far along the ray until we cross the
-     * first grid line in X (or Y). */
     if(rdx < 0) {
         step_x = -1;
-        side_dist_x = ((px_fp - (map_x << 8)) * delta_dist_x) / FP_ONE;
+        side_dist_x = ((int64_t)(px_fp - (map_x << 8)) * delta_dist_x) / FP_ONE;
     } else {
         step_x = 1;
-        side_dist_x = (((map_x + 1) << 8) - px_fp) * delta_dist_x / FP_ONE;
+        side_dist_x = ((int64_t)(((map_x + 1) << 8) - px_fp) * delta_dist_x) / FP_ONE;
     }
     if(rdy < 0) {
         step_y = -1;
-        side_dist_y = ((py_fp - (map_y << 8)) * delta_dist_y) / FP_ONE;
+        side_dist_y = ((int64_t)(py_fp - (map_y << 8)) * delta_dist_y) / FP_ONE;
     } else {
         step_y = 1;
-        side_dist_y = (((map_y + 1) << 8) - py_fp) * delta_dist_y / FP_ONE;
+        side_dist_y = ((int64_t)(((map_y + 1) << 8) - py_fp) * delta_dist_y) / FP_ONE;
     }
 
     int side = 0;
     bool hit = false;
+    bool off_grid = false;
     for(int step = 0; step < DDA_MAX_STEPS && !hit; step++) {
         if(side_dist_x < side_dist_y) {
             side_dist_x += delta_dist_x;
@@ -182,6 +198,7 @@ static int cast_ray(
             side = 1;
         }
         if(map_x < 0 || map_x >= WORLD_COLS || map_y < 0 || map_y >= WORLD_ROWS) {
+            off_grid = true;
             hit = true;
             break;
         }
@@ -194,15 +211,24 @@ static int cast_ray(
     *out_hit_x = map_x;
     *out_hit_y = map_y;
     *out_side = side;
+    if(out_off_grid) *out_off_grid = off_grid;
 
-    /* Perpendicular distance — fish-eye-corrected. */
+    /* Perpendicular wall distance — fish-eye-corrected. */
     int perp;
     if(side == 0) {
-        perp = ((((map_x << 8) - px_fp) + (step_x < 0 ? FP_ONE : 0)) * FP_ONE) / (rdx == 0 ? 1 : rdx);
-        if(perp < 0) perp = -perp;
+        int64_t num = ((int64_t)((map_x << 8) - px_fp) + (step_x < 0 ? FP_ONE : 0)) * FP_ONE;
+        int divisor = (rdx == 0) ? 1 : rdx;
+        int64_t p64 = num / divisor;
+        if(p64 < 0) p64 = -p64;
+        if(p64 > 0x7FFFFFFF) p64 = 0x7FFFFFFF;
+        perp = (int)p64;
     } else {
-        perp = ((((map_y << 8) - py_fp) + (step_y < 0 ? FP_ONE : 0)) * FP_ONE) / (rdy == 0 ? 1 : rdy);
-        if(perp < 0) perp = -perp;
+        int64_t num = ((int64_t)((map_y << 8) - py_fp) + (step_y < 0 ? FP_ONE : 0)) * FP_ONE;
+        int divisor = (rdy == 0) ? 1 : rdy;
+        int64_t p64 = num / divisor;
+        if(p64 < 0) p64 = -p64;
+        if(p64 > 0x7FFFFFFF) p64 = 0x7FFFFFFF;
+        perp = (int)p64;
     }
     if(perp < 1) perp = 1;
     return perp;
@@ -246,13 +272,26 @@ void render_fpv_world(
     int px_fp = (player_x << 8) + (FP_ONE / 2);
     int py_fp = (player_y << 8) + (FP_ONE / 2);
 
+    /* In OPEN biomes (outdoor), chunk edges are walkable transitions;
+     * the ray running off-grid is NOT a wall. We must not draw a wall
+     * column there, or the player sees walls where they can walk through.
+     * In WALLED biomes (cavern), the perimeter is TILE_WALL and the ray
+     * never reaches off-grid before hitting that wall. */
+    bool open_biome = (biome_terrain(world->biome) == TERRAIN_OPEN);
+
     /* Per-column ray cast. */
     for(int c = 0; c < FPV_VIEW_W; c++) {
         int rdx, rdy;
         ray_dir_for_column(facing, c, &rdx, &rdy);
 
         int hit_x, hit_y, side;
-        int perp = cast_ray(world, px_fp, py_fp, rdx, rdy, &hit_x, &hit_y, &side);
+        bool off_grid = false;
+        int perp = cast_ray(
+            world, px_fp, py_fp, rdx, rdy, &hit_x, &hit_y, &side, &off_grid);
+
+        /* Outdoor + off-grid = walkable edge, not a wall. Leave the
+         * column blank (reads as horizon / open void). */
+        if(off_grid && open_biome) continue;
 
         /* Wall column height. Clamp to view height. */
         int wall_h = WALL_HEIGHT_SCALE / perp;
@@ -265,9 +304,7 @@ void render_fpv_world(
         if(bot_y >= FPV_VIEW_H) bot_y = FPV_VIEW_H - 1;
 
         /* Side cue: horizontal-grid hits (side==0) draw solid; vertical
-         * (side==1) draw dithered. The dither gives corners and wall-
-         * face turns visual contrast — without it, all walls read the
-         * same. Mono 1-bit equivalent of DOOM's "darker for one side". */
+         * (side==1) draw dithered. */
         if(side == 0) {
             for(int y = top_y; y <= bot_y; y++) canvas_draw_dot(canvas, c, y);
         } else {
