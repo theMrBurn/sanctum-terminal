@@ -14,7 +14,7 @@ CFLAGS = -std=c11 -Wall -Wextra -Werror -O0 -g -I. -DSANCTUM_RPG_HOST_TEST
 # deeds.c is host-testable via the SANCTUM_RPG_HOST_TEST macro — its
 # Flipper-side I/O paths are #ifdef'd out under the host build, leaving
 # the pure event-table + axis-rollup logic exposed for assertions.
-PURE_SRC = rng.c world.c loot.c biome.c fov.c creatures.c classes.c recipes.c deeds.c narrative.c pool.c stamps.c compose.c weather.c names.c trade.c
+PURE_SRC = rng.c world.c loot.c biome.c fov.c creatures.c classes.c recipes.c deeds.c narrative.c pool.c stamps.c compose.c weather.c names.c trade.c bearing.c
 TEST_SRC = test/test_main.c $(PURE_SRC)
 TEST_BIN = test/run_tests
 

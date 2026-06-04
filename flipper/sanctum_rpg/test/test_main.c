@@ -26,6 +26,7 @@
 #include "../pool.h"
 #include "../recipes.h"
 #include "../loot.h"
+#include "../bearing.h"
 #include "../names.h"
 #include "../trade.h"
 #include "../rng.h"
@@ -270,6 +271,48 @@ static void test_names_distribution(void) {
           "names: hash spreads prefixes across multiple bins");
     CHECK(suffix_bins_used >= 4,
           "names: hash spreads suffixes across multiple bins");
+}
+
+/* ── bearing (home-bearing HUD) ──────────────────────────────────────
+ *
+ * 8-way compass from (cx, cy) to (0, 0); Chebyshev distance. */
+
+static void test_bearing_at_home(void) {
+    int8_t sx = 9, sy = 9;
+    uint16_t d = 99;
+    bearing_to_home(0, 0, &sx, &sy, &d);
+    CHECK(sx == 0 && sy == 0, "bearing: (0,0) is the origin");
+    CHECK(d == 0, "bearing: distance at home is 0");
+    CHECK(bearing_label(0, 0)[0] == '\0',
+          "bearing: empty label at origin");
+}
+
+static void test_bearing_eight_compass(void) {
+    struct { int cx, cy; const char* lbl; uint16_t dist; } cases[] = {
+        /* Player south of home → home is north. */
+        {  0,  3, "N",  3 },
+        /* Player north of home → home is south. */
+        {  0, -2, "S",  2 },
+        /* Player west of home → home is east. */
+        { -4,  0, "E",  4 },
+        /* Player east of home → home is west. */
+        {  5,  0, "W",  5 },
+        /* Diagonals (distance is Chebyshev = max). */
+        { -2,  3, "NE", 3 },
+        { -3, -1, "SE", 3 },
+        {  2,  4, "NW", 4 },
+        {  4, -2, "SW", 4 },
+    };
+    for(int i = 0; i < (int)(sizeof(cases)/sizeof(cases[0])); i++) {
+        int8_t sx, sy;
+        uint16_t d;
+        bearing_to_home(cases[i].cx, cases[i].cy, &sx, &sy, &d);
+        const char* got = bearing_label(sx, sy);
+        CHECK(strcmp(got, cases[i].lbl) == 0,
+              "bearing: 8-compass label matches direction");
+        CHECK(d == cases[i].dist,
+              "bearing: Chebyshev distance correct");
+    }
 }
 
 /* ── vault (economy bundle slice C) ─────────────────────────────────
@@ -1520,6 +1563,8 @@ int main(void) {
     test_trade_vendor_placement_walkable();
     test_vault_home_chunk_placement();
     test_vault_only_at_home();
+    test_bearing_at_home();
+    test_bearing_eight_compass();
     test_cavern_egress_known_traps();
     test_cavern_egress_no_trap();
     test_creatures_catalog_integrity();

@@ -11,7 +11,7 @@ App(
     # Explicit source list — the .fap is ONLY these. Excludes test/ (the
     # host gcc harness, built via `make test`, never compiled into the
     # .fap). Add new app .c files here as they're created.
-    sources=["sanctum_rpg.c", "save_io.c", "world.c", "deltas.c", "rng.c", "loot.c", "biome.c", "fov.c", "creatures.c", "classes.c", "recipes.c", "deeds.c", "narrative.c", "pool.c", "stamps.c", "compose.c", "weather.c", "names.c", "trade.c"],
+    sources=["sanctum_rpg.c", "save_io.c", "world.c", "deltas.c", "rng.c", "loot.c", "biome.c", "fov.c", "creatures.c", "classes.c", "recipes.c", "deeds.c", "narrative.c", "pool.c", "stamps.c", "compose.c", "weather.c", "names.c", "trade.c", "bearing.c"],
     # 16 KB: AppState (~2 KB incl. ChunkDeltas + LoadPicker) plus the
     # 4 KB delta read buffer in deltas_load plus save_io locals. The
     # original 4 KB overflowed the moment deltas landed (v0.3.2 freeze).

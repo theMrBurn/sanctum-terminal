@@ -42,6 +42,7 @@
 #include "recipes.h"
 #include "save_io.h"
 #include "stamps.h"
+#include "bearing.h"
 #include "names.h"
 #include "trade.h"
 #include "weather.h"
@@ -895,6 +896,28 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
             canvas_draw_str_aligned(
                 canvas, SCREEN_W, WORLD_STATUS_BASELINE,
                 AlignRight, AlignBottom, wbuf);
+        }
+    }
+
+    /* Persistent home-bearing indicator (slice 2026-06-03d follow-up:
+     * the vault at chunk (0,0) is useless if you can't find your way
+     * back). Direction + Chebyshev distance to (0,0), e.g. "NE3", "W1".
+     * Right-anchored at SCREEN_W-8 so the weather glyph's 1-char slot
+     * sits cleanly to its right. Hidden when at home — the vault tile
+     * itself is the "you're here" cue. */
+    {
+        int8_t sx, sy;
+        uint16_t dist;
+        bearing_to_home(
+            (int)st->character.chunk_x, (int)st->character.chunk_y,
+            &sx, &sy, &dist);
+        if(dist > 0) {
+            char hbuf[8];
+            snprintf(hbuf, sizeof(hbuf), "%s%u",
+                     bearing_label(sx, sy), (unsigned)dist);
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W - 8, WORLD_STATUS_BASELINE,
+                AlignRight, AlignBottom, hbuf);
         }
     }
 
