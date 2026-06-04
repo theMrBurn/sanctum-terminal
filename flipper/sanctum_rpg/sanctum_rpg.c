@@ -201,6 +201,10 @@ typedef struct {
      * BUY available only when shop_is_vendor. */
     bool shop_is_vendor;
     uint8_t shop_mode;
+    /* Slice 2026-06-03e — Etrian-style FPV view. Transient (per-session;
+     * we don't bother persisting across sessions yet). 0=top-down,
+     * 1=FPV. Toggled by long-press OK from ScreenWorld. */
+    uint8_t view_mode;
     /* Slice 2026-06-03d/C — Stash screen state. `stash_cursor` indexes
      * a row that represents one kind id (rows are KIND_COUNT-shaped).
      * `stash_focus` 0=Bag, 1=Vault — which column is selected for the
@@ -1392,22 +1396,59 @@ static void stash_withdraw(AppState* st) {
 
 /* Stash screen: two columns showing inv_qty vs vault_qty per kind.
  * Cursor selects a row; focus toggles Bag/Vault; OK transfers one. */
-/* FPV demo (slice 2026-06-03e) — Etrian-style first-person prototype.
- * Static composed scene: standing inside the Sanctum facing a cold
- * hearth at mid distance. UAT the visual direction before committing
- * to the full FPV/top-down conversion. Long-press OK on ScreenWorld
- * to enter; any key returns to top-down. */
-static void draw_fpv_demo_screen(Canvas* canvas, const AppState* st) {
-    render_fpv_demo(canvas);
-    /* Status strip below the view — same baseline as world screen so
-     * the UAT feels like the actual game, not a separate test mode. */
+/* FPV world view (slice 2026-06-03e) — Etrian-style first-person live
+ * render of the current chunk from the player's facing. Reuses the
+ * existing status strip / bearing / weather HUD so the world feels
+ * unified across views. */
+static void draw_fpv_world_screen(Canvas* canvas, const AppState* st) {
+    render_fpv_world(
+        canvas, &st->world,
+        (int)st->character.player_x, (int)st->character.player_y,
+        st->character.facing);
+    /* Divider + status strip, identical to draw_world_screen so the
+     * HUD doesn't visibly shift between view modes. */
     canvas_draw_line(canvas, 0, WORLD_VIEW_H, SCREEN_W - 1, WORLD_VIEW_H);
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str(canvas, 0, WORLD_STATUS_BASELINE, "the Sanctum is cold.");
-    canvas_draw_str_aligned(
-        canvas, SCREEN_W, WORLD_HINT_BASELINE, AlignRight, AlignBottom,
-        "any key back");
-    (void)st;
+    if(st->status_line) {
+        canvas_draw_str(canvas, 0, WORLD_STATUS_BASELINE, st->status_line);
+    } else {
+        char stats[40];
+        snprintf(stats, sizeof(stats), "HP%u/%u F%u",
+                 st->character.hp, st->character.max_hp,
+                 st->character.torch_fuel);
+        canvas_draw_str(canvas, 0, WORLD_STATUS_BASELINE, stats);
+    }
+    /* Weather glyph (right edge, matches world view). */
+    {
+        char wg = weather_hud_glyph(&st->current_weather);
+        if(wg != '\0') {
+            char wbuf[2] = {wg, '\0'};
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W, WORLD_STATUS_BASELINE,
+                AlignRight, AlignBottom, wbuf);
+        }
+    }
+    /* Facing indicator + bearing — bottom-right corner. */
+    {
+        static const char* face_lbl[4] = {"N", "E", "S", "W"};
+        int8_t sx, sy;
+        uint16_t dist;
+        bearing_to_home(
+            (int)st->character.chunk_x, (int)st->character.chunk_y,
+            &sx, &sy, &dist);
+        char fbuf[16];
+        if(dist > 0) {
+            snprintf(fbuf, sizeof(fbuf), "%s %s%u",
+                     face_lbl[st->character.facing & 3u],
+                     bearing_label(sx, sy), (unsigned)dist);
+        } else {
+            snprintf(fbuf, sizeof(fbuf), "%s",
+                     face_lbl[st->character.facing & 3u]);
+        }
+        canvas_draw_str_aligned(
+            canvas, SCREEN_W - 8, WORLD_STATUS_BASELINE,
+            AlignRight, AlignBottom, fbuf);
+    }
 }
 
 static void draw_stash_screen(Canvas* canvas, const AppState* st) {
@@ -2079,7 +2120,10 @@ static void title_draw(Canvas* canvas, void* ctx) {
     switch(st->screen) {
     case ScreenTitle:       draw_title_screen(canvas, st); break;
     case ScreenLoadPicker:  draw_picker_screen(canvas, st); break;
-    case ScreenWorld:       draw_world_screen(canvas, st); break;
+    case ScreenWorld:
+        if(st->view_mode == 1) draw_fpv_world_screen(canvas, st);
+        else                   draw_world_screen(canvas, st);
+        break;
     case ScreenCodex:       draw_codex_screen(canvas, st); break;
     case ScreenCombat:      draw_combat_screen(canvas, st); break;
     case ScreenClassPick:   draw_class_pick_screen(canvas, st); break;
@@ -2090,7 +2134,9 @@ static void title_draw(Canvas* canvas, void* ctx) {
     case ScreenShop:        draw_shop_screen(canvas, st); break;
     case ScreenStash:       draw_stash_screen(canvas, st); break;
     case ScreenQuest:       draw_quest_screen(canvas, st); break;
-    case ScreenFpvDemo:     draw_fpv_demo_screen(canvas, st); break;
+    case ScreenFpvDemo:     /* deprecated; FPV is now a view-mode of
+                             * ScreenWorld. Kept enum for save compat. */
+                            break;
     }
 }
 
@@ -2649,6 +2695,15 @@ static void scan_creature(AppState* st, int ci) {
 
 static void on_world_move(AppState* st, MoveDir dir) {
     if(dir == MoveNone) return;
+    /* Update facing to the walked direction — keeps the FPV camera
+     * aimed where the player is heading (slice 2026-06-03e). */
+    switch(dir) {
+    case MoveNorth: st->character.facing = FPV_FACE_N; break;
+    case MoveEast:  st->character.facing = FPV_FACE_E; break;
+    case MoveSouth: st->character.facing = FPV_FACE_S; break;
+    case MoveWest:  st->character.facing = FPV_FACE_W; break;
+    default: break;
+    }
     int px = st->character.player_x;
     int py = st->character.player_y;
 
@@ -2980,16 +3035,75 @@ int32_t sanctum_rpg_app(void* p) {
                 default: break;
                 }
             } else {
-                /* Long-press OK on the world screen → FPV demo (slice
-                 * 2026-06-03e). Lets us UAT the Etrian-style renderer
-                 * side-by-side with the current top-down view without
-                 * rewiring inputs. */
+                /* Long-press OK toggles between top-down and FPV view
+                 * modes (slice 2026-06-03e). Both modes stay available
+                 * indefinitely; long-press flips back and forth. */
                 if(event.type == InputTypeLong && event.key == InputKeyOk) {
-                    state.screen = ScreenFpvDemo;
+                    state.view_mode ^= 1u;
                     state.status_line = NULL;
                     break;
                 }
-                if(event.type == InputTypeLong) break; /* ignore other long-presses for now */
+                if(event.type == InputTypeLong) break;
+
+                if(state.view_mode == 1) {
+                    /* FPV input model: Up/Down walk forward/back,
+                     * L/R turn 90°, OK examine ahead. */
+                    switch(event.key) {
+                    case InputKeyUp: {
+                        /* Walk forward in current facing. */
+                        MoveDir d = (state.character.facing == FPV_FACE_N) ? MoveNorth
+                                  : (state.character.facing == FPV_FACE_E) ? MoveEast
+                                  : (state.character.facing == FPV_FACE_S) ? MoveSouth
+                                  : MoveWest;
+                        on_world_move(&state, d);
+                        break;
+                    }
+                    case InputKeyDown: {
+                        /* Walk backward — opposite of facing, but DON'T
+                         * change facing (you're stepping back, not
+                         * turning around). */
+                        uint8_t saved = state.character.facing;
+                        MoveDir d = (saved == FPV_FACE_N) ? MoveSouth
+                                  : (saved == FPV_FACE_E) ? MoveWest
+                                  : (saved == FPV_FACE_S) ? MoveNorth
+                                  : MoveEast;
+                        on_world_move(&state, d);
+                        state.character.facing = saved;
+                        break;
+                    }
+                    case InputKeyLeft:
+                        state.character.facing = fpv_turn_left(state.character.facing);
+                        save_io_write_character(&state.character);
+                        break;
+                    case InputKeyRight:
+                        state.character.facing = fpv_turn_right(state.character.facing);
+                        save_io_write_character(&state.character);
+                        break;
+                    case InputKeyOk:
+                        /* Examine ahead — target the tile one step in
+                         * facing direction. */
+                        state.examining = true;
+                        state.examine_x = (int8_t)(
+                            state.character.player_x + fpv_facing_dx(state.character.facing));
+                        state.examine_y = (int8_t)(
+                            state.character.player_y + fpv_facing_dy(state.character.facing));
+                        /* Clamp into chunk bounds. */
+                        if(state.examine_x < 0) state.examine_x = 0;
+                        if(state.examine_x >= WORLD_COLS) state.examine_x = WORLD_COLS - 1;
+                        if(state.examine_y < 0) state.examine_y = 0;
+                        if(state.examine_y >= WORLD_ROWS) state.examine_y = WORLD_ROWS - 1;
+                        break;
+                    case InputKeyBack:
+                        state.screen = ScreenTitle;
+                        state.campaign_loaded = false;
+                        state.status_line = NULL;
+                        break;
+                    default: break;
+                    }
+                    break;
+                }
+
+                /* Top-down input model (unchanged). */
                 switch(event.key) {
                 case InputKeyUp:
                 case InputKeyDown:
@@ -3171,8 +3285,9 @@ int32_t sanctum_rpg_app(void* p) {
             break;
 
         case ScreenFpvDemo:
-            /* Any input returns to top-down world view. The alt view
-             * stays available indefinitely; this is just the UAT path. */
+            /* Deprecated. FPV is now a view-mode of ScreenWorld; this
+             * case is unreachable but kept for enum compat. Any input
+             * routes back to ScreenWorld. */
             state.screen = ScreenWorld;
             state.status_line = NULL;
             break;

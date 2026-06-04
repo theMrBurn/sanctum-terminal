@@ -29,7 +29,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define SAVE_IO_SCHEMA_VERSION 7
+#define SAVE_IO_SCHEMA_VERSION 8
 #define SAVE_INV_KINDS_MAX     8 /* inventory slots; current KIND_COUNT=7 + headroom */
 #define SAVE_VAULT_KINDS_MAX   SAVE_INV_KINDS_MAX /* same kind id space as inv */
 #define SAVE_EQUIP_NONE        0xFFu /* empty equip slot */
@@ -95,6 +95,11 @@ typedef struct {
      * id space as inv_qty. Schema bump 6→7; tolerant load defaults all
      * zero for pre-7 saves. */
     uint8_t vault_qty[SAVE_VAULT_KINDS_MAX];
+    /* Slice 2026-06-03e — Etrian-style FPV view. 0=N, 1=E, 2=S, 3=W.
+     * Updated by every world walk so the FPV camera always faces the
+     * player's last walked direction. Schema bump 7→8; tolerant load
+     * defaults to 0 (N) for pre-8 saves. */
+    uint8_t facing;
     uint8_t schema_version;
 } CharacterState;
 

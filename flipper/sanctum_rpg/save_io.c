@@ -469,7 +469,8 @@ static int format_character_json(const CharacterState* c, char* buf, size_t buf_
         "  \"equipped_light\": %u,\n"
         "  \"equipped_armor\": %u,\n"
         "  \"expertise\": \"%s\",\n"
-        "  \"vault\": \"%s\"\n"
+        "  \"vault\": \"%s\",\n"
+        "  \"facing\": %u\n"
         "}\n",
         (unsigned)c->schema_version,
         c->campaign_id,
@@ -501,7 +502,8 @@ static int format_character_json(const CharacterState* c, char* buf, size_t buf_
         (unsigned)c->equipped_light,
         (unsigned)c->equipped_armor,
         xpbuf,
-        vlbuf);
+        vlbuf,
+        (unsigned)c->facing);
 }
 
 SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out) {
@@ -568,6 +570,7 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
      * don't carry a "vault" key; the tolerant read below is a no-op
      * and the defaults stand. */
     for(int i = 0; i < SAVE_VAULT_KINDS_MAX; i++) out->vault_qty[i] = 0;
+    out->facing = 0; /* default N — slice 2026-06-03e */
 
     uint32_t schema = SAVE_IO_SCHEMA_VERSION;
     read_u32(buf, "schema_version", &schema); /* informational; accept any */
@@ -627,6 +630,7 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
     if(read_str(buf, "vault", vl_str, sizeof(vl_str))) {
         parse_inv_string(vl_str, out->vault_qty, SAVE_VAULT_KINDS_MAX);
     }
+    if(read_u32(buf, "facing", &v32)) out->facing = (uint8_t)(v32 & 3u);
     if(read_u32(buf, "equipped_weapon", &v32)) out->equipped_weapon = (uint8_t)v32;
     if(read_u32(buf, "equipped_light", &v32))  out->equipped_light  = (uint8_t)v32;
     if(read_u32(buf, "equipped_armor", &v32))  out->equipped_armor  = (uint8_t)v32;

@@ -133,28 +133,64 @@ static void draw_sprite_at_depth(
     }
 }
 
-void render_fpv_demo(Canvas* canvas) {
-    canvas_clear(canvas);
+/* Facing helpers. */
 
-    /* Step 1: perspective frame outline — a thin border around the
-     * framed viewport. Reads as "this is what you can see"; the
-     * outside-frame margin reads as "the rest is out of your sight
-     * line". Etrian's classic framed perspective. */
+uint8_t fpv_turn_left(uint8_t facing) { return (uint8_t)((facing + 3u) & 3u); }
+uint8_t fpv_turn_right(uint8_t facing) { return (uint8_t)((facing + 1u) & 3u); }
+
+int fpv_facing_dx(uint8_t facing) {
+    switch(facing & 3u) {
+    case FPV_FACE_E: return  1;
+    case FPV_FACE_W: return -1;
+    default:         return  0;
+    }
+}
+
+int fpv_facing_dy(uint8_t facing) {
+    switch(facing & 3u) {
+    case FPV_FACE_N: return -1;
+    case FPV_FACE_S: return  1;
+    default:         return  0;
+    }
+}
+
+/* Per-tile sprite lookup — which 32x32 XBM (if any) represents a given
+ * world tile glyph in FPV. NULL = render as floor (no sprite). Walls /
+ * doors are handled by the perspective itself (back wall + clear
+ * opening), not a sprite. */
+static const uint8_t* sprite_for_tile(char glyph) {
+    switch(glyph) {
+    case TILE_VAULT:  return vault_xbm;
+    /* TILE_HEARTH glyph isn't defined yet (slice C2 — Sanctum chunk).
+     * Future: case TILE_HEARTH: return hearth_low_xbm; */
+    case TILE_VENDOR: /* fall-through: vendor uses no sprite yet — drawn
+                       * as a wireframe shape by the perspective when
+                       * the per-kind table lands in C3. */
+    default:          return NULL;
+    }
+}
+
+/* Draw the perspective frame + convergence lines + depth markers up to
+ * `back_depth` (inclusive). The back wall closes the corridor at that
+ * depth. Shared by render_fpv_demo and render_fpv_world. */
+static void draw_perspective_frame(Canvas* canvas, int back_depth) {
+    if(back_depth < 1) back_depth = 1;
+    if(back_depth > 4) back_depth = 4;
+
+    /* Frame outline. */
     canvas_draw_frame(
         canvas, FPV_FRAME_X0, FPV_FRAME_Y0,
         FPV_FRAME_X1 - FPV_FRAME_X0 + 1,
         FPV_FRAME_Y1 - FPV_FRAME_Y0 + 1);
 
-    /* Step 2: floor + ceiling lines converging from the frame corners
-     * to the vanishing point. Narrower starting positions = narrower
-     * apparent FOV = less fisheye squeeze. */
+    /* Convergence lines from frame corners to vanishing point. */
     draw_jittered_line(canvas, FPV_FRAME_X0, FPV_FRAME_Y0, FPV_VANISH_X, FPV_VANISH_Y);
     draw_jittered_line(canvas, FPV_FRAME_X1, FPV_FRAME_Y0, FPV_VANISH_X, FPV_VANISH_Y);
     draw_jittered_line(canvas, FPV_FRAME_X0, FPV_FRAME_Y1, FPV_VANISH_X, FPV_VANISH_Y);
     draw_jittered_line(canvas, FPV_FRAME_X1, FPV_FRAME_Y1, FPV_VANISH_X, FPV_VANISH_Y);
 
-    /* Step 3: depth-marker cross-walls at each Etrian depth slot. */
-    for(int d = 1; d < 4; d++) {
+    /* Depth-marker cross-walls up to (but not including) back_depth. */
+    for(int d = 1; d < back_depth; d++) {
         int lx = FPV_VANISH_X - depth_x_inset[d];
         int rx = FPV_VANISH_X + depth_x_inset[d];
         int ty = FPV_VANISH_Y - depth_y_inset[d];
@@ -163,25 +199,77 @@ void render_fpv_demo(Canvas* canvas) {
         canvas_draw_line(canvas, lx, by, rx, by);
     }
 
-    /* Step 4: back wall — closed rectangle at depth 4 (deepest). */
-    {
-        int lx = FPV_VANISH_X - depth_x_inset[4];
-        int rx = FPV_VANISH_X + depth_x_inset[4];
-        int ty = FPV_VANISH_Y - depth_y_inset[4];
-        int by = FPV_VANISH_Y + depth_y_inset[4];
-        canvas_draw_frame(canvas, lx, ty, rx - lx + 1, by - ty + 1);
+    /* Back wall at back_depth. */
+    int lx = FPV_VANISH_X - depth_x_inset[back_depth];
+    int rx = FPV_VANISH_X + depth_x_inset[back_depth];
+    int ty = FPV_VANISH_Y - depth_y_inset[back_depth];
+    int by = FPV_VANISH_Y + depth_y_inset[back_depth];
+    canvas_draw_frame(canvas, lx, ty, rx - lx + 1, by - ty + 1);
+}
+
+/* Place a sprite at the given depth slot, bottom-aligned to the floor
+ * line at that depth so it reads as standing on the ground. */
+static void place_sprite_at_depth(Canvas* canvas, const uint8_t* xbm, int depth) {
+    if(depth < 1 || depth > 4) return;
+    uint8_t sz = depth_sprite_size[depth];
+    int cx = FPV_VANISH_X;
+    int floor_y = FPV_VANISH_Y + depth_y_inset[depth];
+    int cy = floor_y - sz / 2;
+    draw_sprite_at_depth(canvas, xbm, cx, cy, sz);
+}
+
+void render_fpv_demo(Canvas* canvas) {
+    canvas_clear(canvas);
+    draw_perspective_frame(canvas, 4);
+    place_sprite_at_depth(canvas, hearth_low_xbm, 1);
+}
+
+void render_fpv_world(
+    Canvas* canvas,
+    const World* world,
+    int player_x, int player_y,
+    uint8_t facing) {
+    canvas_clear(canvas);
+    if(!world) {
+        draw_perspective_frame(canvas, 4);
+        return;
     }
 
-    /* Step 5: hearth at depth 1 (close enough to dominate the scene).
-     * Pulling it forward by one depth slot stops the perspective from
-     * "eating" the sprite — playtest v1 read as squeezed because the
-     * hearth was a tiny silhouette in a very wide-angle viewport. */
-    {
-        int sz = depth_sprite_size[1];
-        int cx = FPV_VANISH_X;
-        /* Place sprite so its bottom sits on the floor line at depth 1. */
-        int floor_y_at_depth_1 = FPV_VANISH_Y + depth_y_inset[1];
-        int cy = floor_y_at_depth_1 - sz / 2;
-        draw_sprite_at_depth(canvas, hearth_low_xbm, cx, cy, sz);
+    int fdx = fpv_facing_dx(facing);
+    int fdy = fpv_facing_dy(facing);
+
+    /* Sample the forward column at depths 1..4. The corridor terminates
+     * (back wall) at the first blocking tile or at depth 4 if all four
+     * tiles ahead are open. Doors are walkable but we treat them as a
+     * "depth break" so the player sees the doorway frame. */
+    char tile_at_depth[5] = {0};
+    int back_depth = 4;
+    for(int d = 1; d <= 4; d++) {
+        int tx = player_x + fdx * d;
+        int ty = player_y + fdy * d;
+        if(tx < 0 || tx >= WORLD_COLS || ty < 0 || ty >= WORLD_ROWS) {
+            /* Off-grid: in an OPEN biome you'd see the chunk boundary
+             * (renders as door-like opening). In a WALLED biome, no
+             * exit there. Either way: terminate the corridor. */
+            back_depth = d;
+            tile_at_depth[d] = TILE_WALL;
+            break;
+        }
+        char t = world->tiles[ty][tx];
+        tile_at_depth[d] = t;
+        if(world_is_blocking(t)) {
+            back_depth = d;
+            break;
+        }
+    }
+
+    draw_perspective_frame(canvas, back_depth);
+
+    /* Render sprites for any tile features (vault, future hearth, etc.)
+     * along the forward column. Painted back-to-front so closer sprites
+     * overdraw farther ones. */
+    for(int d = back_depth; d >= 1; d--) {
+        const uint8_t* sprite = sprite_for_tile(tile_at_depth[d]);
+        if(sprite) place_sprite_at_depth(canvas, sprite, d);
     }
 }
