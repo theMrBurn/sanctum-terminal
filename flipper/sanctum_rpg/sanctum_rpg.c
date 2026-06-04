@@ -3042,10 +3042,15 @@ int32_t sanctum_rpg_app(void* p) {
             } else {
                 /* Long-press OK toggles between top-down and FPV view
                  * modes (slice 2026-06-03e). Both modes stay available
-                 * indefinitely; long-press flips back and forth. */
+                 * indefinitely; long-press flips back and forth. The
+                 * long-press latency (~500-700ms) is the firmware's
+                 * threshold — not render lag. We announce the switch on
+                 * the status strip so the player gets confirmation. */
                 if(event.type == InputTypeLong && event.key == InputKeyOk) {
                     state.view_mode ^= 1u;
-                    state.status_line = NULL;
+                    set_status(&state,
+                               state.view_mode == 1 ? "view: FPV"
+                                                    : "view: top-down");
                     break;
                 }
                 if(event.type == InputTypeLong) break;
