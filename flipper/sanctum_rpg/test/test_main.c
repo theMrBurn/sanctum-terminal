@@ -173,16 +173,16 @@ static void test_chunk_golden(void) {
         int cx, cy;
         uint32_t fp;
     } cases[] = {
-        /* Re-recorded 2026-06-03 (carve_egress anti-trap pass — playtest
-         * reported fully sealed cavern). The CAFEBABE cavern chunks (0,0)
-         * + (1,0) both had stamps walling off a door; carve set their
-         * approach tiles to TILE_FLOOR. DEADBEEF (0,0) is outdoor (no
-         * doors, no carve) and 00000001 (-3,5) didn't need carving — both
-         * unchanged. Prior rebases: 50.F3 Pool-biased loot, 50.F1 stamp
-         * composer, 2026-06-01 loot density, v0.3.5a torch added. */
-        {0xCAFEBABE, 0, 0, 0xF283B264},
+        /* Re-recorded 2026-06-03 (economy bundle C — home-chunk vault).
+         * Chunk (0,0) is now the home chunk and carries a TILE_VAULT
+         * near spawn; both (CAFEBABE,0,0) and (DEADBEEF,0,0) shifted.
+         * (1,0) and (-3,5) are non-home → unchanged.
+         * Prior rebases: carve_egress 2026-06-03, 50.F3 Pool-biased
+         * loot, 50.F1 stamp composer, 2026-06-01 loot density,
+         * v0.3.5a torch added. */
+        {0xCAFEBABE, 0, 0, 0x0619FE7D},
         {0xCAFEBABE, 1, 0, 0xF5E3ED37},
-        {0xDEADBEEF, 0, 0, 0xCB361B88},
+        {0xDEADBEEF, 0, 0, 0xFC657EA9},
         {0x00000001, -3, 5, 0x76122170},
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
@@ -270,6 +270,57 @@ static void test_names_distribution(void) {
           "names: hash spreads prefixes across multiple bins");
     CHECK(suffix_bins_used >= 4,
           "names: hash spreads suffixes across multiple bins");
+}
+
+/* ── vault (economy bundle slice C) ─────────────────────────────────
+ *
+ * The home chunk (0, 0) gets a TILE_VAULT placed after gen + carve so
+ * it lands on a tile already in the walkable-connected component. It
+ * must be walkable, must not sit on the player spawn, and must NOT
+ * appear in non-home chunks. */
+
+static void test_vault_home_chunk_placement(void) {
+    /* Multiple seeds — across all of them, chunk (0,0) must carry a
+     * TILE_VAULT adjacent or near the spawn, and it must be walkable. */
+    uint32_t seeds[] = {
+        0xCAFEBABE, 0xDEADBEEF, 0x12345678, 0xFEEDFACE, 0xC0FFEE12u
+    };
+    for(int i = 0; i < (int)(sizeof(seeds)/sizeof(seeds[0])); i++) {
+        World w;
+        world_generate_chunk(seeds[i], 0, 0, &w);
+        int vx = -1, vy = -1;
+        for(int y = 0; y < WORLD_ROWS && vx < 0; y++) {
+            for(int x = 0; x < WORLD_COLS; x++) {
+                if(w.tiles[y][x] == TILE_VAULT) { vx = x; vy = y; break; }
+            }
+        }
+        CHECK(vx >= 0,
+              "vault: home chunk (0,0) carries a TILE_VAULT");
+        if(vx >= 0) {
+            CHECK(world_walkable(&w, vx, vy),
+                  "vault: TILE_VAULT is walkable");
+            CHECK(!(vx == w.spawn_x && vy == w.spawn_y),
+                  "vault: not placed on the player spawn");
+        }
+    }
+}
+
+static void test_vault_only_at_home(void) {
+    /* Sweep a generous box of NON-home chunks — none of them should
+     * have a TILE_VAULT (vault is exclusive to (0,0)). */
+    for(int cy = -4; cy <= 4; cy++) {
+        for(int cx = -4; cx <= 4; cx++) {
+            if(cx == 0 && cy == 0) continue;
+            World w;
+            world_generate_chunk(0xCAFEBABE, cx, cy, &w);
+            for(int y = 0; y < WORLD_ROWS; y++) {
+                for(int x = 0; x < WORLD_COLS; x++) {
+                    CHECK(w.tiles[y][x] != TILE_VAULT,
+                          "vault: non-home chunk has no TILE_VAULT");
+                }
+            }
+        }
+    }
 }
 
 /* ── trade (economy bundle slice B) ─────────────────────────────────
@@ -1467,6 +1518,8 @@ int main(void) {
     test_trade_vendor_rate();
     test_trade_pricing();
     test_trade_vendor_placement_walkable();
+    test_vault_home_chunk_placement();
+    test_vault_only_at_home();
     test_cavern_egress_known_traps();
     test_cavern_egress_no_trap();
     test_creatures_catalog_integrity();

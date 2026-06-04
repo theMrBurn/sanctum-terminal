@@ -31,6 +31,7 @@
 #define TILE_STAIRS_UP    '<'
 #define TILE_STAIRS_DOWN  '>'
 #define TILE_VENDOR 'V'   /* slice 2026-06-03d — economy bundle */
+#define TILE_VAULT  '='   /* slice 2026-06-03d — home-chunk persistent stash */
 
 /* Movement intents. */
 typedef enum {
@@ -51,6 +52,7 @@ typedef enum {
     MoveSteppedOnDoor,
     MoveSteppedOnStairs,
     MoveSteppedOnVendor,
+    MoveSteppedOnVault,
 } MoveResult;
 
 typedef struct {

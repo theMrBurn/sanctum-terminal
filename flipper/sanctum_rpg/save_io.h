@@ -29,8 +29,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define SAVE_IO_SCHEMA_VERSION 6
+#define SAVE_IO_SCHEMA_VERSION 7
 #define SAVE_INV_KINDS_MAX     8 /* inventory slots; current KIND_COUNT=7 + headroom */
+#define SAVE_VAULT_KINDS_MAX   SAVE_INV_KINDS_MAX /* same kind id space as inv */
 #define SAVE_EQUIP_NONE        0xFFu /* empty equip slot */
 #define SAVE_IO_CAMPAIGN_NAME_MAX 31
 #define SAVE_IO_CAMPAIGN_ID_MAX 7  /* "001".."999" supports 999 slots */
@@ -89,6 +90,11 @@ typedef struct {
      * equipped item (Tensura pattern, same as OBSERVE). Schema bump 5→6;
      * tolerant loader defaults to 0 for pre-existing saves. */
     uint8_t expertise[SAVE_INV_KINDS_MAX];
+    /* Slice 2026-06-03d/C — home-chunk persistent stash. vault_qty[id]
+     * holds items deposited at the TILE_VAULT in chunk (0,0). Same kind
+     * id space as inv_qty. Schema bump 6→7; tolerant load defaults all
+     * zero for pre-7 saves. */
+    uint8_t vault_qty[SAVE_VAULT_KINDS_MAX];
     uint8_t schema_version;
 } CharacterState;
 

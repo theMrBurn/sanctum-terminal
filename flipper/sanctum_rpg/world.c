@@ -394,6 +394,37 @@ void world_generate_chunk(
     } else {
         gen_cavern_stamped(base_seed, chunk_x, chunk_y, &rng, &pool, out);
     }
+
+    /* Home chunk (0,0) gets a persistent vault near the spawn — slice
+     * 2026-06-03d/C. Placed AFTER gen so we can pick a tile already in
+     * the walkable-connected component (find_spawn + carve_egress have
+     * run). Search 8-neighbor + a small radius for a non-spawn interior
+     * floor; fall back to (sx+1, sy) if nothing else works. The chunk's
+     * shop_at_home is FORCED on every load — the vault belongs to the
+     * campaign, not to per-chunk persistence. */
+    if(chunk_x == 0 && chunk_y == 0) {
+        int sx = out->spawn_x, sy = out->spawn_y;
+        /* Spiral candidates around spawn, prioritising cardinals close in. */
+        static const int ox[12] = { 1, -1,  0,  0,  2, -2,  0,  0,  1, -1,  1, -1};
+        static const int oy[12] = { 0,  0,  1, -1,  0,  0,  2, -2,  1,  1, -1, -1};
+        bool placed = false;
+        for(int i = 0; i < 12 && !placed; i++) {
+            int nx = sx + ox[i], ny = sy + oy[i];
+            if(nx <= 0 || nx >= WORLD_COLS - 1) continue;
+            if(ny <= 0 || ny >= WORLD_ROWS - 1) continue;
+            if(!world_walkable(out, nx, ny)) continue;
+            if(out->tiles[ny][nx] != TILE_FLOOR) continue; /* don't clobber loot/doors/V */
+            out->tiles[ny][nx] = TILE_VAULT;
+            placed = true;
+        }
+        if(!placed) {
+            /* Defensive last-resort: force (sx+1, sy) regardless. */
+            int fx = sx + 1, fy = sy;
+            if(fx > 0 && fx < WORLD_COLS - 1 && fy > 0 && fy < WORLD_ROWS - 1) {
+                out->tiles[fy][fx] = TILE_VAULT;
+            }
+        }
+    }
 }
 
 bool world_is_blocking(char glyph) {
@@ -447,6 +478,8 @@ MoveResult world_try_move(World* w, MoveDir dir, int* px, int* py, char* out_des
         return MoveSteppedOnStairs;
     case TILE_VENDOR:
         return MoveSteppedOnVendor;
+    case TILE_VAULT:
+        return MoveSteppedOnVault;
     default:
         return MoveOk;
     }

@@ -110,6 +110,7 @@ typedef enum {
     ScreenInventory, /* slice 2 — bag/equipment grid (from sheet, OK opens) */
     ScreenCraft,     /* slice 4 — the Forge: slot-machine recipe pull */
     ScreenShop,      /* slice 4 — sell items for credits */
+    ScreenStash,     /* slice 2026-06-03d/C — home-chunk vault deposit/withdraw */
     ScreenQuest,     /* slice 49.F5 — quest surfaced, branch A/B choice */
 } Screen;
 
@@ -197,6 +198,12 @@ typedef struct {
      * BUY available only when shop_is_vendor. */
     bool shop_is_vendor;
     uint8_t shop_mode;
+    /* Slice 2026-06-03d/C — Stash screen state. `stash_cursor` indexes
+     * a row that represents one kind id (rows are KIND_COUNT-shaped).
+     * `stash_focus` 0=Bag, 1=Vault — which column is selected for the
+     * deposit/withdraw verb. */
+    int8_t stash_cursor;
+    uint8_t stash_focus;
 
     NotificationApp* notif;  /* haptic/LED/sound feedback (v0.3.5d) */
     bool muted;              /* default ON during dev; toggled in Settings */
@@ -724,6 +731,7 @@ static const char* examine_name(const AppState* st, int x, int y) {
     case TILE_ROCK:        return "boulder";
     case TILE_DOOR:        return "doorway";
     case TILE_VENDOR:      return "vendor";
+    case TILE_VAULT:       return "vault";
     case TILE_STAIRS_UP:   return "stairs up";
     case TILE_STAIRS_DOWN: return "stairs down";
     case TILE_FLOOR:
@@ -731,7 +739,8 @@ static const char* examine_name(const AppState* st, int x, int y) {
         /* Examine on empty ground → the chunk's procedural name + coords,
          * so navigation remains possible (the status line shows the name
          * alone, no coords; examine is where the player keeps both). */
-        static char fbuf[NAME_MAX_LEN + 16];
+        /* NAME_MAX_LEN + " (-12345, -12345)" worst case + headroom. */
+        static char fbuf[NAME_MAX_LEN + 24];
         char place[NAME_MAX_LEN];
         name_for_chunk(
             st->campaign_seed,
@@ -1310,6 +1319,114 @@ static void craft_pull(AppState* st) {
         break;
     }
     save_io_write_character(&st->character);
+}
+
+/* ─── Stash (home-chunk vault) helpers ──────────────────────────────────
+ * The vault holds a parallel inventory (`vault_qty[]`) persisted across
+ * sessions in the character save (schema 7). Deposit/withdraw moves one
+ * unit at a time between `inv_qty` and `vault_qty` for the focused kind.
+ * Capacity per slot: 255 (uint8). */
+
+static void stash_deposit(AppState* st) {
+    if(st->stash_cursor < 0 || st->stash_cursor >= SAVE_INV_KINDS_MAX) return;
+    uint8_t id = (uint8_t)st->stash_cursor;
+    if(st->character.inv_qty[id] == 0) {
+        set_status(st, "(none in bag)");
+        return;
+    }
+    if(st->character.vault_qty[id] >= 255) {
+        set_status(st, "(vault full)");
+        return;
+    }
+    st->character.inv_qty[id]--;
+    st->character.vault_qty[id]++;
+    const KindDef* k = kind_by_id(id);
+    set_statusf(st, "stashed %s", k ? k->true_name : "?");
+    notify(st, &sequence_success);
+    save_io_write_character(&st->character);
+}
+
+static void stash_withdraw(AppState* st) {
+    if(st->stash_cursor < 0 || st->stash_cursor >= SAVE_INV_KINDS_MAX) return;
+    uint8_t id = (uint8_t)st->stash_cursor;
+    if(st->character.vault_qty[id] == 0) {
+        set_status(st, "(none in vault)");
+        return;
+    }
+    if(st->character.inv_qty[id] >= 255) {
+        set_status(st, "(bag full)");
+        return;
+    }
+    st->character.vault_qty[id]--;
+    st->character.inv_qty[id]++;
+    const KindDef* k = kind_by_id(id);
+    set_statusf(st, "took %s", k ? k->true_name : "?");
+    notify(st, &sequence_success);
+    save_io_write_character(&st->character);
+}
+
+/* Stash screen: two columns showing inv_qty vs vault_qty per kind.
+ * Cursor selects a row; focus toggles Bag/Vault; OK transfers one. */
+static void draw_stash_screen(Canvas* canvas, const AppState* st) {
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str(canvas, 0, TITLE_BASELINE_Y, "Vault");
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_line(canvas, 0, DIVIDER_Y, SCREEN_W - 1, DIVIDER_Y);
+
+    /* Column headers: BAG | VAULT.  Highlight the focused one. */
+    const int col_bag_x = 12;
+    const int col_vault_x = 70;
+    const char* bag_label = "BAG";
+    const char* vault_label = "VAULT";
+    int hdr_y = 22;
+    if(st->stash_focus == 0) {
+        canvas_draw_box(canvas, col_bag_x - 2, hdr_y - 7, 24, 8);
+        canvas_invert_color(canvas);
+        canvas_draw_str(canvas, col_bag_x, hdr_y, bag_label);
+        canvas_invert_color(canvas);
+        canvas_draw_str(canvas, col_vault_x, hdr_y, vault_label);
+    } else {
+        canvas_draw_str(canvas, col_bag_x, hdr_y, bag_label);
+        canvas_draw_box(canvas, col_vault_x - 2, hdr_y - 7, 28, 8);
+        canvas_invert_color(canvas);
+        canvas_draw_str(canvas, col_vault_x, hdr_y, vault_label);
+        canvas_invert_color(canvas);
+    }
+
+    /* Rows — one per KIND_COUNT entry, glyph + qty in each column.
+     * Up to 4 visible at once; scroll keeps cursor in view. */
+    int n = KIND_COUNT;
+    int cursor = st->stash_cursor;
+    if(cursor < 0) cursor = 0;
+    if(cursor >= n) cursor = n - 1;
+    int first = 0;
+    if(cursor > 3) first = cursor - 3;
+    int last = first + 4;
+    if(last > n) last = n;
+    for(int row = first, i = 0; row < last; row++, i++) {
+        const KindDef* k = kind_by_id((uint8_t)row);
+        if(!k) continue;
+        int y = 32 + i * 8;
+        char line_bag[20], line_vault[20];
+        snprintf(line_bag,   sizeof(line_bag),   "%c x%u",
+                 k->glyph, (unsigned)st->character.inv_qty[row]);
+        snprintf(line_vault, sizeof(line_vault), "%c x%u",
+                 k->glyph, (unsigned)st->character.vault_qty[row]);
+        if(row == cursor) {
+            canvas_draw_box(canvas, 0, y - 7, SCREEN_W, 8);
+            canvas_invert_color(canvas);
+            canvas_draw_str(canvas, col_bag_x,   y, line_bag);
+            canvas_draw_str(canvas, col_vault_x, y, line_vault);
+            canvas_invert_color(canvas);
+        } else {
+            canvas_draw_str(canvas, col_bag_x,   y, line_bag);
+            canvas_draw_str(canvas, col_vault_x, y, line_vault);
+        }
+    }
+
+    canvas_draw_str_aligned(
+        canvas, SCREEN_W / 2, FOOTER_BASELINE_Y, AlignCenter, AlignBottom,
+        st->stash_focus == 0 ? "OK stash  <> focus  Back" : "OK take  <> focus  Back");
 }
 
 /* Build the list of kinds this vendor sells in THIS chunk. A first-cut
@@ -1928,6 +2045,7 @@ static void title_draw(Canvas* canvas, void* ctx) {
     case ScreenInventory:   draw_inventory_screen(canvas, st); break;
     case ScreenCraft:       draw_craft_screen(canvas, st); break;
     case ScreenShop:        draw_shop_screen(canvas, st); break;
+    case ScreenStash:       draw_stash_screen(canvas, st); break;
     case ScreenQuest:       draw_quest_screen(canvas, st); break;
     }
 }
@@ -2587,6 +2705,14 @@ static void on_world_move(AppState* st, MoveDir dir) {
         st->screen = ScreenShop;
         st->status_line = NULL;
         break;
+    case MoveSteppedOnVault:
+        /* Home-chunk persistent stash. Default focus = Bag (most common
+         * action is depositing surplus inventory). */
+        st->stash_focus = 0;
+        st->stash_cursor = 0;
+        st->screen = ScreenStash;
+        st->status_line = NULL;
+        break;
     case MoveWalkedOffEdge:
         do_transition(st, dir,
                       (dir == MoveNorth || dir == MoveSouth) ? px : py);
@@ -2983,6 +3109,29 @@ int32_t sanctum_rpg_app(void* p) {
                     state.shop_is_vendor ? ScreenWorld : ScreenInventory;
                 state.shop_is_vendor = false;
                 state.shop_mode = 0;
+                break;
+            default: break;
+            }
+            break;
+
+        case ScreenStash:
+            switch(event.key) {
+            case InputKeyUp:
+                if(state.stash_cursor > 0) state.stash_cursor--;
+                break;
+            case InputKeyDown:
+                if(state.stash_cursor < KIND_COUNT - 1) state.stash_cursor++;
+                break;
+            case InputKeyLeft:
+            case InputKeyRight:
+                state.stash_focus = (uint8_t)(state.stash_focus ^ 1u);
+                break;
+            case InputKeyOk:
+                if(state.stash_focus == 0) stash_deposit(&state);
+                else                       stash_withdraw(&state);
+                break;
+            case InputKeyBack:
+                state.screen = ScreenWorld;
                 break;
             default: break;
             }
