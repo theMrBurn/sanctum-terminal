@@ -1013,11 +1013,22 @@ static void draw_combat_screen(Canvas* canvas, const AppState* st) {
     snprintf(hp, sizeof(hp), "%u/%u", (unsigned)st->combat_foe_hp, (unsigned)d.hp);
     canvas_draw_str_aligned(canvas, SCREEN_W, TITLE_BASELINE_Y, AlignRight, AlignBottom, hp);
 
-    int bw = 100, bh = 6, by = 16;
+    int bw = 90, bh = 6, by = 16;  /* HP bar shortened by 10px to clear the foe portrait */
     canvas_draw_frame(canvas, 0, by, bw, bh);
     int filled = (d.hp > 0) ? (int)((bw - 2) * (int)st->combat_foe_hp / (int)d.hp) : 0;
     if(filled > 0) canvas_draw_box(canvas, 1, by + 1, filled, bh - 2);
     canvas_draw_line(canvas, 0, 24, SCREEN_W - 1, 24);
+
+    /* Foe portrait — Atlus pattern. 32x32 sprite on the right side of
+     * the screen, below the HP bar, beside the verb menu. Uses the same
+     * sprite kit as FPV; falls back to no portrait if the family has
+     * no pictogram. */
+    {
+        const uint8_t* foe_sprite = fpv_sprite_for_creature_glyph(d.glyph);
+        if(foe_sprite) {
+            canvas_draw_xbm(canvas, 96, 26, 32, 32, foe_sprite);
+        }
+    }
 
     static const char* const VERBS[2] = {"STRIKE", "FLEE"};
     for(int i = 0; i < 2; i++) {
