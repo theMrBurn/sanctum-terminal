@@ -40,6 +40,13 @@ int fpv_facing_dy(uint8_t facing);
 /* Static "Sanctum interior" demo (kept for visual regression testing). */
 void render_fpv_demo(Canvas* canvas);
 
+/* Sprite lookup helpers — exposed for non-FPV consumers (e.g.
+ * ScreenCombat's foe portrait). Returns the 32x32 XBM byte pointer
+ * for a creature family glyph or a tile glyph; NULL when there's no
+ * sprite mapped yet. */
+const uint8_t* fpv_sprite_for_creature_glyph(char glyph);
+const uint8_t* fpv_sprite_for_tile(char glyph);
+
 /* Live world FPV render. Samples the world starting at (player_x,
  * player_y), looking in `facing`. Renders:
  *   - The forward column to back-wall (or depth 4 if no walls)

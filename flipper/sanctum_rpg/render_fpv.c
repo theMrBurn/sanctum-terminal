@@ -380,23 +380,30 @@ static void render_floor_detail_pass(
  * so closer sprites overdraw farther ones when they overlap.
  */
 
-static const uint8_t* sprite_for_tile_fpv(char glyph) {
+const uint8_t* fpv_sprite_for_tile(char glyph) {
     switch(glyph) {
     case TILE_VAULT:  return vault_xbm;
     case TILE_DOOR:   return door_xbm;
     case TILE_VENDOR: return you_xbm;       /* humanoid stand-in until vendor sprite */
+    /* Loot kinds (mirrors KIND_CATALOG glyphs in loot.c). */
     case '*':         return crystal_xbm;   /* crystal shard */
+    case '&':         return fungus_xbm;    /* fungus cap */
+    case '!':         return vial_xbm;      /* vial */
+    case '(':         return tool_xbm;      /* tool */
     case 'i':         return torch_xbm;     /* torch */
-    case 'T':         return vault_xbm;     /* chest — vault fallback */
+    case 'T':         return chest_xbm;     /* chest */
+    case 'u':         return chest_xbm;     /* clay pot — chest fallback */
     default:          return NULL;
     }
 }
 
-static const uint8_t* sprite_for_creature_glyph_fpv(char glyph) {
+const uint8_t* fpv_sprite_for_creature_glyph(char glyph) {
     switch(glyph) {
     case 'r': return rat_xbm;
+    case 'b': return beetle_xbm;
     case 's': return spider_xbm;
-    /* beetle 'b', bat 'B', slime 'S' — pictograms not yet drawn. */
+    case 'B': return bat_xbm;
+    case 'S': return slime_xbm;
     default:  return NULL;
     }
 }
@@ -461,11 +468,11 @@ static void render_sprite_pass(
                     if(!c->alive) continue;
                     if(c->x != (uint8_t)tx || c->y != (uint8_t)ty) continue;
                     const Family* f = creature_family(c->family_id);
-                    if(f) sprite = sprite_for_creature_glyph_fpv(f->glyph);
+                    if(f) sprite = fpv_sprite_for_creature_glyph(f->glyph);
                     break;
                 }
             }
-            if(!sprite) sprite = sprite_for_tile_fpv(tile);
+            if(!sprite) sprite = fpv_sprite_for_tile(tile);
             if(!sprite) continue;
 
             /* Project tile center to screen column. */
