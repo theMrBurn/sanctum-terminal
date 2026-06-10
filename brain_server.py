@@ -40,6 +40,7 @@ from core.systems.spectrum import SpectrumEngine, set_active_biome
 from core.systems import player_state as ps
 from core.systems.player_state import PlayerState, Item
 from core.systems import game_state as gs
+from core.systems import reality_anchor
 from core.systems.game_state import GameState
 from core.systems import save_state
 from core.systems.macro_stamp import (
@@ -2116,6 +2117,17 @@ def run_server(biome_name, port=9877):
     sock.listen(1)
     sock.setblocking(False)
 
+    # Reality anchor — permanent-objects organizer events on the shared bus
+    # bleed into the world as ambient StateEvents (feel-first; no quests
+    # yet). Purely additive: if the bus is unavailable the brain runs
+    # untouched. Watermark starts past all history so boot never floods.
+    anchor = reality_anchor.create()
+    print(
+        "  Reality anchor: live (permanent-objects → ambient)" if anchor
+        else "  Reality anchor: off (sanctum_os.bus unavailable)",
+        flush=True,
+    )
+
     stats = world.get_manifest(0, 0, 2.5, 0, 0, 0)["stats"]
     print(f"Brain server ready on :{port} | {biome_name} | "
           f"{stats['total']} entities, {stats['tiles']} tiles", flush=True)
@@ -2138,6 +2150,17 @@ def run_server(biome_name, port=9877):
 
     try:
         while True:
+            # Reality anchor — drain new organizer events (throttled, non-
+            # blocking) and surface each as an ambient toast. Runs every
+            # iteration regardless of client state; the watermark always
+            # advances, so disconnected-period events never replay on
+            # reconnect (the client's own watermark suppresses them).
+            if anchor is not None:
+                for toast in anchor.poll(time.time()):
+                    world.state_events.emit(
+                        toast.kind, toast.label, toast.detail, toast.register,
+                    )
+
             # Accept new connections
             if client is None:
                 try:

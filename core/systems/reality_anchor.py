@@ -103,6 +103,66 @@ def event_to_toast(kind: str, payload: dict | None) -> Toast | None:
     return None
 
 
+# How often the brain polls the bus for new permanent-objects events.
+# Ambient toasts tolerate seconds of latency; this keeps SQLite reads off
+# the hot per-frame path. Named const per the "no hardcoded tunables" rule.
+POLL_INTERVAL_S = 2.0
+
+
+def _current_max_id(bus) -> int:
+    """Highest event id currently on the bus (0 if empty/unreadable).
+
+    Used to set the boot watermark PAST all history, so a brain start never
+    floods the player with toasts for organizer activity that already
+    happened. Events are id-ASC, so the last row is the max."""
+    try:
+        rows = bus.fetch()
+        return rows[-1].id if rows else 0
+    except Exception:
+        return 0
+
+
+class RealityAnchor:
+    """Brain-side pump: holds the bus handle, a watermark, and a throttle.
+
+    `poll(now)` returns new ambient toasts for the brain to emit — non-
+    blocking and throttled to POLL_INTERVAL_S. The watermark starts past
+    all existing history (boot doesn't replay), then advances past every
+    event each poll so nothing is seen twice. Purely additive: if the bus
+    is unavailable the brain runs untouched (see `create`)."""
+
+    def __init__(self, bus, *, poll_interval: float = POLL_INTERVAL_S) -> None:
+        self._bus = bus
+        self._interval = poll_interval
+        self._last_poll = 0.0
+        self._watermark = _current_max_id(bus)
+
+    def poll(self, now: float) -> list[Toast]:
+        if self._bus is None:
+            return []
+        if now - self._last_poll < self._interval:
+            return []
+        self._last_poll = now
+        try:
+            toasts, self._watermark = drain(self._bus, self._watermark)
+        except Exception:
+            # A bus read hiccup must never stall or crash the brain loop.
+            return []
+        return toasts
+
+
+def create(*, app: str = "sanctum-terminal"):
+    """Build a RealityAnchor on the shared sanctum-os bus, or return None if
+    the bus isn't available (sanctum_os.bus not installed, no bus file). The
+    brain treats None as "reality anchor off" and runs normally."""
+    try:
+        from sanctum_os.bus import Bus
+        bus = Bus(app=app)
+    except Exception:
+        return None
+    return RealityAnchor(bus)
+
+
 def drain(bus, last_id: int) -> tuple[list[Toast], int]:
     """Fetch new permanent-objects events since `last_id`, resolve each to a
     Toast (dropping non-surfacing ones), and return (toasts, new_watermark).

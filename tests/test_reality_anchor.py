@@ -125,3 +125,37 @@ def test_drain_is_idempotent_at_watermark():
     toasts, new_last = drain(bus, last_id=2)   # already past it
     assert toasts == []
     assert new_last == 2
+
+
+# -- RealityAnchor pump (throttle + boot-history skip) ------------------
+
+
+def test_anchor_skips_boot_history():
+    from core.systems.reality_anchor import RealityAnchor
+    bus = _FakeBus([
+        _Ev(1, "entry.added", {"raw_note": "old note"}),
+        _Ev(2, "contact.seen", {"name": "Old Friend"}),
+    ])
+    anchor = RealityAnchor(bus)                 # watermark inits to 2 (max)
+    assert anchor.poll(now=100.0) == []         # pre-existing history never surfaces
+
+
+def test_anchor_surfaces_only_new_events_and_throttles():
+    from core.systems.reality_anchor import RealityAnchor
+    events = [_Ev(1, "entry.added", {"raw_note": "old"})]
+    bus = _FakeBus(events)
+    anchor = RealityAnchor(bus, poll_interval=2.0)
+    assert anchor.poll(now=10.0) == []          # only history so far
+
+    # A new organizer event lands AFTER boot.
+    events.append(_Ev(2, "contact.seen", {"name": "Mara"}))
+    assert anchor.poll(now=10.5) == []          # throttled — within interval
+    out = anchor.poll(now=12.1)                 # past interval → surfaces
+    assert [t.label for t in out] == [LABEL_CONTACT]
+    assert anchor.poll(now=14.5) == []          # nothing new since
+
+
+def test_anchor_none_bus_is_silent():
+    from core.systems.reality_anchor import RealityAnchor
+    anchor = RealityAnchor(None)
+    assert anchor.poll(now=999.0) == []
