@@ -43,7 +43,7 @@ class _FakeBus:
 def test_entry_added_frames_raw_note_verbatim():
     t = event_to_toast("entry.added", {"raw_note": "left the kettle on again"})
     assert t.label == LABEL_ENTRY
-    assert t.detail == "“left the kettle on again”"   # verbatim, framed
+    assert t.detail == '"left the kettle on again"'   # verbatim, ASCII-framed
     assert t.register == DISCOVERY                      # a fact — it lingers
 
 
@@ -96,12 +96,27 @@ def test_below_threshold_and_empty_events_drop():
     assert event_to_toast("contact.seen", {"name": ""}) is None
 
 
-def test_long_note_clamps_with_ellipsis_not_paraphrase():
+def test_long_note_clamps_with_ascii_ellipsis_not_paraphrase():
     long = "x" * (DETAIL_MAX + 50)
     t = event_to_toast("entry.added", {"raw_note": long})
-    inner = t.detail.strip("“”")
-    assert inner.endswith("…")
-    assert inner[:-1] == "x" * (DETAIL_MAX - 1)         # verbatim prefix, just clamped
+    inner = t.detail.strip('"')
+    assert inner.endswith("...")                        # ASCII, not U+2026
+    assert inner[:-3] == "x" * (DETAIL_MAX - 3)         # verbatim prefix, just clamped
+
+
+def test_injected_chars_are_pure_ascii():
+    # The bug that shipped: smart quotes / `…` render as `?` in the CRT
+    # font. Guard every label + injected frame against non-ASCII.
+    samples = [
+        ("entry.added", {"raw_note": "a note"}),
+        ("contact.seen", {"name": "Ada"}),
+        ("calendar.event.added", {"title": "dentist"}),
+        ("calendar.event.extracted", {"title": "x" * (DETAIL_MAX + 5)}),
+    ]
+    for kind, payload in samples:
+        t = event_to_toast(kind, payload)
+        for s in (t.label, t.detail):
+            s.encode("ascii")  # raises UnicodeEncodeError if a glyph would `?`-out
 
 
 # -- drain / watermark ---------------------------------------------------

@@ -55,11 +55,15 @@ class Toast:
 
 def _clamp(text: str) -> str:
     """One-line, verbatim-preserving display clamp. Collapses newlines to
-    spaces and truncates with `…` past DETAIL_MAX — never paraphrases."""
+    spaces and truncates with `...` past DETAIL_MAX — never paraphrases.
+
+    ASCII-only on the injected chars: the vector terminal's bitmap CRT font
+    has no glyphs for typographic punctuation (smart quotes, `…`), which
+    render as `?`. The verbatim text itself is left untouched."""
     one_line = " ".join((text or "").split())
     if len(one_line) <= DETAIL_MAX:
         return one_line
-    return one_line[: DETAIL_MAX - 1].rstrip() + "…"
+    return one_line[: DETAIL_MAX - 3].rstrip() + "..."
 
 
 def event_to_toast(kind: str, payload: dict | None) -> Toast | None:
@@ -76,7 +80,7 @@ def event_to_toast(kind: str, payload: dict | None) -> Toast | None:
         note = _clamp(p.get("raw_note", ""))
         if not note:
             return None
-        return Toast("reality_anchor.entry", LABEL_ENTRY, f"“{note}”", DISCOVERY)
+        return Toast("reality_anchor.entry", LABEL_ENTRY, f'"{note}"', DISCOVERY)
 
     if kind in ("contact.seen", "contact.added"):
         name = (p.get("name") or "").strip()
