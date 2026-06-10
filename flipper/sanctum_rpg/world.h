@@ -32,6 +32,11 @@
 #define TILE_STAIRS_DOWN  '>'
 #define TILE_VENDOR 'V'   /* slice 2026-06-03d — economy bundle */
 #define TILE_VAULT  '='   /* slice 2026-06-03d — home-chunk persistent stash */
+#define TILE_SECRET '%'   /* spec 50 §R — a hidden passage. Reads/acts as wall
+                           * (world_is_blocking) and renders as one in FPV; the
+                           * distinct top-down glyph is the discovery "tell".
+                           * Passable only when its gating quest is resolved —
+                           * that check lives at crossing time, never in gen. */
 
 /* Movement intents. */
 typedef enum {
@@ -53,6 +58,8 @@ typedef enum {
     MoveSteppedOnStairs,
     MoveSteppedOnVendor,
     MoveSteppedOnVault,
+    MoveBlockedBySecret,  /* walked at a TILE_SECRET — caller checks the gating
+                           * quest and either crosses or shows the "tell" */
 } MoveResult;
 
 typedef struct {
@@ -81,6 +88,32 @@ void world_starter_room(World* w);
  * world feels too small. */
 void world_generate_chunk(
     uint32_t base_seed, int chunk_x, int chunk_y, World* out);
+
+/* Door position on the shared edge between (chunk_x, chunk_y) and its
+ * neighbor in `dir`. Returns the perpendicular tile index ALONG that edge:
+ * a COLUMN in [1, WORLD_COLS-2] for MoveNorth/MoveSouth, a ROW in
+ * [1, WORLD_ROWS-2] for MoveEast/MoveWest.
+ *
+ * Both neighbors of an edge derive the IDENTICAL position because the hash
+ * keys on the edge's canonical identity (the lower chunk coordinate + axis),
+ * not on either chunk's viewpoint. So a chunk's east door row always equals
+ * its east-neighbor's west door row — door=door across the seam, with no
+ * persistence and no dependence on entry direction (spec 43 §14.0). */
+int world_edge_door_perp(uint32_t seed, int chunk_x, int chunk_y, MoveDir dir);
+
+/* A rare hidden passage may sit on a WALLED shared edge, at a position both
+ * neighbors derive identically (same canonical-edge hashing as the door, with
+ * a distinct salt and a rarity gate). Returns the perpendicular tile index of
+ * the secret, or -1 if this edge has none. Never collides with the door. */
+int world_edge_secret_perp(uint32_t seed, int chunk_x, int chunk_y, MoveDir dir);
+
+/* The growth axis (0..axis_count-1) that gates the secret on this edge.
+ * Deterministic per canonical edge, so both neighbors agree on which axis
+ * opens the passage. The caller compares the player's EFFECTIVE axis (base +
+ * deed growth, which persists across sessions) against a threshold — so a
+ * secret rewards how the character has been played. */
+int world_edge_secret_axis(uint32_t seed, int chunk_x, int chunk_y, MoveDir dir,
+                           int axis_count);
 
 /* Is (x, y) walkable? Walls + edges are not. */
 bool world_walkable(const World* w, int x, int y);

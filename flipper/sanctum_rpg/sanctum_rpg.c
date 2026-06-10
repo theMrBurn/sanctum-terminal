@@ -2705,6 +2705,24 @@ static void scan_creature(AppState* st, int ci) {
     maybe_start_combat(st); /* a hostile may have closed during the scan */
 }
 
+/* Map a deed axis id (DEED_AXIS_*) to the character's base score for it. */
+static uint8_t character_base_axis(const CharacterState* c, uint8_t axis_id) {
+    switch(axis_id) {
+    case DEED_AXIS_BODY:  return c->body;
+    case DEED_AXIS_CRAFT: return c->craft;
+    case DEED_AXIS_SIGHT: return c->sight;
+    case DEED_AXIS_MIND:  return c->mind;
+    case DEED_AXIS_HEART: return c->heart;
+    case DEED_AXIS_WILL:  return c->will;
+    default:              return 0;
+    }
+}
+
+/* Effective-axis a secret passage requires before it opens (spec 50 §R).
+ * Playtest-tunable: base axes start ~10-14, so this asks for real growth in
+ * the gating axis without being unreachable. */
+#define SECRET_AXIS_THRESHOLD 16u
+
 static void on_world_move(AppState* st, MoveDir dir) {
     if(dir == MoveNone) return;
     /* Update facing to the walked direction — keeps the FPV camera
@@ -2839,6 +2857,27 @@ static void on_world_move(AppState* st, MoveDir dir) {
          * player gets confirmation their input registered. */
         set_status(st, "blocked.");
         break;
+    case MoveBlockedBySecret: {
+        /* A hidden passage. It opens once the player's EFFECTIVE growth on the
+         * axis that gates this edge (deterministic per shared edge; base +
+         * persisted deed growth) reaches SECRET_AXIS_THRESHOLD — so the way you
+         * play earns the way through. Otherwise it reads as a wall with a tell.
+         * The secret sits one tile away in `dir` on the border, so the crossing
+         * perp is the same as a walk-off-edge. */
+        int cx = st->character.chunk_x;
+        int cy = st->character.chunk_y;
+        uint8_t axis = (uint8_t)world_edge_secret_axis(
+            st->campaign_seed, cx, cy, dir, DEED_AXIS_COUNT);
+        uint8_t base = character_base_axis(&st->character, axis);
+        uint8_t eff = deeds_effective_axis(&st->deeds, base, axis);
+        if(eff >= SECRET_AXIS_THRESHOLD) {
+            do_transition(st, dir,
+                          (dir == MoveNorth || dir == MoveSouth) ? px : py);
+        } else {
+            set_status(st, "the stone here rings hollow.");
+        }
+        break;
+    }
     case MoveOk:
         st->status_line = NULL;
         break;

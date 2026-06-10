@@ -5,11 +5,12 @@
  * owns the edge (border + 4 mid-edge doors); the composer only touches
  * the interior box.
  *
- * v1 simplification (spec 50 §F1.5 + §F1.7): random non-overlapping
- * placement with bounded retry. Full corner-snap frontier-popping is
- * the elegant model but adds significant complexity; v1 ships the
- * simpler model that produces visible architectural variety. Frontier
- * refinement is a v1.1 polish slice if playtest demands it.
+ * Placement is CORNER-SNAP FRONTIER POPPING (spec 50 §R.2): a central
+ * floor prime seeds a frontier of anchor corners, Pool-biased stamps are
+ * popped onto them and grow outward from center, each placed stamp pushing
+ * its own corners back onto the frontier. This realizes the north-star
+ * drawing's "out from center" progression (§R.0). Selection (pick_stamp /
+ * pick_rotation in stamps.c) is unchanged; only placement is corner-snap.
  */
 
 #pragma once
@@ -25,3 +26,12 @@
  * this call) are respected and never overwritten. */
 void compose_stamps_into_interior(Rng* rng, const Pool* pool,
                                   uint8_t biome, World* out);
+
+#ifdef SANCTUM_RPG_HOST_TEST
+/* Host-test hook: verifies the corner-snap math pair (box_corner /
+ * place_for_anchor) are exact inverses across every corner and every valid
+ * stamp dimension. Returns true on success. Exposed only under the host-test
+ * macro so the internals stay file-static in the .fap build. (AGENTS.md
+ * coord-pair rule: pin both sides of a coordinate convention with a test.) */
+bool compose_selftest_corner_roundtrip(void);
+#endif

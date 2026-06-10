@@ -32,6 +32,8 @@
 #include "../rng.h"
 #include "../weather.h"
 #include "../world.h"
+#include "../stamps.h"
+#include "../compose.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -135,6 +137,54 @@ static void test_chunk_determinism(void) {
           "chunk: different seed -> different chunk");
 }
 
+/* Is the neighbor across `dir` a walled (cavern/room) chunk? */
+static bool nbr_walled(uint32_t seed, int cx, int cy, MoveDir dir) {
+    int nx = cx, ny = cy;
+    switch(dir) {
+    case MoveNorth: ny--; break;
+    case MoveSouth: ny++; break;
+    case MoveWest:  nx--; break;
+    case MoveEast:  nx++; break;
+    default: break;
+    }
+    return biome_terrain(biome_of(seed, nx, ny)) == TERRAIN_WALLED;
+}
+
+/* The shared-edge coherence invariant (spec 50 §R): an edge is walled iff this
+ * chunk OR its neighbor across that edge is walled. A walled edge's interior
+ * span is all wall except one door at the hashed position; an open edge's span
+ * is free of wall/door. Checks the non-corner span only. */
+static bool edge_is_coherent(const World* w, uint32_t seed, int cx, int cy,
+                             MoveDir dir) {
+    bool walled = (biome_terrain(w->biome) == TERRAIN_WALLED) ||
+                  nbr_walled(seed, cx, cy, dir);
+    int door = world_edge_door_perp(seed, cx, cy, dir);
+    if(dir == MoveNorth || dir == MoveSouth) {
+        int row = (dir == MoveNorth) ? 0 : WORLD_ROWS - 1;
+        for(int x = 1; x < WORLD_COLS - 1; x++) {
+            char t = w->tiles[row][x];
+            if(walled) {
+                if(x == door) { if(t != TILE_DOOR) return false; }
+                else if(t != TILE_WALL && t != TILE_SECRET) return false;
+            } else if(t == TILE_WALL || t == TILE_DOOR || t == TILE_SECRET) {
+                return false;
+            }
+        }
+    } else {
+        int col = (dir == MoveWest) ? 0 : WORLD_COLS - 1;
+        for(int y = 1; y < WORLD_ROWS - 1; y++) {
+            char t = w->tiles[y][col];
+            if(walled) {
+                if(y == door) { if(t != TILE_DOOR) return false; }
+                else if(t != TILE_WALL && t != TILE_SECRET) return false;
+            } else if(t == TILE_WALL || t == TILE_DOOR || t == TILE_SECRET) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static void test_chunk_invariants(void) {
     /* Find one cavern + one outdoor chunk and assert per-biome invariants.
      * Spawn-walkable must hold for both. */
@@ -144,18 +194,40 @@ static void test_chunk_invariants(void) {
             World w;
             world_generate_chunk(0x12345678, cx, cy, &w);
             CHECK(world_walkable(&w, w.spawn_x, w.spawn_y), "chunk: spawn walkable");
-            int mc = WORLD_COLS / 2, mr = WORLD_ROWS / 2;
             if(biome_terrain(w.biome) == TERRAIN_WALLED && !found_cave) {
                 found_cave = 1;
-                CHECK(w.tiles[0][mc] == TILE_DOOR && w.tiles[WORLD_ROWS - 1][mc] == TILE_DOOR
-                          && w.tiles[mr][0] == TILE_DOOR && w.tiles[mr][WORLD_COLS - 1] == TILE_DOOR,
-                      "cavern: four edge-midpoint doors present");
-                CHECK(w.tiles[0][1] == TILE_WALL, "cavern: top border is wall");
+                /* One door per edge, each at its hashed shared-edge position. */
+                int nc = world_edge_door_perp(0x12345678, cx, cy, MoveNorth);
+                int sc = world_edge_door_perp(0x12345678, cx, cy, MoveSouth);
+                int wr = world_edge_door_perp(0x12345678, cx, cy, MoveWest);
+                int er = world_edge_door_perp(0x12345678, cx, cy, MoveEast);
+                CHECK(w.tiles[0][nc] == TILE_DOOR &&
+                          w.tiles[WORLD_ROWS - 1][sc] == TILE_DOOR &&
+                          w.tiles[wr][0] == TILE_DOOR &&
+                          w.tiles[er][WORLD_COLS - 1] == TILE_DOOR,
+                      "cavern: each edge's door sits at its hashed position");
+                /* Exactly one door per edge; every other border tile is wall. */
+                int td = 0, bd = 0, ld = 0, rd = 0;
+                for(int x = 0; x < WORLD_COLS; x++) {
+                    if(w.tiles[0][x] == TILE_DOOR) td++;
+                    if(w.tiles[WORLD_ROWS - 1][x] == TILE_DOOR) bd++;
+                }
+                for(int y = 0; y < WORLD_ROWS; y++) {
+                    if(w.tiles[y][0] == TILE_DOOR) ld++;
+                    if(w.tiles[y][WORLD_COLS - 1] == TILE_DOOR) rd++;
+                }
+                CHECK(td == 1 && bd == 1 && ld == 1 && rd == 1,
+                      "cavern: exactly one door per edge (rest is wall)");
             }
             if(biome_terrain(w.biome) == TERRAIN_OPEN && !found_out) {
                 found_out = 1;
-                CHECK(w.tiles[0][1] != TILE_WALL && w.tiles[WORLD_ROWS - 1][1] != TILE_WALL,
-                      "outdoor: edges open (no border wall)");
+                /* Each edge matches its neighbor: open where the neighbor is
+                 * open, wall+door where the neighbor is walled. */
+                CHECK(edge_is_coherent(&w, 0x12345678, cx, cy, MoveNorth) &&
+                          edge_is_coherent(&w, 0x12345678, cx, cy, MoveSouth) &&
+                          edge_is_coherent(&w, 0x12345678, cx, cy, MoveWest) &&
+                          edge_is_coherent(&w, 0x12345678, cx, cy, MoveEast),
+                      "outdoor: each edge coheres with its neighbor's terrain");
             }
         }
     }
@@ -174,17 +246,17 @@ static void test_chunk_golden(void) {
         int cx, cy;
         uint32_t fp;
     } cases[] = {
-        /* Re-recorded 2026-06-03 (economy bundle C — home-chunk vault).
-         * Chunk (0,0) is now the home chunk and carries a TILE_VAULT
-         * near spawn; both (CAFEBABE,0,0) and (DEADBEEF,0,0) shifted.
-         * (1,0) and (-3,5) are non-home → unchanged.
-         * Prior rebases: carve_egress 2026-06-03, 50.F3 Pool-biased
-         * loot, 50.F1 stamp composer, 2026-06-01 loot density,
-         * v0.3.5a torch added. */
-        {0xCAFEBABE, 0, 0, 0x0619FE7D},
-        {0xCAFEBABE, 1, 0, 0xF5E3ED37},
-        {0xDEADBEEF, 0, 0, 0xFC657EA9},
-        {0x00000001, -3, 5, 0x76122170},
+        /* Re-recorded 2026-06-09 (spec 50 §R world-coherence epic + corner-snap
+         * composer). Deliberate generator change across one slice:
+         *   - corner-snap stamp composer replaced random placement;
+         *   - per-edge doors moved from mid-edge to hashed shared-edge positions;
+         *   - open chunks grew wall+door on edges facing walled neighbors;
+         *   - rare quest-gated secret passages (TILE_SECRET) added.
+         * All four chunks shifted. Prior: 2026-06-03 economy bundle C, etc. */
+        {0xCAFEBABE, 0, 0, 0x9A4F21E6},
+        {0xCAFEBABE, 1, 0, 0x01821F0D},
+        {0xDEADBEEF, 0, 0, 0xB00E3D15},
+        {0x00000001, -3, 5, 0xB39F63AE},
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     for(int i = 0; i < n; i++) {
@@ -508,12 +580,17 @@ static int egress_doors_reachable(const World* w, int sx, int sy) {
             qx[tail] = nx; qy[tail] = ny; tail++;
         }
     }
-    int mc = WORLD_COLS / 2, mr = WORLD_ROWS / 2;
-    int doors_x[4] = { mc, mc, 0, WORLD_COLS - 1 };
-    int doors_y[4] = { 0, WORLD_ROWS - 1, mr, mr };
+    /* Doors sit at hashed per-edge positions now — find the actual TILE_DOOR
+     * tiles on the border (seed-agnostic) and count how many are in the
+     * spawn's connected component. A cavern has exactly one door per edge. */
     int hits = 0;
-    for(int i = 0; i < 4; i++) {
-        if(reach[doors_y[i]][doors_x[i]]) hits++;
+    for(int x = 0; x < WORLD_COLS; x++) {
+        if(w->tiles[0][x] == TILE_DOOR && reach[0][x]) hits++;
+        if(w->tiles[WORLD_ROWS - 1][x] == TILE_DOOR && reach[WORLD_ROWS - 1][x]) hits++;
+    }
+    for(int y = 0; y < WORLD_ROWS; y++) {
+        if(w->tiles[y][0] == TILE_DOOR && reach[y][0]) hits++;
+        if(w->tiles[y][WORLD_COLS - 1] == TILE_DOOR && reach[y][WORLD_COLS - 1]) hits++;
     }
     return hits;
 }
@@ -1537,6 +1614,304 @@ static void test_recipes(void) {
     CHECK(jack_n > 10 && jack_n < 120, "pull: JACKPOT in expected range");
 }
 
+/* ─── Corner-snap stamp composer (spec 50 §R) ──────────────────────────────
+ * These test the new PLACEMENT strategy in isolation — calling the composer
+ * directly on a hand-built chunk shell, before world.c's scatter_items /
+ * find_spawn / carve_egress passes run. They pin the invariants the §R
+ * algorithm guarantees: deterministic, interior-only, prime-safe,
+ * non-floor-preserving, and the corner math pair. */
+
+/* Pre-compose CAVERN shell: walled border + 4 mid-edge doors, floor interior
+ * (mirrors gen_cavern_stamped's state at the compose call). */
+static void build_cavern_shell(World* w) {
+    for(int y = 0; y < WORLD_ROWS; y++) {
+        for(int x = 0; x < WORLD_COLS; x++) {
+            bool border = (y == 0 || y == WORLD_ROWS - 1 ||
+                           x == 0 || x == WORLD_COLS - 1);
+            w->tiles[y][x] = border ? TILE_WALL : TILE_FLOOR;
+        }
+    }
+    int mc = WORLD_COLS / 2, mr = WORLD_ROWS / 2;
+    w->tiles[0][mc] = TILE_DOOR;
+    w->tiles[WORLD_ROWS - 1][mc] = TILE_DOOR;
+    w->tiles[mr][0] = TILE_DOOR;
+    w->tiles[mr][WORLD_COLS - 1] = TILE_DOOR;
+}
+
+static int interior_nonfloor_count(const World* w) {
+    int n = 0;
+    for(int y = 1; y < WORLD_ROWS - 1; y++) {
+        for(int x = 1; x < WORLD_COLS - 1; x++) {
+            if(w->tiles[y][x] != TILE_FLOOR) n++;
+        }
+    }
+    return n;
+}
+
+/* The determinism keystone for door=door coherence (spec 50 §R world-
+ * coherence): both chunks sharing an edge must derive the SAME door position
+ * with no persistence and no entry-direction dependence. */
+static void test_edge_door_agreement(void) {
+    uint32_t seed = 0xC0FFEE11u;
+    bool ew_ok = true, ns_ok = true, range_ok = true;
+    for(int cy = -3; cy <= 3; cy++) {
+        for(int cx = -3; cx <= 3; cx++) {
+            int e = world_edge_door_perp(seed, cx, cy, MoveEast);
+            int w = world_edge_door_perp(seed, cx + 1, cy, MoveWest);
+            if(e != w) ew_ok = false;
+            int s = world_edge_door_perp(seed, cx, cy, MoveSouth);
+            int n = world_edge_door_perp(seed, cx, cy + 1, MoveNorth);
+            if(s != n) ns_ok = false;
+            /* E/W doors are rows; N/S doors are columns. Both stay off corners. */
+            if(e < 1 || e > WORLD_ROWS - 2) range_ok = false;
+            if(s < 1 || s > WORLD_COLS - 2) range_ok = false;
+        }
+    }
+    CHECK(ew_ok, "edge door: east door row == east-neighbor's west door row (door=door)");
+    CHECK(ns_ok, "edge door: south door col == south-neighbor's north door col (door=door)");
+    CHECK(range_ok, "edge door: positions stay off the corners (in range)");
+}
+
+/* Slice 2: every generated chunk's four edges cohere with their neighbors —
+ * open↔open seams stay open, any edge touching a walled chunk becomes
+ * wall+door on BOTH sides at the agreed hashed position. This is the
+ * end-to-end "no phasing through walls" guarantee in the generated tiles. */
+static void test_edge_walls_match_neighbors(void) {
+    uint32_t seeds[] = {0x5EED5EEDu, 0xCAFEBABEu, 0x12345678u};
+    int n_seeds = (int)(sizeof(seeds) / sizeof(seeds[0]));
+    bool all_coherent = true;
+    int open_edges = 0, walled_edges = 0;
+    for(int s = 0; s < n_seeds; s++) {
+        for(int cy = -3; cy <= 3; cy++) {
+            for(int cx = -3; cx <= 3; cx++) {
+                World w;
+                world_generate_chunk(seeds[s], cx, cy, &w);
+                const MoveDir dirs[4] = {MoveNorth, MoveSouth, MoveWest, MoveEast};
+                for(int d = 0; d < 4; d++) {
+                    if(!edge_is_coherent(&w, seeds[s], cx, cy, dirs[d])) {
+                        all_coherent = false;
+                    }
+                    bool walled = (biome_terrain(w.biome) == TERRAIN_WALLED) ||
+                                  nbr_walled(seeds[s], cx, cy, dirs[d]);
+                    if(walled) walled_edges++; else open_edges++;
+                }
+            }
+        }
+    }
+    CHECK(all_coherent,
+          "edges: every chunk edge coheres with its neighbor (no phase-through)");
+    CHECK(open_edges > 0 && walled_edges > 0,
+          "edges: sample exercised both open and walled seams");
+}
+
+/* Slice 3: with walls as real tiles, the move layer already enforces
+ * door=door / wall=wall. On an open chunk's walled edge, walking at the wall
+ * is blocked (no phase-through) and only the door tile transitions. No new
+ * move-time code — this just pins the emergent behavior. */
+static void test_transition_walls_block_open_chunk(void) {
+    uint32_t seed = 0xCAFEBABEu;
+    const MoveDir dirs[4] = {MoveNorth, MoveSouth, MoveWest, MoveEast};
+    int fcx = 0, fcy = 0;
+    MoveDir fdir = MoveNorth;
+    bool found = false;
+    for(int cy = -5; cy <= 5 && !found; cy++) {
+        for(int cx = -5; cx <= 5 && !found; cx++) {
+            if(biome_terrain(biome_of(seed, cx, cy)) != TERRAIN_OPEN) continue;
+            for(int d = 0; d < 4; d++) {
+                if(nbr_walled(seed, cx, cy, dirs[d])) {
+                    found = true; fcx = cx; fcy = cy; fdir = dirs[d]; break;
+                }
+            }
+        }
+    }
+    CHECK(found, "transition: found an open chunk with a walled edge");
+    if(!found) return;
+
+    World w;
+    world_generate_chunk(seed, fcx, fcy, &w);
+    int door = world_edge_door_perp(seed, fcx, fcy, fdir);
+    int wall_perp = (door == 1) ? 2 : 1; /* a non-door span position */
+
+    int wpx, wpy, dpx, dpy;
+    switch(fdir) {
+    case MoveNorth: wpx = wall_perp; wpy = 1;              dpx = door; dpy = 1;              break;
+    case MoveSouth: wpx = wall_perp; wpy = WORLD_ROWS - 2; dpx = door; dpy = WORLD_ROWS - 2; break;
+    case MoveWest:  wpx = 1;              wpy = wall_perp; dpx = 1;              dpy = door; break;
+    case MoveEast:  wpx = WORLD_COLS - 2; wpy = wall_perp; dpx = WORLD_COLS - 2; dpy = door; break;
+    default:        wpx = wpy = dpx = dpy = 1; break;
+    }
+
+    char dd;
+    int px = wpx, py = wpy;
+    CHECK(world_try_move(&w, fdir, &px, &py, &dd) == MoveBlockedByWall,
+          "transition: walking at the wall on a walled edge is blocked (no phase-through)");
+    px = dpx; py = dpy;
+    CHECK(world_try_move(&w, fdir, &px, &py, &dd) == MoveSteppedOnDoor,
+          "transition: walking at the door on a walled edge steps onto the door");
+}
+
+/* Slice 4: secret passages. Geometry is deterministic + both neighbors agree
+ * (the crossing/unlock check lives in sanctum_rpg.c and is verified on device).
+ * Here: position + gating-quest agreement, and that a secret reads/stays as a
+ * sealed wall that the move layer reports distinctly. */
+static void test_secret_edge_agreement(void) {
+    uint32_t seed = 0xBEEF1234u;
+    bool ew_ok = true, ns_ok = true, q_ok = true;
+    int secrets = 0;
+    for(int cy = -4; cy <= 4; cy++) {
+        for(int cx = -4; cx <= 4; cx++) {
+            int e = world_edge_secret_perp(seed, cx, cy, MoveEast);
+            int w = world_edge_secret_perp(seed, cx + 1, cy, MoveWest);
+            if(e != w) ew_ok = false;
+            if(e >= 0) secrets++;
+            int s = world_edge_secret_perp(seed, cx, cy, MoveSouth);
+            int n = world_edge_secret_perp(seed, cx, cy + 1, MoveNorth);
+            if(s != n) ns_ok = false;
+            if(world_edge_secret_axis(seed, cx, cy, MoveEast, 6) !=
+               world_edge_secret_axis(seed, cx + 1, cy, MoveWest, 6)) q_ok = false;
+        }
+    }
+    CHECK(ew_ok, "secret: east/west neighbors agree on secret presence + position");
+    CHECK(ns_ok, "secret: north/south neighbors agree on secret presence + position");
+    CHECK(q_ok, "secret: neighbors agree on the gating growth axis");
+    CHECK(secrets > 0, "secret: rarity gate yields some secrets in the sample");
+}
+
+static void test_secret_sealed_blocks(void) {
+    uint32_t seed = 0xBEEF1234u;
+    World w;
+    bool found = false;
+    int sx = -1, sy = -1;
+    MoveDir into = MoveNorth;
+    for(int cy = -6; cy <= 6 && !found; cy++) {
+        for(int cx = -6; cx <= 6 && !found; cx++) {
+            world_generate_chunk(seed, cx, cy, &w);
+            for(int x = 1; x < WORLD_COLS - 1 && !found; x++) {
+                if(w.tiles[0][x] == TILE_SECRET) { found = true; sx = x; sy = 0; into = MoveNorth; }
+                else if(w.tiles[WORLD_ROWS - 1][x] == TILE_SECRET) { found = true; sx = x; sy = WORLD_ROWS - 1; into = MoveSouth; }
+            }
+            for(int y = 1; y < WORLD_ROWS - 1 && !found; y++) {
+                if(w.tiles[y][0] == TILE_SECRET) { found = true; sx = 0; sy = y; into = MoveWest; }
+                else if(w.tiles[y][WORLD_COLS - 1] == TILE_SECRET) { found = true; sx = WORLD_COLS - 1; sy = y; into = MoveEast; }
+            }
+        }
+    }
+    CHECK(found, "secret: at least one secret tile generated in the sample");
+    if(!found) return;
+    CHECK(world_is_blocking(TILE_SECRET), "secret: reads as a wall (blocking)");
+    CHECK(!world_walkable(&w, sx, sy), "secret: tile is sealed (not walkable)");
+    CHECK(w.tiles[sy][sx] == TILE_SECRET, "secret: carve_egress left it sealed");
+
+    int ax = sx, ay = sy;
+    switch(into) {
+    case MoveNorth: ay = 1;              break;
+    case MoveSouth: ay = WORLD_ROWS - 2; break;
+    case MoveWest:  ax = 1;              break;
+    case MoveEast:  ax = WORLD_COLS - 2; break;
+    default: break;
+    }
+    char dd;
+    int px = ax, py = ay;
+    CHECK(world_try_move(&w, into, &px, &py, &dd) == MoveBlockedBySecret,
+          "secret: walking at it reports MoveBlockedBySecret (not a plain wall)");
+}
+
+static void test_compose_corner_roundtrip(void) {
+    CHECK(compose_selftest_corner_roundtrip(),
+          "compose: box_corner / place_for_anchor are exact inverses (coord pair)");
+}
+
+static void test_compose_determinism(void) {
+    Pool pc;
+    pool_at_prime(0xCAFEBABE, STAMP_BIOME_CAVERN, &pc);
+    World a, b;
+    Rng r;
+    build_cavern_shell(&a);
+    build_cavern_shell(&b);
+    rng_seed(&r, 0x1234u);
+    compose_stamps_into_interior(&r, &pc, STAMP_BIOME_CAVERN, &a);
+    rng_seed(&r, 0x1234u);
+    compose_stamps_into_interior(&r, &pc, STAMP_BIOME_CAVERN, &b);
+    CHECK(memcmp(a.tiles, b.tiles, sizeof(a.tiles)) == 0,
+          "compose: same rng+pool → byte-equal placement (deterministic)");
+
+    /* A different rng stream should (almost always) diverge. */
+    World c;
+    build_cavern_shell(&c);
+    rng_seed(&r, 0x9999u);
+    compose_stamps_into_interior(&r, &pc, STAMP_BIOME_CAVERN, &c);
+    CHECK(memcmp(a.tiles, c.tiles, sizeof(a.tiles)) != 0,
+          "compose: a different rng stream produces a different chunk");
+}
+
+static void test_compose_interior_only(void) {
+    Pool p;
+    pool_at_prime(0xBEEFu, STAMP_BIOME_CAVERN, &p);
+    World w;
+    Rng r;
+    build_cavern_shell(&w);
+    rng_seed(&r, 0x777u);
+    compose_stamps_into_interior(&r, &p, STAMP_BIOME_CAVERN, &w);
+
+    /* The biome owns the edge — the composer must never write a stamp glyph
+     * onto the border. Every border tile stays wall or door. */
+    bool border_ok = true;
+    for(int x = 0; x < WORLD_COLS; x++) {
+        char top = w.tiles[0][x], bot = w.tiles[WORLD_ROWS - 1][x];
+        if(top != TILE_WALL && top != TILE_DOOR) border_ok = false;
+        if(bot != TILE_WALL && bot != TILE_DOOR) border_ok = false;
+    }
+    for(int y = 0; y < WORLD_ROWS; y++) {
+        char lft = w.tiles[y][0], rgt = w.tiles[y][WORLD_COLS - 1];
+        if(lft != TILE_WALL && lft != TILE_DOOR) border_ok = false;
+        if(rgt != TILE_WALL && rgt != TILE_DOOR) border_ok = false;
+    }
+    CHECK(border_ok, "compose: never writes a stamp glyph onto the chunk border");
+
+    /* The central prime is the spawn safe-area — reserved in occupancy, never
+     * buried. Its center tile stays floor. */
+    CHECK(w.tiles[WORLD_ROWS / 2][WORLD_COLS / 2] == TILE_FLOOR,
+          "compose: central prime stays floor (spawn safe-area reserved)");
+
+    /* The 4 mid-edge doors survive (the composer respects them). */
+    int mc = WORLD_COLS / 2, mr = WORLD_ROWS / 2;
+    CHECK(w.tiles[0][mc] == TILE_DOOR && w.tiles[WORLD_ROWS - 1][mc] == TILE_DOOR &&
+          w.tiles[mr][0] == TILE_DOOR && w.tiles[mr][WORLD_COLS - 1] == TILE_DOOR,
+          "compose: the 4 mid-edge doors are preserved");
+}
+
+static void test_compose_places_something(void) {
+    /* Across a handful of seeds the composer should put down at least one
+     * stamp (it is not a no-op). Pool intensity 0 still has common stamps. */
+    Pool p;
+    pool_at_prime(0xABCDu, STAMP_BIOME_CAVERN, &p);
+    int total = 0;
+    for(uint32_t s = 1; s <= 5; s++) {
+        World w;
+        Rng r;
+        build_cavern_shell(&w);
+        rng_seed(&r, s * 2654435761u);
+        compose_stamps_into_interior(&r, &p, STAMP_BIOME_CAVERN, &w);
+        total += interior_nonfloor_count(&w);
+    }
+    CHECK(total > 0, "compose: places at least one stamp across seeds (not a no-op)");
+}
+
+static void test_compose_preserves_nonfloor(void) {
+    /* A non-floor tile placed before compose (e.g. a vendor) is seeded into
+     * the occupancy mask and is never overwritten. */
+    Pool p;
+    pool_at_prime(0xFEEDu, STAMP_BIOME_CAVERN, &p);
+    World w;
+    Rng r;
+    build_cavern_shell(&w);
+    w.tiles[2][4] = TILE_VENDOR;
+    rng_seed(&r, 0x4242u);
+    compose_stamps_into_interior(&r, &p, STAMP_BIOME_CAVERN, &w);
+    CHECK(w.tiles[2][4] == TILE_VENDOR,
+          "compose: never overwrites a pre-placed non-floor tile (vendor)");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -1586,6 +1961,16 @@ int main(void) {
     test_pool_bias_queries();
     test_pool_consumers_no_bias_matches_legacy();
     test_pool_consumers_bias_shifts_distribution();
+    test_edge_door_agreement();
+    test_edge_walls_match_neighbors();
+    test_transition_walls_block_open_chunk();
+    test_secret_edge_agreement();
+    test_secret_sealed_blocks();
+    test_compose_corner_roundtrip();
+    test_compose_determinism();
+    test_compose_interior_only();
+    test_compose_places_something();
+    test_compose_preserves_nonfloor();
     test_weather_determinism();
     test_weather_indoor_attenuation();
     test_weather_fov_cap();

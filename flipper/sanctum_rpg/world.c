@@ -267,8 +267,11 @@ static void egress_carve_to_reach(
     reach[sy][sx] = 1;
 }
 
-/* Anti-trap pass for caverns. Postcondition: spawn, all 4 doors, and
- * every walkable interior tile share one 4-connected component. */
+/* Anti-trap pass for any DOORED chunk. Postcondition: the spawn, every door
+ * on the border, and every walkable interior tile share one 4-connected
+ * component. Doors are located by scanning the border for TILE_DOOR, so this
+ * serves caverns (4 doors) and open chunks that grew doors facing a walled
+ * neighbor (1-3 doors) identically — no door-count or seed plumbing. */
 static void carve_egress(World* out) {
     /* Defensive: a degenerate spawn (blocked by a stamp landing on (1,1))
      * shouldn't happen — find_spawn picks a TILE_FLOOR — but in case the
@@ -283,21 +286,29 @@ static void carve_egress(World* out) {
 
     egress_bfs_walkable(out, out->spawn_x, out->spawn_y, reach);
 
-    /* The 4 mid-edge doors. Order is fixed (N, S, W, E) so any chunks that
-     * need carving carve deterministically. */
-    const int doors[4][2] = {
-        { WORLD_COLS / 2,     0                  },
-        { WORLD_COLS / 2,     WORLD_ROWS - 1     },
-        { 0,                  WORLD_ROWS / 2     },
-        { WORLD_COLS - 1,     WORLD_ROWS / 2     },
-    };
-    for(int i = 0; i < 4; i++) {
-        int dxd = doors[i][0], dyd = doors[i][1];
-        if(reach[dyd][dxd]) continue;
-        egress_carve_to_reach(out, dxd, dyd, reach);
-        /* The carved corridor may have opened access to additional walkable
-         * tiles that share the door's side — sweep them in. */
-        egress_bfs_walkable(out, dxd, dyd, reach);
+    /* Connect every door tile on the border to the spawn component. Scan in a
+     * fixed order (top, bottom, then left, right) so the carve is
+     * deterministic. The carve may open access to more walkable tiles on the
+     * door's side, so re-flood from each carved door. */
+    for(int x = 0; x < WORLD_COLS; x++) {
+        if(out->tiles[0][x] == TILE_DOOR && !reach[0][x]) {
+            egress_carve_to_reach(out, x, 0, reach);
+            egress_bfs_walkable(out, x, 0, reach);
+        }
+        if(out->tiles[WORLD_ROWS - 1][x] == TILE_DOOR && !reach[WORLD_ROWS - 1][x]) {
+            egress_carve_to_reach(out, x, WORLD_ROWS - 1, reach);
+            egress_bfs_walkable(out, x, WORLD_ROWS - 1, reach);
+        }
+    }
+    for(int y = 0; y < WORLD_ROWS; y++) {
+        if(out->tiles[y][0] == TILE_DOOR && !reach[y][0]) {
+            egress_carve_to_reach(out, 0, y, reach);
+            egress_bfs_walkable(out, 0, y, reach);
+        }
+        if(out->tiles[y][WORLD_COLS - 1] == TILE_DOOR && !reach[y][WORLD_COLS - 1]) {
+            egress_carve_to_reach(out, WORLD_COLS - 1, y, reach);
+            egress_bfs_walkable(out, WORLD_COLS - 1, y, reach);
+        }
     }
 
     /* Sweep for isolated walkable pockets (composer geometry can produce
@@ -313,10 +324,102 @@ static void carve_egress(World* out) {
     }
 }
 
-/* Slice 50.F1: CAVERN — walled border + 4 mid-edge doors (biome owns the
- * edge per spec 50 §F1.5 / §C.4); the Pool-biased stamp composer fills
- * the interior. The old blob algorithm is gone — variety now comes from
- * the stamp catalog (10 cavern stamps) × Pool bias × rotation. */
+/* ─── Shared-edge door positions (spec 50 §R world-coherence) ───────────────
+ * The crux of door=door / wall=wall coherence: both chunks sharing an edge
+ * must independently agree on where the door through it sits, with NO
+ * persistence and NO dependence on which way the player crossed. They agree
+ * by hashing the edge's CANONICAL identity — the LOWER chunk coordinate plus
+ * an axis bit — which both neighbors reduce to identically.
+ *
+ * Trap avoided: hashing (my_chunk, my_direction) gives each side a different
+ * key and silently re-creates the phase-through-wall bug. Canonicalizing to
+ * the lower coordinate is the whole trick. */
+#define EDGE_DOOR_SALT 0xD006C0DEu /* separates the door-hash stream */
+#define EDGE_AXIS_V    0x000000A1u /* E/W edge — door is a ROW            */
+#define EDGE_AXIS_H    0x000000B2u /* N/S edge — door is a COLUMN         */
+
+int world_edge_door_perp(uint32_t seed, int chunk_x, int chunk_y, MoveDir dir) {
+    int ex, ey;       /* canonical edge coordinate (lower chunk of the pair) */
+    bool vertical;    /* true: E/W edge (door is a row); false: N/S (a col)  */
+    switch(dir) {
+    case MoveNorth: ex = chunk_x;     ey = chunk_y - 1; vertical = false; break;
+    case MoveSouth: ex = chunk_x;     ey = chunk_y;     vertical = false; break;
+    case MoveWest:  ex = chunk_x - 1; ey = chunk_y;     vertical = true;  break;
+    case MoveEast:  ex = chunk_x;     ey = chunk_y;     vertical = true;  break;
+    default:        return WORLD_COLS / 2; /* unreachable; safe centre */
+    }
+    uint32_t base = seed ^ EDGE_DOOR_SALT ^ (vertical ? EDGE_AXIS_V : EDGE_AXIS_H);
+    uint32_t h = rng_chunk_seed(base, ex, ey);
+    /* Inset by 1 so doors never land on a corner. */
+    if(vertical) return 1 + (int)(h % (uint32_t)(WORLD_ROWS - 2));
+    return 1 + (int)(h % (uint32_t)(WORLD_COLS - 2));
+}
+
+/* Rare hidden passage on a shared edge — same canonical-edge machinery as the
+ * door, distinct salts, gated by rarity. Both neighbors agree on existence,
+ * position, and gating quest. */
+#define SECRET_SALT       0x5EC0DEEDu /* presence + position hash             */
+#define SECRET_GATE_SALT  0x90E57A10u /* which growth axis gates the secret   */
+#define SECRET_RARITY     12u         /* ~1 in 12 walled edges has a secret   */
+
+/* Canonical (lower-chunk + axis) edge identity, shared by world_edge_door_perp
+ * and the secret helpers so both neighbors of an edge hash the same key. */
+static uint32_t edge_hash(uint32_t seed, int cx, int cy, MoveDir dir,
+                          uint32_t salt, bool* out_vertical) {
+    int ex, ey;
+    bool vertical;
+    switch(dir) {
+    case MoveNorth: ex = cx;     ey = cy - 1; vertical = false; break;
+    case MoveSouth: ex = cx;     ey = cy;     vertical = false; break;
+    case MoveWest:  ex = cx - 1; ey = cy;     vertical = true;  break;
+    case MoveEast:  ex = cx;     ey = cy;     vertical = true;  break;
+    default:        ex = cx;     ey = cy;     vertical = false; break;
+    }
+    if(out_vertical) *out_vertical = vertical;
+    uint32_t base = seed ^ salt ^ (vertical ? EDGE_AXIS_V : EDGE_AXIS_H);
+    return rng_chunk_seed(base, ex, ey);
+}
+
+int world_edge_secret_perp(uint32_t seed, int chunk_x, int chunk_y, MoveDir dir) {
+    bool vertical;
+    uint32_t h = edge_hash(seed, chunk_x, chunk_y, dir, SECRET_SALT, &vertical);
+    if((h % SECRET_RARITY) != 0u) return -1; /* most edges have no secret */
+    /* Derive a perp from the upper bits (the low bits drove the rarity gate),
+     * then nudge off the door so the two never share a tile. */
+    int span = vertical ? (WORLD_ROWS - 2) : (WORLD_COLS - 2);
+    int perp = 1 + (int)((h >> 8) % (uint32_t)span);
+    int door = world_edge_door_perp(seed, chunk_x, chunk_y, dir);
+    if(perp == door) perp = 1 + ((perp - 1 + 1) % span); /* shift one, stay in range */
+    return perp;
+}
+
+int world_edge_secret_axis(uint32_t seed, int chunk_x, int chunk_y, MoveDir dir,
+                           int axis_count) {
+    if(axis_count <= 0) return 0;
+    uint32_t h = edge_hash(seed, chunk_x, chunk_y, dir, SECRET_GATE_SALT, NULL);
+    return (int)(h % (uint32_t)axis_count);
+}
+
+/* Stamp the secret tile onto a WALLED edge if this edge carries one. Call only
+ * for edges that are actually walls (caller knows which). Overwrites a wall
+ * tile; never the door (world_edge_secret_perp is nudged off the door). */
+static void place_edge_secret(uint32_t seed, int cx, int cy, MoveDir dir,
+                              World* out) {
+    int p = world_edge_secret_perp(seed, cx, cy, dir);
+    if(p < 0) return;
+    switch(dir) {
+    case MoveNorth: out->tiles[0][p] = TILE_SECRET;              break;
+    case MoveSouth: out->tiles[WORLD_ROWS - 1][p] = TILE_SECRET; break;
+    case MoveWest:  out->tiles[p][0] = TILE_SECRET;              break;
+    case MoveEast:  out->tiles[p][WORLD_COLS - 1] = TILE_SECRET; break;
+    default: break;
+    }
+}
+
+/* Slice 50.F1: CAVERN — walled border + one door per edge at its hashed
+ * shared-edge position (biome owns the edge per spec 50 §F1.5 / §C.4); the
+ * Pool-biased stamp composer fills the interior. The old blob algorithm is
+ * gone — variety now comes from the stamp catalog × Pool bias × rotation. */
 /* Place a single TILE_VENDOR if this chunk is a vendor chunk. Pre-compose
  * so the composer's "refuses to overwrite non-floor" rule protects it,
  * the same way it protects the 4 cavern doors. */
@@ -332,14 +435,20 @@ static void gen_cavern_stamped(
     uint32_t seed, int cx, int cy, Rng* rng, const Pool* pool, World* out) {
     fill_floor_with_border(out);
     /* Doors first — the composer respects them (refuses to overwrite
-     * non-floor tiles). Mid-edge positions stay unchanged so the existing
-     * door_transition + do_transition code keeps working. */
-    int mid_col = WORLD_COLS / 2;
-    int mid_row = WORLD_ROWS / 2;
-    out->tiles[0][mid_col] = TILE_DOOR;
-    out->tiles[WORLD_ROWS - 1][mid_col] = TILE_DOOR;
-    out->tiles[mid_row][0] = TILE_DOOR;
-    out->tiles[mid_row][WORLD_COLS - 1] = TILE_DOOR;
+     * non-floor tiles). Each door sits at its hashed per-edge position
+     * (world_edge_door_perp), which the neighbor on the far side derives
+     * identically — so crossing an edge always lands door-to-door rather
+     * than phasing through a wall. door_transition reads the player's tile
+     * position, so it keeps working regardless of where the door sits. */
+    out->tiles[0][world_edge_door_perp(seed, cx, cy, MoveNorth)] = TILE_DOOR;
+    out->tiles[WORLD_ROWS - 1][world_edge_door_perp(seed, cx, cy, MoveSouth)] = TILE_DOOR;
+    out->tiles[world_edge_door_perp(seed, cx, cy, MoveWest)][0] = TILE_DOOR;
+    out->tiles[world_edge_door_perp(seed, cx, cy, MoveEast)][WORLD_COLS - 1] = TILE_DOOR;
+    /* A rare edge also hides a secret passage (all 4 cavern edges are walls). */
+    place_edge_secret(seed, cx, cy, MoveNorth, out);
+    place_edge_secret(seed, cx, cy, MoveSouth, out);
+    place_edge_secret(seed, cx, cy, MoveWest, out);
+    place_edge_secret(seed, cx, cy, MoveEast, out);
     place_vendor_if_any(seed, cx, cy, out);
     (void)pick_door_tile;
     (void)place_blob; /* slice 50.F1 — blob algorithm retired */
@@ -354,10 +463,43 @@ static void gen_cavern_stamped(
     carve_egress(out);
 }
 
-/* Slice 50.F1: OUTDOOR — open field, no walls, no doors (cross any edge).
- * Stamps fill the interior; the outer ring stays bare floor so edge
- * traversal works. The old rock-scatter algorithm is gone — variety now
- * comes from the outdoor stamp catalog (10 stamps) × Pool bias × rotation. */
+/* Spec 50 §R world-coherence: an OPEN chunk must present a wall + single door
+ * on any edge that borders a WALLED neighbor, so the seam reads door=door /
+ * wall=wall from either side instead of letting the player phase through the
+ * neighbor's rock. Edges facing OPEN neighbors stay bare floor for free
+ * traversal. A corner becomes wall if EITHER of its two edges is walled —
+ * which falls out of walling the full edge row/col. The door sits at the same
+ * hashed position the walled neighbor uses, so crossing lands door-to-door.
+ * Consumes no RNG (biome_of is self-seeded), so the geometry stream is
+ * unchanged. Returns true if any door was placed (chunk needs egress). */
+static bool wall_edges_facing_walled(uint32_t seed, int cx, int cy, World* out) {
+    bool n = biome_terrain(biome_of(seed, cx, cy - 1)) == TERRAIN_WALLED;
+    bool s = biome_terrain(biome_of(seed, cx, cy + 1)) == TERRAIN_WALLED;
+    bool w = biome_terrain(biome_of(seed, cx - 1, cy)) == TERRAIN_WALLED;
+    bool e = biome_terrain(biome_of(seed, cx + 1, cy)) == TERRAIN_WALLED;
+    if(!n && !s && !w && !e) return false;
+
+    if(n) for(int x = 0; x < WORLD_COLS; x++) out->tiles[0][x] = TILE_WALL;
+    if(s) for(int x = 0; x < WORLD_COLS; x++) out->tiles[WORLD_ROWS - 1][x] = TILE_WALL;
+    if(w) for(int y = 0; y < WORLD_ROWS; y++) out->tiles[y][0] = TILE_WALL;
+    if(e) for(int y = 0; y < WORLD_ROWS; y++) out->tiles[y][WORLD_COLS - 1] = TILE_WALL;
+
+    if(n) out->tiles[0][world_edge_door_perp(seed, cx, cy, MoveNorth)] = TILE_DOOR;
+    if(s) out->tiles[WORLD_ROWS - 1][world_edge_door_perp(seed, cx, cy, MoveSouth)] = TILE_DOOR;
+    if(w) out->tiles[world_edge_door_perp(seed, cx, cy, MoveWest)][0] = TILE_DOOR;
+    if(e) out->tiles[world_edge_door_perp(seed, cx, cy, MoveEast)][WORLD_COLS - 1] = TILE_DOOR;
+    /* Secrets only on the walled edges (same shared-edge hash as the neighbor). */
+    if(n) place_edge_secret(seed, cx, cy, MoveNorth, out);
+    if(s) place_edge_secret(seed, cx, cy, MoveSouth, out);
+    if(w) place_edge_secret(seed, cx, cy, MoveWest, out);
+    if(e) place_edge_secret(seed, cx, cy, MoveEast, out);
+    return true;
+}
+
+/* Slice 50.F1: OUTDOOR — open field; the outer ring stays bare floor for free
+ * edge traversal EXCEPT on edges that border a walled neighbor, which grow a
+ * wall + single door (wall_edges_facing_walled). Stamps fill the interior.
+ * Variety comes from the outdoor stamp catalog × Pool bias × rotation. */
 static void gen_outdoor_stamped(
     uint32_t seed, int cx, int cy, Rng* rng, const Pool* pool, World* out) {
     for(int y = 0; y < WORLD_ROWS; y++) {
@@ -365,10 +507,14 @@ static void gen_outdoor_stamped(
             out->tiles[y][x] = TILE_FLOOR;
         }
     }
+    bool doored = wall_edges_facing_walled(seed, cx, cy, out);
     place_vendor_if_any(seed, cx, cy, out);
     compose_stamps_into_interior(rng, pool, STAMP_BIOME_OUTDOOR, out);
     scatter_items(out, rng, pool);
     find_spawn(out);
+    /* Any door we grew must be reachable from spawn (a stamp could otherwise
+     * seal it off) — same invariant caverns get, now for doored open chunks. */
+    if(doored) carve_egress(out);
 }
 
 void world_generate_chunk(
@@ -428,8 +574,10 @@ void world_generate_chunk(
 }
 
 bool world_is_blocking(char glyph) {
-    /* Legacy blockers + spec 50 §F1 primitive blockers (MC/MH/etc.). */
-    if(glyph == TILE_WALL || glyph == TILE_ROCK) return true;
+    /* Legacy blockers + spec 50 §F1 primitive blockers (MC/MH/etc.). A secret
+     * passage is solid to movement, FOV, and carve_egress — it only opens at
+     * crossing time if its gating quest is resolved (handled by the caller). */
+    if(glyph == TILE_WALL || glyph == TILE_ROCK || glyph == TILE_SECRET) return true;
     return primitive_glyph_blocks(glyph);
 }
 
@@ -457,6 +605,11 @@ MoveResult world_try_move(World* w, MoveDir dir, int* px, int* py, char* out_des
                    : MoveBlockedByEdge;
     }
     char dest = w->tiles[ny][nx];
+    /* A secret reads as a wall, but the caller may open it (resolved quest) —
+     * so report it distinctly rather than as a plain wall. */
+    if(dest == TILE_SECRET) {
+        return MoveBlockedBySecret;
+    }
     if(world_is_blocking(dest)) {
         return MoveBlockedByWall;
     }
