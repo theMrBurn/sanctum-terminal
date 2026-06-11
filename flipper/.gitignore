@@ -1,0 +1,19 @@
+# ufbt build environment — never commit (hundreds of MB, machine-specific)
+.venv/
+
+# build artifacts
+dist/
+*.fap
+*.elf
+*.o
+
+# editor / machine-local
+.vscode/
+.claude/
+.DS_Store
+__pycache__/
+*.pyc
+
+# host test binary + debug symbols (also covered by sanctum_rpg/test/.gitignore)
+run_tests
+*.dSYM/
