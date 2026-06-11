@@ -25,6 +25,7 @@ Do not chain reads beyond this. Subagents inherit this contract via the spawning
 - Plan before code on trajectory shifts.
 - Confirm before fix: present options, let the user pick direction.
 - Coord math pairs: when adding code that does coordinate math (tile keys, distance, projection), search the codebase for the OTHER side of the convention and write a cross-reference test pinning them together. Two silent bugs shipped before 2026-05-01 UAT caught this. See `feedback_coordinate_convention_class`.
+- Determinism is conformance, not re-implementation (spec 53): generation has ONE source of truth — the shared integer substrate `flipper/sanctum_rpg/rng.{c,h}` + `pool.{c,h}` (the prime reference impl). Every version (Flipper-C, terminal-Python, …) conforms to it byte-for-byte; never re-derive generation logic per platform. Integer/fixed only in any generation path; floats are render-only. New or changed generation code ships a golden-vector C↔Python conformance test (the determinism analog of `coord math pairs`). See `## Determinism / seed-is-truth`.
 - Vector terminal first: the canonical client per `design_brain_ground_truth`. Godot is paused; treat its rendering as reference, not parity target. Banner compositing, HUD, overlays all land in vector terminal first. Godot hooks come at the end if/when needed.
 - Banner compositing as universal primitive: every camera-relative visual (HUD, particles, beacons, atmosphere, horizon objects) goes through the 7-layer banner system per `design_banner_compositing`. Don't add new ad-hoc overlay subsystems — assign a layer + role.
 - (Full Won't-tolerate list: see memory pin `design_wont_tolerate`.)
@@ -46,6 +47,25 @@ Godot reloads manifest automatically; restart on shader edits.
 ## Wire format
 JSON-line over TCP :9877. Schema bumps require both-end deploy.
 Brain emits raw entity state. Render hints (fade, lighting, scanline) live in clients.
+
+## Determinism / seed-is-truth (spec 53)
+The seed + the append-only **input-log** is the truth; state is
+derived/regenerated, never the unit of sync. `experience = generate(seed,
+inputs)` is a pure deterministic fold. Cross-device sync **merges
+input-logs, not state** (union → deterministic order → regenerate); the
+merge is generative (the union yields content neither side had alone).
+Union kills write-conflicts; `generate` reconciles *meaning* — it is a
+total function over contradictory inputs, never a merge error.
+
+Generation is **byte-identical across every version** by CONFORMANCE to
+the `rng` + `pool` substrate, not per-platform re-implementation. The
+Python `core/systems/world_gen.py` float port is the known violation being
+closed (spec 53 §6) — Phase A (`rng`/`pool` golden-vector conformance +
+kill the float port) is the gate before Phase B (generalize the `pool`
+fold into `generate`) and Phase C (full bytecode VM). Full model +
+per-phase acceptance criteria: `sanctum-os/docs/specs/53_seed_is_truth.md`.
+This doctrine is cross-cutting across the game trio (engage / terminal /
+nethack); propagate it to their AGENTS.md when each is next touched.
 
 ## Subagent vs main-thread
 Spawn a subagent for: 3+ file lookups, multi-source reconciliation, parallel work, surveys.
