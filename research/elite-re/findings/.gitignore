@@ -1,0 +1,15 @@
+# Gitignore raw RE artefacts; commit only the markdown notes.
+
+# Ghidra projects can be large and binary
+ghidra_exports/
+*.gpr
+*.gpr.lock~
+*.rep/
+
+# Raw disassemblies — large and regenerable
+disassembly.s
+*.dis
+
+# Binary dumps
+*.bin
+*.dump

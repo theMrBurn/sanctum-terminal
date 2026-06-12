@@ -1,0 +1,6 @@
+# Never commit copyrighted Elite binaries.
+*.ssd
+*.dsd
+*.uef
+ELITE
+ELITE.*
