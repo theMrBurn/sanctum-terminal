@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.idea/
+.vscode/
+.DS_Store
+Dockerfile
+.dockerignore
+node_modules/
+docs/archive/
+
+# sanctum_voice is a separate app — built from its own context.
+sanctum_voice/
+# Runtime state — lives on a volume, not baked into the image.
+data/

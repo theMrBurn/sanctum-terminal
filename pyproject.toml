@@ -11,14 +11,20 @@ dependencies = [
     # Permanent Objects journal lexicon (offline NLP, no LLM, no network at runtime).
     # Model installed separately: `python -m spacy download en_core_web_sm`
     "spacy>=3.7,<4.0",
+    # 3D renderer (native_renderer.py / renderer_bridge.py).
+    "wgpu>=0.15",
 ]
 
 [tool.setuptools]
-py-modules = ["main"]
-packages = []
+# Flat-layout app: top-level modules are listed explicitly; the
+# core/clients/utils packages are auto-discovered below.
+py-modules = ["sanctum_terminal", "brain_server", "godot_export", "renderer_bridge", "native_renderer"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "clients*", "utils*"]
 
 [project.scripts]
-sanctum = "main:main"
+sanctum = "sanctum_terminal:main"
 
 [tool.pytest.ini_options]
 # Don't collect tests from archived legacy / orphan directories.
