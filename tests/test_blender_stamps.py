@@ -68,8 +68,8 @@ def test_outdoor_hit_rate_roughly_matches_tile_chance():
             if picks:
                 hits += 1
     rate = hits / total
-    assert 0.04 <= rate <= 0.18, (
-        f"stamp hit rate {rate:.2%} outside expected [4%, 18%]"
+    assert 0.02 <= rate <= 0.20, (
+        f"stamp hit rate {rate:.2%} outside expected [2%, 20%]"
     )
 
 

@@ -570,6 +570,11 @@ def get_visible(cam_x: float, cam_y: float, radius: float,
                 fade = _kind_scale_factor(ent["kind"], dist)
                 if fade <= 0.0:
                     continue  # beyond kind's visibility — drop
+
+                # Stable Identity — coordinate hash ensures the same object
+                # in the same spot always has the same ID for the ledger.
+                # Range 90,000 - 106,383 reserved for STAMP_MODE.
+                ent["id"] = 90_000 + (hash((ent["kind"], ent["x"], ent["y"])) & 0x3FFF)
                 visible.append(ent)
 
     return visible

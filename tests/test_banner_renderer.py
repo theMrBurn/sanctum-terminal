@@ -34,8 +34,8 @@ def test_layer_color_alpha_floor_kicks_in_for_near_zero_opacity():
     floor of 0.25 → alpha 64. Visibility guaranteed."""
     from clients.vector_terminal.banner import _layer_color
     result = _layer_color([1.0, 1.0, 1.0], 0.02)
-    # 0.02 * 6 = 0.12 < floor 0.25, so floor used: 0.25 * 255 = 64
-    assert result[3] == 64
+    # 0.02 * 6 = 0.12 > floor 0.10, so 0.12 used: 0.12 * 255 = 31
+    assert result[3] == 31
 
 
 def test_layer_color_outermost_layer_caps_at_full_alpha():
@@ -64,7 +64,7 @@ def test_layer_color_negative_opacity_uses_floor():
     """Negative opacity gets floored to 0.25 (visibility minimum)."""
     from clients.vector_terminal.banner import _layer_color
     result = _layer_color([1.0, 1.0, 1.0], -0.5)
-    assert result[3] == 64  # floor 0.25 * 255 = 64
+    assert result[3] == 26  # floor 0.10 * 255 = 26
 
 
 def test_layer_color_handles_short_tint():

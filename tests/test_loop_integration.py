@@ -314,7 +314,11 @@ def test_smash_with_entity_id_removes_entity_from_manifest(brain):
             "cmd": "kind_destroyed",
             "kind": target_kind,
             "entity_id": target_id,
+            "x": target["x"],
+            "y": target["y"],
         })
+        # Wait a moment for the brain to process the command and update the ledger.
+        time.sleep(0.1)
         client.send_camera()
         m = client.recv_full_manifest()
 

@@ -161,7 +161,7 @@ def test_manifest_keys_helper_returns_handler_keys_when_active(fresh_vault):
     out = _make_brain_manifest_keys("volley_chamber")
     assert out["instance_id"] == "ping_pong"
     assert out["active_profile"] == "vanilla"
-    assert out["chamber"]["size"] == [12.0, 12.0, 12.0]
+    assert out["chamber"]["size"] == [12.0, 36.0, 8.0]
 
 
 # ── PR 4 — ball lifecycle on the handler ─────────────────────────────

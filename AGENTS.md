@@ -76,9 +76,9 @@ Tag every change with at least one:
 - MIGRATION — old vault/save loads after schema bump
 
 ## Promotion ladder for new doctrine
-correction → feature AGENTS (this branch only)
+correction → SHARED_STATE.md (immediate visibility)
+           → feature AGENTS (this branch only)
            → subsystem AGENTS (recurs in this domain)
            → root AGENTS      (cross-cutting)
-           → memory pin       (about user/preference, not project rule)
 
-Test: "If memory were deleted, would this rule survive?" Yes → AGENTS file. No → memory pin.
+**Mandate:** Every behavioral fix or feature implementation **MUST** end with a proposed update to the relevant AGENTS.md or SHARED_STATE.md. "Fixing the code is 50% of the task; updating the machine's instructions is the other 50%."

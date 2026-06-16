@@ -1502,7 +1502,7 @@ class BrainWorld:
         # actually disappear. Cleared on world regen (next cycle's
         # spawns are fresh — including respawns of previously-destroyed
         # kinds at new procedural positions).
-        self.destroyed_entity_ids: set[int] = set()
+        self.destroyed_entity_ids: dict[int, tuple[float, float]] = {}
 
         # Ceiling height — resolved from biome planes config.
         # Ceiling_moss and hanging_vine attach relative to this.
@@ -1570,7 +1570,7 @@ class BrainWorld:
         self.next_eid = 0
         # Clear smashed-entity ledger — fresh seed means fresh spawns,
         # nothing to filter out.
-        self.destroyed_entity_ids = set()
+        self.destroyed_entity_ids = {}
         # Rebuild exchange with new seed (legacy-path safety).
         self.exchange = TileExchange(self.biome_name, new_seed, self.tile_size)
         # Re-prime spawn tile so non-stamp paths have entities.
@@ -2198,6 +2198,19 @@ class BrainWorld:
             fridge_ent.update(biome_aliases.get("fridge", {}))
             visible.append(fridge_ent)
 
+        # --- THE BROOM (Ledger Recycling) -------------------------------------
+        # Prune smashed entities that are now far outside the active bubble.
+        # This prevents the destroyed_entity_ids ledger from growing forever
+        # in an infinite world. Radius 250m is far beyond fog horizon.
+        # Recycling is allowed per directive "clean up ahead and behind".
+        BROOM_RADIUS_SQ = 250.0 * 250.0
+        stale_eids = [
+            eid for eid, (ex, ey) in self.destroyed_entity_ids.items()
+            if ((ex - cam_x)**2 + (ey - cam_y)**2) > BROOM_RADIUS_SQ
+        ]
+        for eid in stale_eids:
+            del self.destroyed_entity_ids[eid]
+
         return {
             "camera": {"x": cam_x, "y": cam_y, "z": cam_z,
                        "heading": heading, "pitch": pitch,
@@ -2219,13 +2232,9 @@ class BrainWorld:
             },
             # Smashed-entity ledger filter — see `kind_destroyed` cmd
             # handler. Smashed ids drop out of the manifest until next
-            # world regen. Filter is the last step so hub fixtures /
-            # creation pillars still emit correctly (their negative
-            # ids never collide with procedural entity ids).
-            "entities": [
-                e for e in visible
-                if int(e.get("id", -1)) not in self.destroyed_entity_ids
-            ],
+            # world regen. Filter is applied as the final step in the
+            # main loop to catch all injected entities.
+            "entities": list(visible),
             "planes": self.planes,
             "banner_layers": BIOME_REGISTRY.get(self.biome_name, {}).get("banner_layers", []),
             # Per `design_banner_layer_taxonomy` 2026-05-02 — distance-
@@ -3581,7 +3590,15 @@ def run_server(biome_name, port=9877):
                     })
                     if entity_id is not None:
                         try:
-                            world.destroyed_entity_ids.add(int(entity_id))
+                            eid = int(entity_id)
+                            # Record pos if provided, else use camera pos as a fallback
+                            # for pruning math.
+                            ex = float(msg.get("x", cam_x))
+                            ey = float(msg.get("y", cam_y))
+                            world.destroyed_entity_ids[eid] = (ex, ey)
+                            # Dirty flag: force a full manifest resend so the
+                            # client sees the entity disappear immediately.
+                            last_wake_ids = set()
                         except (TypeError, ValueError):
                             pass
                     # Toast feedback for the player — universal verb shape.
@@ -4698,7 +4715,26 @@ def run_server(biome_name, port=9877):
                     response = json.dumps({"unchanged": True}) + "\n"
                 else:
                     last_wake_ids = wake_ids
-                    response = json.dumps(manifest) + "\n"
+                    # --- FINAL FILTERS ----------------------------------------------------
+                    # Smashed-entity ledger filter (The Broom cleanup + state).
+                    # Catch all entities (Gallery, Stamps, Roaming) here.
+                    if manifest.get("entities"):
+                        # Safe ID cast for the ledger filter — roaming orbs use
+                        # string ids (orb#N) which would otherwise crash int().
+                        def _safe_id(e):
+                            try: return int(e.get("id", -1))
+                            except (TypeError, ValueError): return -1
+
+                        manifest["entities"] = [
+                            e for e in manifest["entities"]
+                            if _safe_id(e) not in world.destroyed_entity_ids
+                        ]
+
+                    try:
+                        response = json.dumps(manifest) + "\n"
+                    except (TypeError, ValueError) as exc:
+                        print(f"  manifest serialize failed: {exc!r}", flush=True)
+                        response = json.dumps({"error": "serialize_failed"}) + "\n"
 
                 try:
                     client.sendall(response.encode("utf-8"))
