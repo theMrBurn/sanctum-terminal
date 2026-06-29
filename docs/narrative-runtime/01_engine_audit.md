@@ -1,0 +1,326 @@
+# Sanctum Narrative-Mechanics Runtime — Engine Audit
+
+_Generated 2026-06-26 by the `sanctum-engine-audit` workflow (10 agents, ~954k tokens, both codebases parsed)._
+
+Codebases audited:
+- **Flipper** (C, proven baseline): `sanctum-engage/flipper/sanctum_rpg/`
+- **Terminal** (Python, full RPG, `feat/biome-greenhouse`): `sanctum-terminal/core/systems/`
+
+**Target:** a story-agnostic narrative-mechanics runtime, fully playable in text, visuals later as beat illustrations.
+**Design law (grading rubric):** state changes not binary if/then; no dead ends, only loops that close + transition state.
+
+---
+## Executive summary
+
+Two codebases share the same pipeline shape (a source of latent material → generator → selector → resolver → reward) but diverge at exactly the points that define a narrative runtime: how a beat COMPLETES, what it PAYS, what drives TIME, and where TRUTH lives. The story-agnostic spine should be assembled, not chosen wholesale: take Terminal's render-decoupled pure-data FSM (game_state.py), its config-composable encounter assembly (scout→encounter), and its story-state mutation engine (stance_history → branch → effects, with open_dialog_branch chaining the next beat) as the narrative-chain heart; take Flipper's seed+delta truth model (deltas.c), its deeds ledger (event-as-truth, replay-derived axis growth), and its no-permadeath fall/respawn as the progression-and-persistence spine. The known spec-48/49 inverse is CODE-VERIFIED in three domains (quest, combat, defeat): Flipper couples reward to completion as guaranteed bidirectional axis growth; Terminal decouples to probabilistic loot and ships journal-born quests with rewards=[] (they pay nothing). The single most important unifying insight is that Flipper REMEMBER write-back and Terminal journal_followup are the SAME no-dead-end idea — completion by re-engaging the source, which generates the next beat — and that loop is the spine the whole 'story = swappable data' target should be built on. The make-brain real-time substrate (strike/ballistics/volley) and all 3D render machinery are off-axis and should be parked. The biggest blockers to a fully text-playable runtime are organizational, not missing primitives: four overlapping 'progress-toward-done' lifecycles must collapse into one beat engine, three reward currencies into one, and Terminal's session-only progression must move onto seed+input-log replay so growth and world-change survive a restart/merge.
+
+---
+## Do we have a loop outline already?
+
+**True** — partial.
+
+A PARTIAL outline exists, but it is MACRO-ONLY and TERMINAL-ONLY; no comprehensive cross-codebase, all-tier state-loop map exists — that is what this deliverable produces. (1) The canonical macro FSM is Terminal's core/systems/game_state.py: a 4-state machine (CHARACTER_CREATION / HUB / REFLECTIVE / ENGAGEMENT) with an explicit _ALLOWED_TRANSITIONS frozenset enforcing a HUB hub-and-spoke topology where every spoke closes back to HUB. This is the closest thing to an existing loop outline and is the right skeleton for the runtime. (2) The design RATIONALE is captured in .claude/feature/feat_loop-completion.md (present in both repos): it documents the L-series DRG-style 5-state linear loop (HUB->MISSION_SELECT->IN_MISSION->RESULTS->HUB), its UAT rejection on 2026-04-30 for breaking the 'planner-roots' contract, and the deliberate collapse to the 2-state + REFLECTIVE/ENGAGEMENT async-quest model — i.e. an explicit, dated precedent for the 'no linear dead-end chains, only loops' design law. (3) docs/spec_creature_engagement.md unifies ENCOUNTER onto the REFLECTIVE state-machine primitive (engagement = rule+pool+AC+overlay), showing the two non-DRAFT spokes were intended to share one resolution spine. (4) Supporting memory pins: design_reflective_loop, design_death_only_regen, design_virtual_hallucination, design_engagement_primitive, project_async_quest_refactor. LIMITS: the existing outline covers only the dwellable macro states — it does NOT include the economy/EXCHANGE loop, the CONSOLIDATION/growth milestone, the seed+delta chunk-transition loop, or the write-back/source loop (the actual no-dead-end story spine). FLIPPER has NO formal loop outline at all: its state model is an implicit ~15-entry Screen enum in sanctum_rpg.c (ScreenWorld/Combat/Quest/Shop/Craft/Stash/...) that mixes UI screens with game state; its loop logic is encoded structurally (carve_egress connectivity invariant in world.c, player_fall no-permadeath, deeds.c log-replay) rather than written down in one place. The two codebases have never been reconciled into a single map, and the macro FSM omits the micro/economy/progression tiers — both gaps are filled by the states/loops above."
+
+---
+## Proposed unified state-loop model
+
+A hub-and-spoke narrative runtime with NO dead ends — every spoke closes back to the hub, and the generative spine guarantees the well never empties. States are render-decoupled (text now, illustrations later) and the clock advances only when the story moves.
+
+STATES (dwellable unless noted):
+- DRAFT — character comes into being as an append-only event fold (pillar answers / point-buy within budget). Re-doable; finalizes into a single canonical sheet.
+- EXPLORATION/HUB — the central spoke. Free traversal; the turn-clock advances one tick per committed action, the drift-bias vector ('Pool') drifts, weather/time tint, and beats surface (relevance-gated). Every other state is a spoke off this one.
+- ENCOUNTER — a live beat: turn-exchange (net_passes accumulator), dialog/parley (stance vs posture, no HP lost), scan/observe, or a quest dilemma. Resolution is accumulator-to-threshold or HP=0, never a single if/then.
+- REFLECTIVE — the interlude: compose-from-a-word-pool under an acceptance rule, entered forced (HP=0) or voluntary. The mechanism that turns failure into a transition.
+- CONSOLIDATION (transient) — staged growth commits: deeds/axis deltas roll up, depth shifts, ability slots may unlock, anti-grind caps reset (rebound to an in-game epoch, not app lifetime). Triggered by rest/milestone state-change, never cron.
+- EXCHANGE (optional module, off by default) — market/forge/vault if the user enables an economy.
+- WORLD-CARRIED STATE (rides on all of the above, not a screen) — the seed+input-log truth layer (deltas+deeds replayed to derive state), the drift-bias vector, the deeds ledger/depth, and the consumed-beat ledger.
+
+LOOPS (each named transition; none terminates):
+1. DRAFT self-loop — answer a pillar / adjust a stat → append event → re-fold draft state. DRAFT→EXPLORATION on finalize.
+2. World-clock spine (EXPLORATION self-loop) — commit one action → turn advances, drift drifts, exposure/attention pressure shifts → back to rest. The world moves only when the story moves.
+3. Zone/beat transition (EXPLORATION self-loop) — cross a typed transition (door=branch, stairs=depth, edge=zone, secret=growth-gated branch) → regenerate-from-seed → overlay the input-log → prove reachability (beat-layer carve_egress) → surface the next beat.
+4. EXPLORATION→ENCOUNTER — disposition/relevance crosses a threshold (a foe, a roaming agent, or a resonant beat surfaces).
+5. ENCOUNTER self-loop — choose a verb → resolve a round (save/strike/stance/scan) → antagonist telegraphs + acts → accumulate toward the understanding/HP threshold. Performing the ACT grows the deed/expertise, not the kill.
+6. ENCOUNTER→EXPLORATION (resolved) — threshold met → stance_history selects a branch → effects mutate flags / heal / chain the next beat (open_dialog_branch) → a guaranteed intrinsic reward lands (the chosen completion currency) → beat marked consumed.
+7. ENCOUNTER→EXPLORATION (flee/portal) — pure exit; partial or zero reward, loop still closes.
+8. ENCOUNTER→REFLECTIVE (or FALLEN) on defeat — HP=0 routes to the chosen no-permadeath handler (diminish+relocate+reward-recovery, and/or reflective compose), never game-over.
+9. REFLECTIVE self-loop — place/remove a magnet or a failed commit loops back to composing (no fail-out). REFLECTIVE→EXPLORATION when acceptance passes (with respawn payload on the forced path).
+10. Consolidation milestone (EXPLORATION self-loop) — rest/name-day/depth threshold commits staged growth; level ticks off the age clock.
+11. EXPLORATION↔EXCHANGE (optional) — value circulation; the forge floor-tier guarantees no wasted pull.
+12. THE SOURCE WRITE-BACK SPINE (the generative loop that makes the runtime non-terminating) — a beat resolves by RE-ENGAGING its source (REMEMBER write-back / re-journaling), which seeds the NEXT beat. Completion feeds generation, so the story well never empties.
+
+This model is one beat engine (predicate-gated trigger→resolution→effects) with quests/expeditions/deeds/dialogs as DATA on it; one progression currency landing on every completion surface; one truth model (seed + append-only input-log, state derived by replay); and one canonical sheet. Dead-ends to eliminate during assembly: DEFEND (implement the defend flag or cut it), inert Flipper level (drive off the age clock), unread abilities (wire verb+target_save into the resolver), journal quests paying nothing and expedition COMPLETE paying nothing (route to axis growth), tile mutations lost on eviction (add the delta layer), and per-id terminal quest completion (default to journal_followup so completion births a successor beat).
+
+### States
+
+- DRAFT (character creation) — dwellable. Terminal: event-sourced pillar draft (character_draft.py, pillars/*.py); Flipper: point-buy + class pick (ScreenClassPick/ScreenStatBuy in sanctum_rpg.c, classes.c). The protagonist is folded into existence here.
+- EXPLORATION / HUB — dwellable, the central spoke. Terminal game_state.py HUB; Flipper ScreenWorld. Free traversal; the world clock advances only on player action (Flipper advance_turn), the Pool bias drifts (pool.c), weather/time tint (weather.c, chronometer.py), and beats surface (narrative.c, roaming_pool.py). Every other state is a spoke off this one.
+- ENCOUNTER / ENGAGEMENT — dwellable. Terminal ENGAGEMENT (encounter_session.py, encounter_resolver.py, actor.py) + Flipper ScreenCombat/ScreenQuest/scan (sanctum_rpg.c, creatures.c). A live beat: a foe turn-exchange, a dialog parley, a scan, or a quest dilemma. Resolution is accumulator-to-threshold (net_passes>=3) or HP=0, never a single if/then.
+- REFLECTIVE — dwellable. Terminal-only (game_state.py REFLECTIVE, reflective/state_machine.py). The interlude: compose-from-a-word-pool under an AC rule, entered either forced (HP=0) or voluntary (fridge). The mechanism that turns failure into a transition.
+- EXCHANGE — dwellable, Flipper-ONLY (ScreenShop/ScreenCraft/ScreenStash in sanctum_rpg.c; trade.c, recipes.c). Vendor buy/sell, scrap sink, slot-machine forge, vault deposit/withdraw. Terminal has NO currency or market at all — this state does not exist Terminal-side.
+- FALLEN — transient phase, Flipper-only (player_fall in sanctum_rpg.c). Post-defeat diminished-respawn with a grace window; not a dwell-screen, a state the player passes through between ENCOUNTER defeat and EXPLORATION recovery. (Terminal routes the same trigger straight into REFLECTIVE instead.)
+- CONSOLIDATION / REST — transient phase, Terminal-primary (consolidate() in encounter_engine.py, trigger_rest effect in encounter_session.py; Flipper analog is per-act deeds rollup in deeds.c). Staged XP becomes permanent depth, fingerprint decays, ability slots unlock, anti-grind caps reset. A milestone the player passes through, not a screen.
+- WORLD-CARRIED STATE (not a screen, rides on all of the above): the seed+delta truth layer (deltas.c), the drifting Pool bias vector (pool.c), the deeds ledger / depth (deeds.c, encounter_engine.py), and the consumed-beat ledgers (resolved_mask, deltas_record_kill). These mutate continuously and are what every loop reads and writes.
+
+### Loops (named transitions; none terminates)
+
+- **Draft self-loop (event-sourced character creation)**: DRAFT → DRAFT — trigger: player answers a pillar / adjusts a stat (append a PillarEvent, or point-buy +/- within budget)  _(mechanics: Terminal character_draft.py (PillarEvent fold, latest-event-per-pillar), pillars/years.py + days.py + name.py (binary-narrow elicitation), Flipper ScreenStatBuy point-buy (sanctum_rpg.c, budget=66-sum, clamp 8-16), DialPrompt (dial_prompt.py) as the generalized N-option choice grammar)_
+- **Draft -> world (finalize)**: DRAFT → EXPLORATION — trigger: required pillars satisfied / OK on stat-buy -> finalize emits the CharacterSheet  _(mechanics: character_draft.py finalize(), character_sheet.py generate_character_sheet(), Flipper finalize_new_character + character_apply_class (classes.c), game_state.py CHARACTER_CREATION->HUB transition)_
+- **World-clock spine (the core exploration loop)**: EXPLORATION → EXPLORATION — trigger: player commits one action (a move, or one tick of a scan) -> advance_turn  _(mechanics: Flipper advance_turn (sanctum_rpg.c: turn++, fuel burns, creatures_tick on same counter), pool.c pool_step (bias vector drifts one chunk), fov.c (fuel->awareness radius), weather.c weather_at, the world only moves when the player moves — the rubric's state-change-not-branch exemplar)_
+- **Chunk/zone transition (seed+delta truth loop)**: EXPLORATION → EXPLORATION — trigger: walk off an OPEN edge or step on a door/stairs -> do_transition  _(mechanics: world.c world_try_move (typed MoveResult enum) + do_transition (sanctum_rpg.c), world_generate_chunk(seed) -> deltas_load -> deltas_apply_to_world (deltas.c) -> carve_egress connectivity guarantee (world.c), world_edge_door_perp canonical-edge hashing (door=door across the seam), narrative_pick_for_chunk_pooled surfaces a beat on arrival, the closest realization of seed+input-log = truth, state derived)_
+- **Exploration -> encounter (proximity / resonance / beat surfaces)**: EXPLORATION → ENCOUNTER — trigger: a hostile crosses the adjacency/disposition threshold, a roaming agent contacts, OR a resonant beat surfaces  _(mechanics: Flipper maybe_start_combat + bump-to-engage + aggro/disposition FSM (creatures.c creature_act, creatures_tick), Terminal roaming_pool.py detect_contact (Persona-3/Tartarus model), encounter_engine.py resonance gating (worth_knowing > 0.45, else load-bearing silence), narrative.c narrative_pick_for_chunk_pooled + resolved_mask gate)_
+- **Encounter turn-exchange self-loop (accumulator, not binary)**: ENCOUNTER → ENCOUNTER — trigger: player chooses an action/verb -> resolve a round (d20 save, strike, dialog stance, or scan tick); orb telegraphs + acts  _(mechanics: Terminal encounter_resolver.py resolve_action (7-verb tree -> d20 save -> net_passes) and resolve_dialog_action (stance vs posture, no HP lost), actor.py orb AI (HP-phase -> weighted intent -> telegraph -> effect, reactive_bumps), Flipper combat_strike (atk - def/8) + scan_creature bestiary ladder (creatures.c), deeds.c + expertise[] grow per ACT performed, not per kill)_
+- **Encounter -> world (resolved, the reward + chain step)**: ENCOUNTER → EXPLORATION — trigger: understanding threshold met (net_passes>=3), foe HP=0, or a quest branch chosen  _(mechanics: Terminal encounter_session.py _select_path (stance_history -> branch -> effects: heal/give_item/set_flag/trigger_rest/open_dialog_branch) — the story-state mutation spine, encounter_engine.py XP staging (resolution multipliers resolved=1.0/fled=0.25/defeated=0.0), Flipper combat_strike kill -> loot_roll_pooled drop + DEED_STRIKE; quest_resolve -> bidirectional deed (deeds.c DEED_QUEST_TEND/LET_GO), resolved_mask / deltas_record_kill mark the beat consumed)_
+- **Encounter -> world (flee / portal — pure exit)**: ENCOUNTER → EXPLORATION — trigger: player flees or steps through a portal  _(mechanics: Flipper combat_flee (60% escape, fail costs HP+fuel), Terminal encounter_session.py on_flee (fled 0.25x XP) / on_portal (portal_exit, no cooldown))_
+- **Encounter -> defeat handler (FALLEN or REFLECTIVE)**: ENCOUNTER → FALLEN — trigger: player HP<=0  _(mechanics: Flipper player_fall (sanctum_rpg.c): HP/2, fuel/2, teleport to spawn, aggro reset, combat_grace=2 -> GRANTS a FALL_CLEAN WILL deed on clean survival, Terminal routes the same trigger to REFLECTIVE instead via consequences.json hp_zero (effects.py enter_reflective) -> WIPES staged XP. NOTE: these two defeat-handlers carry the INVERSE reward sign (reward survival vs punish defeat) — the known spec-48/49 inverse in the defeat domain)_
+- **Fallen -> world (diminished recovery)**: FALLEN → EXPLORATION — trigger: grace window ticks to zero without re-engaging  _(mechanics: Flipper player_fall grace counter + maybe_start_combat suppression (sanctum_rpg.c), capped DEED_FALL_CLEAN recorded (deeds.c), the canonical no-permadeath: defeat = transition + diminishment + recovery, never a terminus)_
+- **Reflective compose self-loop**: REFLECTIVE → REFLECTIVE — trigger: place/remove a magnet, or commit fails its AC  _(mechanics: reflective/state_machine.py place_magnet/remove_magnet/commit (attempt_count++), reflective/magnets.py compose_pool (connectives + thematic + wildcards, seeded), reflective/ac_predicates.py (commit-time gate, e.g. min_magnet_count) — a failed commit loops back to composing, never fails out)_
+- **Reflective -> world (AC satisfied)**: REFLECTIVE → EXPLORATION — trigger: AC predicates pass at commit  _(mechanics: consequences.json reflective_commit_resume (forced path): exit_reflective + emit RESPAWN + regen_world(reseed) + restore_hp(full), reflective_commit_voluntary (voluntary path): exit + DONE toast, no respawn payload, death-as-transition: the most natural terminus in an RPG converted into a closed loop)_
+- **Exploration <-> exchange (Flipper economy)**: EXPLORATION → EXCHANGE — trigger: step on a vendor/forge/vault tile, or open inventory scrap (Down)  _(mechanics: Flipper ScreenShop buy/sell at chunk-modulated prices (trade.c trade_buy/sell_price, the Elite-'84 arbitrage gradient), ScreenCraft slot-machine forge (recipes.c recipe_pull: FLOOR-never-nothing/HIT/JACKPOT), ScreenStash vault deposit/withdraw (save_io.c), scrap dealer lossy sink (base/2). Flipper-only: no Terminal counterpart exists)_
+- **Exchange self-loop (value circulation)**: EXCHANGE → EXCHANGE — trigger: buy/sell/scrap/craft-pull/deposit one unit  _(mechanics: trade.c shop exchange (inv_qty<->credits), recipes.c forge (inputs-- -> credits|item|2x item, never wasted), stash transfer (inv_qty<->vault_qty), every pull/trade closes back into the buy/sell loop; the forge floor tier is the design-law-made-literal (no wasted pull))_
+- **Consolidation milestone (growth commits)**: EXPLORATION → EXPLORATION — trigger: rest / name-day / depth milestone reached (or, Flipper, every qualifying act)  _(mechanics: Terminal encounter_engine.py consolidate() (staged XP -> depth shift, fingerprint decay, 3-cap ability unlock CORE/EQUIPPED/FLOW), character_sheet.py class_history fold (prestige at age threshold), Flipper deeds.c per-act rollup + per-session cap reset, level=age tick via pillars/days.py — schedule-by-state-change, not cron)_
+- **Write-back / source loop (THE no-dead-end story spine)**: ENCOUNTER → EXPLORATION — trigger: a beat resolves by re-engaging its SOURCE rather than terminating  _(mechanics: Flipper REMEMBER write-back (sanctum_rpg.c sync_outbox_append, FNV idempotent line-id, republished to permanent-objects), Terminal quests/predicates.py journal_followup (re-journaling completes the quest AND that new entry births the next quest via from_journal.py), encounter_session.py open_dialog_branch chains the next scout. This is the single most important closure for the story-agnostic target: completion feeds back into generation, so the well never empties)_
+- **Expedition macro loop (objective re-arm)**: EXPLORATION → EXPLORATION — trigger: all deposit points satisfied + walk through the exit, then hub_return auto-arms the next expedition  _(mechanics: expedition_engine.py DORMANT->ACTIVE->RESOLUTION->COMPLETE + lifecycle auto_arm on hub_return (cooldown, rotates classes), expedition_data.py biome-agnostic recipe + symbolic-anchor binding (construction-time enforcement that content stays decoupled from engine), deposit-point accumulate-to-threshold matching + milestone beat emission. NOTE: COMPLETE itself grants no progression reward — the loop only re-closes via auto_arm (see dead ends))_
+
+### Dead-ends to eliminate
+
+- **DEFEND verb — Terminal encounter_resolver.py:43 (_ACTION_TABLE['DEFEND']=(None,0,0,None))** — TRUE DEAD END. Documented as 'halves next hit' but the halving exists nowhere — no pending_flags entry, no branch in on_action. The verb burns the player's turn and changes zero player state while the orb still acts freely. A branch dressed as a choice. → _fix:_ Implement the promised state: set pending_flags['defend_halves'] on DEFEND, consumed by the orb damage step so the next incoming hit is halved (or reframe as 'brace -> next orb intent telegraphs one severity lower'). Either way DEFEND must perform a state transition. If neither is wanted, cut it from the verb set.
+- **Flipper level field — sanctum_rpg.c (c->level set once to DEFAULT_LEVEL at init, never incremented, yet feeds +level into player_atk/def)** — TRUE DEAD END. Both codebases claim level=age, but Flipper's level never ticks — it is a stat input that never closes a loop, contradicting its own design pillar. → _fix:_ Drive level from the same age clock Terminal uses (pillars/days.py birthday tick) so it advances through the CONSOLIDATION phase; or remove the static +level term from combat math so nothing reads an inert value.
+- **Selected abilities (3-cap) — Terminal abilities.py + character_sheet.py; grep shows only save_state.py reads selected_abilities/earned_abilities** — TRUE DEAD END. Abilities are authored (verb + target_save + bonus), earned, and selected into a 3-cap pool, but encounter_resolver never reads them — selection terminates with no in-play effect. Worsened by the stat-model split (abilities name 6 stats; resolution uses PlayerState's 3 d20 saves). → _fix:_ Wire active abilities' verb+target_save into resolve_action so an equipped ability becomes a selectable encounter verb with its own resolution; reconcile to one stat vocabulary so the ability's stat maps to the live save. Selection then closes into an encounter effect.
+- **Journal-born quests grant nothing — Terminal from_journal.py (rewards=[]) and the beat-layer loot terminus in quests/rewards.py** — TRUE DEAD END (narrative-domain face of the spec-48/49 inverse-reward fork). Journal quests complete with rewards=[] so they pay zero; hand-authored quests pay decoupled loot that, Terminal-side, has no currency/market to spend in — acquisition without circulation. → _fix:_ Route completion to axis-growth (Flipper's coupled deeds model: every resolution always lands a capped axis delta), so reward feeds progression and the write-back loop; treat item loot as an optional plug-in, and either give Terminal a currency sink or drop loot as the primary payoff.
+- **Expedition COMPLETE — Terminal expedition_engine.py on_walk_through (write_session_log + quit_godot, no progression reward)** — TRUE DEAD END for progression. Completing an expedition advances nothing in the player's economy (no axis growth, no loot) — it writes telemetry and quits the renderer; the macro loop only re-closes externally via lifecycle auto_arm. → _fix:_ Land a deed / axis-growth on completion (Flipper model) so COMPLETE feeds the progression currency and closes into CONSOLIDATION; keep the session-log as chronicle/input-stream, and make quit_godot a renderer concern, not the completion semantics.
+- **Per-id quest completed terminus — Terminal quests/state.py (completed list is append-only + read-only; toggle_active no-ops on completed)** — TRUE DEAD END per quest id. A completed quest can never recur; the world only re-loops if an external generator mints a NEW id. Contrast Flipper resolved_mask, which resets per session so beats re-surface. → _fix:_ Make journal_followup the default completion predicate so every completion can birth a successor beat (the write-back spine), and/or session-scope the consumed-beat ledger (Flipper resolved_mask pattern) so beats re-surface in later runs instead of being permanently spent.
+- **tile_exchange LRU eviction — Terminal tile_exchange.py:276-279 (mutations to an evicted tile are lost; tile regenerates fresh-from-seed on re-entry)** — TRUE DEAD END for world change. There is no delta/input-log layer, so any player-caused mutation to a tile silently vanishes on cache eviction — the inverse of Flipper deltas.c which persists and replays mutations. A silent loss of player agency over the world. → _fix:_ Add a Flipper-style per-tile delta layer (deltas.c model): keep the deterministic (coord)->seed mapping but overlay a replayed input-log on regen so mutations survive eviction. Discard only the render delivery/budget scheduler.
+- **scenario_ledger COMPLETE/FAILED — Terminal scenario_ledger.py** — NOT A TRUE DEAD END (loop-closer mislabeled-risk). The file is an honest linear state-advancer that emits a StateEvent; win-condition eval / encounter spawn / world re-entry are explicitly OUT OF SCOPE and delegated to a consumer. The loop closes one layer up, like EncounterEngine.resolve('defeated') which only looks terminal until encounter_session respawns. → _fix:_ No fix to the file itself — but ensure a consumer actually transitions COMPLETE/FAILED back into EXPLORATION and emits a successor beat, so the delegated closure is real and not left dangling. Preserve the engine/session layering on port.
+- **Resonance silence (worth=False) — Terminal encounter_engine.py begin(); and the deeds cap-hit no-op — Flipper deeds.c deeds_record returns false at cap** — NOT TRUE DEAD ENDS (intentional, self-healing). Silence consumes the tile but returns control to EXPLORATION and leaves no trace ('silence is load-bearing'); the deeds cap-hit no-ops but self-heals at the next session boundary. Both close a loop by the rubric's own adjudication — listed only so they aren't mistaken for bugs. → _fix:_ Leave silence as designed (optionally stage a faint familiarity/depth tick so even a non-resonant beat nudges the fingerprint). For the cap: rebind the cap window from RAM-only app-open to an in-game day/chronicle epoch so it survives seed-is-truth replay.
+- **Unbuilt stubs — Terminal strike.py:337 + effect-schema handlers _fx_damage_hp/_fx_ignite/_fx_apply_status (encounter_session.py:714-724), all raise NotImplementedError** — NOT DESIGNED TERMINI — failure-to-build. The JSON adjudicates these as PR-pending placeholders the config schema references, not designed dead ends. The real-time Strike/ballistics substrate is also off-axis (non-text-playable, make-brain lineage). → _fix:_ Build the effect handlers so config references resolve into state mutations, OR remove them from the effect schema until built (fail-loud, no silent reference). Park the strike/ballistics + volley real-time substrate entirely for a text-first runtime.
+- **volley_scoring match freeze — Terminal volley_scoring.py (point_* become no-ops after match_winner until explicit reset)** — DESIGNED TERMINUS, but in PARKED make-brain code. A genuine dead-state-until-reset — exactly the shape the design law kills — but it lives in the ping-pong 'tennis math = combat math' experiment, off-axis from the playable RPG spine. → _fix:_ Out of scope: park with the rest of the make-brain ARPG substrate. If ever revived, add an explicit match-end -> rematch/reset transition so the scoring machine re-loops instead of freezing.
+
+---
+## KEEP
+
+- **Deeds ledger + data-driven event table (Flipper deeds.c/deeds.h)** — Append-only event-as-truth, state derived by replay, every event is a table row not an if/then; the canonical story-agnostic progression substrate and a literal instance of seed-is-truth. THE growth engine for the runtime.
+- **Seed+delta truth model + creature-kill persistence (Flipper deltas.c)** — World = pure procgen from seed; player changes recorded as a replayed delta overlay (idempotent). Closest realization of the seed+input-log=truth north star; loop closes on chunk re-entry.
+- **No-permadeath fall/respawn (Flipper player_fall) and HP=0→reflective→respawn chain (Terminal consequences.json)** — Converts the most natural RPG terminus (death) into a closed loop with a real consequence and a growth hook (FALL_CLEAN deed). The headline 'no dead ends, only loops' exemplar; the runtime should treat ALL terminal states this way.
+- **Reflective state machine + AC-gated commit + rule/magnet registries (Terminal reflective/*)** — Self-contained interlude with no fail-out (a failed commit loops back to composing); turns failure into a transition. Pure-acknowledgment completion and a clean engine/swappable-data split.
+- **Story-state mutation engine: stance-path selection + effect dispatch (Terminal encounter_session.py)** — The highest-value mechanic in either codebase: HOW you resolved (stance_history) selects a branch that mutates world flags and CHAINS the next beat via open_dialog_branch. This is the narrative-chain primitive the target rests on.
+- **Config-composable encounter assembly (Terminal scout→encounter) + biome-agnostic expedition recipe with symbolic-anchor binding (expedition_data.py)** — Story = swappable DATA, engine = rules, in miniature — with construction-time ENFORCEMENT that content stays decoupled from the engine. The target architecture already prototyped.
+- **net_passes d20 save resolver + dialog stance/posture resolver (Terminal encounter_resolver.py)** — The most reusable text-playable combat turn: stat-gated, injectable-RNG, accumulator-to-threshold (not binary), and the dialog branch wins encounters with zero HP lost — non-violent resolution shares one spine with action mode.
+- **Orb antagonist AI: phase→weighted intent→telegraph→effect, reactive_bumps (Terminal actor.py)** — Fully data-driven, story-agnostic antagonist behavior; telegraph-before-act is ideal for text (the player sees the threat coil before choosing). Clean payload/apply boundary.
+- **Resonance gating + outcome-scaled XP (Terminal encounter_engine.py)** — A story-agnostic RELEVANCE FILTER deciding which beats imprint on THIS character; even fleeing pays out (0.25x, 'learned by walking away'). 'Silence is load-bearing.'
+- **Consequence substrate: predicate-gated trigger→resolution→effects + named effect handlers (Terminal consequences/*)** — A general cause/effect chain engine, JSON-driven; effects can fire new triggers (chaining). The strongest single candidate to become the unified beat engine.
+- **Pool drift engine + anti-monotony guards (Flipper pool.c)** — A deterministic 'world-character' bias vector that walks with the player, drifts as you move, regenerates from seed (never persisted), with built-in escalation (intensity) and anti-repetition. Story state that walks with you without scripting.
+- **carve_egress connectivity invariant + shared-edge door coherence + growth-axis-gated secret passage (Flipper world.c)** — carve_egress encodes the design law as a structural invariant (every node reachable). Canonical-edge hashing lets independent nodes agree on the same connecting transition with zero stored state. The secret passage is a wall that BECOMES a transition based on accumulated play.
+- **Typed traversal grammar / MoveResult + advance_turn discrete world clock (Flipper world.c, sanctum_rpg.c)** — A small closed set of typed transition outcomes (door=branch, stairs=depth, edge=zone, secret=gated branch) and a clock where the world moves ONLY when the story moves — the natural narrative-chain driver.
+- **GameState pure-data FSM + StateEvent buffer (Terminal game_state.py, state_events.py)** — Render-decoupled, immutable, validated hub-and-spoke FSM (the right skeleton for text-now/visuals-later) plus a universal beat emitter (every beat = a StateEvent with a register hint).
+- **Event-sourced character draft + pillar handlers + DialPrompt + shared 7-verb world grammar (Terminal character_draft.py, dial_prompt.py; both codebases)** — Creation as an append-only event fold (re-doable, derived) is the strongest text-first creation engine; DialPrompt is the universal N-option choice grammar; the 7 verbs + starting-4 are the rare cross-codebase AGREEMENT and the action spine.
+- **Scan/bestiary knowledge ladder + identification codex (Flipper) and OBSERVE+fingerprint resonance (Terminal)** — Understanding-as-progression: a non-combat resolution path that costs turns and risks the target escaping. Perfect for a narrative 'study/understand' verb; 'unknown becomes known' is a pure story-agnostic reveal loop.
+- **Source write-back spine: REMEMBER (Flipper) + journal_followup (Terminal)** — The single most important closure for the target: a beat completes by re-touching its SOURCE, which seeds the next beat, so the well never empties. Two adapters of one no-dead-end spine.
+- **Forge slot-machine crafting (Flipper recipes.c) + activity_loop preference counters (Terminal) + lexicon extractor (Terminal journal/lexicon.py)** — Forge floor-tier is the no-dead-end law made literal (a pull is never wasted) — keep as an optional economy module. activity_loop measures HOW the player plays (story-agnostic recognition). The lexicon is sanctioned NLP (not a No-LLM violation) turning raw text into structured beat tokens.
+
+## SIMPLIFY
+
+- **Melee combat round, encounter trigger, and spatial aggro/disposition FSM (Flipper combat_strike, maybe_start_combat, creatures.c)** — Per the design law, collapse spatial combat into narrative-choice beats: abstract the spatial inputs (Chebyshev distance, torch radius, movement) into generic 'pressure' signals that feed the in-encounter resolver. Keep the bounded relationship/tension accumulator that TRANSITIONS disposition; drop the tile geometry.
+- **Three overlapping Terminal world-gen paths + three elevation sources (bucket_world, stamp_world, generate_tile; terrain_height, macro_stamp, biome_elevation)** — Consolidate to ONE generator + ONE elevation source before any port (render-engineer's lane). It is legacy drift and 3D-specific; off-axis for text but it blocks a clean spatial port. Keep only the deterministic (coord)→seed mapping and the radial/intensity escalation idea.
+- **tile_exchange + save_state/save_io (Terminal/Flipper persistence)** — Keep the seed/derived split, atomic write, and tolerant versioned loader; keep tile_exchange's (coord)→seed determinism. ADD a Flipper-style delta/input-log layer so player mutations survive eviction/restart and discard the render delivery/budget scheduler.
+- **FOV/torch fuel, corner-snap composer, TensionCycle, chronometer (perception, layout, pacing, time)** — Generalize 'torch radius' to an abstract attention/exposure resource that gates how much of a beat is revealed; keep the corner-snap frontier+budget idea (radiating related beats from an anchor) but drop tile math; keep TensionCycle's abstract build→climax→release→reset arc re-driven off beats not fog/entity-budget; demote chronometer to ambient INPUT, not narrative driver.
+- **biome_data registry (Terminal) and BIOME_TABLE/STAMPS (Flipper)** — Keep the registry-driven PATTERN (story = swappable data lookups) and the only-place-that-reads-JSON discipline; replace the render-era tables (palettes, light states, mesh planes) with a beat/tone/encounter registry. Flipper's tiny tables are the size target.
+- **Janitorial: duplicate bearing utilities, 'Pool'/'recipe' naming collisions, 'weight' semantic inversion, anti-farm split, inert level=age, NotImplementedError effect stubs** — Merge bearing to one utility with a documented axis sign; rename the three 'pool's and the crafting-vs-render 'recipe's to distinct terms; standardize on relative integer weights (byte-equal-friendly); reconcile anti-farm to idempotency-by-id for one-shots + epoch-windowed caps for repeatable beats (rebind 'session' to an in-game day, not app lifetime); drive Flipper's level off the age clock; build the damage_hp/ignite/apply_status handlers or remove them from the effect schema (fail-loud, no silent reference).
+
+## DEPRECATE / PARK
+
+- **ARPG Strike + ballistics + strike_runtime (Terminal strike.py, ballistics.py, strike_runtime.py)** — Non-text-playable (real-time, 3D, frame-ticked), a THIRD incompatible combat paradigm, and almost entirely NotImplementedError stubs from the make-brain 'tennis=combat' experiment. Park it; off-axis for a text-first runtime.
+- **Volley/tennis scoring + tuning console (Terminal volley_scoring.py, volley_console.py)** — Parked make-brain lineage, not RPG combat — and it contains a DESIGNED terminus (point_* no-op after match_winner until reset), exactly the dead-state the design law kills. Quarantine with strike/ballistics.
+- **3D render layer: geometry.py mesh factory, paper_doll.py, plane_exchange.py, terrain_height.py (noise), the visual heuristics in world_gen.generate_tile** — Pure rendering/3D presentation — the 'visuals come LATER as illustrations of beats' part the target explicitly defers. No narrative-mechanics value; keep on the visual shelf, out of the rules layer.
+- **DEFEND verb as currently shipped (Terminal encounter_resolver.py)** — A binary dead-end dressed as a verb: the promised 'halves next hit' is implemented nowhere, so it burns the player's turn for zero state change while the orb acts freely. Either implement pending_flags['defend_halves'] consumed by the orb damage step, or cut it.
+- **rewards.roll as the CORE beat reward (Terminal quests/rewards.py)** — At the beat layer it is a dead end (items, not story progression), uses float RNG (breaks byte-equal), and journal quests born with rewards=[] pay nothing. Demote to an OPTIONAL loot plugin; it must not be the runtime's default completion payoff.
+- **DevLog (Terminal devlog.py) and scan_library (Terminal scan_library.py) as in-game mechanics** — DevLog is a development-session audit tool, scan_library is a curation-edge asset reader — neither is an in-world beat mechanic. Listed only so they aren't mistaken for runtime systems.
+
+---
+## GAPS (must build for a unified runtime)
+
+- **ONE unified beat engine** — Four independent 'progress-toward-done' lifecycles exist (Flipper instantaneous deed; Terminal consequence instance, expedition DORMANT→COMPLETE, quest available↔active→completed) with no shared substrate. A story-agnostic runtime needs a single predicate-gated trigger/resolution/effects engine so every story (quests, expeditions, deeds, dialogs) is authored as DATA on one engine.
+- **ONE progression currency on every completion surface** — Three incompatible payoffs collide: internal axis growth (Flipper deeds), external probabilistic loot (Terminal rewards), and nothing-but-a-log (Terminal expedition COMPLETE / reflective acknowledgment). Without one currency, beats feel arbitrarily rewarded and several completions are reward dead-ends.
+- **Persisted, replayable progression and world-change** — Terminal quest/consequence/reflective state is session-only (resets each boot) and tile mutations are lost on LRU eviction — progression and player agency over the world do not survive a restart, breaking the seed+input-log=truth / sync-by-merging-input-streams architecture.
+- **A text beat renderer with a per-source generation policy** — The two text models conflict: Flipper mad-lib template-fill vs Terminal verbatim no-rephrase. The runtime must produce readable beat text while honoring the HARD her-voice verbatim law where it applies and the No-LLM line everywhere.
+- **A bounded theme vocabulary bridge** — Theme drives beat selection and Pool drift, but Flipper uses a fixed 16-bit enum (byte-equal) and Terminal an open learned lexicon (voice-authentic, unbounded). A projection of the learned lexicon onto a finite vocabulary at runtime is needed for deterministic, byte-equal selection.
+- **Closed verb/ability resolution loop** — The 'earn 3 verbs through play' transition is documented but unimplemented in both codebases, and Terminal's authored 3-cap abilities (verb + target_save) are read by no resolver — selection terminates with no in-play effect. The runtime must wire selection into an encounter effect.
+- **A beat-layer reachability invariant** — carve_egress proves every spatial node is reachable, but Terminal has no equivalent and the narrative graph has none at all. After laying out beats the runtime must prove every beat reachable (or carve a connecting beat), porting the design law to the story layer.
+- **A unified source write-back adapter** — REMEMBER and journal_followup independently implement 'complete by re-engaging the source, which births the next beat' — the actual no-dead-end story spine. It must be built ONCE as the runtime's completion model with pluggable sources, or it will be re-invented per source.
+- **One canonical character sheet, stat vocabulary, and check rule** — Terminal alone runs two disconnected stat systems (PlayerState 3 d20 saves drive combat; CharacterSheet 6 stats + abilities drive creation but are unwired), and the two codebases disagree on axis names and generation. Reconciliation is required but CONTINGENT on the vocabulary/generation/growth decisions below.
+- **Deterministic-RNG conformance on the byte-equal path** — Spec-53 mandates byte-identical C↔Python via integer FNV, but Terminal uses float random.random()/random.Random in rewards and reflective compose, which cannot be byte-equal. Any mechanic on the conformance path must use the integer port, gated by a golden-vector harness.
+
+---
+## CONFLICTS — YOUR DECISIONS (21 curated)
+
+
+### 1. Quest completion + reward: coupled axis-growth vs decoupled probabilistic loot (the known spec-48/49 inverse, code-verified)
+**Decision:** Decide how a beat closes and what it pays. Flipper ALWAYS fires a bidirectional, capped axis-growth deed on resolution (the choice IS the reward, no fail state); Terminal completes the predicate then rolls separate probabilistic loot, and journal-born quests grant nothing (rewards=[]).
+  - Adopt Flipper's coupled always-grant axis-growth as the canonical completion reward; loot becomes an optional plugin
+  - Keep Terminal's decoupled loot but forbid rewards=[] so every quest grants something
+  - Hybrid: guaranteed intrinsic axis growth + optional probabilistic loot on top
+
+### 2. System-wide progression currency (generalizes the inverse across all completions)
+**Decision:** Pick ONE progression currency for every completion surface (combat, quest, expedition, reflective), or accept heterogeneous payoffs. Today: axis growth / item loot with no market / nothing-but-a-session-log coexist.
+  - Single axis-growth currency everywhere; loot and logs become optional decorations
+  - Tiered: intrinsic axis growth always + currency/loot only where a market exists
+  - Per-beat-type currency (reflective=acknowledgment, combat=axis, quest=loot) — explicit but heterogeneous
+
+### 3. Defeat / no-permadeath reward sign
+**Decision:** Decide the emotional meaning of failure. Flipper diminishes (half HP/fuel), relocates to chunk spawn, and REWARDS a clean recovery with a WILL deed; Terminal respawns full-HP at a fixed hub and PUNISHES by wiping staged XP (and routes HP=0 into the reflective compose loop).
+  - Flipper model: diminish + relocate + reward the recovery (failure as teacher)
+  - Terminal model: full-HP hub respawn + XP sting (failure as tax, cleaner stakes)
+  - Compose: Flipper's grant-on-clean-recovery gated through Terminal's reflective compose interlude
+
+### 4. Which substrate becomes THE beat engine (four overlapping lifecycles)
+**Decision:** Choose the single progression engine all stories are authored on: Flipper deed (instantaneous append), Terminal consequence (trigger/resolution/effects), expedition (4-state), or quest (available↔active→completed).
+  - Consequence substrate as the single beat engine; express quests/expeditions/deeds as config rows
+  - Quest registry as primary; fold consequences/expeditions into it
+  - Layered: deeds as the atomic event log + one lifecycle engine above it for multi-step beats
+
+### 5. Combat resolution paradigm (turn-based fork; the real-time substrate is deferred)
+**Decision:** Decide whether encounters are kill-driven or comprehension-driven. Flipper = deterministic attrition (dmg=atk−def/8, win on foe HP→0); Terminal = d20 save accumulating net_passes≥3 (winnable with zero damage via understanding).
+  - Terminal net_passes accumulator as canonical (text-playable, win-by-understanding)
+  - Flipper attrition as canonical (simpler, kill-centric, byte-equal integer math)
+  - Unify: accumulator spine where ACT-damage is one axis among several
+
+### 6. Combat verb grammar (the 7-verb WORLD grammar already agrees; this is the COMBAT verb set)
+**Decision:** Choose the player's interface to encounters: Flipper's 2-verb STRIKE/FLEE toggle vs Terminal's 7-action tree + separate dialog-verb/posture set + 3-cap abilities.
+  - Adopt Terminal's 7-action + dialog verbs (includes non-violent resolution paths)
+  - Keep Flipper's minimal STRIKE/FLEE for a tighter loop
+  - Tiered grammar: minimal default verbs that expand as abilities/verbs are earned
+
+### 7. Antagonist AI: spatial aggro FSM vs in-encounter HP-phase intent
+**Decision:** Decide whether the runtime keeps a spatial overworld disposition engine, an in-encounter intent engine, or both as layers. Flipper's FSM is pure geometry (distance/torch/pack); Terminal's Orb AI is pure HP-phase + reaction with no spatial dimension.
+  - Keep both as layers: spatial FSM decides WHEN an encounter starts, Orb AI decides how it plays out
+  - Abstract Flipper's spatial inputs into generic 'pressure' signals so one disposition engine serves both
+  - Text-first: drop the spatial FSM, keep only the HP-phase + telegraph intent engine
+
+### 8. Relevance philosophy: every encounter matters vs most leave no trace
+**Decision:** Decide whether the runtime is a completionist crawl or a character-specific relevance filter. Flipper treats every contact as worth fighting (finite loot, kills persist); Terminal's resonance gate imprints only beats above a 0.45 fingerprint overlap, else load-bearing 'silence'.
+  - Keep resonance/silence as the beat relevance filter
+  - Flipper saturation: every beat resolves and pays
+  - Tunable threshold: silence at low engagement, escalate to always-counts in tense arcs
+
+### 9. Stat axis vocabulary
+**Decision:** Pick one canonical 6-axis set wired through deeds, classes, abilities, and checks. Flipper renamed to BODY/CRAFT/SIGHT/MIND/HEART/WILL; Terminal still uses STR/DEX/WIS/INT/CHA/CON. (User-vocabulary-is-canonical applies; route final naming through cultural-eccentric.)
+  - Canonicalize on Flipper BODY/CRAFT/SIGHT/MIND/HEART/WILL (newer, more evocative)
+  - Keep D&D STR/DEX/WIS/INT/CHA/CON for familiarity
+  - A new axis vocabulary entirely
+
+### 10. PC class identity is inverted
+**Decision:** Decide whether the runtime is single-protagonist or class-selected. Flipper makes 'You' the only PC and demotes Rogue/Monk/Philosopher to NPC seed data; Terminal makes those three the PC classes and Watcher/Scout/Scholar the NPCs.
+  - Single 'You' protagonist (archetypes become NPC/encounter content)
+  - Multi-PC-class selection
+  - Role-flag both: 'You' default with optional archetype classes as a data toggle
+
+### 11. Stat generation model
+**Decision:** Pick one creation rule. Flipper interactive point-buy (budget 66, clamp 8–16); Terminal fixed class presets (8–18) AND random d20 saves (1–20) that don't even agree internally.
+  - Event-sourced pillar draft as the paradigm, with a chosen value rule (point-buy or presets) folded in
+  - Flipper point-buy budget+clamp
+  - Fixed presets (least agency, simplest)
+
+### 12. Growth model: per-action micro-growth vs macro-only prestige
+**Decision:** Decide the growth cadence. Flipper grows axes per-action (deeds) and gear by use (expertise); Terminal has NO per-action growth — stats change only by aging into a prestige class (per-decade).
+  - Run both layers: deeds (per-act micro) + class_history (life-stage macro) — matches the level=age + use-evolving pillar
+  - Deeds-only (continuous)
+  - Prestige-only (coarse)
+
+### 13. Reconcile Terminal's two internal stat systems (CONTINGENT)
+**Decision:** Collapse PlayerState's 3 d20 saves (which drive combat) and CharacterSheet's 6 stats + abilities (which drive creation) into one sheet. This cannot be auto-resolved — it depends on the axis-vocabulary, generation, and growth decisions above.
+  - Collapse to one canonical sheet+vocabulary AFTER vocabulary/generation are decided; keep d20-save as the check primitive
+  - Make CharacterSheet authoritative and derive saves from it
+  - Make PlayerState authoritative and drop the 6-stat block
+
+### 14. Content selection: weighted-RNG + drifting Pool bias vs LRU anti-repeat
+**Decision:** Decide how 'what shows up next' is chosen. Flipper weighted RNG biased by a walking drift vector (organic, streaky, escalating); Terminal RosterPool LRU (guaranteed spread, no weighting or drift).
+  - Pool-drift weighted selection as primary (drift = story state walks with you, escalation for free)
+  - LRU anti-repeat (guaranteed variety, predictable)
+  - LRU as a fairness guard layer on top of weighted-pick
+
+### 15. Text generation: template-fill vs verbatim no-rephrase
+**Decision:** Decide how story-as-data becomes surfaced text. Flipper fills mad-lib templates via %slot% substitution; Terminal takes verbatim slices under a no-summarize/no-rephrase voice-integrity law. (Both honor No-LLM.)
+  - Per-source: verbatim for her-voice source content + templating for engine/system flavor
+  - Verbatim everywhere (safest for voice, least generative)
+  - Template everywhere (most generative, risks voice integrity — route through cultural-eccentric)
+
+### 16. Theme vocabulary: fixed enum vs open learned lexicon
+**Decision:** Decide how 'theme' is represented. Flipper fixed 16-bit enum (byte-equal, closed); Terminal open learned lexicon from her corpus (authentic, unbounded, sanctioned NLP).
+  - Learned lexicon as authoring input, projected onto a bounded vocabulary at runtime (keeps voice + byte-equal)
+  - Fixed enum only (byte-equal, less authentic)
+  - Open lexicon only (authentic, breaks byte-equal selection)
+
+### 17. Time / clock model
+**Decision:** Decide which clock advances the narrative chain. Flipper's single discrete turn-clock (world moves only when the player acts) vs Terminal's three real/frame-time dt-clocks (chronometer, tension_cycle, activity_loop).
+  - Turn-clock drives the narrative chain; keep activity_loop/chronometer as ambient INPUTS not drivers
+  - dt-clocks for a real-time feel (heavier, render-coupled)
+  - Turn-clock for beats + optional wall-clock ambient tint
+
+### 18. Truth / persistence model
+**Decision:** Decide where truth lives. Flipper = seed + append-only delta/deed log replayed to derive state (matches the seed-is-truth / merge-input-streams architecture); Terminal = regen-from-seed without replay (loses mutations) + a vault DB side-store, with session-only progression.
+  - Seed + append-only input-log, state derived by replay (deltas/deeds model) as canonical
+  - Keep the vault DB but make it an append-only event log replayed to derive state (DB-backed seed-is-truth)
+  - Hybrid: input-log truth for game state + DB as a derived read cache
+
+### 19. State-machine style
+**Decision:** Pick the runtime skeleton. Flipper's 15-entry Screen enum mixes UI and game state; Terminal's game_state.py is a pure-data, render-decoupled, validated hub-and-spoke FSM.
+  - Adopt Terminal's pure-data, render-decoupled narrative FSM (text-now/visuals-later)
+  - Flipper's combined Screen enum (simpler, render-coupled)
+
+### 20. Economy: does the runtime have a market, and one item schema
+**Decision:** Decide whether trade/value is a core verb and unify the item schema. Flipper has a full Elite market on rows carrying value/weight/heal/equip but no geometry; Terminal has NO currency at all and item rows carry render/interaction fields but zero economy fields.
+  - One item schema (value + interactions; geometry deferred) with a market as an OPTIONAL, off-by-default module
+  - Full Elite market as a core pillar
+  - No currency — items are narrative/interaction objects only
+
+### 21. Door/transition placement and traversal gating (spatial; may be mooted by text-first scope)
+**Decision:** If a spatial layer survives, pick the transition-coherence doctrine (Flipper canonical-edge hashing where neighbors agree with zero state, vs Terminal random-per-room) and the gating model (Flipper binary walled/open vs Terminal graded flat/step/ledge/cliff/wall). Both generalize to narrative branch reconnection and graded transition difficulty.
+  - Canonical-edge coherence + graded tier, generalized to narrative branch reconnection and ability-gated branches
+  - Keep binary open/blocked + per-node placement (cheap; only if nodes never need to agree)
+  - Defer entirely — a text-first runtime may not need spatial doors at all
+
+---
+## Open questions
+
+- Does the text-first runtime retain a SPATIAL overworld at all? If beats are a graph rather than a tiled map, several flagged conflicts (door placement, binary-vs-graded traversal, spatial aggro FSM) are mooted and only their abstract kernels (branch reconnection, graded transition difficulty, pressure-signal disposition) carry forward.
+- What is the canonical 'source' for the write-back spine — permanent-objects entries (Flipper REMEMBER), journal entries (Terminal), or both behind one pluggable source interface? This determines the unified completion adapter.
+- Is byte-equal C↔Python determinism (spec-53) a HARD target for the narrative runtime specifically, or only for the Flipper-shared core? The answer decides whether float RNG is permitted on any narrative surface or must be ported to integer FNV everywhere.
+- Is a market/economy in scope for v1, or strictly an optional later module? This gates whether the item schema needs value fields at all in the first runtime.
+- Should the runtime carry BOTH growth cadences (per-act deeds + life-stage prestige) from day one, or ship per-act growth first and add prestige later? This affects how much of Terminal's class_history fold is ported now.
+
+---
+## Full conflict report (33 raw)
+
+- **Quest engine: inverse completion + reward (the known case — CODE-VERIFIED)** (flipper deeds.c/deeds.h + sanctum_rpg.c ScreenQuest  vs  terminal core/systems/quests/rewards.py + from_journal.py + state.py) — Literal inverse, confirmed by reading both files. Flipper = reward COUPLED to completion, always granted, internal (who-you-become), capped, no fail state. Terminal = reward DECOUPLED, probabilistic, external (what-you-get), and zero for journal quests. Flipper rewards engagement-or-release symmetrically; Terminal's headline beat-source (journal) pays nothing. _[needs user decision]_
+- **System-wide progression currency split (three incompatible payoffs)** (flipper deeds.c  vs  terminal quests/rewards.py + expedition_engine.py + reflective/state_machine.py) — Three currencies for 'you finished a beat': internal axis growth / external item loot / nothing-but-a-log. Generalizes conflict #1 across every completion surface (combat, quest, expedition, reflective). _[needs user decision]_
+- **Defeat / no-permadeath: opposite reward sign** (flipper sanctum_rpg.c player_fall  vs  terminal encounter_session.py + consequences.json/effects.py) — Both are genuine no-permadeath loops (good), but inverse reward sign (grant deed vs strip XP) and different anchors (diminished-at-chunk vs full-at-hub). _[needs user decision]_
+- **Four overlapping 'progress-toward-done' lifecycles (which becomes THE beat engine)** (flipper deeds.c  vs  terminal consequences/ + expedition_engine.py + quests/state.py) — Four independent state machines for 'something is progressing toward done,' no shared substrate. The consequence trigger/resolution/effect engine is the most general and could express the other three as config rows. _[needs user decision]_
+- **Combat resolution paradigm: three incompatible damage/win models** (flipper sanctum_rpg.c  vs  terminal encounter_resolver.py + strike.py/ballistics.py) — No shared damage math. Attrition (kill) vs accumulator-to-threshold (understanding) vs real-time physics. trigger_engagement is an unbuilt bridge from real-time into turn-based. _[needs user decision]_
+- **Combat verb grammar: 2-verb toggle vs 7-action tree + dialog verbs** (flipper sanctum_rpg.c  vs  terminal encounter_resolver.py + abilities.py) — Wholesale vocabulary mismatch. Note: the 7-verb WORLD grammar (OBSERVE/MEDITATE/MARK/PARLEY/KINDLE/REMEMBER/INSCRIBE) and starting-4 AGREE across both codebases — that is the strongest shared spine; the conflict is specifically the COMBAT verb set. _[needs user decision]_
+- **Antagonist AI: spatial aggro FSM vs in-encounter HP-phase intent** (flipper creatures.c  vs  terminal actor.py + encounter_config.py) — Same 'disposition state machine' concept, two non-interoperable substrates (geometry vs HP-phase). Both are exemplary state-loops; they don't compose. _[needs user decision]_
+- **Relevance philosophy: every encounter matters vs most leave no trace** (flipper creatures.c/sanctum_rpg.c  vs  terminal encounter_engine.py) — Philosophical fork with no shared analog: total-saturation (everything counts) vs selective-relevance (only resonant beats teach this character). _[needs user decision]_
+- **Stat axis vocabulary: BODY/CRAFT/SIGHT/MIND/HEART/WILL vs STR/DEX/WIS/INT/CHA/CON** (flipper classes.c/deeds.h  vs  terminal character_classes.py/character_sheet.py/player_state.py) — Same count, divergent labels. Player-facing vocabulary — falls under user-vocabulary-is-canonical. _[needs user decision]_
+- **PC class identity is INVERTED** (flipper classes.c/classes.h  vs  terminal character_classes.py) — The same three archetypes are PCs in one codebase and NPCs in the other. Single-protagonist 'You' framing vs multi-class selection. _[needs user decision]_
+- **Stat generation: point-buy vs fixed presets vs random d20 saves** (flipper sanctum_rpg.c  vs  terminal character_classes.py + player_state.py) — Three generation rules, no shared model; Terminal is internally inconsistent (preset 6-stat block vs random 3-save block). _[needs user decision]_
+- **Growth model: per-action micro-growth vs macro-only prestige** (flipper deeds.c/sanctum_rpg.c  vs  terminal character_sheet.py) — Micro+macro vs macro-only. Terminal's only stat-changing mechanism is coarse life-stage prestige; Flipper's is fine-grained use-evolution. _[needs user decision]_
+- **Terminal-internal: two disconnected stat systems** (terminal player_state.py  vs  terminal character_sheet.py (intra-codebase)) — Two stat models in one codebase, only one of which the combat engine reads; abilities reference 6-stat names the resolver never consults. _[needs user decision]_
+- **level=age: ticks in Terminal, inert in Flipper** (flipper sanctum_rpg.c  vs  terminal character_sheet.py + pillars/days.py) — Same design intent (level=age, Cairn), but Flipper's is a static dead input — claims level=age while age never advances.
+- **Door / transition placement: canonical-edge hash vs random-per-room** (flipper world.c  vs  terminal room_layout.py) — Two doctrines for 'where does the exit between two nodes sit.' Flipper's is seed-is-truth-coherent; Terminal's predates it and can phase through a neighbour's wall. _[needs user decision]_
+- **Traversal gating: binary walled/open vs graded elevation tier** (flipper biome.c  vs  terminal biome_elevation.py + wfc.py) — Binary vs graded transition-difficulty. The graded tier maps to narrative as free / minor-cost / requires-an-ability / one-way / blocked. _[needs user decision]_
+- **Connectivity guarantee: carve_egress vs none** (flipper world.c  vs  terminal room_layout.py/bucket_world.py/stamp_world.py) — Asymmetry, not a taste fork — Terminal has a real near-dead-end risk Flipper structurally eliminates.
+- **Three overlapping world-gen paths in Terminal (+ three elevation sources)** (terminal core/systems/* (intra-codebase)  vs  flipper world.c (one path)) — Legacy drift — multiple generators/elevation sources doing the same job. Render/3D-specific.
+- **Content selection: weighted-RNG + drifting Pool bias vs LRU anti-repeat** (flipper loot.c/stamps.c/pool.c  vs  terminal roster_pool.py) — Two 'what shows up next' philosophies: probability + drift-bias (Flipper) vs guaranteed-fairness anti-repeat (Terminal). Same word 'pool', opposite mechanics. _[needs user decision]_
+- **Text generation: mad-lib template-fill vs verbatim no-rephrase** (flipper narrative.c  vs  terminal quests/from_journal.py + journal/lexicon.py) — Direct fork in how story-as-data becomes surfaced text: generative templating vs verbatim preservation. _[needs user decision]_
+- **Theme vocabulary: fixed 16-bit enum vs open learned lexicon** (flipper narrative.h/pool.c  vs  terminal journal/lexicon.py) — Two incompatible models of 'theme': closed fixed enum vs open learned set. A unified runtime needs a bridge/mapping between them. _[needs user decision]_
+- **CONVERGENCE / unify seam: completion-by-re-engaging-the-source** (flipper sanctum_rpg.c  vs  terminal quests/predicates.py + from_journal.py) — NOT a conflict — the same no-dead-end looping idea on two substrates. This is the redundancy that should be unified deliberately into the runtime's completion spine.
+- **Choice input shape: hardcoded 2-branch vs DialPrompt N-option** (flipper sanctum_rpg.c  vs  terminal dial_prompt.py) — DialPrompt strictly subsumes the Flipper 2-branch (which is just N=2). Redundant; one clearly generalizes the other.
+- **Time / clock model: single discrete turn-clock vs three real/frame-time clocks** (flipper sanctum_rpg.c  vs  terminal chronometer.py/tension_cycle.py/activity_loop.py) — Foundational: 'which clock advances the narrative chain?' Turn-clock (story moves when player moves) vs dt-clocks (continuous real-time pacing). _[needs user decision]_
+- **Truth / persistence model: seed+delta replay vs regen-without-replay + vault DB** (flipper deltas.c/deeds.c/save_io.c  vs  terminal tile_exchange.py/scenario_ledger.py/seed_commands.py/save_state.py) — Foundational truth-model fork. Flipper = events-are-truth, state-derived-by-replay (matches established seed-is-truth / merge-input-streams architecture). Terminal = regenerate-from-seed but lose player-caused change, with a DB side-store. _[needs user decision]_
+- **Determinism: integer FNV byte-equal vs float RNG (spec-53 enforcement, NOT a preference)** (flipper narrative.c/pool.c  vs  terminal quests/rewards.py + reflective/magnets.py) — Float RNG breaks the byte-identical C<->Python golden-vector contract. This is the spec-53 seed-language determinism conformance gate, in my lane.
+- **State-machine style: Screen enum (UI+game mixed) vs pure-data FSM** (flipper sanctum_rpg.c  vs  terminal game_state.py) — Render-coupled FSM vs renderer-agnostic pure-data FSM. The Terminal separation (and its documented collapse of a linear chain into a loop) is the better base for a renderer-swappable (text now, visuals later) runtime. _[needs user decision]_
+- **Economy: full market + item schema split (does the runtime even have currency?)** (flipper loot.c/trade.c/recipes.c  vs  terminal kind_config.py/thing_library.py/quests/rewards.py) — Two questions in one: (a) does the unified runtime have a market economy at all, and (b) the item schema is disjoint — economy fields exist only Flipper-side, render/interaction fields only Terminal-side. The Flipper comment claims to 'mirror kind_config.json' but they share almost nothing. _[needs user decision]_
+- **'weight' semantic inversion (relative integer share vs absolute float probability)** (flipper loot.c  vs  terminal quests/rewards.py) — Same field name, incompatible math. Also intersects the determinism law (#26 — the float side).
+- **Naming collisions: 'Pool' (3 meanings) and 'recipe' (2-3 meanings)** (flipper pool.c/recipes.c  vs  terminal roaming_pool.py/roster_pool.py/recipes.py/kind_config) — Pure naming hygiene — same word, unrelated mechanics. Internal identifiers, my lane to rename per convention.
+- **Duplicate bearing/wayfinding with opposite y-axis convention** (flipper bearing.c  vs  terminal core/systems/bearing.py) — Two near-duplicate 8-way compass utilities with OPPOSITE y-axis sign. Redundant + a latent sign bug on merge.
+- **Anti-farm philosophy: per-session caps vs idempotency-by-id** (flipper deeds.c  vs  terminal expedition_engine.py/consequences) — Two anti-grind models; neither codebase has both. Caps suit repeatable beats; idempotency suits one-time beats.
+- **DEFEND: inert verb (Terminal intra-codebase dead end)** (terminal encounter_resolver.py/encounter_session.py (intra-codebase)) — By the design rubric, a verb that produces no player state change = a binary dead end dressed as a verb.
