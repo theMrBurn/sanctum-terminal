@@ -306,6 +306,182 @@ Get the simulation right; any renderer (TUI, raycaster, Flipper screen) hangs on
 - ACTION: re-point cultural-eccentric (its "need a voice sample" flag is MOOT). FIX memory
   "Reality-anchor loop closed: toast copy not yet anchored to wife's voice" at spec-pin time — it's a misread.
 
+## SPEC OPEN DECISIONS — refining one at a time (user: "see what we have first")
+### #1 BYTE-EQUAL HARDNESS — DECIDED: HARD on the TRUTH/CHRONICLE path, FREE on presentation.
+- Rationale: seed-is-truth + cross-device MERGE requires byte-equal for any state-deriving compute;
+  user wants narrative state mergeable Mac<->PC<->Flipper. Line = "does it touch the chronicle?"
+- What we have: spec 53 golden-vector harness EXISTS (sanctum-engage/tests/conformance/) but covers ONLY
+  rng + pool (Phase A, not closed). ~21 Python files use float random; ~9 on truth-path (player_state,
+  roster_pool, roaming_pool, actor, encounter_session, rewards, magnets, reflective/state_machine,
+  consequences/effects) -> port these to integer-FNV + extend golden harness up the stack. narrative.c
+  already integer-FNV; deck designed byte-equal. Presentation/render float = fine (never merged).
+- Does NOT force the Flipper to run the FULL runtime day one — just keeps the Python truth-path integer
+  so the door stays open.
+
+### #2 GROWTH CADENCE — DECIDED: BOTH layers from day one (micro deeds + macro level=age/prestige).
+- What we have: BOTH exist. Flipper deeds.c/.h = mature per-act MICRO (append-only, integer, capped,
+  21 deed events on 6 axes; effective_axis = base + deeds.delta). Terminal character_sheet.py = MACRO
+  (level=age + prestige via class_history -> earned abilities + stat presets; "Cairn canonical").
+  Uniting = wiring deeds onto the one sheet; not net-new.
+- Reason FOR both-now: ONE save-schema migration (vs paying the migration tax twice). Matches level=age +
+  use-evolving pillar; anchors the Reckoning's rigidity; kills seam-check's "inert level" dead-end.
+- GUARDRAILS for the spec (the real cautions, neutralized):
+  1. Deeds (micro) = DOMINANT, fully-tuned signal; macro stays LIGHT -> preserves "how you acted -> which axis" legibility.
+  2. Macro layer must be DATA-DRIVEN (prestige classes/ages = seed/config, NOT the hardcoded Sean/age-32
+     template in engine code) -> preserves story-agnostic.
+  3. Structural NOW, tuned LATER (asymmetric effort; macro barely shows in a thin slice = can't be feel-validated yet).
+  4. Spec the Reckoning's RIGIDITY input as a clean contract that degrades gracefully when macro is light
+     (decouples two high-tuning-risk systems).
+
+### #3 PROTAGONIST — DECIDED: single persistent "You" (canonical).
+- Classes = LIFE-STAGES (data), not a creation menu. character_classes.py models class = {stat_preset,
+  abilities}; character_sheet class_history = a sequence you AGE through (rogue->monk@32, most-recent wins,
+  abilities aggregate). Class-as-creation-mode = OPTIONAL later data toggle, NOT default.
+- UNIFICATION (#2+#3+Reckoning): macro layer has TWO drivers — AGE (slow default template) + the RECKONING
+  (rare, choice-driven, OVERRIDES the template). Reckoning = the use-evolving override on the age-default.
+
+### "THE HONEST MIRROR" — core principle (user, reality-anchor soul)
+- The char sheet is a MIRROR of who you actually are, NOT a build you optimize. Only legit way to change
+  it = change your REAL behavior. In-game goals are completed by REAL-WORLD task accomplishment (via PO).
+- Discourage restarting a seed; ALLOW honest adjustment; but an honest player SHOULDN'T WANT to edit —
+  growth comes from actual behavior.
+- HOW WE ENFORCE/ENCOURAGE (mostly architectural, already latent):
+  1. DERIVE-DON'T-SET: sheet = rolled-up replay of the append-only deed/input log (seed-is-truth #1).
+     No stat slider to game. "Adjustment" = correcting honest INPUTS (re-do the Becoming honestly), never output stats.
+  2. NO HIDDEN EDITS: any adjustment is an append-only, visible event on the always-inspectable stats page
+     ("never hide the math"). Vanity-editing is self-evident — like editing your own diary.
+  3. DISHONESTY -> TENSION -> RECKONING: claiming to be what your actions don't support is AGAINST-PROFILE;
+     it generates identity tension (the same accumulator) and destabilizes. Self-dishonesty is mechanically
+     uncomfortable; the blob re-centers on real behavior. (This is the deepest enforcement.)
+  4. REWARD IS THE EARNED BEAT, NOT THE NUMBER: real completion fires the deed beat + narrative ack +
+     write-back; a raw edit gives a hollow number with no beat. Satisfaction lives only on the earned path.
+  5. ANTI-GRIND already exists: deeds.h per-session caps -> in-game grinding can't dominate; REAL-WORLD
+     PO-completions are the uncapped/meaningful lever.
+- RESTART: frame as ABANDONING A LIFE, not resetting a build — heavy/marked/rare (Reckoning-weight), not a cheap "New Game".
+- FOLD this honesty/anti-save-scum incentive into the RECKONING-formalization pass (it IS the tension system
+  applied to self-misrepresentation) + capture as a spec principle.
+
+## RECKONING FORMALIZATION + STRESS-TEST (docs: sanctum_reckoning_FORMALIZATION.md, _STRESSTEST.md)
+- MODEL (validated core): identity = P[6] (position = lifetime deed rollup, inertial) + T[6] (per-axis tension).
+  Metric: raw_k = (pmean - P[k]) * delta = projection of a deed onto your mean-centered self; per-axis,
+  integer, read P BEFORE applying deed. T reads its own story -> shift re-centers toward the drifted axes.
+  Rigidity = K_AGE*age^2 + K_CONS*concentration -> rarer with age, snaps harder, young=elastic emergent.
+  B-prior init (born-as-your-claim). Explicit drain event (no instant re-fire). Fires at Consolidation boundary.
+- HONEST MIRROR = SAME metric (a claim is scored like an against-act). NO set_stat exists (stat-slider
+  UNREPRESENTABLE). Game never judges, just leans. DEED_PO_COMPLETE (uncapped, one-per-id) = real-world is the
+  ONLY uncapped growth ("can't farm real life"). Restart = heavy AbandonEvent, fork seed, inherit nothing.
+- STRESS-TEST verdict: core HOLDS (green: deeds-vs-base + case-4 discriminator; no-set-stat; reuse REFLECTIVE
+  FSM; B-prior; explicit drain). Issues to fold into spec §5 + build order:
+  * 🔴 B1 REFUSE doorway is design-fiction — reflective FSM has no player abort -> forced one-way shift
+    (contradicts "choice-driven"). Build apply_reckoning_refusal -> exit()->HUB.
+  * 🔴 B2 concurrent reflective-entry clobbers an in-progress beat -> defer if already REFLECTIVE (serialize).
+  * 🟠 L1 compose_pool/pick_rule use Mersenne Twister; FNV-SEEDING ≠ byte-equal. Replace the selection
+    PRIMITIVE: idx = fnv(line_id,i) % len(sorted(pool)). (= the real content of build-list #4.)
+  * 🟠 L2 concentration = max-median injects half-integer (median of 6) -> use max-min / integer-safe spread.
+  * 🟠 L3 _regen_world uses randint on truth path -> derive seed from chronicle; preflight-assert seed present.
+  * 🟡 F1 per-axis T_AXIS_CAP vs age-scaled THRESHOLD -> elders may be UNABLE to Reckon from drift. AC:
+    THRESHOLD(age_max) < drift_axis_count*T_AXIS_CAP. (rarity = STRUCTURAL AC, not just a dial.)
+  * 🟡 F2 feeders fire but can't AIM -> all-zero T -> random life-stage. Feeders deposit directionally OR
+    fallback = no class change / toward D̂. Never shift on a zero vector.
+  * 🟡 F3 "consistency -> ΣT=0 structurally" false (integer quantization noise) -> add deadband ε.
+  * 🟡 F4 PRIOR_TOTAL pulled two ways (young-elastic vs prologue visibility) -> scripted impulse for the prologue nudge.
+  * 🔵 D1 CLASS-RESPEC EXPLOIT: drift off-axis to force a Reckoning into a stronger preset (deeds are real,
+    so "earned-beat" defense fails). "Replace + power-tiered presets" = exploitable combo -> pick at most one.
+    => makes open-Q#4 (stack vs replace) a GUARDRAIL, not flavor.
+  * 🔵 D2 voluntary re-claim pre-empts the Reckoning (rigidity rations involuntary, not voluntary dodge).
+    Trigger is "persistent DENIAL" not "drift" -> gate re-Becoming relief by rigidity OR align prologue copy.
+  * ⚪ C1 "can't farm real life" = PO-id minting integrity (permanent-objects doesn't validate input).
+    Define cross-repo eligibility contract; DEED_PO_COMPLETE fail-soft to CAPPED local grant when offline.
+  * ⚪ C2 serial restarter looks pristine -> carry abandonment-count forward as a quiet meta-mark (no dark pattern).
+  * GRACEFUL-DEGRADE CATCH: unmapped T-cluster -> stat_preset silently falls back to ROGUE
+    (character_sheet.py:131-138). Build the 6-cluster->life-stage table TOTAL before ship, OR fail closed (drain + no class change).
+- HARD CHAIN: stat-collapse (build-list #3) BLOCKS everything — B=D&D names, D=BODY/CRAFT/...; incommensurable until one 6-axis space.
+- SHARPENED TUNING QUESTIONS (user, was 4): #1 rarity (now a STRUCTURAL AC per F1/F2; default: handful per LIFETIME);
+  #2 late-life identity (lifetime D̂ vs recency-weighted); #3 decay rate + refused-Reckoning residue;
+  #4 stack-vs-replace (now a GUARDRAIL per D1).
+
+## RECKONING TUNING (user, one at a time)
+- #1 RARITY = 7 IN A LIFETIME (typical drifting life; consistent lives fewer/none). Anchors the constant pass;
+  must satisfy F1 reachability ceiling THRESHOLD(age_max) < drift_axis_count*T_AXIS_CAP. Resonance: 7 pillars
+  author you at start, 7 Reckonings re-author you across the life.
+
+## *** SEED-AS-LEDGER / TRADE MODEL (user original design — FOUNDATIONAL) ***
+- THE SEED = THE CAIRN = THE LIFE. One object; a seed-rooted tree; everything addressable from the seed.
+- Seed-hash = an ADDRESSING SCHEME, not just RNG. Seed ABX -> ABX.object123.<var>... ; every object/skill/
+  artifact/story/color has a deterministic address.
+- DATA IS THE CURRENCY: trade transfers an ADDRESS (+provenance), not a data blob — recipient's engine
+  deterministically EXPANDS the same address to the identical artifact (the content-VM / seed-language).
+  Whole seeds OR any branch tradeable/barterable between seed-holders.
+- "Blockchain" = MENTAL MODEL ONLY: append-only, addressable, ownership-by-ledger-entry, transfer-as-event,
+  tamper-evident-by-hash. NOT an internet crypto chain — self-hosted, deterministic, P2P (rides mesh/LoRa/merge).
+- THIS IS THE WHY behind: the custom seed-hash / seed-language / content-VM; and it DEMANDS decision #1
+  (byte-equal hard on truth path) — trade only works if an address reproduces byte-identically for the trader.
+- REFRAMES ECONOMY: not a gold shop — peer-to-peer BARTER of seed-addressed artifacts; CORE not optional.
+  A trade = a consented MERGE of one ledger branch into another's input-log.
+- KEY TENSION — TRADE vs HONEST MIRROR: Cairn has TWO layers:
+  * NON-TRADEABLE SELF (axes/identity/deeds) = earned-only honest mirror (can't buy WILL).
+  * TRADEABLE ESTATE (objects/artifacts/stories/colors) = made/found things.
+  * "skill" straddles: split TECHNIQUE/RECIPE (tradeable) vs CAPABILITY/axis-growth (earned-only, non-tradeable).
+    -> confirm with user.
+- CONNECTIONS: trade = EGRESS -> rides the consent/egress border (CLAUDE.md §5) + friend-tier framework
+  (who you can trade with). Provenance/"can't forge" = SAME problem as the stress-test PO-minting integrity (C1),
+  solved by the same append-only addressable ledger.
+- Does NOT disturb tuning #2 (identity = the non-tradeable layer). 
+- TODO: lock #2=(a); capture seed-as-ledger as a foundational spec section; likely a future formalization pass
+  (addressing scheme + trade + provenance + tradeable/non-tradeable boundary + consent-border).
+
+### TRADE MODEL — LOCKED (user): everything offerable, SKILL-GATED, honest-by-tension.
+- Everything in the Cairn can be OFFERED; a naive swap is free; APPRAISE/DIAGNOSE/NEGOTIATE/CHARM/
+  BARTER-at-length are EARNED capabilities -> a novice gets fleeced, a master walks away ahead. Trade = a playstyle.
+- HONEST MIRROR holds by TENSION, not category bans: tools/artifacts/techniques/stories/colors trade freely
+  (external — "the sword's power is the sword's"); an aspect of SELF acquired-not-earned isn't backed by P ->
+  against-profile -> tension -> never sits as "you" -> a Reckoning re-centers you to who you actually are.
+  "Buy the sword, not the swordsmanship; if you try, the system knows." Market can be wide open BECAUSE self can't be faked.
+- TRADE = NO NEW SUBSYSTEM: appraise/diagnose = scan/understand (SIGHT/MIND); negotiate/charm = parley/stance
+  (HEART/WILL/MIND). A barter is an ENGAGEMENT (comprehension accumulator) in the EXCHANGE context. The LEDGER
+  handles transfer+provenance (addresses changing hands); the ENGAGEMENT decides the terms. => EXCHANGE =
+  "engagement + ledger entry", a CORE skill-gated context (not an optional gold shop). Both halves already built.
+- Skill-split resolved: a technique/recipe = tradeable artifact; the capability to wield/haggle = earned (unearned acquisition -> tension).
+
+### #3 DECAY + REFUSAL — LOCKED.
+- Tension decay = SLOW (one-off slip heals over time; a pattern outpaces decay and accrues).
+- Post-Reckoning SETTLING = at least a (LOGICAL/in-game) day, scaled by the Reckoning's magnitude
+  (discharge ∝ age² -> extravagant = longer settle; small ≈ a day). Truth-path day = epoch ticks (byte-equal),
+  NOT wall-clock.
+- REAL-TIME "let it breathe" layer = YES (presentation-side pacing; gates WHEN you're invited back, not derived state).
+- REFUSAL = a composed OPTIONS-beat, not binary. Refuse/hold -> tension RESIDUE persists (Reckoned again soon) +
+  rigidity HARDENS (more brittle) + a standing DISSONANCE = the deck's SCAR (surfaces beats until healed).
+  Heavy enough to make reconsidering rational. Loop-closes (refuse -> HUB carrying residue+Scar; question returns). Valid stance, not a free reset.
+
+### SESSION-OPEN = DAILY BASELINE CHECK ("Voight-Kampff", user — design consideration to accommodate NOW)
+- Session-open isn't just goal-shape pick — it's a DAILY BASELINE/ALIGNMENT check: re-establish baseline,
+  DIAGNOSE DRIFT (read your tension/blob, reflect it back = the honest mirror performed as a greeting) +
+  a PASSIVE SYSTEM CHECK (real date, time-of-day, Δ-since-last-engagement). Details SCRIPTED later; engine must SUPPORT it.
+- ENGINE HOOKS to build in: (1) session-open reads drift state (tension/blob/to_reckoning); (2) passive system
+  check (real clock -> date/time-of-day/last_engagement_at stamp); (3) DialPrompt ask + RECORD user answer VERBATIM
+  (user's stated reality canonical; clock is a cross-check); (4) a scriptable, data-driven baseline-ritual slot (content, not code).
+- DETERMINISM BOUNDARY: passive clock (date/time/Δ-since-engagement) = AMBIENT PRESENTATION input, NOT truth-path
+  (can't feed byte-equal/trade). User-CONFIRMED answers = recorded INPUT EVENTS = truth. (machine clock = hint; confirmed = chronicle.)
+- CONNECTS: gates the real-time breathing layer (last-engagement); ties to presence daemon + chronometer-as-ambient-input.
+- TONE FLAG (cultural-eccentric, load-bearing): a Voight-Kampff is an interrogation-you-can-fail, but our rule =
+  the system NEVER JUDGES, only reflects. Must feel like YOU calibrating YOUR instrument (a greeting), NOT a test of
+  whether you're real. Register matters given the elegiac themes.
+
+### #2 LATE-LIFE IDENTITY — LOCKED: (a) lifetime D̂.
+- Old deeds define you forever; the polymath generalizes. The Reckoning is the SOLE sharp identity shift
+  (recency-weighting would compete with it). Reformation = sustained against-(old)-self drift -> earned Reckoning
+  ("you don't drift into a new self, you're Reckoned into one"). Matches Cairn/seed-is-truth; trivial determinism.
+  (b) recency-weighted = a one-line replayable upgrade if ever wanted.
+
+## NAMING FINDING — "Cairn" already in code (flag for cultural-eccentric pass)
+- character_sheet.py:4 "level=age (Cairn canonical)" — the codebase ALREADY uses "Cairn" as the canonical
+  name for the level=age / lived-life concept (there's likely a design_cairn canon/memory).
+- We named the retrospective goal-shape "The Cairn" THIS session. COLLISION — but a HAPPY one: both =
+  "a life accreted stone by stone." Decide consciously: UNIFY (Cairn = the lived-life canon, the
+  goal-shape is its retrospective ritual) or SPLIT (rename one). Route to cultural-eccentric. Lean: unify.
+- Also noted: Terminal character_sheet uses D&D stat NAMES (dex/wis/int_/cha/...) not BODY/CRAFT/SIGHT/
+  MIND/HEART/WILL -> rename in the stat-vocab collapse (decision #3-adjacent).
+
 ## TODO once answered
 - Per workspace protocol: spec-AC BEFORE implementing (inventory -> lock forks -> draft spec NN -> code).
 - 50/50 rule: end with a propose-update to AGENTS.md / SHARED_STATE.md.

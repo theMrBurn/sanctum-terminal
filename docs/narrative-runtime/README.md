@@ -18,6 +18,9 @@ not yet a ratified spec (that is the next step — propose→ratify per the work
 | [`02_goal_shapes_and_cards.md`](02_goal_shapes_and_cards.md) | The 9 goal-shapes + 8 modifier-cards (tabletop-derived), fit-checked against the design law. |
 | [`03_session_flow.md`](03_session_flow.md) | The canonical 12-stage end-to-end session flow. |
 | [`04_flow_seamcheck.md`](04_flow_seamcheck.md) | Adversarial seam-check of the flow (grounded in real code, with line numbers). |
+| [`05_spec_engine.md`](05_spec_engine.md) | **The engine spec (DRAFT)** — I/O contract, data model, FSM, accumulator, the Reckoning, trade/ledger, session-open, determinism, build order. |
+| [`06_reckoning_formalization.md`](06_reckoning_formalization.md) | The Reckoning + honest-mirror math (blob, integer tension metric, age² rigidity). |
+| [`07_reckoning_stresstest.md`](07_reckoning_stresstest.md) | Adversarial stress-test of the Reckoning math (build-blockers, byte-equal leaks, exploits). |
 
 ## The hard design law
 **State changes, never binary if/then. No dead ends — only loops that close and transition state,
@@ -67,7 +70,21 @@ page). Onboarding = a diegetic **prologue** that teaches each name by *doing* it
 8. **Cross-repo PO source contract** — `PoEntry` lives in `permanent-objects` (separate repo);
    define and version the boundary.
 
+## Also locked (this session)
+- **The Reckoning** (identity/tension) is formalized (`06`) and stress-tested (`07`): per-axis integer
+  tension = the deed's projection onto your mean-centered self; `age²` rigidity → **7 Reckonings per
+  lifetime**; **stack, not replace**; refusal has teeth (residue + a Scar); lifetime `D̂`.
+- **The honest mirror**: no `set_stat` exists (a stat-slider is unrepresentable); `DEED_PO_COMPLETE`
+  is the *only* uncapped growth ("you can't farm real life"); restart = abandoning a life.
+- **Trade / economy is CORE, not optional**: the seed is the data *and* the currency — an addressable
+  seed-ledger where a trade transfers an *address* that expands byte-identically on a peer. **EXCHANGE
+  = engagement + ledger**; everything offerable, skill-gated, honest-by-tension.
+- **Session-open = a daily baseline / drift-diagnostic check** ("Voight-Kampff") + a passive
+  presentation-side clock.
+
 ## Status
-Phase 1 (experience & flow) complete. **Next: Phase 2 — the engine spec**, which sequences the build
-list above and folds in the two deferred passes (Reckoning-system formalization; cultural-eccentric
-voice/name pass).
+Phase 1 (experience & flow) complete. Phase 2 (the engine spec, [`05`](05_spec_engine.md)) is **drafted**
+— §5/§3.7/§2.1 filled, build order sequenced, four Reckoning tuning calls settled. **Next:** the
+stat-vocab collapse (build #1, blocks everything), then down the build order; and the two deferred
+passes still queued — the seed-ledger/trade formalization and the cultural-eccentric voice/name pass
+(incl. the "Cairn" unify-or-split).
