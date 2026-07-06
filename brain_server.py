@@ -84,6 +84,7 @@ from core.systems.state_events import (
     SYSTEM as REG_SYSTEM,
     TENSE as REG_TENSE,
 )
+from core.systems import mood_texture
 from datetime import date
 
 
@@ -1066,6 +1067,13 @@ class BrainWorld:
         # the player should know about emits an event; clients render toasts.
         self.state_events: StateEventBuffer = StateEventBuffer()
 
+        # Reality anchor — the "Weather of a Life" mood track. Drains the
+        # permanent-objects `mood.texture.shifted` bus signal and surfaces a
+        # Quiet Witness atmosphere line (ratified register). None when the
+        # shared bus isn't available; the brain runs untouched. Presentation-
+        # only — its texture never feeds engine/truth state (texture, not score).
+        self.mood_texture = mood_texture.create()
+
         # Activity loop — universal "what is the player doing" substrate
         # (per `feat_make-brain-ping-pong.md` PR 9). Saturating int[7]
         # counters with rotating slot-decay; producers emit one of seven
@@ -1971,6 +1979,15 @@ class BrainWorld:
             # Clients track watermark by event id; first connect syncs to
             # the latest id (no historical toast spam).
             "state_events": state_events_to_manifest(self.state_events),
+            # Reality-anchor atmosphere — the "Weather of a Life" texture bands
+            # (permanent-objects `mood.texture.shifted`: valence / intensity /
+            # cadence_phase / confidence). PRESENTATION ONLY: a renderer may
+            # tint palette / density / weather from this; it never loops back
+            # into engine or truth state (texture, not score — un-farmable).
+            # None until a texture is known (or the bus is unavailable).
+            "atmosphere": (
+                self.mood_texture.atmosphere
+                if self.mood_texture is not None else None),
             # Activity loop snapshot — per-class counters + reward
             # distance + dominant class + pace multiplier. HUD consumes
             # for "what is the player doing" diagnostic readout.
@@ -3374,6 +3391,17 @@ def run_server(biome_name, port=9877):
                 # below — async quests must evaluate even when no client is
                 # streaming camera updates, e.g. journal_followup firing on
                 # a journal_entry pushed via the harness while Godot is off.)
+
+                # Reality anchor — drain the "Weather of a Life" mood signal
+                # off the shared bus and surface Quiet Witness atmosphere lines.
+                # Throttled internally (POLL_INTERVAL_S); a bus hiccup is
+                # swallowed so it can never stall the frame loop. The frames
+                # are DISCOVERY-register (lingering) and carry no span.
+                if world.mood_texture is not None:
+                    for shift in world.mood_texture.poll(time.time()):
+                        world.state_events.emit(
+                            "reality_anchor.mood", shift.label,
+                            None, shift.register)
 
                 manifest = world.get_manifest(
                     cam_x, cam_y, cam_z, heading, pitch, dt)
