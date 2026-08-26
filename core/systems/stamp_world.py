@@ -17,12 +17,29 @@ Save state: just (seed, player_pos). The entire world rebuilds from
 those few bytes. v2 will add Wang-tile edge matching for stamp adjacency.
 
 Pure Python. No cache. No state. Recomputed every frame.
+
+## Determinism (spec 53 §9-A)
+
+Generation is INTEGER-ONLY. Every random draw comes from the `determinism`
+kernel — the Python port of the Flipper's `rng.c`, verified byte-equal to
+the C reference by `tests/test_conformance_rng_pool.py` — and every
+quantity is carried in fixed-point (`determinism.fixed`, 1 unit = 1/1000)
+until it crosses the emit boundary in `_make_entity`.
+
+Float lives on exactly one side of that boundary: `get_visible` (camera
+culling, a render concern) and the emitted entity dict. Nothing that
+decides WHAT exists or WHERE touches a float, because IEEE-754 rounding is
+not portable and the Flipper has no FPU in its generation path.
+
+Changing anything above the emit boundary MOVES EVERY WORLD. Bump
+GENERATOR_VERSION and re-record `tests/test_stamp_world_golden.py` when
+you do — deliberately, never to make the test pass.
 """
 
 from __future__ import annotations
 
 import math
-import random
+from functools import lru_cache
 from typing import Dict, List
 
 from core.systems.biome_data import (
@@ -35,6 +52,30 @@ from core.systems.biome_data import (
 )
 from core.systems.bucket_world import KIND_PROPS
 from core.systems import kind_config as _kc
+from core.systems.determinism.rng import Rng, rng_range, rng_chunk_seed
+from core.systems.determinism.fixed import (
+    FX_ONE, fx, fx_mul, fx_scale_int, emit, weighted_index,
+)
+
+
+# Generation-model version. Bump on ANY change above the emit boundary —
+# it is the Python analogue of the C golden-master version gate (spec 43
+# §14.0). v1 = the float port (random.Random + IEEE arithmetic); v2 = the
+# integer kernel (spec 53 §9-A float purge).
+GENERATOR_VERSION = 2
+
+# 32-bit mask — seeds enter the C-conformant kernel as uint32.
+_U32 = 0xFFFFFFFF
+
+# fx() goes through Decimal, which is exact but slow, and stamp_at runs
+# per slot per frame over authored tables with ~250 distinct offsets. The
+# cache makes the quantization a one-time cost per distinct constant
+# without weakening it — same input, same integer, forever.
+_fxc = lru_cache(maxsize=None)(fx)
+
+# Tissue scatter gives up after this many rejected candidate positions.
+# Dropping a few scatter entries beats packing them into spike hulls.
+_TISSUE_PLACE_ATTEMPTS = 6
 
 
 # Spike spatial_class — nothing that isn't also a spike is allowed to spawn
@@ -54,18 +95,39 @@ PLAYER_STOP_THRESHOLD = 0.5
 VISUAL_RADII = {k: float(v.get("visual_radius", 0.0))
                 for k, v in _kc.all_kinds().items()}
 
+# Fixed-point mirrors — the generation path reads THESE; the float tables
+# above stay for brain_server / tile_exchange, which are render-side.
+PLAYER_STOP_THRESHOLD_FX = fx(PLAYER_STOP_THRESHOLD)
+VISUAL_RADII_FX = {k: fx(v) for k, v in VISUAL_RADII.items()}
 
-def _player_collision_radius(kind: str, sv: float) -> float:
-    r = VISUAL_RADII.get(kind, 0.0) * sv
-    return r if r >= PLAYER_STOP_THRESHOLD else 0.0
+# kind_config scale/color, quantized once at import. Authored decimals are
+# lossless at 3 places — tests/test_fixed_point.py guards that.
+KIND_PROPS_FX = {
+    k: {
+        "scale": tuple(fx(n) for n in v["scale"]),
+        "color": tuple(fx(n) for n in v["color"]),
+    }
+    for k, v in KIND_PROPS.items()
+}
+
+# Mean per-instance scale, in fx — the 1.30 that _make_entity multiplies
+# every sv by. Keep-out at stamp time uses it so hull tests match the
+# hulls that actually get rendered.
+_MEAN_SV_FX = fx(1.30)
 
 
-def _spike_visual_radius(kind: str, sv: float = 1.3) -> float:
-    """Spike hull radius for spawn keep-out. Reads the authored
+def _player_collision_radius_fx(kind: str, sv_fx: int) -> int:
+    """Per-instance collision radius in fx. Walk-through kinds emit 0."""
+    r = fx_mul(VISUAL_RADII_FX.get(kind, 0), sv_fx)
+    return r if r >= PLAYER_STOP_THRESHOLD_FX else 0
+
+
+def _spike_visual_radius_fx(kind: str, sv_fx: int = _MEAN_SV_FX) -> int:
+    """Spike hull radius for spawn keep-out, in fx. Reads the authored
     kind_config.physics.visual_radius directly — simple center + radius,
-    one number per kind. Default sv=1.3 mirrors _make_entity's mean
-    scale so stamp-time keep-out matches per-instance rendered hulls."""
-    return VISUAL_RADII.get(kind, 0.0) * sv
+    one number per kind. Default sv mirrors _make_entity's mean scale so
+    stamp-time keep-out matches per-instance rendered hulls."""
+    return fx_mul(VISUAL_RADII_FX.get(kind, 0), sv_fx)
 
 
 # Mega stamps — these get filtered out of the neighborhood around the
@@ -90,6 +152,11 @@ _AUTHORED_SLOT_DISPATCH = {
 # Slot grid — each cell holds one stamp. 16m matches the visible radius
 # (49m / 3 ≈ 16m) so the camera always sees ~3-4 slots in every direction.
 SLOT_SIZE = 16.0
+SLOT_SIZE_FX = fx(SLOT_SIZE)
+_SLOT_HALF_FX = SLOT_SIZE_FX // 2
+
+# Minimum companion separation, in fx (mirrors _COMPANION_MIN_SEP).
+_COMPANION_MIN_SEP_FX = fx(_COMPANION_MIN_SEP)
 
 # Tissue scatter config now lives in biome_data.TISSUE_KINDS_* and is
 # exposed via BIOME_REGISTRY[biome_name]["tissue_kinds"]. See _tissue_for().
@@ -157,12 +224,13 @@ def _filter_stamps_for_band(stamps: list, band: str) -> list:
     return stamps
 
 
-def _tissue_mult_for_band(band: str) -> float:
-    """Per-band tissue scatter multiplier. Spawn band gets half density so
-    the player's first few meters are CLEAR — the 'landing zone' feeling."""
+def _tissue_mult_for_band(band: str) -> int:
+    """Per-band tissue scatter multiplier, in fx. Spawn band gets half
+    density so the player's first few meters are CLEAR — the 'landing
+    zone' feeling."""
     if band == BAND_SPAWN:
-        return 0.5
-    return 1.0
+        return fx(0.5)
+    return FX_ONE
 
 
 # -- Landmark beacons ---------------------------------------------------------
@@ -194,16 +262,51 @@ def _beacon_member(gx: int, gy: int) -> dict:
     dominance over neighbor mega_columns that happen to land nearby."""
     return {
         "kind": "mega_column",
-        "dx": 0.0,
-        "dy": 0.0,
-        "scale_mult": 1.1,
+        "dx_fx": 0,
+        "dy_fx": 0,
+        "scale_mult_fx": fx(1.1),
         "hard": True,
     }
 
 
 def _slot_seed(gx: int, gy: int, world_seed: int) -> int:
-    """Deterministic per-slot seed."""
-    return world_seed ^ (gx * 7919) ^ (gy * 6271 << 1)
+    """Deterministic per-slot seed, via the C reference kernel.
+
+    Was `world_seed ^ (gx*7919) ^ (gy*6271 << 1)` — a bare XOR with no
+    avalanche. `rng_chunk_seed` is the substrate the Flipper generates
+    from: it mixes both coordinates through an fmix pass and promotes
+    0 -> 1 so a slot can never land on the degenerate xorshift state.
+
+    THE COORDINATE MAP IS LOAD-BEARING, and it is here because porting to
+    the kernel exposed a property of the kernel itself:
+
+        rng_chunk_seed(s, cx, cy) == rng_chunk_seed(s, -cx, -cy)
+        whenever cx and cy have the same number of trailing zero bits.
+
+    Both coordinate multipliers are odd, so cx and cy contribute terms
+    whose lowest set bit is at the same position; negating both
+    complements the same bit positions in each, and the XOR is unchanged.
+    ~16% of coordinate pairs within +/-64 slots collide, every (n, n)
+    diagonal included. Verified against the C directly, not inferred from
+    this port.
+
+    It does NOT surface in the Flipper's own worlds: `world_generate_chunk`
+    also folds in `biome_of` and `pool_at`, each separately salted, so
+    mirrored chunk fingerprints diverge anyway (measured). It DID surface
+    here, where the slot seed is a slot's only entropy — slot (1, 1) and
+    slot (-1, -1) grew the same stamp at the same rotation with the same
+    per-entity jitter, mirror twins 45 m apart.
+
+    So the map forces the two terms into disjoint trailing-zero classes
+    (gx odd, gy even), making the collision unreachable by construction:
+    injective over +/-256 slots (+/-4 km) at three seeds. The kernel is
+    untouched — this is a call-site choice about the desktop's own slot
+    grid, which the Flipper does not share.
+
+    Changing any of this reshuffles every slot in every world. That is the
+    intended, versioned consequence — see GENERATOR_VERSION.
+    """
+    return rng_chunk_seed(world_seed & _U32, 2 * gx + 1, 2 * gy)
 
 
 def _stamps_for(biome_name: str) -> list:
@@ -214,37 +317,63 @@ def _tissue_for(biome_name: str) -> list:
     return BIOME_REGISTRY.get(biome_name, BIOME_REGISTRY["cavern"])["tissue_kinds"]
 
 
-def _make_entity(kind: str, x: float, y: float, rng: random.Random,
-                 scale_mult: float = 1.0) -> Dict | None:
+# Per-instance jitter bands, in fx. Each is a HALF-OPEN [lo, hi) draw, so
+# the upper literal is one fx unit past the authored bound. These replace
+# rng.uniform(lo, hi); the C kernel's rng_range is half-open too, which is
+# what makes the two implementations agree.
+_SV_JITTER_LO, _SV_JITTER_HI = fx(0.75), fx(1.25) + 1
+_SZ_JITTER_LO, _SZ_JITTER_HI = fx(0.80), fx(1.20) + 1
+_RGB_JITTER_LO, _RGB_JITTER_HI = fx(0.85), fx(1.15) + 1
+_HEADING_TENTHS = 3600      # heading is drawn in tenths of a degree
+_LIGHT_HUE_COUNT = 4
+
+
+def _make_entity(kind: str, x_fx: int, y_fx: int, rng: Rng,
+                 scale_mult_fx: int = FX_ONE) -> Dict | None:
     """Build an entity dict from KIND_PROPS + per-instance jitter.
+
+    THE EMIT BOUNDARY. Everything reaching this function is fixed-point;
+    everything leaving it is float. `emit()` is the only division.
 
     collision_radius is read from kind_config.physics.visual_radius × sv.
     Walk-through kinds (visual_radius < PLAYER_STOP_THRESHOLD per instance)
     emit 0. Single source of truth shared with brain_server + tile_exchange.
+
+    Draw order (sv, heading, sz, r, g, b, light_hue) is load-bearing: the
+    slot's Rng is a single stream, so reordering these shifts every
+    subsequent entity in the slot.
     """
     props = KIND_PROPS.get(kind)
-    if props is None:
+    props_fx = KIND_PROPS_FX.get(kind)
+    if props is None or props_fx is None:
         return None
-    sv = rng.uniform(0.75, 1.25) * 1.30 * scale_mult
-    sx, sy_s, sz = props["scale"]
-    r, g, b = props["color"]
-    coll_radius = _player_collision_radius(kind, sv)
+    sv_fx = fx_mul(fx_mul(rng_range(rng, _SV_JITTER_LO, _SV_JITTER_HI),
+                          _MEAN_SV_FX), scale_mult_fx)
+    sx_fx, sy_fx, sz_fx = props_fx["scale"]
+    r_fx, g_fx, b_fx = props_fx["color"]
+    coll_fx = _player_collision_radius_fx(kind, sv_fx)
+    heading_tenths = rng_range(rng, 0, _HEADING_TENTHS)
+    sz_jit = rng_range(rng, _SZ_JITTER_LO, _SZ_JITTER_HI)
+    r_jit = rng_range(rng, _RGB_JITTER_LO, _RGB_JITTER_HI)
+    g_jit = rng_range(rng, _RGB_JITTER_LO, _RGB_JITTER_HI)
+    b_jit = rng_range(rng, _RGB_JITTER_LO, _RGB_JITTER_HI)
+    light_hue = rng_range(rng, 0, _LIGHT_HUE_COUNT)
     return {
         "kind": kind,
-        "x": round(x, 2),
-        "y": round(y, 2),
+        "x": emit(x_fx, 2),
+        "y": emit(y_fx, 2),
         "z": 0.0,
-        "heading": round(rng.uniform(0.0, 360.0), 1),
-        "sv": round(sv, 3),
-        "sx": round(sx * sv, 3),
-        "sy": round(sy_s * sv, 3),
-        "sz": round(sz * rng.uniform(0.80, 1.20), 3),
-        "r": round(r * rng.uniform(0.85, 1.15), 3),
-        "g": round(g * rng.uniform(0.85, 1.15), 3),
-        "b": round(b * rng.uniform(0.85, 1.15), 3),
+        "heading": emit(heading_tenths * 100, 1),
+        "sv": emit(sv_fx),
+        "sx": emit(fx_mul(sx_fx, sv_fx)),
+        "sy": emit(fx_mul(sy_fx, sv_fx)),
+        "sz": emit(fx_mul(sz_fx, sz_jit)),
+        "r": emit(fx_mul(r_fx, r_jit)),
+        "g": emit(fx_mul(g_fx, g_jit)),
+        "b": emit(fx_mul(b_fx, b_jit)),
         "emissive": props["emissive"],
-        "light_hue": rng.randint(0, 3),
-        "collision_radius": round(coll_radius, 3),
+        "light_hue": light_hue,
+        "collision_radius": emit(coll_fx),
         "tile_variant": "standard",
         "behavior_type": "",
         "decay_stage": 0.0,
@@ -252,41 +381,40 @@ def _make_entity(kind: str, x: float, y: float, rng: random.Random,
     }
 
 
-def _weighted_pick(stamps: list, rng: random.Random) -> Dict:
+def _weighted_pick(stamps: list, rng: Rng) -> Dict:
     """Pick one stamp using its `weight` field (default 1).
 
     Mega stamps (obelisk_court, column_henge, buttress_arch) carry
     weight: 4 in biome_data.py so they dominate the selection — a
     claustrophobic cavern needs big anchors in ~half the slots, not
     ~a fifth.
+
+    Weights are carried in fx so fractional author weights still work; the
+    draw is exact integer cumulative selection, with none of the "does the
+    float sum land above or below the last boundary" fragility the
+    `return stamps[-1]` numerical-safety line used to cover.
     """
-    weights = [float(s.get("weight", 1)) for s in stamps]
-    total = sum(weights)
-    r = rng.uniform(0.0, total)
-    cum = 0.0
-    for stamp, w in zip(stamps, weights):
-        cum += w
-        if r <= cum:
-            return stamp
-    return stamps[-1]   # numerical safety
+    weights_fx = [_fxc(s.get("weight", 1)) for s in stamps]
+    total = sum(weights_fx)
+    return stamps[weighted_index(weights_fx, rng_range(rng, 0, total))]
 
 
-def _instantiate_authored(stamp: Dict, world_cx: float, world_cy: float,
+def _instantiate_authored(stamp: Dict, world_cx_fx: int, world_cy_fx: int,
                           seed: int, salt: int) -> List[Dict]:
-    """Emit any authored stamp's members at a given world position.
+    """Emit any authored stamp's members at a given world position (fx).
 
     Shared path for ORIGIN_HUB and ENCOUNTER_TEST — authored anchors
     skip weighted selection and tissue scatter, own their coordinate
     frame, and apply per-member scale_mult literally.
     """
-    rng = random.Random(seed ^ salt)
+    rng = Rng((seed ^ salt) & _U32)
     roster: list[Dict] = []
     for member in stamp["members"]:
         kind = member["kind"]
-        x = world_cx + member.get("dx", 0.0)
-        y = world_cy + member.get("dy", 0.0)
-        scale_mult = member.get("scale_mult") or 1.0
-        ent = _make_entity(kind, x, y, rng, scale_mult)
+        x_fx = world_cx_fx + _fxc(member.get("dx", 0.0))
+        y_fx = world_cy_fx + _fxc(member.get("dy", 0.0))
+        scale_mult_fx = _fxc(member.get("scale_mult") or 1.0)
+        ent = _make_entity(kind, x_fx, y_fx, rng, scale_mult_fx)
         if ent is not None:
             roster.append(ent)
     return roster
@@ -312,10 +440,10 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
         # Origin hub is always pinned to world (0, 0) regardless of slot
         # center offset; other authored scenes use the slot grid origin.
         if slot_key == "hub_origin":
-            cx, cy = 0.0, 0.0
+            cx_fx, cy_fx = 0, 0
         else:
-            cx, cy = gx * SLOT_SIZE, gy * SLOT_SIZE
-        return _instantiate_authored(stamp, cx, cy, seed, salt)
+            cx_fx, cy_fx = gx * SLOT_SIZE_FX, gy * SLOT_SIZE_FX
+        return _instantiate_authored(stamp, cx_fx, cy_fx, seed, salt)
 
     stamps = _stamps_for(biome_name)
     if not stamps:
@@ -336,15 +464,16 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
         # back to original list rather than returning empty.
         stamps = _stamps_for(biome_name)
 
-    rng = random.Random(_slot_seed(gx, gy, seed))
-    cx = (gx + 0.5) * SLOT_SIZE
-    cy = (gy + 0.5) * SLOT_SIZE
+    rng = Rng(_slot_seed(gx, gy, seed))
+    # Slot center, exact in fx: (gx + 0.5) * SLOT_SIZE with no fraction.
+    cx_fx = gx * SLOT_SIZE_FX + _SLOT_HALF_FX
+    cy_fx = gy * SLOT_SIZE_FX + _SLOT_HALF_FX
 
     # Pick one stamp from the library via weighted selection
     stamp = _weighted_pick(stamps, rng)
 
     # Slot rotation — rotates the whole stamp by 0/90/180/270 to add variety
-    rotation_steps = rng.randint(0, 3)
+    rotation_steps = rng_range(rng, 0, 4)
     cos_r = [1, 0, -1, 0][rotation_steps]
     sin_r = [0, 1, 0, -1][rotation_steps]
 
@@ -356,26 +485,30 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     # and rejected if inside — per user rule "nothing spawns within the
     # internal boundaries of spike types" (applies to authored stamp
     # members too, not just procedural scatter).
-    solid_positions: list[tuple[float, float, float]] = []
+    # (x_fx, y_fx, keep_out_radius_fx)
+    solid_positions: list[tuple[int, int, int]] = []
 
     # Pass 1 — spike members (overlap allowed between spikes).
-    pending_nonspike: list[tuple[str, float, float, float]] = []
+    pending_nonspike: list[tuple[str, int, int, int]] = []
     for member in stamp["members"]:
         kind = member["kind"]
-        dx_local = member.get("dx", 0.0)
-        dy_local = member.get("dy", 0.0)
+        dx_local = _fxc(member.get("dx", 0.0))
+        dy_local = _fxc(member.get("dy", 0.0))
+        # cos_r / sin_r are exactly 0 or ±1 — a quarter-turn is integer
+        # rotation, so no trig and no rounding enters placement.
         dx_world = dx_local * cos_r - dy_local * sin_r
         dy_world = dx_local * sin_r + dy_local * cos_r
-        x = cx + dx_world
-        y = cy + dy_world
-        scale_mult = member.get("scale_mult") or 1.0
+        x_fx = cx_fx + dx_world
+        y_fx = cy_fx + dy_world
+        scale_mult_fx = _fxc(member.get("scale_mult") or 1.0)
         if kind in _SPIKE_KINDS_KEEPOUT:
-            ent = _make_entity(kind, x, y, rng, scale_mult)
+            ent = _make_entity(kind, x_fx, y_fx, rng, scale_mult_fx)
             if ent is not None:
                 roster.append(ent)
-                solid_positions.append((x, y, _spike_visual_radius(kind)))
+                solid_positions.append(
+                    (x_fx, y_fx, _spike_visual_radius_fx(kind)))
         else:
-            pending_nonspike.append((kind, x, y, scale_mult))
+            pending_nonspike.append((kind, x_fx, y_fx, scale_mult_fx))
 
     # Landmark beacon — if this slot's hash marks it as a beacon AND the
     # band allows it (no beacons in the spawn band; they should be AHEAD,
@@ -383,27 +516,30 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     # Spikes can overlap so this coexists with whatever stamp rolled.
     if band != BAND_SPAWN and _is_beacon_slot(gx, gy):
         beacon = _beacon_member(gx, gy)
-        bx, by = cx, cy  # slot center
-        b_ent = _make_entity(beacon["kind"], bx, by, rng, beacon["scale_mult"])
+        bx_fx, by_fx = cx_fx, cy_fx  # slot center
+        b_ent = _make_entity(beacon["kind"], bx_fx, by_fx, rng,
+                             beacon["scale_mult_fx"])
         if b_ent is not None:
             roster.append(b_ent)
-            solid_positions.append((bx, by, _spike_visual_radius(beacon["kind"])))
+            solid_positions.append(
+                (bx_fx, by_fx, _spike_visual_radius_fx(beacon["kind"])))
 
     # Pass 2 — non-spike authored members. Each candidate rejected if its
     # center sits inside a spike hull from pass 1. Companions that survive
     # get registered with a small footprint so later scatter doesn't pile.
-    for kind, x, y, scale_mult in pending_nonspike:
+    for kind, x_fx, y_fx, scale_mult_fx in pending_nonspike:
         blocked = False
         for sx, sy, sr in solid_positions:
-            if (x - sx) ** 2 + (y - sy) ** 2 < sr * sr:
+            # Squared compare in fx² — exact, no sqrt, no float.
+            if (x_fx - sx) ** 2 + (y_fx - sy) ** 2 < sr * sr:
                 blocked = True
                 break
         if blocked:
             continue
-        ent = _make_entity(kind, x, y, rng, scale_mult)
+        ent = _make_entity(kind, x_fx, y_fx, rng, scale_mult_fx)
         if ent is not None:
             roster.append(ent)
-            solid_positions.append((x, y, _COMPANION_MIN_SEP))
+            solid_positions.append((x_fx, y_fx, _COMPANION_MIN_SEP_FX))
 
     # Tissue scatter — fills the negative space within the slot bounds.
     # Each tissue kind rolls its count, positions are within the slot square.
@@ -411,28 +547,30 @@ def stamp_at(gx: int, gy: int, seed: int, biome_name: str) -> List[Dict]:
     # from overlapping — companions enhance clusters, never pile into them.
     # Band multiplier keeps spawn zone ~half density for the "landing zone"
     # feel; mid/frontier at full (1.0) count.
-    half = SLOT_SIZE / 2.0
-    tissue_mult = _tissue_mult_for_band(band)
+    tissue_mult_fx = _tissue_mult_for_band(band)
     for kind, base_count in _tissue_for(biome_name):
-        count = max(0, int(round(base_count * tissue_mult)))
+        count = max(0, fx_scale_int(base_count, tissue_mult_fx))
         for _ in range(count):
             placed = False
-            for _attempt in range(6):
-                x = cx + rng.uniform(-half, half)
-                y = cy + rng.uniform(-half, half)
+            for _attempt in range(_TISSUE_PLACE_ATTEMPTS):
+                x_fx = cx_fx + rng_range(rng, -_SLOT_HALF_FX,
+                                         _SLOT_HALF_FX + 1)
+                y_fx = cy_fx + rng_range(rng, -_SLOT_HALF_FX,
+                                         _SLOT_HALF_FX + 1)
                 too_close = False
                 for sx, sy, sr in solid_positions:
-                    dx = x - sx
-                    dy = y - sy
+                    dx = x_fx - sx
+                    dy = y_fx - sy
                     if dx * dx + dy * dy < sr * sr:
                         too_close = True
                         break
                 if too_close:
                     continue
-                ent = _make_entity(kind, x, y, rng)
+                ent = _make_entity(kind, x_fx, y_fx, rng)
                 if ent is not None:
                     roster.append(ent)
-                    solid_positions.append((x, y, _COMPANION_MIN_SEP))
+                    solid_positions.append(
+                        (x_fx, y_fx, _COMPANION_MIN_SEP_FX))
                 placed = True
                 break
             if not placed:
