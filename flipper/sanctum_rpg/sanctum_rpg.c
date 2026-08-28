@@ -1219,8 +1219,14 @@ static uint16_t purse(const AppState* st) {
     return (uint16_t)st->character.inv_qty[TRADE_NUMERAIRE_KIND];
 }
 
-/* Add shards, saturating at the slot cap. Returns what actually fit — the
- * overflow is dropped, which is the encumbrance rule (§17.3 #8), not a bug. */
+/* Would `shards` more fit? Callers that are about to give something up in
+ * exchange MUST ask first — see shop_sell. */
+static bool purse_has_room(const AppState* st, uint16_t shards) {
+    return (uint32_t)purse(st) + shards <= 255u;
+}
+
+/* Add shards, saturating at the slot cap. Returns what actually fit. Only
+ * safe to ignore the return where room was checked first. */
 static uint16_t purse_add(AppState* st, uint16_t shards) {
     uint32_t held = (uint32_t)purse(st) + shards;
     if(held > 255u) held = 255u;
@@ -1627,10 +1633,19 @@ static void shop_sell(AppState* st) {
         notify(st, &sequence_error);
         return;
     }
+    /* §17.3 #8 — the 255 cap is ACCEPTED as the encumbrance mechanic, which
+     * means a sale that would not fit is REFUSED, never partially paid. The
+     * buy path already bails before spending; this is the same discipline on
+     * the other side. Paying what fits and dropping the rest would take the
+     * item and silently eat the difference. */
+    if(!purse_has_room(st, paid)) {
+        set_status(st, "you have nowhere to put it");
+        notify(st, &sequence_error);
+        return;
+    }
     st->character.inv_qty[id]--;
-    uint16_t got = purse_add(st, paid);
+    purse_add(st, paid);
     set_statusf(st, "sold %s", k->true_name);
-    if(got < paid) set_status(st, "sold — the purse will hold no more");
     notify(st, &sequence_success);
     save_io_write_character(&st->character);
 }

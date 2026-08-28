@@ -263,8 +263,13 @@ static void test_chunk_golden(void) {
         World w;
         world_generate_chunk(cases[i].seed, cases[i].cx, cases[i].cy, &w);
         uint32_t fp = chunk_fingerprint(&w);
-        printf("  golden[%d] seed=%08lX (%d,%d) -> fp=0x%08lX\n",
+        /* Report the BIOME too. The golden set only constrains a world-gen
+         * change if it actually covers the biome that change touches — e.g.
+         * the §17.3 #4 Pool-bias guard moves cavern chunks only, so a set of
+         * all-outdoor goldens would have looked green and proved nothing. */
+        printf("  golden[%d] seed=%08lX (%d,%d) biome=%s -> fp=0x%08lX\n",
                i, (unsigned long)cases[i].seed, cases[i].cx, cases[i].cy,
+               w.biome == BIOME_CAVERN ? "cavern" : "outdoor",
                (unsigned long)fp);
         CHECK(fp == cases[i].fp, "chunk golden-master fingerprint");
     }
@@ -672,6 +677,18 @@ static void test_recipe_oddment_invariant(void) {
         }
         CHECK((uint32_t)odd->value < in_value,
               "recipe: FLOOR is a net loss — the Forge is never income");
+
+        /* ⚠ RECORDED CONSEQUENCE, not yet a decision. At the current catalog
+         * the oddment is worth LESS than one shard, so it cannot be sold at
+         * any vendor at any delta — `trade_shards_earned(2)` is 0. It is a
+         * real sink (clay pot is an input to Honed Edge), but "sellable
+         * oddment" in recipes.h is no longer true in the sense a player can
+         * act on. The squeeze is structural, not a bad pick: the invariant
+         * caps Fungal Distillate's oddment below 6 value, and every kind
+         * under 5 value is sub-shard by construction. Resolving it needs
+         * either a cheap kind priced at 5+, or lots-based selling. */
+        CHECK(trade_shards_earned(odd->value) == 0,
+              "recipe: the oddment is currently sub-shard (recorded, open)");
 
         /* Weights still sum to 100 — unchanged by the pivot, pinned here so
          * a future oddment edit cannot quietly break the roll. */
