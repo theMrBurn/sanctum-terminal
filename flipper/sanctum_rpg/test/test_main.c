@@ -927,6 +927,120 @@ static void test_creatures_populate(void) {
     CHECK(valid, "populate: creatures on walkable, non-spawn tiles");
 }
 
+/* ── the light rules (spec 45 §5.5) ──────────────────────────────────────────
+ * ⚠️ THESE EXIST BECAUSE THE FLAGS DID NOT. CF_PHOTOPHOBIC and CF_PHOTOPHILIC
+ * were authored into the bestiary and read by NOTHING in the app; the only read
+ * anywhere was `test_compose`'s CHECK that composing "frost-" SETS the flag —
+ * a green assertion whose subject was the assignment, not the behaviour. Every
+ * check below asserts on POSITION, never on the flag, so deleting the rule in
+ * creatures.c fails here rather than passing on the table that declares it. */
+static void test_light_rules(void) {
+    World w;
+    world_generate_chunk(0xCAFEBABEu, 0, 0, &w);
+
+    /* frost-slime: photophobic via the trait, flee 0 and DISP_PASSIVE via the
+     * family — so the flag is the ONLY thing that can make it retreat. */
+    const uint8_t F_SLIME = 4, T_FROST = 1, F_BAT = 3, T_PLAIN = 0;
+    CreatureDef dbg;
+    creature_compose(F_SLIME, T_FROST, &dbg);
+    CHECK((dbg.flags & CF_PHOTOPHOBIC) != 0, "light: frost-slime composes photophobic");
+    CHECK(dbg.flee == 0, "light: frost-slime has flee 0, so only the flag can move it");
+    creature_compose(F_BAT, T_PLAIN, &dbg);
+    CHECK((dbg.flags & CF_PHOTOPHILIC) != 0, "light: bat composes photophilic");
+
+    int px = w.spawn_x, py = w.spawn_y;
+    #define MKC(fam, tr, ox, oy) { \
+        .family_id = (fam), .trait_id = (tr), \
+        .x = (uint8_t)(px + (ox)), .y = (uint8_t)(py + (oy)), \
+        .state = CR_IDLE, .energy = 0, .aggro = 0, .alive = 1, \
+        .spawn_x = (uint8_t)(px + (ox)), .spawn_y = (uint8_t)(py + (oy)) }
+    #define CHEB(c) ({ int _dx=(int)(c).x-px, _dy=(int)(c).y-py; \
+                       _dx=_dx<0?-_dx:_dx; _dy=_dy<0?-_dy:_dy; _dx>_dy?_dx:_dy; })
+
+    /* 1. IT WILL NOT STAND IN YOUR LIGHT. Asserted as distance GROWING, not as
+     *    state == CR_FLEE — a state check passes even if no step is ever taken. */
+    {
+        Creature c = MKC(F_SLIME, T_FROST, 2, 0);
+        int d0 = CHEB(c);
+        for(uint32_t t = 1; t <= 6; t++) creatures_tick(&c, 1, &w, px, py, 4, 0xA1u, t, NULL);
+        CHECK(CHEB(c) > d0, "light: a photophobic creature retreats out of the lit radius");
+    }
+
+    /* 2. ⚠️ BOLDER AS YOUR TORCH DIMS, AND IT IS GEOMETRY RATHER THAN AGGRO.
+     *    Same creature, same turns, two torch radii: the bright torch must hold
+     *    it further off than the guttering one. This is the assertion that goes
+     *    red if the rule stops reading torch_radius and becomes a constant ring. */
+    {
+        Creature bright = MKC(F_SLIME, T_FROST, 1, 0);
+        Creature dim    = MKC(F_SLIME, T_FROST, 1, 0);
+        for(uint32_t t = 1; t <= 8; t++) {
+            creatures_tick(&bright, 1, &w, px, py, 4, 0xA2u, t, NULL);
+            creatures_tick(&dim,    1, &w, px, py, 2, 0xA2u, t, NULL);
+        }
+        CHECK(CHEB(bright) >= CHEB(dim),
+              "light: a bright torch holds a photophobic creature no closer than a dim one");
+    }
+
+    /* 3. HOSTILITY OVERRIDES THE LIGHT. Provoked past its threshold it comes
+     *    anyway — light never protects you from something you already wronged. */
+    {
+        Creature c = MKC(F_SLIME, T_FROST, 4, 0);
+        CreatureDef d; creature_compose(F_SLIME, T_FROST, &d);
+        c.aggro = (uint8_t)(d.provoke > 0 ? d.provoke + 4 : 255);
+        int d0 = CHEB(c);
+        for(uint32_t t = 1; t <= 6; t++) creatures_tick(&c, 1, &w, px, py, 4, 0xA3u, t, NULL);
+        CHECK(CHEB(c) <= d0, "light: a PROVOKED photophobic creature is not held off by the torch");
+    }
+
+    /* 4. DRAWN IS NOT HOSTILE — it arrives and it WAITS. Asserted as "never
+     *    closer than the standoff", checked every turn, because a creature that
+     *    steps in and back out would pass an end-state check. */
+    {
+        Creature c = MKC(F_BAT, T_PLAIN, 4, 0);
+        int closest = CHEB(c), ever_engaged = 0;
+        for(uint32_t t = 1; t <= 20; t++) {
+            creatures_tick(&c, 1, &w, px, py, 4, 0xA4u, t, NULL);
+            int dd = CHEB(c);
+            if(dd < closest) closest = dd;
+            if(c.state == CR_ENGAGE) ever_engaged = 1;
+        }
+        CHECK(closest <= 3, "light: a photophilic creature actually crosses toward the light");
+        CHECK(closest >= PHOTO_STANDOFF,
+              "light: a photophilic creature closed inside the standoff — being drawn became an attack");
+        CHECK(!ever_engaged, "light: being drawn to the light turned into an engagement");
+    }
+
+    /* 5. ⚠️ WITH THE TORCH NEARLY OUT THERE IS NOTHING TO COME TO — and this
+     *    check is placed where the TORCH is the only variable that can decide
+     *    it. Distance 5 is OUTSIDE the lit pool at every fuel level (max radius
+     *    4) and INSIDE the bat's notice of 6, so `aware` is false in both runs
+     *    and the two differ only in torch_radius.
+     *
+     *    ⚠️ THE FIRST VERSION OF THIS TEST WAS AN ANTI-TEST and mutation testing
+     *    is what exposed it: it stood the creature at distance 3 and asserted it
+     *    did not approach at radius 1 — which passed because 3 > 1 put it out of
+     *    AWARENESS, not because the draw was gated. Deleting the guard entirely
+     *    left it green. A check must be sited where the term it names is the
+     *    thing that moves the outcome. */
+    {
+        Creature dead_torch  = MKC(F_BAT, T_PLAIN, 5, 0);
+        Creature bright      = MKC(F_BAT, T_PLAIN, 5, 0);
+        int approached_dead = 0, approached_bright = 0;
+        for(uint32_t t = 1; t <= 12; t++) {
+            creatures_tick(&dead_torch, 1, &w, px, py, 1, 0xA5u, t, NULL);
+            creatures_tick(&bright,     1, &w, px, py, 4, 0xA5u, t, NULL);
+            if(dead_torch.state == CR_APPROACH) approached_dead = 1;
+            if(bright.state == CR_APPROACH)     approached_bright = 1;
+        }
+        CHECK(approached_bright,
+              "light: a bright torch did not draw a photophilic creature from beyond its pool — the draw cannot reach past the light and its guard is inert");
+        CHECK(!approached_dead,
+              "light: a guttering torch still drew a photophilic creature — it is being drawn to YOU, not to light");
+    }
+    #undef MKC
+    #undef CHEB
+}
+
 static void test_creatures_tick(void) {
     World w;
     world_generate_chunk(0xCAFEBABE, 0, 0, &w);
@@ -1947,6 +2061,7 @@ int main(void) {
     test_creature_roll();
     test_creatures_populate();
     test_creatures_tick();
+    test_light_rules();
     test_creature_scan();
     test_creatures_aggro();
     test_creatures_kill_persistence();

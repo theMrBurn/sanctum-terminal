@@ -59,8 +59,8 @@ typedef enum {
 enum {
     CF_FLIGHT      = 1u << 0, /* ignores ground obstacles; reads as hovering */
     CF_PACK        = 1u << 1, /* spawns + reacts in groups */
-    CF_PHOTOPHOBIC = 1u << 2, /* bolder as your torch dims (§5.5) */
-    CF_PHOTOPHILIC = 1u << 3, /* drawn to your light (§5.5) */
+    CF_PHOTOPHOBIC = 1u << 2, /* will not stand in your light; bolder as it dims (§5.5) */
+    CF_PHOTOPHILIC = 1u << 3, /* drawn to your light, and waits at the edge (§5.5) */
 };
 
 /* Overworld FSM state — 2 bits (spec 45 §4.2). Lives on the live creature,
@@ -71,6 +71,16 @@ typedef enum {
     CR_FLEE,
     CR_ENGAGE,
 } CreatureState;
+
+/* ── the light rules' two radii, both DERIVED rather than tuned (§5.5) ────────
+ * PHOTO_STANDOFF: `creature_act` sends anything at Chebyshev distance <= 1 to
+ * CR_ENGAGE, so 2 is the nearest ring that is not a fight. A creature drawn to
+ * your light arrives there and waits; you remain the one who has to close.
+ * PHOTO_DRAW_MIN: `fov_radius_for_fuel` returns 1 only in its lowest band
+ * (fuel < 10, "nearly out"), so >= 2 is exactly "there is still a pool to be
+ * drawn toward". Both numbers move automatically if their source moves. */
+#define PHOTO_STANDOFF  2
+#define PHOTO_DRAW_MIN  2
 
 /* Body plan (spec 45 §4.5). Flash-resident static const table. Radii are in
  * Chebyshev tiles; speed = energy gained per world-turn (the energy/speed

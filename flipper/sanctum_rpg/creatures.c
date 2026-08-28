@@ -313,7 +313,24 @@ static void creature_act(
     int heat_dampen = (weather && weather->kind == WEATHER_HEAT) ? 1 : 0;
     int fire_pacify =
         (weather && weather->kind == WEATHER_RAIN && d->element == ELEM_FIRE) ? 1 : 0;
-    if(aware && dist <= d->notice) {
+    /* ⚠️ A CREATURE THAT CAME TO YOUR LIGHT WAS NOT CROWDED BY YOU, and without
+     * this the light rule below defeats itself. The rise above is documented as
+     * "rises while YOU crowd IT" — but it keys on DISTANCE, which is symmetric
+     * in who closed it. A photophilic creature drawn to the standoff sits at 2,
+     * well inside the bat's notice of 6, and accumulates +1 a turn until it
+     * crosses provoke (8) and turns hostile. It would have provoked ITSELF by
+     * standing where the light rule told it to stand — turning "the place
+     * objects to what you did" into "the place objects to your existing", with
+     * no player agency anywhere in it. The suite caught this on the first run.
+     *
+     * So while it is drawn and not yet hostile, proximity does not crowd it: it
+     * falls to the decay arm and cools. It can still be provoked — by being
+     * cornered while fleeing (below), by pack threat, or by being born hostile
+     * (provoke == 0, which this deliberately does not exempt). What it cannot do
+     * is anger itself by accepting your invitation. */
+    int drawn_here = (d->flags & CF_PHOTOPHILIC) && torch_radius >= PHOTO_DRAW_MIN &&
+                     d->provoke > 0 && c->aggro < d->provoke;
+    if(aware && dist <= d->notice && !drawn_here) {
         int rise = 1 + (dark ? 1 : 0) + ((d->flee > 0 && dist <= d->flee) ? 1 : 0);
         rise -= heat_dampen; /* HEAT lethargy — the air saps will */
         if(rise < 0) rise = 0;
@@ -330,15 +347,83 @@ static void creature_act(
 
     if(dist <= 1) {
         c->state = CR_ENGAGE;
+    } else if(drawn_here && dist <= (int)d->notice && eff != DISP_HOSTILE) {
+        /* ⚠️ THE DRAW REACHES PAST THE POOL, and it has to, or its own guard is
+         * dead code. `aware` is `dist <= torch_radius`, and anything at dist <= 1
+         * was already claimed by CR_ENGAGE above — so a draw nested inside
+         * `aware` can never be the thing that `torch_radius >= PHOTO_DRAW_MIN`
+         * decides. I wrote it that way first and the suite proved the guard
+         * inert: mutating it away changed no test. It is only a real term out
+         * here, where a bright torch draws from up to `notice` (6 for a bat,
+         * against a lit radius of at most 4) and a guttering one draws nothing.
+         *
+         * Which is also the honest model: you can SEE a lamp from further than
+         * the lamp lights. Perception is `notice`; the pool is `torch_radius`. */
+        c->state = (dist > PHOTO_STANDOFF) ? CR_APPROACH : CR_FLEE;
     } else if(aware) {
         if(eff == DISP_HOSTILE)
             c->state = CR_APPROACH;
+        /* ── THE LIGHT RULES (spec 45 §5.5) ──────────────────────────────────
+         * CF_PHOTOPHOBIC and CF_PHOTOPHILIC were AUTHORED INTO THE BESTIARY AND
+         * READ BY NOTHING. Measured before this was written: across every .c in
+         * the app the two flags appeared only in the tables that SET them
+         * (creatures.c:29 bat, :40 frost-, :41 pallid-), and the single read
+         * anywhere was a unit test asserting that composing "frost-" SETS the
+         * flag — a green CHECK over a rule that did nothing. That is the
+         * anti-test shape: the test's subject was the assignment, not the
+         * behaviour.
+         *
+         * ⚠️ AND THE COMMENT ON THE `flee < 0` BRANCH BELOW NAMES AN EXAMPLE THE
+         * TABLES CANNOT PRODUCE. It reads "(e.g. bat drawn to light)", and the
+         * bat's flee is 0. `flee < 0` is reachable only as swift-bat or
+         * swift-slime (family flee 0 + `swift-` d_flee −1), and "swift" has
+         * nothing to do with light. So the ONE branch that was supposed to
+         * express attraction-to-light expressed speed instead. Comment fixed
+         * below; the branch keeps its real job, which is a generic approacher.
+         *
+         * ⚠️ WHY PHOTOPHOBIA NEEDS NO NUMBER: `aware` IS `dist <= torch_radius`,
+         * so inside this branch the creature is BY DEFINITION standing in your
+         * light. "It will not stand in your light" is therefore the whole rule,
+         * and the emboldening its own header promises — *bolder as your torch
+         * dims* — falls out as GEOMETRY rather than as an aggro term:
+         * `fov_radius_for_fuel` steps 4 → 3 → 2 → 1 as fuel drains, so the ring
+         * it is held at shrinks with your fuel and at radius 1 it is beside you.
+         * A dying torch does not summon it. It stops keeping it at arm's length.
+         *
+         * ⚠️ DRAWN IS NOT HOSTILE, and the standoff is what keeps that true.
+         * `dist <= 1` is CR_ENGAGE above, so a photophilic creature allowed to
+         * close would turn "it came to your light" into "it attacked you" with
+         * no player agency. PHOTO_STANDOFF is 2 because 2 is the nearest ring
+         * that is NOT a fight — derived from the ENGAGE test, not chosen. It
+         * arrives, and it waits, and YOU remain the one who has to close.
+         *
+         * ⚠️ HOSTILITY OVERRIDES BOTH — this sits below the DISP_HOSTILE test on
+         * purpose. Light never protects you from something you have already
+         * provoked, and a photophilic creature that has been driven past its
+         * provoke threshold comes for you like anything else. */
+        else if(d->flags & CF_PHOTOPHOBIC)
+            c->state = CR_FLEE; /* it will not stand in your light */
+        else if(drawn_here && dist <= (int)d->notice)
+            /* a pool worth crossing toward; at radius 1 there is nothing to
+             * come to and it goes back to its own business.
+             *
+             * ⚠️ INSIDE THE RING IT BACKS OFF — IT DOES NOT IDLE, and the first
+             * version did. `CR_IDLE` WANDERS (a deterministic ±1 step, ~50%
+             * hold), so "approach until the standoff, then idle" is not a
+             * standoff at all: the wander walks it the last tile and `dist <= 1`
+             * hands it to CR_ENGAGE. Measured — the suite caught it on the first
+             * run with "being drawn to the light turned into an engagement".
+             * A ring has to be HELD from both sides, and the hovering that
+             * produces is the right read anyway: a moth at a lamp does not sit
+             * still, it orbits. */
+            c->state = (dist > PHOTO_STANDOFF) ? CR_APPROACH : CR_FLEE;
         else if(eff == DISP_TERRITORIAL && dist <= d->notice)
             c->state = CR_APPROACH; /* territorial closes — it does NOT flee */
         else if(d->flee > 0 && dist <= d->flee)
             c->state = CR_FLEE; /* skittish: bolt within flee radius */
         else if(d->flee < 0)
-            c->state = CR_APPROACH; /* approacher (e.g. bat drawn to light) */
+            c->state = CR_APPROACH; /* generic approacher — swift-bat, swift-slime.
+                                     * NOT the light case: that is CF_PHOTOPHILIC above. */
         else
             c->state = CR_IDLE;
     } else {
