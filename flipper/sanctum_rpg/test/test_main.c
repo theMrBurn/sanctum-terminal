@@ -501,28 +501,249 @@ static void test_trade_vendor_rate(void) {
     CHECK(pct >= 10 && pct <= 24, "trade: ~1-in-6 vendor placement rate");
 }
 
+/* A non-numeraire kind id, for every pricing assertion that is about the
+ * pricing MATH rather than about the money rule. Kind 6 = chest. */
+#define K_TRADEABLE ((uint8_t)6)
+
 static void test_trade_pricing(void) {
     /* Buy ≥ sell at the same delta (spread keeps the vendor's margin). */
     for(int d = -50; d <= 50; d += 10) {
-        uint16_t buy  = trade_buy_price(100, (int8_t)d);
-        uint16_t sell = trade_sell_price(100, (int8_t)d);
+        uint16_t buy  = trade_buy_price(K_TRADEABLE, 100, (int8_t)d);
+        uint16_t sell = trade_sell_price(K_TRADEABLE, 100, (int8_t)d);
         CHECK(buy >= sell, "trade: vendor ask >= vendor bid (spread)");
     }
     /* Scrap is half of base, floored at 1. */
-    CHECK(trade_scrap_price(20) == 10, "trade: scrap = base/2 (20)");
-    CHECK(trade_scrap_price(1)  == 1,  "trade: scrap floors at 1");
+    CHECK(trade_scrap_price(K_TRADEABLE, 20) == 10, "trade: scrap = base/2 (20)");
+    CHECK(trade_scrap_price(K_TRADEABLE, 1)  == 1,  "trade: scrap floors at 1");
 
     /* Sanity: surplus chunk (delta -50) cheap to buy from; scarce chunk
      * (delta +50) good to sell to. */
-    CHECK(trade_buy_price(100, -50)  < 100, "trade: surplus cheap to buy");
-    CHECK(trade_sell_price(100, +50) > 100, "trade: scarce pays well to sell");
+    CHECK(trade_buy_price(K_TRADEABLE, 100, -50)  < 100, "trade: surplus cheap to buy");
+    CHECK(trade_sell_price(K_TRADEABLE, 100, +50) > 100, "trade: scarce pays well to sell");
 
     /* The trade triangle is profitable round-trip: buy at surplus, sell
      * at scarcity. Net should be positive. */
-    uint16_t cost = trade_buy_price(100, -50);
-    uint16_t gain = trade_sell_price(100, +50);
+    uint16_t cost = trade_buy_price(K_TRADEABLE, 100, -50);
+    uint16_t gain = trade_sell_price(K_TRADEABLE, 100, +50);
     CHECK(gain > cost,
           "trade: surplus→scarcity round-trip is profitable");
+}
+
+/* ═══ v0.6.0 — the numeraire is not a commodity (spec 43 §17) ══════════
+ *
+ * These are GUARD tests. Each one pins a seam where the shard-as-currency
+ * pivot would otherwise ship an exploit; the comments record the measured
+ * exploit so a future reader knows what the guard is for, not just that it
+ * exists. */
+
+static void test_numeraire_excluded_from_pricing(void) {
+    /* §17.3 #1. Before the guard, with the shard's catalog value of 5:
+     *   trade_scrap_price(5)     = 2  → one shard scraps into TWO shards,
+     *                                   from the Bag, no vendor, turn one.
+     *   trade_sell_price(5,+50)  = 6  → and a vendor pays six.
+     * The fix is EXCLUSION, not delta 0: at delta 0 the shard still scraps
+     * 5→2 and sells 5→4. So assert the rejection sentinel, and assert that
+     * no delta anywhere in range can talk any pricing path into a number. */
+    const KindDef* shard = kind_by_id(0);
+    CHECK(shard != NULL, "numeraire: kind 0 exists");
+    CHECK(trade_kind_is_numeraire(0), "numeraire: kind 0 IS the numeraire");
+    CHECK(!trade_kind_is_numeraire(K_TRADEABLE),
+          "numeraire: an ordinary kind is not");
+
+    CHECK(trade_scrap_price(0, shard->value) == TRADE_NO_PRICE,
+          "numeraire: scrap rejects kind 0 (the turn-one doubling machine)");
+    for(int d = -50; d <= 50; d++) {
+        CHECK(trade_buy_price(0, shard->value, (int8_t)d) == TRADE_NO_PRICE,
+              "numeraire: buy rejects kind 0 at every delta");
+        CHECK(trade_sell_price(0, shard->value, (int8_t)d) == TRADE_NO_PRICE,
+              "numeraire: sell rejects kind 0 at every delta");
+    }
+    /* And the guard must not have silently disarmed pricing in general. */
+    CHECK(trade_scrap_price(K_TRADEABLE, 20) == 10,
+          "numeraire: ordinary kinds still priced");
+}
+
+static void test_numeraire_absent_from_shop_lists(void) {
+    /* §17.3 #1, the UI half. `build_sellable_list` / `build_buyable_list`
+     * live in sanctum_rpg.c behind the Flipper SDK, so this asserts the
+     * PREDICATE they filter on — the same one, at the same source. A shard
+     * in the bag must never become a shop row. */
+    int listable = 0;
+    for(int i = 0; i < KIND_COUNT; i++) {
+        const KindDef* k = kind_by_id((uint8_t)i);
+        if(!k) continue;
+        if(k->value == 0) continue;
+        if(!(k->flags & KF_PICKUPABLE)) continue;
+        if(trade_kind_is_numeraire((uint8_t)i)) continue;
+        listable++;
+        CHECK(i != 0, "shop: kind 0 never reaches a shop list");
+    }
+    CHECK(listable > 0, "shop: the guard did not empty the shop");
+}
+
+/* §17.3 #4 is the one v0.6.0 guard that is NOT live — see the PENDING note
+ * in loot.c's `loot_roll_pooled`. Applying it moves two world-gen goldens,
+ * which §14.0 says requires an explicit generator-version bump rather than a
+ * silent edit.
+ *
+ * So this is not an assertion that the guard works; it is a MEASUREMENT of
+ * the exposure the missing guard leaves open, kept in the suite so the
+ * number is re-derived on every run instead of living in a doc. When the
+ * version bump lands, this becomes the equality assertion. */
+static void test_pool_numeraire_exposure(void) {
+    Pool flat, biased;
+    for(int i = 0; i < POOL_LOOT_KINDS; i++) {
+        flat.loot_kind_bias[i] = 0;
+        biased.loot_kind_bias[i] = 0;
+    }
+    biased.loot_kind_bias[0] = 56;  /* max bias on the numeraire */
+
+    int flat_shards = 0, biased_shards = 0;
+    const int N = 20000;
+    Rng ra, rb;
+    rng_seed(&ra, 0xBEEF0001u);
+    rng_seed(&rb, 0xBEEF0001u);
+    for(int i = 0; i < N; i++) {
+        if(loot_roll_pooled(&ra, BIOME_CAVERN, &flat) == 0)   flat_shards++;
+        if(loot_roll_pooled(&rb, BIOME_CAVERN, &biased) == 0) biased_shards++;
+    }
+    int flat_pct   = (flat_shards   * 100) / N;
+    int biased_pct = (biased_shards * 100) / N;
+    printf("  pool: numeraire share of cavern pool — unbiased %d%%, "
+           "max-biased %d%% (§17.3 #4 guard PENDING a gen-version bump)\n",
+           flat_pct, biased_pct);
+    /* The exposure is real and large — this is the finding, pinned. If this
+     * ever stops being true, either the guard landed (make this an equality
+     * assertion) or the catalog moved (re-measure §17.3 #4). */
+    CHECK(biased_pct > flat_pct + 20,
+          "pool: max bias on the numeraire IS a money-supply multiplier "
+          "(exposure measured, guard pending)");
+    CHECK(biased_pct >= 70,
+          "pool: a max-Craft cavern is majority-shard — it IS a gold mine");
+
+    /* Control: bias on an ordinary kind DOES move its share, so the test
+     * above is proving exclusion and not a broken bias path. */
+    Pool ctrl;
+    for(int i = 0; i < POOL_LOOT_KINDS; i++) ctrl.loot_kind_bias[i] = 0;
+    ctrl.loot_kind_bias[3] = 56;  /* vial — B_BOTH, so eligible in cavern */
+    int flat_vials = 0, ctrl_vials = 0;
+    Rng rc, rd;
+    rng_seed(&rc, 0xBEEF0002u);
+    rng_seed(&rd, 0xBEEF0002u);
+    for(int i = 0; i < N; i++) {
+        if(loot_roll_pooled(&rc, BIOME_CAVERN, &flat) == 3) flat_vials++;
+        if(loot_roll_pooled(&rd, BIOME_CAVERN, &ctrl) == 3) ctrl_vials++;
+    }
+    CHECK(ctrl_vials > flat_vials,
+          "pool: bias still works for ordinary kinds (control)");
+}
+
+static void test_recipe_oddment_invariant(void) {
+    /* §17.3 #2/#3. The permanent table invariant: a FLOOR pull must always
+     * be a NET LOSS, or the Forge is an income verb.
+     *
+     * This is why the oddment had to stop being currency. As a shard count
+     * the invariant was `oddment x 5 < sum(input value)` and ALL THREE rows
+     * failed it (3x5=15 vs 10; 2x5=10 vs 6; 5x5=25 vs 7 — the +178% EV
+     * §17.3 #2 measured). Forcing them to pass meant clamping every oddment
+     * to 1 — and under §17.5a's rounding, a sub-shard payout truncates to
+     * ZERO, breaking recipes.h's own "never nothing" contract. As an object
+     * the invariant is `value(oddment) < sum(input value)` and holds with no
+     * rebalance. */
+    for(int i = 0; i < RECIPE_COUNT; i++) {
+        const RecipeDef* r = recipe_def((uint8_t)i);
+        CHECK(r != NULL, "recipe: row exists");
+
+        const KindDef* odd = kind_by_id(r->oddment_kind);
+        CHECK(odd != NULL, "recipe: oddment names a real kind");
+        CHECK(!trade_kind_is_numeraire(r->oddment_kind),
+              "recipe: the floor never pays currency (#3)");
+        CHECK(odd->flags & KF_PICKUPABLE,
+              "recipe: the oddment is a thing you can hold");
+        CHECK(odd->value > 0, "recipe: the oddment is sellable, never nothing");
+
+        const KindDef* ia = kind_by_id(r->input_kind_a);
+        CHECK(ia != NULL, "recipe: input A is a real kind");
+        uint32_t in_value = (uint32_t)ia->value * r->input_qty_a;
+        if(r->input_kind_b != RECIPE_NO_INPUT) {
+            const KindDef* ib = kind_by_id(r->input_kind_b);
+            CHECK(ib != NULL, "recipe: input B is a real kind");
+            in_value += (uint32_t)ib->value * r->input_qty_b;
+        }
+        CHECK((uint32_t)odd->value < in_value,
+              "recipe: FLOOR is a net loss — the Forge is never income");
+
+        /* Weights still sum to 100 — unchanged by the pivot, pinned here so
+         * a future oddment edit cannot quietly break the roll. */
+        CHECK(r->weight_floor + r->weight_hit + r->weight_jackpot == 100,
+              "recipe: tier weights sum to 100");
+    }
+}
+
+static void test_econ_vendor_golden(void) {
+    /* §17.11's v0.6.0 bullet asked for a golden that "FAILS with the
+     * trailing-zero mapping removed". MEASURED CORRECTION: there is no such
+     * mapping at this call site to remove. The rng_chunk_seed point-symmetry
+     * collision (mirrored coords share a trailing-zero count) is a property
+     * of rng_chunk_seed, and trade.c does NOT use it — it has its own
+     * full-avalanche FNV-1a (`trade_hash32`) mixing all four words. The
+     * hazard never applied here.
+     *
+     * So the honest guard is the OUTCOME the AC wanted: mirrored chunks must
+     * be economically distinct. This fails loudly if anyone ever "unifies"
+     * trade onto rng_chunk_seed. */
+    int differing = 0, total = 0;
+    for(int n = 1; n <= 64; n++) {
+        for(uint8_t k = 0; k < (uint8_t)KIND_COUNT; k++) {
+            int8_t a = chunk_price_delta(0xCAFEBABEu,  n,  n, k);
+            int8_t b = chunk_price_delta(0xCAFEBABEu, -n, -n, k);
+            total++;
+            if(a != b) differing++;
+        }
+    }
+    /* Not "most" — mirrored chunks must be independent draws, so collisions
+     * should be at chance (~1/101 per pair), never structural. */
+    CHECK(differing > (total * 95) / 100,
+          "econ: mirrored chunks (n,n)/(-n,-n) are economically distinct");
+    printf("  econ: %d/%d mirrored (chunk,kind) pairs differ\n",
+           differing, total);
+
+    /* Deltas stay in the declared range for every kind, mirrored or not. */
+    for(int n = -32; n <= 32; n++) {
+        for(uint8_t k = 0; k < (uint8_t)KIND_COUNT; k++) {
+            int8_t d = chunk_price_delta(0xDEADBEEFu, n, n * 3 - 1, k);
+            CHECK(d >= -50 && d <= 50, "econ: delta stays in [-50,+50]");
+        }
+    }
+}
+
+static void test_shard_denomination(void) {
+    /* §17.5 + §17.5a rule 1 — truncate toward the PLAYER'S loss. */
+    CHECK(trade_shards_earned(0)  == 0, "denom: nothing earns nothing");
+    CHECK(trade_shards_earned(4)  == 0, "denom: 4 value earns 0 shards");
+    CHECK(trade_shards_earned(5)  == 1, "denom: 5 value earns 1 shard");
+    CHECK(trade_shards_earned(9)  == 1, "denom: 9 value earns 1 (remainder lost)");
+    CHECK(trade_shards_earned(10) == 2, "denom: 10 value earns 2");
+
+    CHECK(trade_shards_owed(0)  == 0, "denom: nothing owes nothing");
+    CHECK(trade_shards_owed(1)  == 1, "denom: 1 value owes a whole shard");
+    CHECK(trade_shards_owed(5)  == 1, "denom: 5 value owes 1");
+    CHECK(trade_shards_owed(6)  == 2, "denom: 6 value owes 2 (rounds against you)");
+    CHECK(trade_shards_owed(10) == 2, "denom: 10 value owes 2");
+
+    /* The rule is only meaningful if it is ASYMMETRIC against the player:
+     * you never earn more than you would owe for the same value. */
+    for(uint16_t v = 0; v <= 200; v++) {
+        CHECK(trade_shards_earned(v) <= trade_shards_owed(v),
+              "denom: the remainder is always the player's loss");
+    }
+
+    /* §17.5's rejected option, pinned: max bag value must fit uint16, which
+     * is what disqualified "shard = 1, rescale the catalog x5". */
+    uint32_t max_bag = 0;
+    for(int i = 0; i < KIND_COUNT; i++) max_bag += 255u * kind_by_id((uint8_t)i)->value;
+    CHECK(max_bag <= 0xFFFFu, "denom: max bag value fits uint16 at 1x scale");
+    CHECK(max_bag * 5u > 0xFFFFu, "denom: it would NOT fit rescaled x5");
 }
 
 static void test_trade_vendor_placement_walkable(void) {
@@ -2049,6 +2270,12 @@ int main(void) {
     test_trade_delta_bounds();
     test_trade_vendor_rate();
     test_trade_pricing();
+    test_numeraire_excluded_from_pricing();
+    test_numeraire_absent_from_shop_lists();
+    test_pool_numeraire_exposure();
+    test_recipe_oddment_invariant();
+    test_econ_vendor_golden();
+    test_shard_denomination();
     test_trade_vendor_placement_walkable();
     test_vault_home_chunk_placement();
     test_vault_only_at_home();

@@ -28,7 +28,7 @@ const RecipeDef RECIPE_CATALOG[] = {
         .weight_floor = 40,
         .weight_hit = 55,
         .weight_jackpot = 5,
-        .oddment_credits = 3,
+        .oddment_kind = 2, /* clay pot (value 2) — 2 < 10 input value */
     },
     /* "Fungal Distillate" — 2 fungus → 1 vial. Outdoor-leaning alternative. */
     {
@@ -41,7 +41,7 @@ const RecipeDef RECIPE_CATALOG[] = {
         .weight_floor = 45,
         .weight_hit = 50,
         .weight_jackpot = 5,
-        .oddment_credits = 2,
+        .oddment_kind = 2, /* clay pot (value 2) — 2 < 6 input value */
     },
     /* "Honed Edge" — 1 crystal + 1 clay pot → 1 tool (weapon, +2 atk on equip).
      * Higher-value recipe; uses two distinct materials. */
@@ -55,7 +55,8 @@ const RecipeDef RECIPE_CATALOG[] = {
         .weight_floor = 50,
         .weight_hit = 42,
         .weight_jackpot = 8,
-        .oddment_credits = 5,
+        .oddment_kind = 2, /* clay pot (value 2) — 2 < 7 input value; you
+                            * salvage the pot back, having lost the crystal */
     },
 };
 

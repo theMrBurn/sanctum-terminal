@@ -94,7 +94,7 @@
 #define DEFAULT_HP            10
 #define DEFAULT_MP            5
 #define DEFAULT_LEVEL         1
-#define DEFAULT_CREDITS       0
+#define DEFAULT_SHARDS        0  /* starting purse, in shards (kind 0) */
 #define DEFAULT_SPAWN_X       1
 #define DEFAULT_SPAWN_Y       1
 
@@ -111,7 +111,7 @@ typedef enum {
     ScreenCharSheet, /* slice 1c — read-only sheet (examine @ to open) */
     ScreenInventory, /* slice 2 — bag/equipment grid (from sheet, OK opens) */
     ScreenCraft,     /* slice 4 — the Forge: slot-machine recipe pull */
-    ScreenShop,      /* slice 4 — sell items for credits */
+    ScreenShop,      /* slice 4 — sell items for shards */
     ScreenStash,     /* slice 2026-06-03d/C — home-chunk vault deposit/withdraw */
     ScreenQuest,     /* slice 49.F5 — quest surfaced, branch A/B choice */
     ScreenFpvDemo,   /* slice 2026-06-03e — Etrian-style FPV prototype (UAT) */
@@ -287,7 +287,7 @@ static void character_init_defaults(CharacterState* c, const char* campaign_id) 
     c->mp = DEFAULT_MP;
     c->max_mp = DEFAULT_MP;
     c->level = DEFAULT_LEVEL;
-    c->credits = DEFAULT_CREDITS;
+    c->inv_qty[TRADE_NUMERAIRE_KIND] = DEFAULT_SHARDS;
     c->identified = 0;
     c->turn = 0;
     c->torch_fuel = TORCH_FUEL_MAX;
@@ -1211,6 +1211,32 @@ static void inventory_use(AppState* st) {
     save_io_write_character(&st->character);
 }
 
+/* ── The purse (spec 43 §17.1) ────────────────────────────────────────
+ * `credits` is deleted; the shard (kind 0) IS the money, so the wallet is
+ * the bag slot. These three helpers are the ONLY places that touch it, so
+ * the uint8 cap is honored in one spot instead of at four call sites. */
+static uint16_t purse(const AppState* st) {
+    return (uint16_t)st->character.inv_qty[TRADE_NUMERAIRE_KIND];
+}
+
+/* Add shards, saturating at the slot cap. Returns what actually fit — the
+ * overflow is dropped, which is the encumbrance rule (§17.3 #8), not a bug. */
+static uint16_t purse_add(AppState* st, uint16_t shards) {
+    uint32_t held = (uint32_t)purse(st) + shards;
+    if(held > 255u) held = 255u;
+    uint16_t gained = (uint16_t)(held - purse(st));
+    st->character.inv_qty[TRADE_NUMERAIRE_KIND] = (uint8_t)held;
+    return gained;
+}
+
+/* Spend shards. Returns false (and spends nothing) if the purse is short. */
+static bool purse_take(AppState* st, uint16_t shards) {
+    if(purse(st) < shards) return false;
+    st->character.inv_qty[TRADE_NUMERAIRE_KIND] =
+        (uint8_t)(purse(st) - shards);
+    return true;
+}
+
 /* Build the list of sellable kind ids (qty > 0 and value > 0). Returns count.
  * The Shop screen's cursor is an index INTO this list, not a kind id. */
 static int build_sellable_list(const CharacterState* c, uint8_t* out, int max) {
@@ -1220,6 +1246,8 @@ static int build_sellable_list(const CharacterState* c, uint8_t* out, int max) {
         if(!k) continue;
         if(c->inv_qty[i] == 0) continue;
         if(k->value == 0) continue;
+        /* §17.3 #1 — the money is not stock. Excluded, not priced at 0. */
+        if(trade_kind_is_numeraire((uint8_t)i)) continue;
         out[n++] = (uint8_t)i;
     }
     return n;
@@ -1350,13 +1378,22 @@ static void craft_pull(AppState* st) {
                      st->character.campaign_id, st->character.turn,
                      DEED_FORGE_HIT);
         break;
-    case PULL_FLOOR:
-        st->character.credits += r->oddment_credits;
-        set_statusf(st, "the work resists  +%uc",
-                    (unsigned)r->oddment_credits);
+    case PULL_FLOOR: {
+        /* §17.3 #3 — the floor pays a sellable OBJECT, never currency.
+         * Same guarded add as the HIT branch, so the uint8 cap holds. */
+        const KindDef* odd = kind_by_id(r->oddment_kind);
+        if(r->oddment_kind < SAVE_INV_KINDS_MAX &&
+           st->character.inv_qty[r->oddment_kind] < 255) {
+            st->character.inv_qty[r->oddment_kind]++;
+            st->character.identified |= (1ull << r->oddment_kind);
+        }
+        set_statusf(st, "the work resists  %s",
+                    odd ? odd->true_name : "scrap");
         notify(st, &sequence_single_vibro);
-        /* No deed on FLOOR — credits ARE the reward; growth waits for HIT. */
+        /* No deed on FLOOR — the oddment IS the consolation; growth waits
+         * for HIT. */
         break;
+    }
     }
     save_io_write_character(&st->character);
 }
@@ -1539,6 +1576,8 @@ static int build_buyable_list(uint8_t biome, uint8_t* out, int max) {
         if(!(k->flags & KF_PICKUPABLE)) continue;
         if(k->value == 0) continue;
         if(!(k->biomes & bbit)) continue;
+        /* §17.3 #1 — a vendor never sells you money. */
+        if(trade_kind_is_numeraire((uint8_t)i)) continue;
         out[n++] = (uint8_t)i;
     }
     return n;
@@ -1556,12 +1595,12 @@ static uint16_t shop_price_for(
             (int)st->character.chunk_x,
             (int)st->character.chunk_y,
             kind_id);
-        return is_buy ? trade_buy_price(base, delta)
-                      : trade_sell_price(base, delta);
+        return is_buy ? trade_buy_price(kind_id, base, delta)
+                      : trade_sell_price(kind_id, base, delta);
     }
     /* Scrap dealer is sell-only; the BUY branch never reaches here in
      * normal flow, but if it did, treat as the same scrap rate. */
-    return trade_scrap_price(base);
+    return trade_scrap_price(kind_id, base);
 }
 
 /* Sell one of the cursor's item at the shop's current bid price. */
@@ -1578,9 +1617,20 @@ static void shop_sell(AppState* st) {
     const KindDef* k = kind_by_id(id);
     if(!k) return;
     uint16_t price = shop_price_for(st, id, k->value, false);
+    if(price == TRADE_NO_PRICE) return; /* numeraire — never listed anyway */
+    /* §17.5 — prices are in `value`; payment is in whole shards, and the
+     * remainder is the player's loss (§17.5a rule 1). Cheap items are not
+     * individually worth selling; you sell in lots. */
+    uint16_t paid = trade_shards_earned(price);
+    if(paid == 0) {
+        set_statusf(st, "%s is not worth a shard alone", k->true_name);
+        notify(st, &sequence_error);
+        return;
+    }
     st->character.inv_qty[id]--;
-    st->character.credits += price;
-    set_statusf(st, "sold %s +%uc", k->true_name, (unsigned)price);
+    uint16_t got = purse_add(st, paid);
+    set_statusf(st, "sold %s", k->true_name);
+    if(got < paid) set_status(st, "sold — the purse will hold no more");
     notify(st, &sequence_success);
     save_io_write_character(&st->character);
 }
@@ -1601,8 +1651,11 @@ static void shop_buy(AppState* st) {
     const KindDef* k = kind_by_id(id);
     if(!k) return;
     uint16_t price = shop_price_for(st, id, k->value, true);
-    if(st->character.credits < price) {
-        set_statusf(st, "need %uc", (unsigned)price);
+    if(price == TRADE_NO_PRICE) return; /* numeraire — never listed anyway */
+    /* A part-shard debt costs a whole shard (§17.5a rule 1). */
+    uint16_t cost = trade_shards_owed(price);
+    if(purse(st) < cost) {
+        set_statusf(st, "need %u more", (unsigned)(cost - purse(st)));
         notify(st, &sequence_error);
         return;
     }
@@ -1610,10 +1663,10 @@ static void shop_buy(AppState* st) {
         set_status(st, "bag full");
         return;
     }
-    st->character.credits -= price;
+    if(!purse_take(st, cost)) return;
     st->character.inv_qty[id]++;
     st->character.identified |= (1ull << id); /* you bought it — you know it */
-    set_statusf(st, "bought %s -%uc", k->true_name, (unsigned)price);
+    set_statusf(st, "bought %s", k->true_name);
     notify(st, &sequence_success);
     save_io_write_character(&st->character);
 }
@@ -1729,8 +1782,7 @@ static void draw_shop_screen(Canvas* canvas, const AppState* st) {
     canvas_draw_str(canvas, 0, TITLE_BASELINE_Y, title);
     canvas_set_font(canvas, FontSecondary);
     char balance[24];
-    snprintf(
-        balance, sizeof(balance), "%luc", (unsigned long)st->character.credits);
+    snprintf(balance, sizeof(balance), "%u *", (unsigned)purse(st));
     canvas_draw_str_aligned(
         canvas, SCREEN_W, TITLE_BASELINE_Y, AlignRight, AlignBottom, balance);
     canvas_draw_line(canvas, 0, DIVIDER_Y, SCREEN_W - 1, DIVIDER_Y);
@@ -1759,12 +1811,14 @@ static void draw_shop_screen(Canvas* canvas, const AppState* st) {
             uint16_t price = shop_price_for(st, id, k->value, buy_mode);
             char line[40];
             if(buy_mode) {
-                snprintf(line, sizeof(line), "%c %s  %uc",
-                         k->glyph, k->true_name, (unsigned)price);
-            } else {
-                snprintf(line, sizeof(line), "%c %s x%u  %uc",
+                snprintf(line, sizeof(line), "%c %s  %u*",
                          k->glyph, k->true_name,
-                         (unsigned)st->character.inv_qty[id], (unsigned)price);
+                         (unsigned)trade_shards_owed(price));
+            } else {
+                snprintf(line, sizeof(line), "%c %s x%u  %u*",
+                         k->glyph, k->true_name,
+                         (unsigned)st->character.inv_qty[id],
+                         (unsigned)trade_shards_earned(price));
             }
             if(row == cursor) {
                 canvas_draw_box(canvas, 0, y - 7, SCREEN_W, 8);
@@ -2791,7 +2845,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
 
     switch(r) {
     case MovePickedUpItem: {
-        /* Slice 2026-06-03d (economy bundle): pickup grants NO credits.
+        /* Slice 2026-06-03d (economy bundle): pickup grants no windfall.
          * The slice-4 placeholder "materials grant credits on pickup"
          * was waiting for the shop sink, which now exists. All value
          * flows through the shop (scrap at half, vendor at chunk price).

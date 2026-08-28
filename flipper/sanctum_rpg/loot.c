@@ -34,13 +34,13 @@
  * lantern items will land later; their columns are zero today. */
 const KindDef KIND_CATALOG[] = {
     /* id glyph true_name        unid_name             class           wt  val  flags                                          biomes  fuel heal effect       slot       atk def lt */
-    {0, '*', "crystal shard", "a glinting sliver",  KC_CRYSTALLINE, 38,  5, KF_PICKUPABLE,                                 B_CAVE,  0, 0, "5 cr",      EQ_NONE,   0,  0,  0},
+    {0, '*', "crystal shard", "a glinting sliver",  KC_CRYSTALLINE, 38,  5, KF_PICKUPABLE,                                 B_CAVE,  0, 0, ""       ,    EQ_NONE,   0,  0,  0},
     {1, '&', "fungus cap",    "a fleshy growth",    KC_ORGANIC,     28,  3, KF_PICKUPABLE | KF_CONSUMABLE,                 B_OUT,   0, 3, "+3 HP",     EQ_NONE,   0,  0,  0},
-    {2, 'u', "clay pot",      "a clay vessel",      KC_LIFE,        24,  2, KF_PICKUPABLE,                                 B_BOTH,  0, 0, "2 cr",      EQ_NONE,   0,  0,  0},
+    {2, 'u', "clay pot",      "a clay vessel",      KC_LIFE,        24,  2, KF_PICKUPABLE,                                 B_BOTH,  0, 0, ""       ,    EQ_NONE,   0,  0,  0},
     {3, '!', "vial",          "a stoppered vial",   KC_ENCOUNTER,   14,  8, KF_PICKUPABLE | KF_CONSUMABLE,                 B_BOTH,  0, 8, "+8 HP",     EQ_NONE,   0,  0,  0},
     {4, '(', "tool",          "a worn implement",   KC_ENCOUNTER,   11, 12, KF_PICKUPABLE | KF_EQUIP,                      B_BOTH,  0, 0, "+2 atk",    EQ_WEAPON, 2,  0,  0},
     {5, 'i', "torch",         "an unlit brand",     KC_ENCOUNTER,   15,  2, KF_PICKUPABLE,                                 B_BOTH, 50, 0, "+50 fuel",  EQ_NONE,   0,  0,  0},
-    {6, 'T', "chest",         "a banded coffer",    KC_LIFE,         8, 30, KF_PICKUPABLE,                                 B_BOTH,  0, 0, "30 cr",     EQ_NONE,   0,  0,  0},
+    {6, 'T', "chest",         "a banded coffer",    KC_LIFE,         8, 30, KF_PICKUPABLE,                                 B_BOTH,  0, 0, ""       ,    EQ_NONE,   0,  0,  0},
 };
 
 const int KIND_COUNT = (int)(sizeof(KIND_CATALOG) / sizeof(KIND_CATALOG[0]));
@@ -76,6 +76,22 @@ uint8_t loot_roll_pooled(Rng* r, Biome biome, const Pool* pool) {
         if(!(KIND_CATALOG[i].flags & KF_PICKUPABLE)) continue;
         if(!(KIND_CATALOG[i].biomes & bbit)) continue;
         uint32_t base = KIND_CATALOG[i].weight;
+        /* ⚠ PENDING — spec 43 §17.3 rule #4 (the numeraire must be EXCLUDED
+         * from Pool bias) IS NOT APPLIED HERE YET, and the omission is
+         * deliberate.
+         *
+         * The guard is one `&& !trade_kind_is_numeraire(...)` on this line.
+         * It was written, measured, and reverted: it moves two of the four
+         * world-gen golden fingerprints (CAFEBABE (0,0) 0x9A4F21E6 →
+         * 0x2B4E7E0A, and (1,0) 0x01821F0D → 0x68BEF5B4). Under §14.0 that
+         * makes it a BREAKING world-gen change requiring an explicit
+         * generator-version bump — "never a silent edit". The other four
+         * v0.6.0 guards do not touch generation and are live.
+         *
+         * The exposure this leaves open is measured by
+         * `test_pool_numeraire_exposure` in test/test_main.c: at max bias
+         * the shard is ~81% of the cavern pool, so a Craft-themed region
+         * IS a gold mine. Land the guard with the version bump. */
         if(pool && i < POOL_LOOT_KINDS) {
             uint32_t bias = pool->loot_kind_bias[i];
             if(bias > 56u) bias = 56u;

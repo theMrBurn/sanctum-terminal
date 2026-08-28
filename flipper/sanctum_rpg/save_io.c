@@ -12,6 +12,8 @@
 
 #include "save_io.h"
 
+#include "trade.h"
+
 #include <furi.h>
 #include <storage/storage.h>
 #include <furi_hal_rtc.h>
@@ -450,7 +452,6 @@ static int format_character_json(const CharacterState* c, char* buf, size_t buf_
         "  \"mp\": %u,\n"
         "  \"max_mp\": %u,\n"
         "  \"level\": %u,\n"
-        "  \"credits\": %lu,\n"
         "  \"identified\": %llu,\n"
         "  \"turn\": %lu,\n"
         "  \"torch_fuel\": %u,\n"
@@ -483,7 +484,6 @@ static int format_character_json(const CharacterState* c, char* buf, size_t buf_
         (unsigned)c->mp,
         (unsigned)c->max_mp,
         (unsigned)c->level,
-        (unsigned long)c->credits,
         (unsigned long long)c->identified,
         (unsigned long)c->turn,
         (unsigned)c->torch_fuel,
@@ -540,7 +540,6 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
     out->mp = 5;
     out->max_mp = 5;
     out->level = 1;
-    out->credits = 0;
     out->identified = 0;
     out->turn = 0;
     out->torch_fuel = TORCH_FUEL_MAX; /* old saves load with full fuel, not blind */
@@ -589,7 +588,6 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
     if(read_u32(buf, "mp", &v32))        out->mp       = (uint16_t)v32;
     if(read_u32(buf, "max_mp", &v32))    out->max_mp   = (uint16_t)v32;
     if(read_u32(buf, "level", &v32))     out->level    = (uint8_t)v32;
-    if(read_u64(buf, "credits", &v64))   out->credits  = (uint32_t)v64;
     if(read_u64(buf, "identified", &v64)) out->identified = v64;
     if(read_u32(buf, "turn", &v32))      out->turn       = v32;
     if(read_u32(buf, "torch_fuel", &v32)) out->torch_fuel = (uint16_t)v32;
@@ -634,6 +632,17 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
     if(read_u32(buf, "equipped_weapon", &v32)) out->equipped_weapon = (uint8_t)v32;
     if(read_u32(buf, "equipped_light", &v32))  out->equipped_light  = (uint8_t)v32;
     if(read_u32(buf, "equipped_armor", &v32))  out->equipped_armor  = (uint8_t)v32;
+
+    /* MIGRATION (v0.6.0, spec 43 §17.11) — `credits` → shards.
+     * Runs AFTER `inv` is parsed so the converted balance adds to the loaded
+     * bag rather than being overwritten by it. A pre-0.6 save keeps its key
+     * on disk until the next write; §14.0 forbids wiping it out from under
+     * the player. Integer-only, saturating at the uint8 slot. */
+    if(read_u64(buf, "credits", &v64)) {
+        uint32_t shards = (uint32_t)(v64 / (uint64_t)TRADE_SHARD_VALUE);
+        uint32_t held = (uint32_t)out->inv_qty[TRADE_NUMERAIRE_KIND] + shards;
+        out->inv_qty[TRADE_NUMERAIRE_KIND] = (uint8_t)(held > 255u ? 255u : held);
+    }
 
 out:
     storage_file_free(file);

@@ -53,7 +53,23 @@ int8_t chunk_price_delta(uint32_t seed, int cx, int cy, uint8_t kind_id) {
     return (int8_t)v;
 }
 
-uint16_t trade_buy_price(uint16_t base, int8_t delta) {
+bool trade_kind_is_numeraire(uint8_t kind_id) {
+    return kind_id == (uint8_t)TRADE_NUMERAIRE_KIND;
+}
+
+uint16_t trade_shards_earned(uint16_t value) {
+    /* §17.5a rule 1 — truncate toward the player's loss. */
+    return (uint16_t)((uint32_t)value / TRADE_SHARD_VALUE);
+}
+
+uint16_t trade_shards_owed(uint16_t value) {
+    /* Same rule, other direction: a part-shard debt costs a whole shard. */
+    uint32_t v = (uint32_t)value + (TRADE_SHARD_VALUE - 1u);
+    return (uint16_t)(v / TRADE_SHARD_VALUE);
+}
+
+uint16_t trade_buy_price(uint8_t kind_id, uint16_t base, int8_t delta) {
+    if(trade_kind_is_numeraire(kind_id)) return TRADE_NO_PRICE;
     /* Vendor's ask: base × (100 + delta + spread) / 100 */
     int p = (int)base * (100 + (int)delta + TRADE_SPREAD) / 100;
     if(p < 1) p = 1;
@@ -61,7 +77,8 @@ uint16_t trade_buy_price(uint16_t base, int8_t delta) {
     return (uint16_t)p;
 }
 
-uint16_t trade_sell_price(uint16_t base, int8_t delta) {
+uint16_t trade_sell_price(uint8_t kind_id, uint16_t base, int8_t delta) {
+    if(trade_kind_is_numeraire(kind_id)) return TRADE_NO_PRICE;
     /* Vendor's bid: base × (100 + delta - spread) / 100 */
     int p = (int)base * (100 + (int)delta - TRADE_SPREAD) / 100;
     if(p < 1) p = 1;
@@ -69,7 +86,8 @@ uint16_t trade_sell_price(uint16_t base, int8_t delta) {
     return (uint16_t)p;
 }
 
-uint16_t trade_scrap_price(uint16_t base) {
+uint16_t trade_scrap_price(uint8_t kind_id, uint16_t base) {
+    if(trade_kind_is_numeraire(kind_id)) return TRADE_NO_PRICE;
     /* Anywhere, lossy: half of base. Floor at 1. */
     return (base / 2u) > 0u ? (uint16_t)(base / 2u) : 1u;
 }

@@ -62,7 +62,14 @@ typedef struct {
     uint16_t mp;
     uint16_t max_mp;
     uint8_t level;
-    uint32_t credits;
+    /* `credits` was DELETED in v0.6.0 (spec 43 §17.1). The shard — kind id
+     * 0 — is the currency now, so the wallet is simply `inv_qty[0]`; there
+     * is no separate accounting scalar.
+     *
+     * §14.0 requires that a schema bump NEVER wipe an existing save, so the
+     * loader still READS the `credits` key from a pre-0.6 save and converts
+     * it at `TRADE_SHARD_VALUE` (credits/5) into `inv_qty[0]`, capped at the
+     * uint8 slot. Nothing writes the key any more. */
     uint64_t identified;   /* bitmask of identified kind ids (v0.3.3) */
     uint32_t turn;         /* turn counter — the event-driven clock (v0.3.5) */
     uint16_t torch_fuel;   /* burns 1/turn; drives vision radius (v0.3.5) */

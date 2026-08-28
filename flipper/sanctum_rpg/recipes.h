@@ -4,7 +4,7 @@
  * Each recipe carries inputs (1-2 kinds × required qty), an output kind, and
  * the three base tier weights for the single weighted `rng_range` roll that
  * decides the pull's outcome: JACKPOT (masterwork — bonus quantity), HIT
- * (standard — the item), FLOOR (sellable oddment — credits, never nothing).
+ * (standard — the item), FLOOR (a sellable oddment OBJECT, never nothing).
  *
  * The user's design (verbatim): "slot machine craft system, super simple,
  * and it notifies us if we have the materials to attempt crafting an item,
@@ -21,7 +21,7 @@
 
 /* Tier of a single Forge pull. */
 typedef enum {
-    PULL_FLOOR = 0,  /* oddment — credits, no item */
+    PULL_FLOOR = 0,  /* oddment — a low-value object, not currency */
     PULL_HIT,        /* the item, standard quality (qty 1) */
     PULL_JACKPOT,    /* the item, masterwork (qty 2 — bonus stack) */
 } PullTier;
@@ -39,7 +39,17 @@ typedef struct {
     uint8_t weight_floor;    /* base % chance of oddment */
     uint8_t weight_hit;      /* base % chance of standard */
     uint8_t weight_jackpot;  /* base % chance of masterwork — sums to 100 */
-    uint8_t oddment_credits; /* credits granted on FLOOR */
+    /* Spec 43 §17.3 rule #3 — FLOOR pays a low-value KIND, never currency.
+     * Paying currency made the Forge a vendorless mint and removed the
+     * liquidation step that makes crafting a CONVERSION. It also could not
+     * survive §17.5's denomination: an oddment worth 3 value rounds to ZERO
+     * whole shards under the §17.5a rounding law, which would have violated
+     * this module's own "never nothing" contract.
+     *
+     * Table invariant, asserted in `make test`: the oddment's catalog value
+     * must be strictly less than the summed value of the recipe's inputs —
+     * a FLOOR pull is always a net loss, so it can never be an income verb. */
+    uint8_t oddment_kind;    /* KindDef id granted on FLOOR */
 } RecipeDef;
 
 extern const RecipeDef RECIPE_CATALOG[];
