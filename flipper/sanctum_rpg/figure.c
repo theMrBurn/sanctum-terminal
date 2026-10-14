@@ -2,11 +2,14 @@
  *
  * Pipeline, all in a 32-unit design space scaled to the budget:
  *   1. BODY   — the family's body plan fills the mask (silhouette).
- *   2. HIDE   — tighten the silhouette (no lone pixels / notches), then
- *               ink = outline + POSTERIZED FORM (clear top, solid below a
- *               hard terminator, one accent line).
+ *   2. HIDE   — tighten the silhouette (no lone pixels, spurs or notches),
+ *               then ink = outline + POSTERIZED FORM (clear top, solid below
+ *               a hard terminator, one accent line), then despeckle (no
+ *               isolated dots of either tone survive inside the body).
  *   3. DETAIL — limbs, tails, antennae (ink+mask), eyes (mask only: they
- *               glow as opaque light out of a dark body).
+ *               glow as opaque light out of a dark body). Plans that face
+ *               the viewer (spider, bat, slime) are then mirrored: one half,
+ *               reflected, so both sides are always pixel-identical.
  *   4. TRAIT  — cues read from the trait's DATA, not its name, so a trait
  *               added later gets a look for free:
  *                 element ICE      -> ice spikes along the back
@@ -138,6 +141,7 @@ typedef enum { HIDE_FUR, HIDE_SHELL, HIDE_DARK, HIDE_MEMBRANE, HIDE_GEL } Hide;
 typedef struct {
     char glyph;
     Hide hide;
+    bool front;      /* faces the viewer: composed mirror-symmetric */
     void (*body)(Plane* m, const Xf* t, int st, int fr);
     void (*detail)(Plane* ink, Plane* m, const Xf* t, int st, int fr);
 } BodyPlan;
@@ -177,6 +181,8 @@ static void beetle_detail(Plane* ink, Plane* m, const Xf* t, int st, int fr) {
     eye(ink, m, t, 28 + st, 26 + st * 2);
 }
 
+#define SPIDER_MARK_Y 18   /* spider: design row of the mark on its back */
+
 /* spider — round body high on eight splayed legs, knees above the back. */
 static void spider_body(Plane* m, const Xf* t, int st, int fr) {
     (void)fr;
@@ -194,10 +200,14 @@ static void spider_detail(Plane* ink, Plane* m, const Xf* t, int st, int fr) {
             limb(ink, m, t, 16 + s * 3, 21 - st * 2, kx, ky);
             limb(ink, m, t, kx, ky, fx, fy);
         }
-    for(int k = -1; k <= 1; k += 2) eye(ink, m, t, 16 + k, 25 - st * 2);
-    eye(ink, m, t, 16 + 2, 24 - st * 2);
-    eye(ink, m, t, 16 - 2, 24 - st * 2);
+    eye(ink, m, t, 17, 25 - st * 2);                          /* eyes (mirrored) */
+    eye(ink, m, t, 18, 24 - st * 2);
+    eye(ink, m, t, 16, SPIDER_MARK_Y - st * 2);               /* the mark on its back */
+    eye(ink, m, t, 16, SPIDER_MARK_Y + 1 - st * 2);
 }
+
+#define BAT_FINGERS     3   /* scallops per wing */
+#define BAT_FINGER_GAP  4   /* design units between them (>= 2px gaps survive tighten) */
 
 /* bat — small body, ears, wide scalloped wings (flap per frame). */
 static void bat_body(Plane* m, const Xf* t, int st, int fr) {
@@ -205,10 +215,12 @@ static void bat_body(Plane* m, const Xf* t, int st, int fr) {
     ellipse(m, t, 16, 16, 3, 3, 1);                           /* head */
     int wy = st ? 12 : (fr ? 17 : 21);                        /* wing tip height */
     for(int s = -1; s <= 1; s += 2) {                         /* both wings */
-        for(int k = 0; k < 4; k++) {                          /* scallops */
-            int cx = 16 + s * (6 + k * 3);
-            int cy = wy + (3 - k) * (22 - wy) / 4;
-            ellipse(m, t, cx, cy + 2, 3, 3, 1);
+        ellipse(m, t, 16 + s * 5, 20, 3, 2, 1);               /* wing root: joins the body */
+        for(int k = 0; k < BAT_FINGERS; k++) {
+            int cx = 16 + s * (7 + k * BAT_FINGER_GAP);
+            int cy = 20 + k * (wy - 20) / (BAT_FINGERS - 1);  /* rises toward the tip */
+            ellipse(m, t, cx, cy - 1, 3, 2, 1);               /* leading edge */
+            ellipse(m, t, cx, cy + 1, 2, 3, 1);               /* scallop: gaps open below */
         }
     }
 }
@@ -236,11 +248,11 @@ static void slime_detail(Plane* ink, Plane* m, const Xf* t, int st, int fr) {
 }
 
 static const BodyPlan PLANS[] = {
-    {'r', HIDE_FUR,      rat_body,    rat_detail},
-    {'b', HIDE_SHELL,    beetle_body, beetle_detail},
-    {'s', HIDE_DARK,     spider_body, spider_detail},
-    {'B', HIDE_MEMBRANE, bat_body,    bat_detail},
-    {'S', HIDE_GEL,      slime_body,  slime_detail},
+    {'r', HIDE_FUR,      false, rat_body,    rat_detail},
+    {'b', HIDE_SHELL,    false, beetle_body, beetle_detail},
+    {'s', HIDE_DARK,     true,  spider_body, spider_detail},
+    {'B', HIDE_MEMBRANE, true,  bat_body,    bat_detail},
+    {'S', HIDE_GEL,      true,  slime_body,  slime_detail},
 };
 
 static const BodyPlan* plan_for(char glyph) {
@@ -254,7 +266,8 @@ static const BodyPlan* plan_for(char glyph) {
  * below, with exactly one 50% row at the boundary — two tones and a hard
  * edge, which is what reads as tight on a 1-bit screen (gradient dither
  * read as mush; tried 2026-10-14, see sheets). Each hide has its own
- * terminator and ONE accent drawn as a crisp clear line or dot. */
+ * terminator and ONE accent drawn as a crisp clear LINE — never single
+ * dots or a checker row, which despeckle() would treat as noise. */
 #define TERM_SOLID 0
 static const struct { int8_t term; } MATERIAL[] = {
     [HIDE_FUR]      = {11},          /* pale coat, dark belly */
@@ -266,17 +279,17 @@ static const struct { int8_t term; } MATERIAL[] = {
 #define GLOSS_V        5   /* shell: a clear highlight line at this depth */
 #define SHINE_V        3   /* slime: a clear shine dot row */
 #define EMBER_TERM     4   /* ember: crust below this depth */
-#define EMBER_SEAM    11   /* ember: one glowing seam per this many px */
-#define SPIDER_MARK_V  6   /* spider: a single clear mark on the back */
+#define EMBER_SEAM_V   9   /* ember: depth of the glowing seam ... */
+#define EMBER_DASH     3   /* ... broken into dashes this long (crawl per frame) */
 
 static bool hide_ink(Hide h, int x, int y, int v, bool small) {
     if(small) return true;                     /* tiny: solid silhouette reads best */
     int term = MATERIAL[h].term;
-    bool ink = v > term || (v == term && term != TERM_SOLID ? ((x + y) & 1) : v >= term);
+    (void)x; (void)y;
+    bool ink = term == TERM_SOLID || v > term;
     switch(h) {
-    case HIDE_SHELL: if(v == GLOSS_V && (x & 1)) ink = false; break;   /* gloss */
-    case HIDE_GEL:   if(v == SHINE_V && (x % 5) == 2) ink = false; break;
-    case HIDE_DARK:  if(v == SPIDER_MARK_V && (x % 6) == 3) ink = false; break;
+    case HIDE_SHELL: if(v == GLOSS_V) ink = false; break;             /* gloss line */
+    case HIDE_GEL:   if(v == SHINE_V) ink = false; break;             /* shine line */
     default: break;
     }
     return ink;
@@ -292,22 +305,64 @@ static int column_v(const Plane* m, int x, int y) {
     return span > 0 ? ((y - top) * 15) / span : 0;
 }
 
-/* TIGHTEN the silhouette before it is outlined: drop lone pixels and fill
- * one-pixel notches, the jaggies where primitives meet. */
+/* TIGHTEN the silhouette before it is outlined: drop lone pixels and
+ * SPURS (a pixel held by one side only — the nubs an ellipse leaves at its
+ * poles), and fill one-pixel notches, the jaggies where primitives meet.
+ * Each pass reads a snapshot, so a thin part is trimmed by one pixel per
+ * pass instead of unzipping in raster order. */
+#define TIGHTEN_PASSES 2
 static void tighten(Plane* m) {
-    for(int pass = 0; pass < 2; pass++)
+    uint8_t snap_b[FIGURE_PLANE_BYTES];
+    Plane s = {snap_b, m->w, m->h, m->stride};
+    for(int pass = 0; pass < TIGHTEN_PASSES; pass++) {
+        memcpy(snap_b, m->b, (size_t)(m->stride * m->h));
         for(int y = 0; y < m->h; y++)
             for(int x = 0; x < m->w; x++) {
-                int l = pget(m, x - 1, y), r = pget(m, x + 1, y);
-                int u = pget(m, x, y - 1), d = pget(m, x, y + 1);
-                if(pget(m, x, y)) {
-                    int n8 = l + r + u + d + pget(m, x - 1, y - 1) + pget(m, x + 1, y - 1) +
-                             pget(m, x - 1, y + 1) + pget(m, x + 1, y + 1);
-                    if(n8 == 0) pset(m, x, y, 0);              /* lone pixel */
+                int l = pget(&s, x - 1, y), r = pget(&s, x + 1, y);
+                int u = pget(&s, x, y - 1), d = pget(&s, x, y + 1);
+                if(pget(&s, x, y)) {
+                    if(l + r + u + d <= 1) pset(m, x, y, 0);   /* lone pixel / spur */
                 } else if((l && r && (u || d)) || (u && d && (l || r))) {
                     pset(m, x, y, 1);                          /* one-pixel notch */
                 }
             }
+    }
+}
+
+/* DESPECKLE the hide: a pixel whose in-body neighbours are ALL the other
+ * tone is noise (a stray dot of light in a dark shell, or of ink in a pale
+ * coat) — flip it. Runs before eyes are placed, so eyes are never touched;
+ * accent LINES survive because each pixel has a same-tone neighbour. */
+static void despeckle(Plane* ink, const Plane* m) {
+    uint8_t snap_b[FIGURE_PLANE_BYTES];
+    Plane s = {snap_b, ink->w, ink->h, ink->stride};
+    memcpy(snap_b, ink->b, (size_t)(ink->stride * ink->h));
+    static const int8_t N4[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+    for(int y = 0; y < ink->h; y++)
+        for(int x = 0; x < ink->w; x++) {
+            if(!pget(m, x, y)) continue;
+            int me = pget(&s, x, y), same = 0;
+            bool rim = false;
+            for(int k = 0; k < 4; k++) {
+                int nx = x + N4[k][0], ny = y + N4[k][1];
+                if(!pget(m, nx, ny)) { rim = true; break; }   /* the outline is not noise */
+                same += pget(&s, nx, ny) == me;
+            }
+            if(!rim && same == 0) pset(ink, x, y, !me);
+        }
+}
+
+/* SYMMETRY: a creature that faces the viewer is one half, mirrored. The
+ * right half is the source (profile cues — head, horns — sit on the right),
+ * copied over the left about the box's true centre, so line rounding can
+ * never make the two sides differ. */
+static void mirror_half(Plane* a, Plane* b) {
+    for(int y = 0; y < a->h; y++)
+        for(int x = 0; x < a->w / 2; x++) {
+            int xr = a->w - 1 - x;
+            pset(a, x, y, pget(a, xr, y));
+            pset(b, x, y, pget(b, xr, y));
+        }
 }
 
 static void mirror_x(Plane* a, Plane* b) {
@@ -387,24 +442,12 @@ bool figure_compose(
     /* 1. BODY */
     plan->body(&m, &t, st, fr);
 
-    /* 4a. TRAIT silhouette additions (before the hide, so they get outlined) */
-    if(tr->element == ELEM_ICE) {                       /* ice spikes along the back */
-        for(int k = 0; k < 4; k++) {
-            int x = 9 + k * 4;
-            limb(&ink, &m, &t, x, 20, x + 1, 13 + (k & 1) * 2);
-            limb(&ink, &m, &t, x + 2, 20, x + 1, 13 + (k & 1) * 2);
-        }
-    }
+    /* 4a. TRAIT silhouette additions that are BODIES (outlined by the hide) */
     if(tr->element == ELEM_FIRE) {                      /* flame tongues, flicker per frame */
         for(int k = 0; k < 3; k++) {
             int x = 11 + k * 5, h = 10 + ((k + fr) % 2) * 3;
             ellipse(&m, &t, x, 19 - h / 2, 2, h / 2, 1);
         }
-    }
-    if(big) {                                           /* horns */
-        limb(&ink, &m, &t, 20, 18, 23, 11);
-        limb(&ink, &m, &t, 23, 11, 25, 13);
-        limb(&ink, &m, &t, 24, 19, 28, 12);
     }
 
     /* 2. HIDE — tighten the silhouette, then outline + form shading */
@@ -424,15 +467,32 @@ bool figure_compose(
             else if(pale) on = small;                           /* hollow, unless tiny */
             else if(banded && !small && (v == 5 || v == 10)) on = true;   /* bands follow the body */
             else if(tr->element == ELEM_FIRE && !small)          /* dark crust, glowing seams */
-                on = v > EMBER_TERM && ((x + 2 * y + fr) % EMBER_SEAM) != 0;
+                on = v > EMBER_TERM && !(v == EMBER_SEAM_V && ((x + fr * EMBER_DASH) / EMBER_DASH) & 1);
             else on = hide_ink(plan->hide, x, y, v, small);
             pset(&ink, x, y, on);
         }
 
+    despeckle(&ink, &m);
+
+    /* 4b. TRAIT strokes — 1px, so all outline; drawn after tighten/despeckle */
+    if(tr->element == ELEM_ICE) {                       /* ice spikes along the back */
+        for(int k = 0; k < 4; k++) {
+            int x = 9 + k * 4;
+            limb(&ink, &m, &t, x, 20, x + 1, 13 + (k & 1) * 2);
+            limb(&ink, &m, &t, x + 2, 20, x + 1, 13 + (k & 1) * 2);
+        }
+    }
+    if(big) {                                           /* horns */
+        limb(&ink, &m, &t, 20, 18, 23, 11);
+        limb(&ink, &m, &t, 23, 11, 25, 13);
+        limb(&ink, &m, &t, 24, 19, 28, 12);
+    }
+
     /* 3. DETAIL — limbs + eyes over the hide */
     plan->detail(&ink, &m, &t, st, fr);
+    if(plan->front) mirror_half(&ink, &m);
 
-    /* 4b. TRAIT overlays */
+    /* 4c. TRAIT overlays (asymmetric on purpose: streaks trail) */
     if(tr->d_speed >= SPEED_STREAK_MIN && pose != POSE_DEAD) {   /* trailing streaks */
         for(int k = 0; k < 3; k++) {
             int y = 21 + k * 3;
