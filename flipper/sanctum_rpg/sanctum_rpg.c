@@ -3066,6 +3066,16 @@ int32_t sanctum_rpg_app(void* p) {
         if(event.type != InputTypeShort && event.type != InputTypeRepeat &&
            event.type != InputTypeLong)
             continue;
+        /* Repeat is for the d-pad only (hold to keep walking / scrolling).
+         * OK and Back mean one deliberate act each. Holding OK past the
+         * long-press (the FPV toggle) streams Repeats, and each one used to
+         * land as an OK press: FPV's "examine ahead" flipped on and off
+         * (spending turns, logging SIGHT deeds), and release often left the
+         * player in an examine mode FPV doesn't draw — so Up/Down moved an
+         * invisible cursor and the view seemed to ignore movement. */
+        if(event.type == InputTypeRepeat &&
+           (event.key == InputKeyOk || event.key == InputKeyBack))
+            continue;
 
         /* Each input is a fresh frame — transient status cleared on title/picker,
          * preserved on world only when the move sets it. */
@@ -3221,6 +3231,9 @@ int32_t sanctum_rpg_app(void* p) {
                         if(state.examine_x >= WORLD_COLS) state.examine_x = WORLD_COLS - 1;
                         if(state.examine_y < 0) state.examine_y = 0;
                         if(state.examine_y >= WORLD_ROWS) state.examine_y = WORLD_ROWS - 1;
+                        /* FPV draws no examine cursor, so say the mode out
+                         * loud — otherwise Up/Down silently stop walking. */
+                        set_status(&state, "looking ahead. Back: done");
                         break;
                     case InputKeyBack:
                         state.screen = ScreenTitle;
