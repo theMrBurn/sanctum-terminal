@@ -16,6 +16,7 @@
 #include "../render_fpv.h"
 #include "../rng.h"
 #include "../stamps.h"
+#include "../terrain.h"
 #include "../world.h"
 
 extern int fpv_test_wall_top[];
@@ -220,6 +221,123 @@ static void test_figures_are_opaque(void) {
     if(leaks) printf("    %d of %d creature billboards leaked\n", leaks, scenes);
 }
 
+/* ── terrain (terrain.h) ─────────────────────────────────────────── */
+static const char PROPS[] = {'I', 'Q', 'o', '~', ';', 'q'};
+#define PROP_N ((int)sizeof(PROPS))
+
+static void flat_chunk(World* w, int biome) {
+    memset(w, 0, sizeof(*w));
+    w->biome = (Biome)biome;
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++)
+            w->tiles[y][x] = (x == 0 || y == 0 || x == WORLD_COLS - 1 || y == WORLD_ROWS - 1)
+                                 ? TILE_WALL : TILE_FLOOR;
+    w->spawn_x = 1; w->spawn_y = 3;
+}
+
+/* RULE: a PROP stands in the open — the ray passes it, so the wall behind
+ * is still drawn (the old renderer drew every blocker as a full wall). */
+static void test_props_do_not_stop_rays(void) {
+    World w;
+    flat_chunk(&w, BIOME_CAVERN);
+    Canvas c;
+    canvas_clear(&c);
+    render_fpv_world(&c, &w, 1, 3, 1, NULL, 0);
+    int empty_top = fpv_test_wall_top[64];
+    int bad = 0;
+    for(int i = 0; i < PROP_N; i++) {
+        w.tiles[3][3] = PROPS[i];
+        canvas_clear(&c);
+        render_fpv_world(&c, &w, 1, 3, 1, NULL, 0);
+        if(fpv_test_wall_top[64] != empty_top) bad++;
+        CHECK(world_is_blocking(PROPS[i]) == (PROPS[i] != ';' && PROPS[i] != 'q'),
+              "terrain: prop form is render-only — movement rules unchanged");
+    }
+    CHECK(bad == 0, "terrain: props do not stop first-person rays");
+    w.tiles[3][3] = 'O';
+    canvas_clear(&c);
+    render_fpv_world(&c, &w, 1, 3, 1, NULL, 0);
+    CHECK(fpv_test_wall_top[64] < empty_top, "terrain: slabs (mega column) still stop rays");
+}
+
+/* RULE: identity — every prop has its own silhouette at the device size,
+ * and is still distinct at a distant size; mask contains ink. */
+static void test_prop_identity(void) {
+    static uint8_t ink[PROP_N][PIXKIT_PLANE_BYTES], mask[PROP_N][PIXKIT_PLANE_BYTES];
+    static const int sizes[] = {32, 12};
+    for(unsigned z = 0; z < 2; z++) {
+        int same = 0, bad_mask = 0;
+        for(int i = 0; i < PROP_N; i++) {
+            CHECK(terrain_compose_prop(PROPS[i], 0, sizes[z], ink[i], mask[i]), "terrain: prop composes");
+            for(int k = 0; k < PIXKIT_PLANE_BYTES; k++) bad_mask += (ink[i][k] & ~mask[i][k]) != 0;
+            for(int j = 0; j < i; j++) same += memcmp(mask[i], mask[j], PIXKIT_PLANE_BYTES) == 0;
+        }
+        CHECK(bad_mask == 0, "terrain: prop mask contains its ink");
+        CHECK(same == 0, z == 0 ? "terrain: every prop has its own silhouette (32px)"
+                                : "terrain: every prop still distinct at 12px");
+    }
+    static uint8_t a[PIXKIT_PLANE_BYTES], b[PIXKIT_PLANE_BYTES];
+    CHECK(!terrain_compose_prop('#', 0, 32, a, b), "terrain: a wall is not a prop");
+}
+
+#define TERRAIN_GOLDEN 0x54662DF3BBD40BD0ULL
+static void test_terrain_golden(void) {
+    static uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
+    uint64_t h = 0xCBF29CE484222325ULL;
+    for(int i = 0; i < PROP_N; i++)
+        for(int v = 0; v < TERRAIN_VARIANTS; v++)
+            for(int size = 8; size <= PIXKIT_MAX_PX; size++) {
+                terrain_compose_prop(PROPS[i], (uint8_t)v, size, ink, mask);
+                for(int k = 0; k < PIXKIT_PLANE_BYTES; k++) h = (h ^ ink[k]) * 0x100000001B3ULL;
+                for(int k = 0; k < PIXKIT_PLANE_BYTES; k++) h = (h ^ mask[k]) * 0x100000001B3ULL;
+            }
+    printf("  terrain golden (props): 0x%016llX\n", (unsigned long long)h);
+    CHECK(h == TERRAIN_GOLDEN, "terrain: prop golden fingerprint unchanged");
+}
+
+/* OPAQUE PROPS (rule 8): a prop in front of a wall hides it. */
+static void test_props_are_opaque(void) {
+    int scenes = 0, leaks = 0;
+    for(int i = 0; i < PROP_N; i++)
+        for(int d = 1; d <= 4; d++) {
+            World w;
+            flat_chunk(&w, BIOME_CAVERN);
+            w.tiles[3][1 + d] = PROPS[i];
+            Canvas a, b;
+            fpv_test_last_figure_size = 0;
+            canvas_clear(&a);
+            render_fpv_world(&a, &w, 1, 3, 1, NULL, 0);
+            int x0 = fpv_test_last_figure_x0, y0 = fpv_test_last_figure_y0, size = fpv_test_last_figure_size;
+            fpv_test_underpaint = 1;
+            canvas_clear(&b);
+            render_fpv_world(&b, &w, 1, 3, 1, NULL, 0);
+            fpv_test_underpaint = 0;
+            if(!size) continue;
+            scenes++;
+            int box = size > 32 ? 32 : (size < 8 ? 8 : size);
+            static uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
+            /* variant as render_fpv derives it — recompute via any match */
+            int leaked = 1;
+            for(int v = 0; v < TERRAIN_VARIANTS && leaked; v++) {
+                terrain_compose_prop(PROPS[i], (uint8_t)v, box, ink, mask);
+                int stride = (box + 7) / 8, bad = 0, drawn = size > 32 ? 32 : size;
+                for(int yy = 0; yy < drawn && !bad; yy++)
+                    for(int xx = 0; xx < drawn; xx++) {
+                        int px = x0 + xx, py = y0 + yy;
+                        if(px < 0 || py < 0 || px >= 128 || py >= 48) continue;
+                        int sx = (xx * box) / drawn, sy = (yy * box) / drawn;
+                        if(!((mask[sy * stride + (sx >> 3)] >> (sx & 7)) & 1)) continue;
+                        if(a.px[py][px] != b.px[py][px]) { bad = 1; break; }
+                    }
+                leaked = bad;
+            }
+            leaks += leaked;
+        }
+    CHECK(scenes >= PROP_N * 3, "terrain: opacity sweep placed props in view");
+    CHECK(leaks == 0, "terrain: props are opaque (nothing behind shows through)");
+    if(leaks) printf("    %d of %d prop billboards leaked\n", leaks, scenes);
+}
+
 int main(void) {
     printf("Sanctum RPG — render rule tests\n");
     test_walls_are_opaque();
@@ -227,6 +345,10 @@ int main(void) {
     test_figure_identity();
     test_figure_golden();
     test_figures_are_opaque();
+    test_props_do_not_stop_rays();
+    test_prop_identity();
+    test_terrain_golden();
+    test_props_are_opaque();
     printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

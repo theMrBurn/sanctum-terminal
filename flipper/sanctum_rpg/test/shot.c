@@ -11,6 +11,14 @@
  *     every trait of one family: 5 poses at 32px, then idle at the FPV
  *     distance sizes, each on a dithered wall so the mask shows.
  *
+ *   test/shot terrain <biome 0|1> <glyph> <dist> <out.pbm>
+ *     a synthetic chunk: player at the west end facing east down the long
+ *     axis, `glyph` straight ahead at `dist` tiles and once more off to the
+ *     side, a wall/edge at the far end — every terrain form seen in place.
+ *
+ *   test/shot field <biome 0|1> <out.pbm>
+ *     a synthetic chunk with every feature of that biome scattered in view.
+ *
  * facing `a` = auto: the facing with the longest open run from spawn, so a
  * scene shows a corridor rather than the wall the player happens to face.
  */
@@ -125,7 +133,62 @@ static int creature_scene(uint32_t seed, int fam, int trait, int dist, int state
     return write_pbm(&cv, path);
 }
 
+/* A bare synthetic chunk: floor, walled perimeter for the cavern. */
+static void bare_chunk(World* w, int biome) {
+    memset(w, 0, sizeof(*w));
+    w->biome = (Biome)biome;
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) {
+            bool rim = x == 0 || y == 0 || x == WORLD_COLS - 1 || y == WORLD_ROWS - 1;
+            w->tiles[y][x] = (biome == BIOME_CAVERN && rim) ? TILE_WALL : TILE_FLOOR;
+        }
+    w->spawn_x = 1; w->spawn_y = 3;
+}
+
+static int terrain_shot(int biome, char glyph, int dist, const char* path) {
+    World w;
+    bare_chunk(&w, biome);
+    w.tiles[3][1 + dist] = glyph;
+    if(1 + dist + 2 < WORLD_COLS - 1) w.tiles[1][1 + dist + 2] = glyph;   /* off to the side */
+    Canvas cv;
+    canvas_clear(&cv);
+    render_fpv_world(&cv, &w, w.spawn_x, w.spawn_y, 1 /* east */, NULL, 0);
+    return write_pbm(&cv, path);
+}
+
+static int field_shot(int biome, const char* path) {
+    /* Full 16x6 layouts; the player stands at (1, 3) facing east. Features
+     * sit inside the 60-degree view: side +-1 from 2 tiles out, +-2 from 4. */
+    static const char* FIELD[2][WORLD_ROWS] = {
+        {"................",                 /* cavern (rim becomes wall) */
+         "......OO....q...",
+         "...,,.OO..q.....",
+         ".....q..........",
+         "..,,,....,,,....",
+         "................"},
+        {"........HH......",                 /* outdoor */
+         "....I...HH..Q...",
+         "...;;..Q...o....",
+         "................",
+         "..::..o..~~..;..",
+         ".......I....::.."}};
+    World w;
+    bare_chunk(&w, biome);
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) {
+            char g = FIELD[biome ? 1 : 0][y][x];
+            if(g != '.' && w.tiles[y][x] == TILE_FLOOR) w.tiles[y][x] = g;
+        }
+    Canvas cv;
+    canvas_clear(&cv);
+    render_fpv_world(&cv, &w, w.spawn_x, w.spawn_y, 1 /* east */, NULL, 0);
+    return write_pbm(&cv, path);
+}
+
 int main(int argc, char** argv) {
+    if(argc == 6 && strcmp(argv[1], "terrain") == 0)
+        return terrain_shot(atoi(argv[2]), argv[3][0], atoi(argv[4]), argv[5]);
+    if(argc == 4 && strcmp(argv[1], "field") == 0) return field_shot(atoi(argv[2]), argv[3]);
     if(argc == 8 && strcmp(argv[1], "scene") == 0)
         return creature_scene((uint32_t)strtoul(argv[2], NULL, 16), atoi(argv[3]), atoi(argv[4]),
                               atoi(argv[5]), atoi(argv[6]), argv[7]);

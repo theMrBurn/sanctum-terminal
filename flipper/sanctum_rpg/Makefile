@@ -14,7 +14,7 @@ CFLAGS = -std=c11 -Wall -Wextra -Werror -O0 -g -I. -DSANCTUM_RPG_HOST_TEST
 # deeds.c is host-testable via the SANCTUM_RPG_HOST_TEST macro — its
 # Flipper-side I/O paths are #ifdef'd out under the host build, leaving
 # the pure event-table + axis-rollup logic exposed for assertions.
-PURE_SRC = figure.c rng.c world.c loot.c biome.c fov.c creatures.c classes.c recipes.c deeds.c narrative.c pool.c stamps.c compose.c weather.c names.c trade.c bearing.c
+PURE_SRC = figure.c pixkit.c terrain.c rng.c world.c loot.c biome.c fov.c creatures.c classes.c recipes.c deeds.c narrative.c pool.c stamps.c compose.c weather.c names.c trade.c bearing.c
 TEST_SRC = test/test_main.c $(PURE_SRC)
 TEST_BIN = test/run_tests
 
@@ -37,6 +37,16 @@ shots:
 	  ./$(SHOT_BIN) scene 12345678 $$1 $$2 $$3 $$4 test/shots/scene_$$1_$$2_$$3_$$4.pbm; \
 	done
 	python3 test/pbm2png.py test/shots/scenes.png test/shots/scene_*.pbm
+	@for g in 'I' 'Q' 'o' '~' ';' 'q' 'O' 'H' ',' ':'; do \
+	  b=1; case "$$g" in O|q|,) b=0;; esac; \
+	  for d in 1 2 4; do \
+	    ./$(SHOT_BIN) terrain $$b "$$g" $$d "test/shots/terrain_$$(printf '%02x' "'$$g")_$$d.pbm" || exit 1; \
+	  done; \
+	done
+	python3 test/pbm2png.py test/shots/terrain.png --cols 3 test/shots/terrain_*.pbm
+	./$(SHOT_BIN) field 0 test/shots/field_0.pbm
+	./$(SHOT_BIN) field 1 test/shots/field_1.pbm
+	python3 test/pbm2png.py test/shots/fields.png --cols 1 test/shots/field_*.pbm
 	@for f in 0 1 2 3 4; do \
 	  ./$(SHOT_BIN) lineup $$f test/shots/lineup_$$f.pbm || exit 1; \
 	  python3 test/pbm2png.py test/shots/lineup_$$f.png --scale 3 --cols 1 test/shots/lineup_$$f.pbm; \

@@ -40,6 +40,7 @@
 #include "biome.h"
 #include "figure.h"
 #include "sprites.h"
+#include "terrain.h"
 
 #define FPV_VIEW_W      128
 #define FPV_VIEW_H       48   /* leaves 16 px for status strip */
@@ -213,7 +214,7 @@ static int cast_ray(
             hit = true;
             break;
         }
-        if(world_is_blocking(world->tiles[map_y][map_x])) {
+        if(terrain_stops_ray(world->tiles[map_y][map_x])) {   /* props are billboards */
             hit = true;
             break;
         }
@@ -270,6 +271,46 @@ static uint32_t tile_hash(int tx, int ty) {
     return h;
 }
 
+/* Floor features (TF_FLOOR glyphs) mark the whole tile, not one spot:
+ * FLOOR_MARKS marks spread across the tile's width at that depth, each a
+ * cluster of >= 2 px (cluster discipline: no lone floor dots). Near tiles
+ * get the larger mark. */
+#define FLOOR_MARKS      3
+#define FLOOR_NEAR_FWD   2    /* fwd at/below which marks are drawn large */
+
+static void floor_mark(Canvas* canvas, int plan, int x, int y, bool near) {
+    if(y < FPV_HORIZON_Y + 1 || y > FPV_VIEW_H - 2) return;
+    if(plan == TERRAIN_PLAN_MOSS) {           /* a low mound of moss */
+        canvas_draw_dot(canvas, x - 1, y);
+        canvas_draw_dot(canvas, x, y - 1);
+        canvas_draw_dot(canvas, x + 1, y);
+        if(near) {
+            canvas_draw_dot(canvas, x - 2, y);
+            canvas_draw_dot(canvas, x + 1, y - 1);
+            canvas_draw_dot(canvas, x + 2, y);
+        }
+    } else if(plan == TERRAIN_PLAN_SCREE) {   /* loose stones: flat pebbles */
+        canvas_draw_dot(canvas, x, y);
+        canvas_draw_dot(canvas, x + 1, y);
+        if(near) {
+            canvas_draw_dot(canvas, x + 2, y);
+            canvas_draw_dot(canvas, x + 1, y - 1);
+        }
+    }
+}
+
+static void draw_floor_feature(
+    Canvas* canvas, int col, int row, int fwd, int plan, uint32_t h) {
+    int tile_w = (FPV_VIEW_W / 2 * FP_ONE) / (fwd * PLANE_SCALE);
+    bool near = fwd <= FLOOR_NEAR_FWD;
+    for(int k = 0; k < FLOOR_MARKS; k++) {
+        int x = col + ((k - FLOOR_MARKS / 2) * tile_w) / (FLOOR_MARKS + 1);
+        int y = row + (int)((h >> (k * 2)) & 1u) - (k & 1);   /* stagger in depth */
+        if(x < 2 || x >= FPV_VIEW_W - 2) continue;
+        floor_mark(canvas, plan, x, y, near);
+    }
+}
+
 static void draw_floor_detail(
     Canvas* canvas, int col, int row, bool open_biome, uint32_t h) {
     int variant = (int)(h & 3u);
@@ -299,16 +340,19 @@ static void draw_floor_detail(
             canvas_draw_dot(canvas, col, row);
             canvas_draw_dot(canvas, col + 1, row - 1);
             break;
-        case 3: /* scatter pair — two leaves */
+        case 3: /* double blade */
             canvas_draw_dot(canvas, col - 1, row);
-            canvas_draw_dot(canvas, col + 1, row + 1);
+            canvas_draw_dot(canvas, col - 1, row - 1);
+            canvas_draw_dot(canvas, col + 1, row);
+            canvas_draw_dot(canvas, col + 1, row - 1);
             break;
         }
     } else {
         /* Cavern — slate / pebble / crack register. Angular shapes. */
         switch(variant) {
-        case 0: /* single pebble */
+        case 0: /* flat pebble */
             canvas_draw_dot(canvas, col, row);
+            canvas_draw_dot(canvas, col + 1, row);
             break;
         case 1: /* slate corner — L */
             canvas_draw_dot(canvas, col, row);
@@ -320,9 +364,11 @@ static void draw_floor_detail(
             canvas_draw_dot(canvas, col, row);
             canvas_draw_dot(canvas, col + 1, row + 1);
             break;
-        case 3: /* scattered pebbles */
+        case 3: /* two pebbles */
             canvas_draw_dot(canvas, col, row);
-            canvas_draw_dot(canvas, col + 2, row + 1);
+            canvas_draw_dot(canvas, col + 1, row);
+            canvas_draw_dot(canvas, col + 3, row + 1);
+            canvas_draw_dot(canvas, col + 4, row + 1);
             break;
         }
     }
@@ -344,7 +390,7 @@ static void render_floor_detail_pass(
             int tx = player_x + fdx * fwd + rdx * side;
             int ty = player_y + fdy * fwd + rdy * side;
             if(tx < 0 || tx >= WORLD_COLS || ty < 0 || ty >= WORLD_ROWS) continue;
-            if(world_is_blocking(world->tiles[ty][tx])) continue;
+            if(terrain_stops_ray(world->tiles[ty][tx])) continue;
 
             /* Coarse occlusion: walk a line from player toward tile,
              * sample at each fwd step. Any blocking tile in between =
@@ -358,7 +404,7 @@ static void render_floor_detail_pass(
                     occluded = true;
                     break;
                 }
-                if(world_is_blocking(world->tiles[cy][cx])) occluded = true;
+                if(terrain_stops_ray(world->tiles[cy][cx])) occluded = true;
             }
             if(occluded) continue;
 
@@ -371,7 +417,11 @@ static void render_floor_detail_pass(
             if(col < 0 || col >= FPV_VIEW_W) continue;
 
             uint32_t h = tile_hash(tx, ty);
-            draw_floor_detail(canvas, col, row, open_biome, h);
+            const TerrainDef* td = terrain_def(world->tiles[ty][tx]);
+            if(td && td->form == TF_FLOOR)
+                draw_floor_feature(canvas, col, row, fwd, td->plan, h);
+            else
+                draw_floor_detail(canvas, col, row, open_biome, h);
         }
     }
 }
@@ -474,6 +524,39 @@ static void draw_billboard(
  * this size and sampled down. */
 #define FIGURE_MIN_COMPOSE 8
 
+/* How far ahead billboards are looked for. Rays cross a whole chunk, so a
+ * prop must be found as far as it is still >= 4 px tall, or it would pop
+ * out while the wall behind it still draws. */
+#define FPV_SPRITE_RANGE 9
+
+/* Composed props, cached by (glyph, variant, size): terrain doesn't move,
+ * so a prop is drawn once per size it appears at, not once per frame. */
+#define PROP_CACHE_SLOTS 8
+static struct {
+    char glyph;
+    uint8_t variant, size;
+    uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
+} prop_cache[PROP_CACHE_SLOTS];
+static int prop_cache_next;
+
+static int prop_planes(char glyph, uint8_t variant, int size, const uint8_t** ink, const uint8_t** mask) {
+    for(int i = 0; i < PROP_CACHE_SLOTS; i++)
+        if(prop_cache[i].size == size && prop_cache[i].glyph == glyph &&
+           prop_cache[i].variant == variant) {
+            *ink = prop_cache[i].ink; *mask = prop_cache[i].mask;
+            return 1;
+        }
+    int i = prop_cache_next;
+    prop_cache_next = (prop_cache_next + 1) % PROP_CACHE_SLOTS;
+    if(!terrain_compose_prop(glyph, variant, size, prop_cache[i].ink, prop_cache[i].mask)) {
+        prop_cache[i].size = 0;
+        return 0;
+    }
+    prop_cache[i].glyph = glyph; prop_cache[i].variant = variant; prop_cache[i].size = (uint8_t)size;
+    *ink = prop_cache[i].ink; *mask = prop_cache[i].mask;
+    return 1;
+}
+
 static void render_sprite_pass(
     Canvas* canvas, const World* world,
     int player_x, int player_y, uint8_t facing,
@@ -485,7 +568,7 @@ static void render_sprite_pass(
     int rdy = fdx;
 
     /* Far-to-near so closer sprites overdraw farther ones. */
-    for(int fwd = 5; fwd >= 1; fwd--) {
+    for(int fwd = FPV_SPRITE_RANGE; fwd >= 1; fwd--) {
         int sprite_dist_fp = fwd * FP_ONE;
         int center_y = FPV_HORIZON_Y + (WALL_HEIGHT_SCALE / (2 * FP_ONE)) / fwd;
         int sprite_size = (WALL_HEIGHT_SCALE / FP_ONE) / fwd;
@@ -524,6 +607,17 @@ static void render_sprite_pass(
                     draw_billboard(canvas, fig_ink, fig_mask, box, center_col, center_y,
                                    sprite_size, sprite_dist_fp, wall_dist);
                 }
+                continue;
+            }
+            /* Terrain props: composed from data (terrain.h), opaque. */
+            const TerrainDef* td = terrain_def(tile);
+            if(td && td->form == TF_PROP) {
+                int box = sprite_size > PIXKIT_MAX_PX ? PIXKIT_MAX_PX : sprite_size;
+                if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
+                const uint8_t *pi, *pm;
+                if(prop_planes(tile, (uint8_t)(tile_hash(tx, ty) >> 8), box, &pi, &pm))
+                    draw_billboard(canvas, pi, pm, box, center_col, center_y, sprite_size,
+                                   sprite_dist_fp, wall_dist);
                 continue;
             }
             const uint8_t* sprite = fpv_sprite_for_tile(tile);
@@ -593,6 +687,10 @@ static const int WALL_DARK_INK[WALL_DARK_STEPS] = {1, 3, 5, 8, 11, 14};
 #define RIDGE_KNOT_PX          8    /* outdoor ridge: knot spacing */
 #define RIDGE_MAX_H            6    /* outdoor ridge: tallest peak, px */
 #define RIDGE_FILL_INK         2    /* outdoor ridge: fill density (of 16) */
+#define COLUMN_FLUTES          4    /* carved column: flutes per tile face */
+#define COLUMN_CAPITAL_V      28    /* carved column: capital band depth (of 256) */
+#define MONOLITH_DARKER        2    /* raw monolith sits darker than coursed stone */
+#define MONOLITH_CRACK_WOBBLE 10    /* monolith crack: sideways step per third */
 
 static const uint8_t BAYER4[4][4] = {
     { 0,  8,  2, 10},
@@ -634,14 +732,40 @@ static bool stone_seam(uint32_t th, int u, int v, int px_u, int px_v) {
     return du * 2 < px_u + 2;
 }
 
+/* The face's line work by material: coursed stone (courses + joints), a
+ * carved column (flutes + a capital band), or a raw monolith (one long
+ * crack, no courses). Same one-pixel seam rule for all. */
+static bool surface_seam(SlabMaterial mat, uint32_t th, int u, int v, int px_u, int px_v) {
+    switch(mat) {
+    case TM_COLUMN: {
+        int dv = v - COLUMN_CAPITAL_V;
+        if(dv < 0) dv = -dv;
+        if(dv * 2 < px_v + 2) return true;
+        if(v < COLUMN_CAPITAL_V) return false;
+        int pitch = 256 / COLUMN_FLUTES, du = (u % pitch) - pitch / 2;
+        if(du < 0) du = -du;
+        return du * 2 < px_u + 2;
+    }
+    case TM_MONOLITH: {
+        int crack = 64 + (int)(th % 128) + ((v * 3 / 256) & 1) * MONOLITH_CRACK_WOBBLE;
+        int du = u - crack;
+        if(du < 0) du = -du;
+        return du * 2 < px_u + 2;
+    }
+    default:
+        return stone_seam(th, u, v, px_u, px_v);
+    }
+}
+
 static void draw_wall_column(
     Canvas* canvas, int c, int wall_h, int perp, int side, int u,
-    uint32_t th, bool edge) {
+    uint32_t th, bool edge, SlabMaterial mat) {
     int top = FPV_HORIZON_Y - wall_h / 2;
     int bot = top + wall_h - 1;
     int y0 = top < 0 ? 0 : top;
     int y1 = bot >= FPV_VIEW_H ? FPV_VIEW_H - 1 : bot;
-    int dens = wall_density(perp, side);
+    int dens = wall_density(perp, side) + (mat == TM_MONOLITH ? MONOLITH_DARKER : 0);
+    if(dens > 16) dens = 16;
     bool textured = wall_h >= WALL_TEXTURE_MIN_H;
     /* Texture units per screen pixel: vertical from the wall height;
      * horizontal from distance (a wall tile spans ~W/(2·tan·perp) px). */
@@ -654,7 +778,7 @@ static void draw_wall_column(
         if(edge || y == top || y == bot) {
             ink = true;
         } else if(textured &&
-                  stone_seam(th, u, ((y - top) * 256) / wall_h, px_u, px_v)) {
+                  surface_seam(mat, th, u, ((y - top) * 256) / wall_h, px_u, px_v)) {
             ink = true;                       /* torch-lit stone shows its joints */
         } else {
             ink = BAYER4[y & 3][c & 3] < dens;
@@ -787,8 +911,9 @@ void render_fpv_world(
         }
         prev_hx = hit_x; prev_hy = hit_y; prev_side = side; prev_perp = perp;
 
+        SlabMaterial mat = off_grid ? TM_STONE : terrain_material(world->tiles[hit_y][hit_x]);
         draw_wall_column(canvas, c, wall_h, perp, side, u,
-                         tile_hash(hit_x * 2 + side, hit_y), edge);
+                         tile_hash(hit_x * 2 + side, hit_y), edge, mat);
     }
 
     /* Step 4: sprite billboard pass — vault, doors, vendor, loot,
