@@ -509,6 +509,141 @@ void render_fpv_demo(Canvas* canvas) {
     canvas_draw_xbm(canvas, 48, 8, 32, 32, hearth_low_xbm);
 }
 
+/* ─── Wall pass v2 — 1-bit depth, edges, stone (2026-10-14) ────────
+ *
+ * The first wall pass was a flat fill: solid on X-faces, 50% checker on
+ * Y-faces, so a wall one tile away read the same as one six away and
+ * corners vanished. v2 is drawn the way 1-bit crawlers on the LCDs of the
+ * 80s/90s did it:
+ *
+ *   - EDGES: every wall column gets its top and bottom pixel; a vertical
+ *     line marks each corner / depth break (hit tile, face, or distance
+ *     jumps between neighbouring columns). Shape comes from line, not fill.
+ *   - DARKNESS: an ordered (Bayer 4x4) dither whose density RISES with
+ *     distance — the torch lights near stone, the dark takes far stone.
+ *     Y-faces sit a step darker, the old side-shade in a softer form.
+ *   - STONE: irregular courses + joints in ink, hashed per wall tile so a
+ *     wall always looks the same, drawn only when the wall is tall enough
+ *     for them to read (else they'd just be noise).
+ *
+ * Outdoor chunks also get a far ridge on the horizon, hashed from the
+ * absolute view direction, so turning in open ground shows new country. */
+
+#ifdef SANCTUM_RPG_HOST_TEST
+/* Test hooks (host only): the wall span drawn per column, and an
+ * "underpaint" switch that inks the whole view before the passes — if a
+ * wall is truly opaque its pixels can't depend on what was under it. */
+int fpv_test_wall_top[FPV_VIEW_W];
+int fpv_test_wall_bot[FPV_VIEW_W];
+int fpv_test_underpaint = 0;
+#endif
+
+/* Wall pass v2 tunables (AGENTS.md: no hardcoded tunables). Distances are
+ * 8.8 fp tile units; densities are ink-per-16 for the Bayer dither. */
+#define WALL_DARK_STEPS 6
+static const int WALL_DARK_AT[WALL_DARK_STEPS - 1] = {   /* step boundaries */
+    FP_ONE * 3 / 2, FP_ONE * 5 / 2, FP_ONE * 4, FP_ONE * 6, FP_ONE * 9};
+static const int WALL_DARK_INK[WALL_DARK_STEPS] = {1, 3, 5, 8, 11, 14};
+#define WALL_SIDE_DARKER       2    /* Y-faces sit this much darker */
+#define WALL_TEXTURE_MIN_H    12    /* px: below this, seams would be noise */
+#define STONE_COURSES          3    /* courses per wall tile */
+#define STONE_COURSE_JITTER   16    /* ± texture units per course boundary */
+#define STONE_JOINT_MIN       40    /* earliest joint position in a course */
+#define STONE_JOINT_STAGGER   31    /* per-course joint offset */
+#define EDGE_JUMP_DIV         16    /* depth break if |Δperp| ≥ perp/16 */
+#define RIDGE_KNOT_PX          8    /* outdoor ridge: knot spacing */
+#define RIDGE_MAX_H            6    /* outdoor ridge: tallest peak, px */
+#define RIDGE_FILL_INK         2    /* outdoor ridge: fill density (of 16) */
+
+static const uint8_t BAYER4[4][4] = {
+    { 0,  8,  2, 10},
+    {12,  4, 14,  6},
+    { 3, 11,  1,  9},
+    {15,  7, 13,  5},
+};
+
+/* Ink density (of 16) for a wall at perpendicular distance `perp` (8.8 fp).
+ * DARKNESS, not fog: the torch lights near stone (light fill, seams in ink),
+ * and the dark takes it back with distance (denser ink). Y-faces sit one
+ * step darker — the old side-shade, kept. */
+static int wall_density(int perp, int side) {
+    int step = 0;
+    while(step < WALL_DARK_STEPS - 1 && perp >= WALL_DARK_AT[step]) step++;
+    int d = WALL_DARK_INK[step] + (side == 1 ? WALL_SIDE_DARKER : 0);
+    return d > 16 ? 16 : d;
+}
+
+/* Is (u, v) — both 0..255 across one wall tile face — on a stone seam?
+ * px_u / px_v are how many texture units one screen pixel spans, so seams
+ * stay one pixel wide at any distance. */
+static bool stone_seam(uint32_t th, int u, int v, int px_u, int px_v) {
+    const int course_h = 256 / STONE_COURSES;
+    /* Course boundaries, each jittered per tile. */
+    for(int k = 1; k < STONE_COURSES; k++) {
+        int jit = (int)((th >> (k * 5)) % (2 * STONE_COURSE_JITTER)) - STONE_COURSE_JITTER;
+        int dv = v - (k * course_h + jit);
+        if(dv < 0) dv = -dv;
+        if(dv * 2 < px_v + 2) return true;
+    }
+    /* One joint per course, staggered so joints never line up. */
+    int course = v / course_h;
+    if(course >= STONE_COURSES) course = STONE_COURSES - 1;
+    int joint = (STONE_JOINT_MIN + (int)((th >> (course * 7 + 3)) & 127) +
+                 course * STONE_JOINT_STAGGER) & 255;
+    int du = u - joint;
+    if(du < 0) du = -du;
+    return du * 2 < px_u + 2;
+}
+
+static void draw_wall_column(
+    Canvas* canvas, int c, int wall_h, int perp, int side, int u,
+    uint32_t th, bool edge) {
+    int top = FPV_HORIZON_Y - wall_h / 2;
+    int bot = top + wall_h - 1;
+    int y0 = top < 0 ? 0 : top;
+    int y1 = bot >= FPV_VIEW_H ? FPV_VIEW_H - 1 : bot;
+    int dens = wall_density(perp, side);
+    bool textured = wall_h >= WALL_TEXTURE_MIN_H;
+    /* Texture units per screen pixel: vertical from the wall height;
+     * horizontal from distance (a wall tile spans ~W/(2·tan·perp) px). */
+    int px_v = 256 / (wall_h > 0 ? wall_h : 1);
+    int px_u = (perp * 2 * PLANE_SCALE) / (FPV_VIEW_W * FP_ONE / 256);
+    px_u /= 256;
+    if(px_u < 1) px_u = 1;
+    for(int y = y0; y <= y1; y++) {
+        bool ink;
+        if(edge || y == top || y == bot) {
+            ink = true;
+        } else if(textured &&
+                  stone_seam(th, u, ((y - top) * 256) / wall_h, px_u, px_v)) {
+            ink = true;                       /* torch-lit stone shows its joints */
+        } else {
+            ink = BAYER4[y & 3][c & 3] < dens;
+        }
+        /* OPAQUE: a wall owns every pixel it covers. Dither gaps are written
+         * as background, not skipped — skipping them let the horizon, ridge
+         * and floor detail drawn earlier bleed through the stone. */
+        if(!ink) canvas_set_color(canvas, ColorWhite);
+        canvas_draw_dot(canvas, c, y);
+        if(!ink) canvas_set_color(canvas, ColorBlack);
+    }
+#ifdef SANCTUM_RPG_HOST_TEST
+    fpv_test_wall_top[c] = y0;
+    fpv_test_wall_bot[c] = y1;
+#endif
+}
+
+/* Far ridge for open biomes: a 1D hashed profile over absolute view
+ * columns (facing * W + c), smoothed between knots every 8 columns. */
+static int ridge_height(uint8_t facing, int c) {
+    int g = (int)(facing & 3u) * FPV_VIEW_W + c;
+    int knots = 4 * FPV_VIEW_W / RIDGE_KNOT_PX;          /* wraps all the way round */
+    int k = g / RIDGE_KNOT_PX, f = g % RIDGE_KNOT_PX;
+    int ha = 1 + (int)(tile_hash(k % knots, 0x51D6E) % (uint32_t)RIDGE_MAX_H);
+    int hb = 1 + (int)(tile_hash((k + 1) % knots, 0x51D6E) % (uint32_t)RIDGE_MAX_H);
+    return ha + ((hb - ha) * f) / RIDGE_KNOT_PX;
+}
+
 void render_fpv_world(
     Canvas* canvas,
     const World* world,
@@ -517,6 +652,12 @@ void render_fpv_world(
     const Creature* creatures, int creature_count) {
     canvas_clear(canvas);
     if(!world) return;
+#ifdef SANCTUM_RPG_HOST_TEST
+    for(int c = 0; c < FPV_VIEW_W; c++) fpv_test_wall_top[c] = -1, fpv_test_wall_bot[c] = -2;
+    if(fpv_test_underpaint)
+        for(int y = 0; y < FPV_VIEW_H; y++)
+            for(int c = 0; c < FPV_VIEW_W; c++) canvas_draw_dot(canvas, c, y);
+#endif
 
     /* Player position in 8.8 fixed-point — tile center. */
     int px_fp = (player_x << 8) + (FP_ONE / 2);
@@ -543,6 +684,13 @@ void render_fpv_world(
      * visible" instead of "renderer is dead". */
     for(int c = 0; c < FPV_VIEW_W; c++) {
         canvas_draw_dot(canvas, c, FPV_HORIZON_Y);
+        if(open_biome) {
+            /* Far ridge: outline + sparse fill down to the horizon. */
+            int rh = ridge_height(facing, c);
+            canvas_draw_dot(canvas, c, FPV_HORIZON_Y - rh);
+            for(int y = FPV_HORIZON_Y - rh + 1; y < FPV_HORIZON_Y; y++)
+                if(BAYER4[y & 3][c & 3] < RIDGE_FILL_INK) canvas_draw_dot(canvas, c, y);
+        }
     }
 
     /* Step 3: per-column ray cast — walls. Per-column wall perpendicular
@@ -550,6 +698,7 @@ void render_fpv_world(
      * Columns with no wall (off-grid in open biome) get INT_MAX so any
      * sprite beats them — the sprite IS visible past the chunk edge. */
     int wall_dist[FPV_VIEW_W];
+    int prev_hx = -99, prev_hy = -99, prev_side = -1, prev_perp = 0;
     for(int c = 0; c < FPV_VIEW_W; c++) {
         int rdx, rdy;
         ray_dir_for_column(facing, c, &rdx, &rdy);
@@ -561,26 +710,46 @@ void render_fpv_world(
 
         if(off_grid && open_biome) {
             wall_dist[c] = 0x7FFFFFFF; /* no wall here — sprites pass through */
+            prev_hx = -99;
             continue;
         }
         wall_dist[c] = perp;
 
         int wall_h = WALL_HEIGHT_SCALE / perp;
-        if(wall_h > FPV_VIEW_H) wall_h = FPV_VIEW_H;
+        if(wall_h > FPV_VIEW_H * 4) wall_h = FPV_VIEW_H * 4;
         if(wall_h < 1) wall_h = 1;
 
-        int top_y = FPV_HORIZON_Y - wall_h / 2;
-        int bot_y = top_y + wall_h - 1;
-        if(top_y < 0) top_y = 0;
-        if(bot_y >= FPV_VIEW_H) bot_y = FPV_VIEW_H - 1;
+        /* Where along the face the ray landed (0..255): the hit point is
+         * p + perp·rd (rd's forward component is FP_ONE). */
+        int u = (side == 0)
+            ? (py_fp + (int)(((int64_t)perp * rdy) / FP_ONE)) & 0xFF
+            : (px_fp + (int)(((int64_t)perp * rdx) / FP_ONE)) & 0xFF;
 
-        if(side == 0) {
-            for(int y = top_y; y <= bot_y; y++) canvas_draw_dot(canvas, c, y);
-        } else {
-            for(int y = top_y; y <= bot_y; y++) {
-                if(((y + c) & 1) == 0) canvas_draw_dot(canvas, c, y);
+        /* A corner / depth break: the neighbour hit another tile or face,
+         * or its distance jumps by more than ~6%. The line goes on the
+         * nearer of the two columns, so it hugs the foreground edge. */
+        bool edge = false;
+        if(prev_hx != -99 &&
+           (hit_x != prev_hx || hit_y != prev_hy || side != prev_side)) {
+            int jump = perp - prev_perp;
+            if(jump < 0) jump = -jump;
+            bool same_face_seam = (side == prev_side) && jump * EDGE_JUMP_DIV < perp;
+            edge = !same_face_seam || jump * EDGE_JUMP_DIV >= perp;
+            if(edge && prev_perp < perp && c > 0) {
+                /* previous column is nearer: mark it instead */
+                int ph = WALL_HEIGHT_SCALE / prev_perp;
+                if(ph > FPV_VIEW_H * 4) ph = FPV_VIEW_H * 4;
+                int pt = FPV_HORIZON_Y - ph / 2, pb = pt + ph - 1;
+                if(pt < 0) pt = 0;
+                if(pb >= FPV_VIEW_H) pb = FPV_VIEW_H - 1;
+                for(int y = pt; y <= pb; y++) canvas_draw_dot(canvas, c - 1, y);
+                edge = false;
             }
         }
+        prev_hx = hit_x; prev_hy = hit_y; prev_side = side; prev_perp = perp;
+
+        draw_wall_column(canvas, c, wall_h, perp, side, u,
+                         tile_hash(hit_x * 2 + side, hit_y), edge);
     }
 
     /* Step 4: sprite billboard pass — vault, doors, vendor, loot,

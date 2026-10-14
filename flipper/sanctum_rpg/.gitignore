@@ -1,0 +1,4 @@
+test/shot
+test/run_render_tests
+test/shots/
+*.dSYM/
