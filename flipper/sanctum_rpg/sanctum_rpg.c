@@ -45,6 +45,7 @@
 #include "bearing.h"
 #include "names.h"
 #include "render_fpv.h"
+#include "figure.h"
 #include "trade.h"
 #include "weather.h"
 #include "world.h"
@@ -1019,14 +1020,19 @@ static void draw_combat_screen(Canvas* canvas, const AppState* st) {
     if(filled > 0) canvas_draw_box(canvas, 1, by + 1, filled, bh - 2);
     canvas_draw_line(canvas, 0, 24, SCREEN_W - 1, 24);
 
-    /* Foe portrait — Atlus pattern. 32x32 sprite on the right side of
-     * the screen, below the HP bar, beside the verb menu. Uses the same
-     * sprite kit as FPV; falls back to no portrait if the family has
-     * no pictogram. */
+    /* Foe portrait — Atlus pattern. 32x32 on the right, below the HP bar,
+     * beside the verb menu. COMPOSED from the foe's family x trait (figure.h)
+     * in its strike pose — it is fighting you — stepping its frame each turn.
+     * Opaque: the mask is laid down in background first, then the ink. */
     {
-        const uint8_t* foe_sprite = fpv_sprite_for_creature_glyph(d.glyph);
-        if(foe_sprite) {
-            canvas_draw_xbm(canvas, 96, 26, 32, 32, foe_sprite);
+        static uint8_t fig_ink[FIGURE_PLANE_BYTES], fig_mask[FIGURE_PLANE_BYTES];
+        if(figure_compose(&RENDER_BUDGET_FLIPPER_1BIT, foe->family_id, foe->trait_id,
+                          POSE_STRIKE, (uint8_t)(st->character.turn & 1u),
+                          fig_ink, fig_mask)) {
+            canvas_set_color(canvas, ColorWhite);
+            canvas_draw_xbm(canvas, 96, 26, 32, 32, fig_mask);
+            canvas_set_color(canvas, ColorBlack);
+            canvas_draw_xbm(canvas, 96, 26, 32, 32, fig_ink);
         }
     }
 

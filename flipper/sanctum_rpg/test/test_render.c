@@ -11,6 +11,7 @@
 
 #include "../biome.h"
 #include "../creatures.h"
+#include "../figure.h"
 #include "../pool.h"
 #include "../render_fpv.h"
 #include "../rng.h"
@@ -20,6 +21,7 @@
 extern int fpv_test_wall_top[];
 extern int fpv_test_wall_bot[];
 extern int fpv_test_underpaint;
+extern int fpv_test_last_figure_x0, fpv_test_last_figure_y0, fpv_test_last_figure_size;
 
 static int g_pass, g_fail;
 #define CHECK(cond, msg)                                                   \
@@ -74,9 +76,157 @@ static void test_walls_are_opaque(void) {
     if(leaks) printf("    %d of %d wall columns leaked\n", leaks, walls_seen);
 }
 
+/* ── composer rules (figure.c) ─────────────────────────────────────── */
+static const int SIZES[] = {8, 12, 18, 32};
+#define NSIZES ((int)(sizeof(SIZES) / sizeof(SIZES[0])))
+
+static RenderBudget budget_at(int px) {
+    RenderBudget b = RENDER_BUDGET_FLIPPER_1BIT;
+    b.width = b.height = (uint8_t)px;
+    return b;
+}
+
+/* Every combination composes, deterministically, with mask ⊇ ink. */
+static void test_figure_rules(void) {
+    static uint8_t i1[FIGURE_PLANE_BYTES], m1[FIGURE_PLANE_BYTES];
+    static uint8_t i2[FIGURE_PLANE_BYTES], m2[FIGURE_PLANE_BYTES];
+    int combos = 0, bad_det = 0, bad_cover = 0, empty = 0, failed = 0;
+    for(int f = 0; f < CREATURE_FAMILY_COUNT; f++)
+        for(int t = 0; t < CREATURE_TRAIT_COUNT; t++)
+            for(int p = 0; p < POSE_COUNT; p++)
+                for(int fr = 0; fr < 2; fr++)
+                    for(int z = 0; z < NSIZES; z++) {
+                        RenderBudget b = budget_at(SIZES[z]);
+                        combos++;
+                        if(!figure_compose(&b, (uint8_t)f, (uint8_t)t, (FigurePose)p,
+                                           (uint8_t)fr, i1, m1)) { failed++; continue; }
+                        figure_compose(&b, (uint8_t)f, (uint8_t)t, (FigurePose)p, (uint8_t)fr, i2, m2);
+                        if(memcmp(i1, i2, sizeof(i1)) || memcmp(m1, m2, sizeof(m1))) bad_det++;
+                        int on = 0;
+                        for(int k = 0; k < FIGURE_PLANE_BYTES; k++) {
+                            if(i1[k] & ~m1[k]) bad_cover++;
+                            on |= m1[k];
+                        }
+                        if(!on) empty++;
+                    }
+    CHECK(failed == 0, "figure: every family x trait x pose x frame x size composes");
+    CHECK(bad_det == 0, "figure: deterministic (same inputs -> same planes)");
+    CHECK(bad_cover == 0, "figure: mask covers ink everywhere (ink implies opaque)");
+    CHECK(empty == 0, "figure: no combination draws nothing");
+    CHECK(combos == CREATURE_FAMILY_COUNT * CREATURE_TRAIT_COUNT * POSE_COUNT * 2 * NSIZES,
+          "figure: sweep covered every combination");
+    RenderBudget rich = RENDER_BUDGET_FLIPPER_1BIT;
+    rich.bit_depth = 8;
+    CHECK(!figure_compose(&rich, 0, 0, POSE_IDLE, 0, i1, m1),
+          "figure: unsupported tier refuses rather than guessing");
+}
+
+/* IDENTITY FIRST: every family x trait is distinct by SILHOUETTE alone
+ * (the mask) at the near size, and still distinct (ink+mask) at 12 px —
+ * three tiles out, where the hide has gone solid. */
+static int identity_at(int px, bool silhouette_only) {
+    static uint8_t ink[40][FIGURE_PLANE_BYTES], mask[40][FIGURE_PLANE_BYTES];
+    RenderBudget b = budget_at(px);
+    int n = 0, same = 0;
+    for(int f = 0; f < CREATURE_FAMILY_COUNT; f++)
+        for(int t = 0; t < CREATURE_TRAIT_COUNT; t++, n++)
+            figure_compose(&b, (uint8_t)f, (uint8_t)t, POSE_IDLE, 0, ink[n], mask[n]);
+    for(int a = 0; a < n; a++)
+        for(int c = a + 1; c < n; c++)
+            if(!memcmp(mask[a], mask[c], FIGURE_PLANE_BYTES) &&
+               (silhouette_only || !memcmp(ink[a], ink[c], FIGURE_PLANE_BYTES))) {
+                same++;
+                printf("    %dpx: #%d (fam %d trait %d) == #%d (fam %d trait %d)\n", px, a,
+                       a / CREATURE_TRAIT_COUNT, a % CREATURE_TRAIT_COUNT, c,
+                       c / CREATURE_TRAIT_COUNT, c % CREATURE_TRAIT_COUNT);
+            }
+    return same;
+}
+
+static void test_figure_identity(void) {
+    CHECK(CREATURE_FAMILY_COUNT * CREATURE_TRAIT_COUNT == 40, "figure: 5 families x 8 traits");
+    CHECK(identity_at(32, true) == 0, "figure: every family x trait has its own silhouette (32px)");
+    CHECK(identity_at(12, false) == 0, "figure: every family x trait still distinct at 12px");
+}
+
+/* GOLDEN: one FNV-1a 64 over every combination at the device size —
+ * ink then mask bytes, order family > trait > pose > frame. A port
+ * (Python, ...) reproduces this number or it isn't drawing the same game. */
+#define FIGURE_GOLDEN 0xF68D1055DCF2DC87ULL
+static void test_figure_golden(void) {
+    static uint8_t ink[FIGURE_PLANE_BYTES], mask[FIGURE_PLANE_BYTES];
+    uint64_t h = 0xCBF29CE484222325ULL;
+    for(int f = 0; f < CREATURE_FAMILY_COUNT; f++)
+        for(int t = 0; t < CREATURE_TRAIT_COUNT; t++)
+            for(int p = 0; p < POSE_COUNT; p++)
+                for(int fr = 0; fr < 2; fr++) {
+                    figure_compose(&RENDER_BUDGET_FLIPPER_1BIT, (uint8_t)f, (uint8_t)t,
+                                   (FigurePose)p, (uint8_t)fr, ink, mask);
+                    for(int k = 0; k < FIGURE_PLANE_BYTES; k++) h = (h ^ ink[k]) * 0x100000001B3ULL;
+                    for(int k = 0; k < FIGURE_PLANE_BYTES; k++) h = (h ^ mask[k]) * 0x100000001B3ULL;
+                }
+    printf("  figure golden (flipper_1bit): 0x%016llX\n", (unsigned long long)h);
+    CHECK(h == FIGURE_GOLDEN, "figure: flipper_1bit golden fingerprint unchanged");
+}
+
+/* OPAQUE BILLBOARDS: a creature standing in front of a wall must hide it.
+ * Same underpaint trick as the walls, over the figure's own mask. */
+static void test_figures_are_opaque(void) {
+    static const uint32_t seeds[] = {0x12345678, 0xCAFEBABE, 0xDEADBEEF, 0x0BADF00D};
+    static const int dx4[4] = {0, 1, 0, -1}, dy4[4] = {-1, 0, 1, 0};
+    static uint8_t ink[FIGURE_PLANE_BYTES], mask[FIGURE_PLANE_BYTES];
+    int scenes = 0, leaks = 0;
+    for(unsigned s = 0; s < sizeof(seeds) / sizeof(seeds[0]); s++)
+        for(int f = 0; f < 4; f++)
+            for(int fam = 0; fam < CREATURE_FAMILY_COUNT; fam++) {
+                World w;
+                world_generate_chunk(seeds[s], 0, 0, &w);
+                int x = w.spawn_x + 2 * dx4[f], y = w.spawn_y + 2 * dy4[f];
+                int mx = w.spawn_x + dx4[f], my = w.spawn_y + dy4[f];
+                if(x < 0 || y < 0 || x >= WORLD_COLS || y >= WORLD_ROWS) continue;
+                if(world_is_blocking(w.tiles[y][x]) || world_is_blocking(w.tiles[my][mx])) continue;
+                Creature c;
+                memset(&c, 0, sizeof(c));
+                c.family_id = (uint8_t)fam; c.x = (uint8_t)x; c.y = (uint8_t)y; c.alive = 1;
+                Canvas a, b;
+                fpv_test_last_figure_size = 0;
+                fpv_test_underpaint = 0;
+                canvas_clear(&a);
+                render_fpv_world(&a, &w, w.spawn_x, w.spawn_y, (uint8_t)f, &c, 1);
+                int x0 = fpv_test_last_figure_x0, y0 = fpv_test_last_figure_y0;
+                int size = fpv_test_last_figure_size;
+                fpv_test_underpaint = 1;
+                canvas_clear(&b);
+                render_fpv_world(&b, &w, w.spawn_x, w.spawn_y, (uint8_t)f, &c, 1);
+                fpv_test_underpaint = 0;
+                if(!size) continue;
+                scenes++;
+                int box = size < 8 ? 8 : size;
+                RenderBudget bb = budget_at(box);
+                figure_compose(&bb, c.family_id, 0, POSE_IDLE, (uint8_t)((x + y) & 1), ink, mask);
+                int stride = (box + 7) / 8, leaked = 0;
+                for(int yy = 0; yy < size && !leaked; yy++)
+                    for(int xx = 0; xx < size; xx++) {
+                        int px = x0 + xx, py = y0 + yy;
+                        if(px < 0 || py < 0 || px >= 128 || py >= 48) continue;
+                        int sx = (xx * box) / size, sy = (yy * box) / size;
+                        if(!((mask[sy * stride + (sx >> 3)] >> (sx & 7)) & 1)) continue;
+                        if(a.px[py][px] != b.px[py][px]) { leaked = 1; break; }
+                    }
+                leaks += leaked;
+            }
+    CHECK(scenes >= 20, "figure: opacity sweep placed creatures in view");
+    CHECK(leaks == 0, "figure: creatures are opaque (nothing behind shows through)");
+    if(leaks) printf("    %d of %d creature billboards leaked\n", leaks, scenes);
+}
+
 int main(void) {
     printf("Sanctum RPG — render rule tests\n");
     test_walls_are_opaque();
+    test_figure_rules();
+    test_figure_identity();
+    test_figure_golden();
+    test_figures_are_opaque();
     printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

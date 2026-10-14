@@ -38,6 +38,7 @@
 #include <stdlib.h>
 
 #include "biome.h"
+#include "figure.h"
 #include "sprites.h"
 
 #define FPV_VIEW_W      128
@@ -60,6 +61,16 @@
 /* Max DDA steps before giving up — bounded by chunk size + a margin.
  * Chunks are 16×6 tiles; 32 steps is plenty for any ray. */
 #define DDA_MAX_STEPS 64
+
+#ifdef SANCTUM_RPG_HOST_TEST
+/* Test hooks (host only): the wall span drawn per column, and an
+ * "underpaint" switch that inks the whole view before the passes — if a
+ * wall is truly opaque its pixels can't depend on what was under it. */
+int fpv_test_wall_top[FPV_VIEW_W];
+int fpv_test_wall_bot[FPV_VIEW_W];
+int fpv_test_underpaint = 0;
+int fpv_test_last_figure_x0, fpv_test_last_figure_y0, fpv_test_last_figure_size = 0;
+#endif
 
 /* ─── Facing helpers (exported) ────────────────────────────────── */
 
@@ -408,33 +419,60 @@ const uint8_t* fpv_sprite_for_creature_glyph(char glyph) {
     }
 }
 
+/* Draw a 32x32 XBM billboard scaled to `size`, Z-checked per column.
+ * OPAQUE: with a `mask`, mask && !ink is written as background, so walls
+ * can't show through a body; without one (legacy tile sprites) each row is
+ * solid between its outermost inked pixels. `src` = source side in px. */
 static void draw_billboard(
-    Canvas* canvas, const uint8_t* xbm, int cx, int floor_y, int size,
-    int sprite_dist_fp, const int* wall_dist) {
+    Canvas* canvas, const uint8_t* xbm, const uint8_t* mask, int src,
+    int cx, int floor_y, int size, int sprite_dist_fp, const int* wall_dist) {
     if(size < 4) return;        /* too small — reads as noise */
-    if(size > 32) size = 32;    /* sprite is 32x32 native; clip */
+    if(size > 32) size = 32;    /* sprites are at most 32x32; clip */
 
     int x0 = cx - size / 2;
     int y0 = floor_y - size;
+    int stride = (src + 7) / 8;
 
     for(int dy = 0; dy < size; dy++) {
         int y = y0 + dy;
         if(y < 0 || y >= FPV_VIEW_H) continue;
-        int sy_src = (dy * 32) / size;  /* nearest-neighbor downscale */
+        int sy_src = (dy * src) / size;  /* nearest-neighbor */
+        /* Legacy tile sprites have no mask: treat each source row as solid
+         * between its outermost inked pixels, so they're opaque too. */
+        int span_l = src, span_r = -1;
+        if(!mask) {
+            for(int sx = 0; sx < src; sx++)
+                if(xbm[sy_src * stride + (sx >> 3)] & (1u << (sx & 7))) {
+                    if(sx < span_l) span_l = sx;
+                    span_r = sx;
+                }
+        }
         for(int dx = 0; dx < size; dx++) {
             int x = x0 + dx;
             if(x < 0 || x >= FPV_VIEW_W) continue;
             /* Z-check: sprite occluded by closer wall? */
             if(wall_dist[x] <= sprite_dist_fp) continue;
-            int sx_src = (dx * 32) / size;
-            int byte_idx = sy_src * 4 + (sx_src >> 3);
-            int bit = sx_src & 7;
-            if(xbm[byte_idx] & (1u << bit)) {
+            int sx_src = (dx * src) / size;
+            int byte_idx = sy_src * stride + (sx_src >> 3);
+            uint8_t bit = (uint8_t)(1u << (sx_src & 7));
+            if(xbm[byte_idx] & bit) {
                 canvas_draw_dot(canvas, x, y);
+            } else if(mask ? (mask[byte_idx] & bit) : (sx_src > span_l && sx_src < span_r)) {
+                canvas_set_color(canvas, ColorWhite);
+                canvas_draw_dot(canvas, x, y);
+                canvas_set_color(canvas, ColorBlack);
             }
         }
     }
+#ifdef SANCTUM_RPG_HOST_TEST
+    if(mask) fpv_test_last_figure_x0 = x0, fpv_test_last_figure_y0 = y0,
+             fpv_test_last_figure_size = size;
+#endif
 }
+
+/* Smallest box the composer draws in; billboards below it are composed at
+ * this size and sampled down. */
+#define FIGURE_MIN_COMPOSE 8
 
 static void render_sprite_pass(
     Canvas* canvas, const World* world,
@@ -461,28 +499,37 @@ static void render_sprite_pass(
 
             /* Pick the sprite. Creature on tile wins over tile feature
              * (a creature standing on a vault is what you see). */
-            const uint8_t* sprite = NULL;
-            if(creatures && creature_count > 0) {
-                for(int i = 0; i < creature_count; i++) {
-                    const Creature* c = &creatures[i];
-                    if(!c->alive) continue;
-                    if(c->x != (uint8_t)tx || c->y != (uint8_t)ty) continue;
-                    const Family* f = creature_family(c->family_id);
-                    if(f) sprite = fpv_sprite_for_creature_glyph(f->glyph);
-                    break;
-                }
-            }
-            if(!sprite) sprite = fpv_sprite_for_tile(tile);
-            if(!sprite) continue;
-
             /* Project tile center to screen column. */
             int center_col = FPV_VIEW_W / 2 +
                              (side * (FPV_VIEW_W / 2) * FP_ONE) /
                                  (fwd * PLANE_SCALE);
 
-            draw_billboard(
-                canvas, sprite, center_col, center_y, sprite_size,
-                sprite_dist_fp, wall_dist);
+            /* A creature on the tile wins over the tile feature, and is
+             * COMPOSED from its data at the size it appears (figure.h). */
+            const Creature* cr = NULL;
+            for(int i = 0; creatures && i < creature_count; i++) {
+                const Creature* c = &creatures[i];
+                if(c->alive && c->x == (uint8_t)tx && c->y == (uint8_t)ty) { cr = c; break; }
+            }
+            if(cr) {
+                static uint8_t fig_ink[FIGURE_PLANE_BYTES], fig_mask[FIGURE_PLANE_BYTES];
+                RenderBudget b = RENDER_BUDGET_FLIPPER_1BIT;
+                int box = sprite_size > FIGURE_MAX_PX ? FIGURE_MAX_PX : sprite_size;
+                if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
+                b.width = b.height = (uint8_t)box;
+                /* Stride with position parity: the gait changes as it moves. */
+                if(figure_compose(&b, cr->family_id, cr->trait_id,
+                                  figure_pose_for_state(cr->state),
+                                  (uint8_t)((cr->x + cr->y) & 1), fig_ink, fig_mask)) {
+                    draw_billboard(canvas, fig_ink, fig_mask, box, center_col, center_y,
+                                   sprite_size, sprite_dist_fp, wall_dist);
+                }
+                continue;
+            }
+            const uint8_t* sprite = fpv_sprite_for_tile(tile);
+            if(!sprite) continue;
+            draw_billboard(canvas, sprite, NULL, 32, center_col, center_y, sprite_size,
+                           sprite_dist_fp, wall_dist);
         }
     }
 }
@@ -529,14 +576,6 @@ void render_fpv_demo(Canvas* canvas) {
  * Outdoor chunks also get a far ridge on the horizon, hashed from the
  * absolute view direction, so turning in open ground shows new country. */
 
-#ifdef SANCTUM_RPG_HOST_TEST
-/* Test hooks (host only): the wall span drawn per column, and an
- * "underpaint" switch that inks the whole view before the passes — if a
- * wall is truly opaque its pixels can't depend on what was under it. */
-int fpv_test_wall_top[FPV_VIEW_W];
-int fpv_test_wall_bot[FPV_VIEW_W];
-int fpv_test_underpaint = 0;
-#endif
 
 /* Wall pass v2 tunables (AGENTS.md: no hardcoded tunables). Distances are
  * 8.8 fp tile units; densities are ink-per-16 for the Bayer dither. */

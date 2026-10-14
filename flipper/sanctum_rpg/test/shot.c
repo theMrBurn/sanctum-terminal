@@ -7,6 +7,10 @@
  *
  *   test/shot fpv <seed-hex> <chunk_x> <chunk_y> <facing 0-3|a> <out.pbm>
  *
+ *   test/shot lineup <family_id> <out.pbm>
+ *     every trait of one family: 5 poses at 32px, then idle at the FPV
+ *     distance sizes, each on a dithered wall so the mask shows.
+ *
  * facing `a` = auto: the facing with the longest open run from spawn, so a
  * scene shows a corridor rather than the wall the player happens to face.
  */
@@ -18,6 +22,7 @@
 
 #include "../biome.h"
 #include "../creatures.h"
+#include "../figure.h"
 #include "../pool.h"
 #include "../rng.h"
 #include "../stamps.h"
@@ -53,7 +58,78 @@ static uint8_t open_facing(const World* w) {
     return (uint8_t)best;
 }
 
+/* ── lineup: one family, every trait, every pose + distance sizes ── */
+#define LU_CELL 34
+static const int LU_SIZES[] = {18, 12, 9, 7};
+#define LU_W (5 * LU_CELL + 18 + 12 + 9 + 7 + 5 * 2)
+#define LU_H_MAX (16 * LU_CELL)
+static uint8_t lu[LU_H_MAX][LU_W];
+
+static int bm(const uint8_t* b, int stride, int x, int y) { return (b[y * stride + (x >> 3)] >> (x & 7)) & 1; }
+
+/* Draw a figure at (ox, oy) scaled to `size`, the way draw_billboard
+ * samples it (nearest), over a dithered "wall" so opacity is visible. */
+static void put_figure(int ox, int oy, int size, const uint8_t* ink, const uint8_t* mask) {
+    int stride = (size + 7) / 8;
+    for(int y = 0; y < size; y++)
+        for(int x = 0; x < size; x++) {
+            int sx = x, sy = y;    /* composed natively at `size` */
+            int bg = ((x + ox) & 3) == 0 && ((y + oy) & 1) == 0;   /* a mid-distance wall's density */
+            lu[oy + y][ox + x] = bm(mask, stride, sx, sy) ? bm(ink, stride, sx, sy) : bg;
+        }
+}
+
+static int lineup(int family_id, const char* path) {
+    static uint8_t ink[FIGURE_PLANE_BYTES], mask[FIGURE_PLANE_BYTES];
+    memset(lu, 0, sizeof(lu));
+    int rows = CREATURE_TRAIT_COUNT;
+    for(int t = 0; t < rows; t++) {
+        int oy = t * LU_CELL + 1, ox = 1;
+        for(int p = 0; p < POSE_COUNT; p++, ox += LU_CELL) {
+            if(!figure_compose(&RENDER_BUDGET_FLIPPER_1BIT, (uint8_t)family_id, (uint8_t)t,
+                               (FigurePose)p, 0, ink, mask)) return 3;
+            put_figure(ox, oy, 32, ink, mask);
+        }
+        for(unsigned k = 0; k < sizeof(LU_SIZES) / sizeof(LU_SIZES[0]); k++) {
+            RenderBudget b = RENDER_BUDGET_FLIPPER_1BIT;
+            b.width = b.height = (uint8_t)LU_SIZES[k];
+            figure_compose(&b, (uint8_t)family_id, (uint8_t)t, POSE_IDLE, 0, ink, mask);
+            put_figure(ox, oy + 32 - LU_SIZES[k], LU_SIZES[k], ink, mask);
+            ox += LU_SIZES[k] + 2;
+        }
+    }
+    FILE* f = fopen(path, "w");
+    if(!f) return 1;
+    fprintf(f, "P1\n%d %d\n", LU_W, rows * LU_CELL);
+    for(int y = 0; y < rows * LU_CELL; y++) {
+        for(int x = 0; x < LU_W; x++) fputc(lu[y][x] ? '1' : '0', f);
+        fputc('\n', f);
+    }
+    fclose(f);
+    return 0;
+}
+
+/* scene: one composed creature `dist` tiles ahead down the most open
+ * facing — to see figures in the world, against real walls. */
+static int creature_scene(uint32_t seed, int fam, int trait, int dist, int state, const char* path) {
+    World w;
+    world_generate_chunk(seed, 1, 0, &w);       /* not the home chunk: no vault at spawn */
+    uint8_t f = open_facing(&w);
+    Creature c;
+    memset(&c, 0, sizeof(c));
+    c.family_id = (uint8_t)fam; c.trait_id = (uint8_t)trait; c.state = (uint8_t)state; c.alive = 1;
+    c.x = (uint8_t)(w.spawn_x + FDX[f] * dist); c.y = (uint8_t)(w.spawn_y + FDY[f] * dist);
+    Canvas cv;
+    canvas_clear(&cv);
+    render_fpv_world(&cv, &w, w.spawn_x, w.spawn_y, f, &c, 1);
+    return write_pbm(&cv, path);
+}
+
 int main(int argc, char** argv) {
+    if(argc == 8 && strcmp(argv[1], "scene") == 0)
+        return creature_scene((uint32_t)strtoul(argv[2], NULL, 16), atoi(argv[3]), atoi(argv[4]),
+                              atoi(argv[5]), atoi(argv[6]), argv[7]);
+    if(argc == 4 && strcmp(argv[1], "lineup") == 0) return lineup(atoi(argv[2]), argv[3]);
     if(argc != 7 || strcmp(argv[1], "fpv") != 0) {
         fprintf(stderr, "usage: shot fpv <seed-hex> <cx> <cy> <facing> <out.pbm>\n");
         return 2;
