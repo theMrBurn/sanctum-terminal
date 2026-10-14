@@ -2,7 +2,9 @@
  *
  * Pipeline, all in a 32-unit design space scaled to the budget:
  *   1. BODY   — the family's body plan fills the mask (silhouette).
- *   2. HIDE   — ink = outline of the mask + the family's material pattern.
+ *   2. HIDE   — tighten the silhouette (no lone pixels / notches), then
+ *               ink = outline + POSTERIZED FORM (clear top, solid below a
+ *               hard terminator, one accent line).
  *   3. DETAIL — limbs, tails, antennae (ink+mask), eyes (mask only: they
  *               glow as opaque light out of a dark body).
  *   4. TRAIT  — cues read from the trait's DATA, not its name, so a trait
@@ -247,18 +249,65 @@ static const BodyPlan* plan_for(char glyph) {
     return NULL;
 }
 
-/* Material: does the hide put ink at interior pixel (x, y)? */
-static bool hide_ink(Hide h, int x, int y, bool pale, bool small) {
-    if(pale) return false;
+/* Material = POSTERIZED FORM. Light comes from above. Each body column is
+ * split at a TERMINATOR (v = 0 top .. 15 belly): clear above, solid ink
+ * below, with exactly one 50% row at the boundary — two tones and a hard
+ * edge, which is what reads as tight on a 1-bit screen (gradient dither
+ * read as mush; tried 2026-10-14, see sheets). Each hide has its own
+ * terminator and ONE accent drawn as a crisp clear line or dot. */
+#define TERM_SOLID 0
+static const struct { int8_t term; } MATERIAL[] = {
+    [HIDE_FUR]      = {11},          /* pale coat, dark belly */
+    [HIDE_SHELL]    = {2},           /* dark lacquer ... */
+    [HIDE_DARK]     = {TERM_SOLID},  /* spider: solid */
+    [HIDE_MEMBRANE] = {5},           /* bat: light crown, dark wings */
+    [HIDE_GEL]      = {9},           /* slime: clear dome, dark base */
+};
+#define GLOSS_V        5   /* shell: a clear highlight line at this depth */
+#define SHINE_V        3   /* slime: a clear shine dot row */
+#define EMBER_TERM     4   /* ember: crust below this depth */
+#define EMBER_SEAM    11   /* ember: one glowing seam per this many px */
+#define SPIDER_MARK_V  6   /* spider: a single clear mark on the back */
+
+static bool hide_ink(Hide h, int x, int y, int v, bool small) {
     if(small) return true;                     /* tiny: solid silhouette reads best */
+    int term = MATERIAL[h].term;
+    bool ink = v > term || (v == term && term != TERM_SOLID ? ((x + y) & 1) : v >= term);
     switch(h) {
-    case HIDE_FUR:      return (y % 3) == 0 && ((x + y) & 1);       /* short fur strokes */
-    case HIDE_SHELL:    return ((x + y) & 1) == 0 || (y & 3) == 0;  /* dense lacquer */
-    case HIDE_DARK:     return !((x & 3) == 1 && (y & 3) == 1);     /* near-solid */
-    case HIDE_MEMBRANE: return ((x + y) & 1) == 0;                  /* even dither */
-    case HIDE_GEL:      return ((x + y) & 1) == 0 && !((x & 3) == 1 && (y & 3) == 0); /* wet, with glints */
+    case HIDE_SHELL: if(v == GLOSS_V && (x & 1)) ink = false; break;   /* gloss */
+    case HIDE_GEL:   if(v == SHINE_V && (x % 5) == 2) ink = false; break;
+    case HIDE_DARK:  if(v == SPIDER_MARK_V && (x % 6) == 3) ink = false; break;
+    default: break;
     }
-    return false;
+    return ink;
+}
+
+/* Where pixel (x, y) sits in its body column: 0 at the top, 15 at the
+ * belly. Columns are the mask's vertical runs. */
+static int column_v(const Plane* m, int x, int y) {
+    int top = y, bot = y;
+    while(pget(m, x, top - 1)) top--;
+    while(pget(m, x, bot + 1)) bot++;
+    int span = bot - top;
+    return span > 0 ? ((y - top) * 15) / span : 0;
+}
+
+/* TIGHTEN the silhouette before it is outlined: drop lone pixels and fill
+ * one-pixel notches, the jaggies where primitives meet. */
+static void tighten(Plane* m) {
+    for(int pass = 0; pass < 2; pass++)
+        for(int y = 0; y < m->h; y++)
+            for(int x = 0; x < m->w; x++) {
+                int l = pget(m, x - 1, y), r = pget(m, x + 1, y);
+                int u = pget(m, x, y - 1), d = pget(m, x, y + 1);
+                if(pget(m, x, y)) {
+                    int n8 = l + r + u + d + pget(m, x - 1, y - 1) + pget(m, x + 1, y - 1) +
+                             pget(m, x - 1, y + 1) + pget(m, x + 1, y + 1);
+                    if(n8 == 0) pset(m, x, y, 0);              /* lone pixel */
+                } else if((l && r && (u || d)) || (u && d && (l || r))) {
+                    pset(m, x, y, 1);                          /* one-pixel notch */
+                }
+            }
 }
 
 static void mirror_x(Plane* a, Plane* b) {
@@ -358,7 +407,8 @@ bool figure_compose(
         limb(&ink, &m, &t, 24, 19, 28, 12);
     }
 
-    /* 2. HIDE — outline + material, from the mask */
+    /* 2. HIDE — tighten the silhouette, then outline + form shading */
+    tighten(&m);
     bool small = budget->width < LOD_SMALL_PX;
     bool heavy = heavy_build && !small;
     for(int y = 0; y < m.h; y++)
@@ -368,9 +418,14 @@ bool figure_compose(
                        !pget(&m, x, y - 1) || !pget(&m, x, y + 1);
             int edge2 = heavy && (!pget(&m, x - 2, y) || !pget(&m, x + 2, y) ||
                                   !pget(&m, x, y - 2) || !pget(&m, x, y + 2));
-            bool on = edge || edge2 || hide_ink(plan->hide, x, y, pale, small) ||
-                      (banded && (y % 4) == 0);
-            if(tr->element == ELEM_FIRE && !edge) on = ((x + y + fr) & 1) == 0;
+            int v = column_v(&m, x, y);
+            bool on;
+            if(edge || edge2) on = true;
+            else if(pale) on = small;                           /* hollow, unless tiny */
+            else if(banded && !small && (v == 5 || v == 10)) on = true;   /* bands follow the body */
+            else if(tr->element == ELEM_FIRE && !small)          /* dark crust, glowing seams */
+                on = v > EMBER_TERM && ((x + 2 * y + fr) % EMBER_SEAM) != 0;
+            else on = hide_ink(plan->hide, x, y, v, small);
             pset(&ink, x, y, on);
         }
 

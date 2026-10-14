@@ -152,7 +152,7 @@ static void test_figure_identity(void) {
 /* GOLDEN: one FNV-1a 64 over every combination at the device size —
  * ink then mask bytes, order family > trait > pose > frame. A port
  * (Python, ...) reproduces this number or it isn't drawing the same game. */
-#define FIGURE_GOLDEN 0xF68D1055DCF2DC87ULL
+#define FIGURE_GOLDEN 0x6518CF0974A7A97AULL
 static void test_figure_golden(void) {
     static uint8_t ink[FIGURE_PLANE_BYTES], mask[FIGURE_PLANE_BYTES];
     uint64_t h = 0xCBF29CE484222325ULL;
