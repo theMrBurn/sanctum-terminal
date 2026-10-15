@@ -26,6 +26,18 @@ const PrimitiveDef PRIMITIVES[PRIM_COUNT_TOTAL] = {
     {PRIM_DF,  '~',  0,   1},
     {PRIM_SC,  ';',  1,   0},
     {PRIM_SR,  ':',  1,   0},
+    {PRIM_SA,  'n',  0,   0},
+    {PRIM_BP,  'x',  1,   0},
+    {PRIM_UR,  'U',  0,   0},
+    {PRIM_FS,  '_',  1,   0},
+    {PRIM_OC,  'c',  0,   0},
+    {PRIM_RB,  '^',  0,   1},
+    {PRIM_PO,  'l',  0,   0},
+    {PRIM_RL,  '-',  1,   0},
+    {PRIM_TR,  'Y',  0,   1},
+    {PRIM_DT,  'y',  0,   0},
+    {PRIM_SP,  't',  0,   0},
+    {PRIM_TG,  '"',  1,   0},
 };
 
 const PrimitiveDef* primitive_def(uint8_t id) {
@@ -129,6 +141,84 @@ const StampDef STAMPS[] = {
     {19, STAMP_STYLE_MOOR, 2, 2, SF_COMMON, R_NONE, 4,
      {{PRIM_SC, 0, 0}, {PRIM_SC, 1, 0}, {PRIM_SC, 0, 1}, {PRIM_SC, 1, 1},
       {0,0,0},{0,0,0}}},
+
+    /* ── crypt (2026-10-14) ── */
+    /* id=20 — tomb row */
+    {20, STAMP_STYLE_CRYPT, 3, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_SA, 0, 0}, {PRIM_SA, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=21 — a laid-out dead: urns at the head and foot */
+    {21, STAMP_STYLE_CRYPT, 3, 1, SF_COMMON, R_FLIP, 3,
+     {{PRIM_UR, 0, 0}, {PRIM_SA, 1, 0}, {PRIM_UR, 2, 0}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=22 — ossuary heap */
+    {22, STAMP_STYLE_CRYPT, 2, 2, SF_COMMON, R_ALL, 3,
+     {{PRIM_BP, 0, 0}, {PRIM_BP, 1, 0}, {PRIM_BP, 1, 1}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=23 — pillared aisle */
+    {23, STAMP_STYLE_CRYPT, 3, 2, SF_UNCOMMON, R_FLIP, 4,
+     {{PRIM_MC, 0, 0}, {PRIM_MC, 2, 0}, {PRIM_FS, 1, 0}, {PRIM_FS, 1, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=24 — cracked floor */
+    {24, STAMP_STYLE_CRYPT, 2, 2, SF_COMMON, R_NONE, 4,
+     {{PRIM_FS, 0, 0}, {PRIM_FS, 1, 0}, {PRIM_FS, 0, 1}, {PRIM_FS, 1, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=25 — urn niche */
+    {25, STAMP_STYLE_CRYPT, 2, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_UR, 0, 0}, {PRIM_UR, 1, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=26 — the founder's tomb (rare) */
+    {26, STAMP_STYLE_CRYPT, 3, 2, SF_RARE, R_NONE, 5,
+     {{PRIM_UR, 0, 0}, {PRIM_SA, 1, 0}, {PRIM_UR, 2, 0}, {PRIM_FS, 0, 1},
+      {PRIM_FS, 2, 1}, {0,0,0}}},
+
+    /* ── old mine (2026-10-14) ── */
+    /* id=27 — cart on the rails */
+    {27, STAMP_STYLE_MINE, 3, 1, SF_COMMON, R_FLIP, 3,
+     {{PRIM_RL, 0, 0}, {PRIM_OC, 1, 0}, {PRIM_RL, 2, 0}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=28 — a run of rails */
+    {28, STAMP_STYLE_MINE, 3, 1, SF_COMMON, R_FLIP, 3,
+     {{PRIM_RL, 0, 0}, {PRIM_RL, 1, 0}, {PRIM_RL, 2, 0}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=29 — spoil heap */
+    {29, STAMP_STYLE_MINE, 2, 2, SF_COMMON, R_ALL, 3,
+     {{PRIM_RB, 0, 0}, {PRIM_RB, 1, 0}, {PRIM_RB, 1, 1}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=30 — shoring */
+    {30, STAMP_STYLE_MINE, 3, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_PO, 0, 0}, {PRIM_PO, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=31 — old cave-in */
+    {31, STAMP_STYLE_MINE, 2, 2, SF_UNCOMMON, R_NONE, 4,
+     {{PRIM_RB, 0, 0}, {PRIM_RB, 1, 0}, {PRIM_RB, 0, 1}, {PRIM_RB, 1, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=32 — rail bend */
+    {32, STAMP_STYLE_MINE, 2, 2, SF_COMMON, R_ALL, 3,
+     {{PRIM_RL, 0, 0}, {PRIM_RL, 1, 0}, {PRIM_RL, 1, 1}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=33 — the lone post */
+    {33, STAMP_STYLE_MINE, 1, 1, SF_COMMON, R_NONE, 1,
+     {{PRIM_PO, 0, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+
+    /* ── forest (2026-10-14) ── */
+    /* id=34 — a lone tree */
+    {34, STAMP_STYLE_FOREST, 1, 1, SF_COMMON, R_NONE, 1,
+     {{PRIM_TR, 0, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=35 — grove */
+    {35, STAMP_STYLE_FOREST, 2, 2, SF_COMMON, R_FLIP, 2,
+     {{PRIM_TR, 0, 0}, {PRIM_TR, 1, 1}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=36 — copse */
+    {36, STAMP_STYLE_FOREST, 3, 2, SF_UNCOMMON, R_FLIP, 4,
+     {{PRIM_TR, 0, 0}, {PRIM_TR, 1, 0}, {PRIM_TR, 2, 1}, {PRIM_SP, 0, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=37 — dead tree and stump */
+    {37, STAMP_STYLE_FOREST, 2, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_DT, 0, 0}, {PRIM_SP, 1, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=38 — tall grass */
+    {38, STAMP_STYLE_FOREST, 2, 2, SF_COMMON, R_NONE, 4,
+     {{PRIM_TG, 0, 0}, {PRIM_TG, 1, 0}, {PRIM_TG, 0, 1}, {PRIM_TG, 1, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=39 — glade edge */
+    {39, STAMP_STYLE_FOREST, 3, 1, SF_COMMON, R_FLIP, 3,
+     {{PRIM_TR, 0, 0}, {PRIM_TG, 1, 0}, {PRIM_TR, 2, 0}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=40 — windfall */
+    {40, STAMP_STYLE_FOREST, 3, 1, SF_UNCOMMON, R_FLIP, 3,
+     {{PRIM_DF, 0, 0}, {PRIM_DF, 1, 0}, {PRIM_SP, 2, 0}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=41 — undergrowth */
+    {41, STAMP_STYLE_FOREST, 2, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_SC, 0, 0}, {PRIM_TG, 1, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
 };
 
 const int STAMP_COUNT = (int)(sizeof(STAMPS) / sizeof(STAMPS[0]));

@@ -21,6 +21,15 @@
  *     a 2x2 block of a spanning prop at x 8..9, y 2..3, from (x, y)
  *     a synthetic chunk with every feature of that biome scattered in view.
  *
+ *   test/shot stylefield <style> <out.pbm>
+ *     a synthetic chunk in that style (style.h) with its features in view.
+ *
+ *   test/shot wall <style> <dist> <out.pbm>
+ *     that style's walls up close, with a corner.
+ *
+ *   test/shot terrainset <outdir>
+ *     every TERRAIN row at 1, 2 and 4 tiles: <outdir>/terrain_<hex>_<d>.pbm.
+ *
  * facing `a` = auto: the facing with the longest open run from spawn, so a
  * scene shows a corridor rather than the wall the player happens to face.
  */
@@ -36,6 +45,8 @@
 #include "../pool.h"
 #include "../rng.h"
 #include "../stamps.h"
+#include "../style.h"
+#include "../terrain.h"
 #include "../render_fpv.h"
 #include "../world.h"
 
@@ -200,7 +211,90 @@ static int field_shot(int biome, const char* path) {
     return write_pbm(&cv, path);
 }
 
+/* One synthetic layout per new style (cavern/moor use field_shot). */
+static const char* STYLE_FIELD[STYLE_COUNT][WORLD_ROWS] = {
+    [STYLE_CRYPT] = {"................",
+                     "....U.n.U...x...",
+                     "...__...O.O.....",
+                     ".....x..........",
+                     "..n...__...UU...",
+                     "................"},
+    [STYLE_MINE]  = {"................",
+                     "....l...l...^^..",
+                     "...---c---..^...",
+                     ".....^..........",
+                     "..l...--c-..l...",
+                     "................"},
+    [STYLE_FOREST]= {"........Y.......",
+                     "....Y..\"\"..y.t..",
+                     "...\"\"..Y...Y....",
+                     "................",
+                     "..t.~~.Y..;\"..Y.",
+                     ".......Y....y..."},
+};
+
+static int stylefield_shot(int style, const char* path) {
+    if(style < 0 || style >= STYLE_COUNT) return 2;
+    if(!STYLE_FIELD[style][0]) return field_shot(STYLE_TABLE[style].biome, path);
+    World w;
+    bare_chunk(&w, STYLE_TABLE[style].biome);
+    w.style = (Style)style;
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) {
+            char g = STYLE_FIELD[style][y][x];
+            if(g != '.' && w.tiles[y][x] == TILE_FLOOR) w.tiles[y][x] = g;
+        }
+    Canvas cv;
+    canvas_clear(&cv);
+    render_fpv_world(&cv, &w, w.spawn_x, w.spawn_y, 1 /* east */, NULL, 0);
+    return write_pbm(&cv, path);
+}
+
+/* A style's walls up close: the east wall `dist` tiles ahead, looking a
+ * little off-axis so two faces and a corner show. */
+static int wall_shot(int style, int dist, const char* path) {
+    if(style < 0 || style >= STYLE_COUNT) return 2;
+    World w;
+    bare_chunk(&w, BIOME_CAVERN);
+    w.style = (Style)style;
+    w.tiles[1][WORLD_COLS - 3] = TILE_WALL;    /* a pier for a corner */
+    Canvas cv;
+    canvas_clear(&cv);
+    render_fpv_world(&cv, &w, WORLD_COLS - 1 - dist, 2, 1 /* east */, NULL, 0);
+    return write_pbm(&cv, path);
+}
+
+/* The biome a glyph is seen in: the biome of the first style whose stamps
+ * place it (anything unstamped, e.g. the legacy boulder: outdoor). */
+static int glyph_biome(char g) {
+    for(int i = 0; i < STAMP_COUNT; i++)
+        for(int k = 0; k < STAMPS[i].prim_count; k++) {
+            const PrimitiveDef* p = primitive_def(STAMPS[i].prims[k].prim_id);
+            if(p && p->glyph == g) return STYLE_TABLE[STAMPS[i].style].biome;
+        }
+    for(int id = 0; id < PRIM_COUNT_CAVERN; id++)     /* cavern vocabulary, unstamped */
+        if(primitive_def((uint8_t)id)->glyph == g) return BIOME_CAVERN;
+    return BIOME_OUTDOOR;
+}
+
+static int terrainset(const char* dir) {
+    static const int DISTS[] = {1, 2, 4};
+    char path[512];
+    for(int i = 0; i < terrain_count(); i++) {
+        const TerrainDef* d = terrain_at(i);
+        int biome = d->form == TF_SLAB ? BIOME_CAVERN : glyph_biome(d->glyph);
+        for(int k = 0; k < 3; k++) {
+            snprintf(path, sizeof(path), "%s/terrain_%02x_%d.pbm", dir, (unsigned char)d->glyph, DISTS[k]);
+            if(terrain_shot(biome, d->glyph, DISTS[k], path)) return 1;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if(argc == 4 && strcmp(argv[1], "stylefield") == 0) return stylefield_shot(atoi(argv[2]), argv[3]);
+    if(argc == 3 && strcmp(argv[1], "terrainset") == 0) return terrainset(argv[2]);
+    if(argc == 5 && strcmp(argv[1], "wall") == 0) return wall_shot(atoi(argv[2]), atoi(argv[3]), argv[4]);
     if(argc == 6 && strcmp(argv[1], "terrain") == 0)
         return terrain_shot(atoi(argv[2]), argv[3][0], atoi(argv[4]), argv[5]);
     if(argc == 7 && strcmp(argv[1], "span") == 0)

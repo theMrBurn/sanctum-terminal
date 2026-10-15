@@ -33,6 +33,11 @@ typedef enum {
     TM_MONOLITH,   /* one raw stone: no courses, a single long crack. No glyph
                     * uses it since the menhir became a prop; kept for the
                     * dungeon styles' wall materials. */
+    TM_BRICK,      /* crypt: regular brick courses, a burial niche on some tiles */
+    TM_TIMBER,     /* mine: rough stone shored with timber posts + lintels */
+    TM_STYLE_WALL, /* "this region's wall": resolved by the renderer from the
+                    * world's style (StyleDef.wall_material). Plain walls and
+                    * secrets use it, so a crypt's walls are brick. */
 } SlabMaterial;
 
 typedef struct {
@@ -42,15 +47,27 @@ typedef struct {
     uint8_t plan;       /* prop / floor plan index (terrain.c) */
     uint8_t span;       /* PROP footprint, tiles per side: 1 = one tile; 2 = a
                          * 2x2 block of the glyph drawn as ONE billboard at
-                         * the block's centre, `span` tiles wide and tall */
+                         * the block's centre */
+    uint8_t scale;      /* PROP billboard size in tiles (square, bottom-anchored):
+                         * 1 = wall height; 2 = a tree or menhir that stands
+                         * over the walls. Independent of the footprint. */
 } TerrainDef;
 
 #define TERRAIN_VARIANTS 4
 #define TERRAIN_SPAN_MAX 2
 
-/* Floor plans (TF_FLOOR defs' `plan`): what render_fpv marks on the ground. */
-#define TERRAIN_PLAN_MOSS  7
-#define TERRAIN_PLAN_SCREE 8
+/* Floor plans (TF_FLOOR defs' `plan`): what render_fpv marks on the ground.
+ * Numbered apart from the prop plans so the two can never collide. */
+#define TERRAIN_PLAN_MOSS  32
+#define TERRAIN_PLAN_SCREE 33
+#define TERRAIN_PLAN_FLAG  34   /* cracked flagstone: joints */
+#define TERRAIN_PLAN_RAILS 35   /* mine rails: sleepers */
+#define TERRAIN_PLAN_GRASS 36   /* tall grass: blades */
+
+/* Every def, in table order — tests and the shot harness iterate this, so
+ * a new row can't escape the identity / opacity / golden checks. */
+int terrain_count(void);
+const TerrainDef* terrain_at(int i);
 
 /* The def for a glyph, or NULL for plain floor / non-terrain tiles. */
 const TerrainDef* terrain_def(char glyph);
@@ -60,7 +77,8 @@ const TerrainDef* terrain_def(char glyph);
  * things stay walls). PROPs and FLOORs never do. */
 bool terrain_stops_ray(char glyph);
 
-/* Slab material for a ray-stopping glyph (TM_STONE if it has no def). */
+/* Slab material for a ray-stopping glyph (TM_STONE if it has no def). May
+ * return TM_STYLE_WALL, which the caller resolves from the world's style. */
 SlabMaterial terrain_material(char glyph);
 
 /* Compose a PROP glyph into `size`-px square planes (8..PIXKIT_MAX_PX),

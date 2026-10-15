@@ -572,6 +572,10 @@ void world_generate_chunk(
     }
 }
 
+bool world_mutation_applies(char fresh_tile) {
+    return fresh_tile == TILE_FLOOR || loot_is_item_glyph(fresh_tile);
+}
+
 TerrainMode world_terrain(const World* w) { return style_terrain(w->style); }
 
 bool world_is_blocking(char glyph) {

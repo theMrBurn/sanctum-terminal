@@ -63,6 +63,8 @@ static uint32_t chunk_fingerprint(const World* w) {
     h *= 16777619u;
     h ^= (uint32_t)w->biome;
     h *= 16777619u;
+    h ^= (uint32_t)w->style;   /* WORLDGEN 2: the region's style is part of the chunk */
+    h *= 16777619u;
     return h;
 }
 
@@ -243,7 +245,7 @@ static void test_chunk_invariants(void) {
 /* The generator version these fingerprints were recorded under. Re-record
  * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
  * this to match — the check below fails if the two drift apart. */
-#define GOLDEN_WORLDGEN_VERSION 1
+#define GOLDEN_WORLDGEN_VERSION 2
 
 static void test_chunk_golden(void) {
     CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
@@ -260,10 +262,18 @@ static void test_chunk_golden(void) {
          *   - open chunks grew wall+door on edges facing walled neighbors;
          *   - rare quest-gated secret passages (TILE_SECRET) added.
          * All four chunks shifted. Prior: 2026-06-03 economy bundle C, etc. */
-        {0xCAFEBABE, 0, 0, 0x9A4F21E6},
-        {0xCAFEBABE, 1, 0, 0x01821F0D},
-        {0xDEADBEEF, 0, 0, 0xB00E3D15},
-        {0x00000001, -3, 5, 0xB39F63AE},
+        /* Re-recorded 2026-10-14, WORLDGEN_VERSION 1 -> 2: regions now have a
+         * style (crypt / old mine / forest join cavern / moor), and the style
+         * is hashed into the fingerprint. The last three cases were chosen
+         * to land IN the new styles, so the goldens cover what changed.
+         * Prior (v1): 0x9A4F21E6 0x01821F0D 0xB00E3D15 0xB39F63AE. */
+        {0xCAFEBABE, 0, 0, 0xD0925D12},
+        {0xCAFEBABE, 1, 0, 0x6CD6E177},
+        {0xDEADBEEF, 0, 0, 0x3A6A267C},
+        {0x00000001, -3, 5, 0x72E9EC7D},
+        {0x12345678, 4, -2, 0x076874FA},   /* crypt */
+        {0x12345678, 1, -5, 0x24E3D04E},   /* mine */
+        {0x12345678, 4, 1, 0x414E736C},    /* forest */
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     for(int i = 0; i < n; i++) {
@@ -286,6 +296,15 @@ static void test_chunk_golden(void) {
  * A region's style is shared by all its chunks, belongs to the chunk's
  * biome, and decides enclosed/open; the generator and the edge logic
  * agree on it. */
+static void test_mutation_guard(void) {
+    CHECK(world_mutation_applies(TILE_FLOOR), "deltas: a pickup applies to floor");
+    CHECK(world_mutation_applies('*'), "deltas: a pickup applies to a loot tile");
+    CHECK(!world_mutation_applies(TILE_WALL) && !world_mutation_applies(TILE_DOOR) &&
+          !world_mutation_applies(TILE_VENDOR) && !world_mutation_applies(TILE_VAULT) &&
+          !world_mutation_applies('n') && !world_mutation_applies(TILE_SECRET),
+          "deltas: a stale pickup never erases structure after a generator bump");
+}
+
 static void test_styles(void) {
     int bad_region = 0, bad_biome = 0, bad_terrain = 0, n = 0;
     static const uint32_t SEEDS[] = {0xCAFEBABEu, 0xDEADBEEFu, 0x00000001u, 0x12345678u};
@@ -2326,6 +2345,7 @@ int main(void) {
     test_chunk_invariants();
     test_chunk_golden();
     test_styles();
+    test_mutation_guard();
     test_names_determinism();
     test_names_biome_distinct();
     test_names_cap_truncates();

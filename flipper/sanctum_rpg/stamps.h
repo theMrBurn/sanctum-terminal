@@ -61,9 +61,25 @@
 #define PRIM_SC  10u
 #define PRIM_SR  11u
 
+/* Crypt (style dungeon) */
+#define PRIM_SA  12u  /* 'n' sarcophagus   — blocking */
+#define PRIM_BP  13u  /* 'x' bone pile     — walkable, low */
+#define PRIM_UR  14u  /* 'U' urn           — blocking */
+#define PRIM_FS  15u  /* '_' flagstone     — floor mark */
+/* Old mine */
+#define PRIM_OC  16u  /* 'c' ore cart      — blocking */
+#define PRIM_RB  17u  /* '^' rubble        — blocking */
+#define PRIM_PO  18u  /* 'l' timber post   — blocking */
+#define PRIM_RL  19u  /* '-' rails         — floor mark */
+/* Forest */
+#define PRIM_TR  20u  /* 'Y' tree          — blocking, blocks sight */
+#define PRIM_DT  21u  /* 'y' dead tree     — blocking */
+#define PRIM_SP  22u  /* 't' stump         — blocking, low */
+#define PRIM_TG  23u  /* '"' tall grass    — walkable */
+
 #define PRIM_COUNT_CAVERN  6
 #define PRIM_COUNT_OUTDOOR 6
-#define PRIM_COUNT_TOTAL  12
+#define PRIM_COUNT_TOTAL  24
 
 typedef struct {
     uint8_t id;
@@ -96,6 +112,9 @@ bool primitive_glyph_blocks_sight(char glyph);
  * STAMP_BIOME_* names remain the Pool / weather / narrative ids (biome_pool). */
 #define STAMP_STYLE_CAVERN  0u
 #define STAMP_STYLE_MOOR    1u
+#define STAMP_STYLE_CRYPT   2u
+#define STAMP_STYLE_MINE    3u
+#define STAMP_STYLE_FOREST  4u
 #define STAMP_BIOME_CAVERN  0u
 #define STAMP_BIOME_OUTDOOR 1u
 

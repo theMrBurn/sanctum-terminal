@@ -27,29 +27,62 @@
 #define MENHIR_HALF_W       4   /* half-width at the crown */
 #define MENHIR_FOOT_FLARE   5   /* extra half-width gained down to the foot */
 #define MENHIR_CRACK_Y     11   /* first crack row */
+#define RUBBLE_STONES       5   /* rocks in a rubble heap */
+#define BONE_STROKES        3   /* long bones in a bone pile */
+#define URN_TERM           18   /* urn: shadow right of this column */
+#define TREE_LOBES          6   /* tree crown: leaf masses */
+#define TREE_TRUNK_TOP     21   /* tree: where the trunk meets the crown */
+#define TREE_TRUNK_HW       2   /* tree / dead tree: trunk half-width at the foot */
+#define DEAD_BRANCHES       5   /* dead tree: branch strokes */
+#define STUMP_TOP          23   /* stump: the cut face row */
+#define POST_HW             3   /* mine post: half-width */
 
 /* ── plans ─────────────────────────────────────────────────────────── */
 enum { PLAN_NONE = 0, PLAN_STANDING, PLAN_CAIRN, PLAN_BOULDER, PLAN_DEADFALL,
-       PLAN_SCRUB, PLAN_GLOWCAP, PLAN_MENHIR, PLAN_MOSS = TERRAIN_PLAN_MOSS, PLAN_SCREE = TERRAIN_PLAN_SCREE };
+       PLAN_SCRUB, PLAN_GLOWCAP, PLAN_MENHIR,
+       PLAN_SARCOPHAGUS, PLAN_BONES, PLAN_URN,          /* crypt */
+       PLAN_CART, PLAN_RUBBLE, PLAN_POST,               /* mine */
+       PLAN_TREE, PLAN_DEADTREE, PLAN_STUMP,            /* forest */
+       PLAN_MOSS = TERRAIN_PLAN_MOSS, PLAN_SCREE = TERRAIN_PLAN_SCREE,
+       PLAN_FLAG = TERRAIN_PLAN_FLAG, PLAN_RAILS = TERRAIN_PLAN_RAILS,
+       PLAN_GRASS = TERRAIN_PLAN_GRASS };
 
 static const TerrainDef TERRAIN[] = {
-    /* glyph       form      material     plan           span */
-    {TILE_WALL,   TF_SLAB,  TM_STONE,    PLAN_NONE,     1},
-    {TILE_SECRET, TF_SLAB,  TM_STONE,    PLAN_NONE,     1},   /* a secret looks like wall */
-    {'O',         TF_SLAB,  TM_COLUMN,   PLAN_NONE,     1},   /* mega column */
-    {'H',         TF_PROP,  0,           PLAN_MENHIR,   2},   /* menhir: one stone on a 2x2 */
-    {'I',         TF_PROP,  0,           PLAN_STANDING, 1},
-    {'Q',         TF_PROP,  0,           PLAN_CAIRN,    1},
-    {TILE_ROCK,   TF_PROP,  0,           PLAN_BOULDER,  1},
-    {'~',         TF_PROP,  0,           PLAN_DEADFALL, 1},
-    {';',         TF_PROP,  0,           PLAN_SCRUB,    1},
-    {'q',         TF_PROP,  0,           PLAN_GLOWCAP,  1},
-    {',',         TF_FLOOR, 0,           PLAN_MOSS,     1},
-    {':',         TF_FLOOR, 0,           PLAN_SCREE,    1},
+    /* glyph       form      material       plan              span scale */
+    {TILE_WALL,   TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1,   1},
+    {TILE_SECRET, TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1,   1},   /* a secret looks like wall */
+    {'O',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1,   1},   /* mega column */
+    {'H',         TF_PROP,  0,             PLAN_MENHIR,      2,   2},   /* menhir: one stone on a 2x2 */
+    {'I',         TF_PROP,  0,             PLAN_STANDING,    1,   1},
+    {'Q',         TF_PROP,  0,             PLAN_CAIRN,       1,   1},
+    {TILE_ROCK,   TF_PROP,  0,             PLAN_BOULDER,     1,   1},
+    {'~',         TF_PROP,  0,             PLAN_DEADFALL,    1,   1},
+    {';',         TF_PROP,  0,             PLAN_SCRUB,       1,   1},
+    {'q',         TF_PROP,  0,             PLAN_GLOWCAP,     1,   1},
+    {'n',         TF_PROP,  0,             PLAN_SARCOPHAGUS, 1,   1},   /* crypt */
+    {'x',         TF_PROP,  0,             PLAN_BONES,       1,   1},
+    {'U',         TF_PROP,  0,             PLAN_URN,         1,   1},
+    {'c',         TF_PROP,  0,             PLAN_CART,        1,   1},   /* mine */
+    {'^',         TF_PROP,  0,             PLAN_RUBBLE,      1,   1},
+    {'l',         TF_PROP,  0,             PLAN_POST,        1,   1},
+    {'Y',         TF_PROP,  0,             PLAN_TREE,        1,   2},   /* forest */
+    {'y',         TF_PROP,  0,             PLAN_DEADTREE,    1,   2},
+    {'t',         TF_PROP,  0,             PLAN_STUMP,       1,   1},
+    {',',         TF_FLOOR, 0,             PLAN_MOSS,        1,   1},
+    {':',         TF_FLOOR, 0,             PLAN_SCREE,       1,   1},
+    {'_',         TF_FLOOR, 0,             PLAN_FLAG,        1,   1},
+    {'-',         TF_FLOOR, 0,             PLAN_RAILS,       1,   1},
+    {'"',         TF_FLOOR, 0,             PLAN_GRASS,       1,   1},
 };
 
+int terrain_count(void) { return (int)(sizeof(TERRAIN) / sizeof(TERRAIN[0])); }
+
+const TerrainDef* terrain_at(int i) {
+    return (i >= 0 && i < terrain_count()) ? &TERRAIN[i] : NULL;
+}
+
 const TerrainDef* terrain_def(char glyph) {
-    for(unsigned i = 0; i < sizeof(TERRAIN) / sizeof(TERRAIN[0]); i++)
+    for(int i = 0; i < terrain_count(); i++)
         if(TERRAIN[i].glyph == glyph) return &TERRAIN[i];
     return NULL;
 }
@@ -93,6 +126,41 @@ static int stone_lean(uint8_t var) { return (int)(var % (2 * STONE_LEAN_MAX + 1)
 static const int8_t CAIRN[CAIRN_STONES][4] = {
     {16, 28, 10, 3}, {15, 23, 8, 3}, {17, 18, 6, 2}, {16, 14, 3, 2}};
 
+/* Rubble rocks: {cx, cy, rx, ry}, back to front. */
+static const int8_t RUBBLE[RUBBLE_STONES][4] = {
+    {21, 26, 8, 5}, {10, 27, 7, 4}, {15, 22, 5, 4}, {25, 21, 3, 3}, {16, 29, 9, 2}};
+
+/* Tree crown lobes: {cx, cy, rx, ry}. */
+/* Front to back: the low lobes overlap the ones behind them. */
+static const int8_t TREE_CROWN[TREE_LOBES][4] = {
+    {11, 19, 6, 4}, {21, 19, 6, 4}, {16, 15, 8, 5}, {11, 10, 5, 4}, {21, 10, 5, 4}, {16, 5, 5, 4}};
+
+/* Bone pile: long bones across the heap {x0, y0, x1, y1}. */
+static const int8_t BONES[BONE_STROKES][4] = {
+    {3, 30, 13, 24}, {18, 25, 29, 30}, {6, 26, 26, 27}};
+
+/* Dead tree branches: {x0, y0, x1, y1}, drawn 2 units thick. */
+static const int8_t BRANCHES[DEAD_BRANCHES][4] = {
+    {16, 16, 7, 7}, {16, 12, 24, 3}, {16, 19, 26, 13}, {7, 7, 5, 2}, {16, 8, 15, 1}};
+
+static void thick_seg(Plane* p, int size, int x0, int y0, int x1, int y1, int v) {
+    seg(p, size, x0, y0, x1, y1, v);
+    seg(p, size, x0 + 1, y0, x1 + 1, y1, v);
+}
+
+static void rect(Plane* p, int size, int x0, int y0, int x1, int y1, int v) {
+    for(int y = S(y0, size); y <= S(y1, size); y++)
+        for(int x = S(x0, size); x <= S(x1, size); x++) pset(p, x, y, v);
+}
+
+/* A tapering trunk from the foot (y 31) up to `top`. */
+static void trunk(Plane* m, int size, int top, int hw_foot) {
+    for(int y = top; y <= 31; y++) {
+        int hw = 1 + ((hw_foot - 1) * (y - top)) / (31 - top);
+        rect(m, size, 16 - hw, y, 16 + hw, y, 1);
+    }
+}
+
 static void shape(int plan, Plane* m, int size, uint8_t var) {
     switch(plan) {
     case PLAN_STANDING: {   /* a tall rough stone, tapering up, leaning */
@@ -115,6 +183,68 @@ static void shape(int plan, Plane* m, int size, uint8_t var) {
         ell(m, size, 16 + lean + (var & 2 ? 1 : -1), MENHIR_TOP + 1, MENHIR_HALF_W, 3, 1);  /* weathered, off-centre crown */
         break;
     }
+    case PLAN_SARCOPHAGUS:  /* a long lidded stone box */
+        rect(m, size, 5, 20, 26, 31, 1);
+        rect(m, size, 3, 17, 28, 20, 1);                      /* lid, overhanging */
+        if(var & 1) ell(m, size, 16, 17, 6, 2, 1);            /* a carved effigy on the lid */
+        break;
+    case PLAN_BONES: {      /* a heap of long bones, a skull on top */
+        int sx = 13 + (var & 1) * 5;
+        ell(m, size, 16, 29, 11, 2, 1);
+        for(int k = 0; k < BONE_STROKES; k++)
+            thick_seg(m, size, BONES[k][0], BONES[k][1], BONES[k][2], BONES[k][3], 1);
+        ell(m, size, sx, 21, 5, 4, 1);                        /* cranium */
+        rect(m, size, sx - 3, 24, sx + 3, 26, 1);             /* jaw */
+        break;
+    }
+    case PLAN_URN:
+        ell(m, size, 16, 23, 8, 7, 1);                        /* belly */
+        rect(m, size, 13, 12, 19, 17, 1);                     /* neck */
+        ell(m, size, 16, 12, 5, 1, 1);                        /* lip */
+        rect(m, size, 12, 29, 20, 31, 1);                     /* foot */
+        break;
+    case PLAN_CART:
+        for(int y = 17; y <= 26; y++) {                       /* body, wider at the top */
+            int hw = 11 - (y - 17) / 4;
+            rect(m, size, 16 - hw, y, 16 + hw, y, 1);
+        }
+        ell(m, size, 16, 16, 9, 3, 1);                        /* heaped ore */
+        ell(m, size, 9, 28, 3, 3, 1);                         /* wheels */
+        ell(m, size, 23, 28, 3, 3, 1);
+        break;
+    case PLAN_RUBBLE:
+        for(int k = 0; k < RUBBLE_STONES; k++)
+            ell(m, size, RUBBLE[k][0] + ((k & 1) ? (var & 1) * 2 - 1 : 0), RUBBLE[k][1],
+                RUBBLE[k][2], RUBBLE[k][3], 1);
+        break;
+    case PLAN_POST:         /* a timber post holding up the roof, with a cap */
+        rect(m, size, 16 - POST_HW, 3, 16 + POST_HW, 31, 1);
+        rect(m, size, 8, 0, 24, 3, 1);
+        break;
+    case PLAN_TREE: {       /* a full, lobed crown low on a short trunk; two tiles tall */
+        int sh = (var & 1) * 2 - 1;
+        trunk(m, size, TREE_TRUNK_TOP, TREE_TRUNK_HW + 1);
+        for(int k = 0; k < TREE_LOBES; k++)
+            ell(m, size, TREE_CROWN[k][0] + (k & 1) * sh, TREE_CROWN[k][1],
+                TREE_CROWN[k][2], TREE_CROWN[k][3], 1);
+        break;
+    }
+    case PLAN_DEADTREE:
+        trunk(m, size, 6, TREE_TRUNK_HW + 1);
+        for(int k = 0; k < DEAD_BRANCHES; k++) {
+            int f = (var & 1) && k != 4 ? 32 - 1 : -1;        /* mirrored variant */
+            int x0 = f < 0 ? BRANCHES[k][0] : f - BRANCHES[k][0];
+            int x1 = f < 0 ? BRANCHES[k][2] : f - BRANCHES[k][2];
+            thick_seg(m, size, x0, BRANCHES[k][1], x1, BRANCHES[k][3], 1);
+        }
+        break;
+    case PLAN_STUMP:        /* a low stump flaring into its roots */
+        for(int y = STUMP_TOP; y <= 31; y++) {
+            int hw = 6 + ((y - STUMP_TOP) * (y - STUMP_TOP)) / 12;   /* flares at the foot */
+            rect(m, size, 16 - hw, y, 16 + hw, y, 1);
+        }
+        ell(m, size, 16, STUMP_TOP, 6, 2, 1);                 /* cut face */
+        break;
     case PLAN_CAIRN:
         for(int k = 0; k < CAIRN_STONES; k++)
             ell(m, size, CAIRN[k][0] + ((k & 1) ? (var & 1) * 2 - 1 : 0), CAIRN[k][1],
@@ -161,6 +291,34 @@ static bool shade(int plan, const Plane* m, int x, int y, int size, uint8_t var)
         return false;
     }
     case PLAN_BOULDER:  return v > BOULDER_TERM;
+    case PLAN_SARCOPHAGUS:               /* lid lit, the box's face in shadow below the lid */
+        return y > S(21, size);
+    case PLAN_BONES:    return y > S(29, size);              /* pale bone; a shadow under the heap */
+    case PLAN_URN:      return x > S(URN_TERM, size);
+    case PLAN_CART:                      /* dark ore heap + iron wheels, light planks */
+        return y < S(17, size) || y > S(26, size);
+    case PLAN_RUBBLE: {                  /* each rock: lit top-left face, dark below its middle */
+        for(int k = RUBBLE_STONES - 1; k >= 0; k--) {
+            int cx = S(RUBBLE[k][0] + ((k & 1) ? (var & 1) * 2 - 1 : 0), size);
+            int cy = S(RUBBLE[k][1], size), rx = R(RUBBLE[k][2], size), ry = R(RUBBLE[k][3], size);
+            if(in_ellipse(x, y, cx, cy, rx, ry)) return y >= cy || x > cx + rx / 2;
+        }
+        return false;
+    }
+    case PLAN_POST:     return x > S(16, size);              /* lit face left */
+    case PLAN_TREE: {                    /* a dark leaf mass; each clump lit top-left */
+        int sh = (var & 1) * 2 - 1;
+        for(int k = 0; k < TREE_LOBES; k++) {
+            int cx = S(TREE_CROWN[k][0] + (k & 1) * sh, size), cy = S(TREE_CROWN[k][1], size);
+            int rx = R(TREE_CROWN[k][2], size), ry = R(TREE_CROWN[k][3], size);
+            if(in_ellipse(x, y, cx, cy, rx, ry))
+                return !(y < cy && x < cx + rx / 3);
+        }
+        return x > S(16, size);          /* the trunk: shadow side */
+    }
+    case PLAN_DEADTREE: return x > S(16, size);
+    case PLAN_STUMP:                     /* cut face light, bark dark on the shadow side */
+        return y > S(STUMP_TOP + 1, size) && x > S(18, size);
     case PLAN_DEADFALL:                  /* dark bark, one rim-light line under the top edge */
         return pget(m, x, y - 2) || !pget(m, x, y - 1);
     case PLAN_SCRUB:    return v > SCRUB_TERM;
@@ -188,6 +346,32 @@ static void detail(int plan, Plane* ink, Plane* m, int size, uint8_t var) {
         }
         break;
     }
+    case PLAN_SARCOPHAGUS:               /* the lid's edge, and a carved panel */
+        seg(ink, size, 3, 20, 28, 20, 1);
+        seg(ink, size, 11, 24, 20, 24, 1);
+        break;
+    case PLAN_BONES: {                   /* dark eye sockets + teeth line */
+        int sx = 13 + (var & 1) * 5;
+        rect(ink, size, sx - 3, 20, sx - 1, 22, 1);
+        rect(ink, size, sx + 1, 20, sx + 3, 22, 1);
+        seg(ink, size, sx - 2, 25, sx + 2, 25, 1);
+        break;
+    }
+    case PLAN_URN:                       /* a painted band round the belly */
+        seg(ink, size, 9, 21, 22, 21, 1);
+        break;
+    case PLAN_CART:                      /* plank line + corner irons */
+        seg(ink, size, 7, 21, 25, 21, 1);
+        seg(ink, size, 9, 17, 9, 25, 1);
+        break;
+    case PLAN_POST:                      /* the grain, and an iron band */
+        seg(ink, size, 15, 6, 15, 27, 1);
+        seg(ink, size, 16 - POST_HW, 20, 16, 20, 1);
+        break;
+    case PLAN_STUMP:                     /* growth ring + a bark split */
+        seg(ink, size, 14, STUMP_TOP, 18, STUMP_TOP, 1);
+        seg(ink, size, 13, STUMP_TOP + 3, 12, 30, 1);
+        break;
     case PLAN_BOULDER:                   /* a split down the face */
         if(var & 2) seg(ink, size, 13, 18, 11, 24, 1);
         break;

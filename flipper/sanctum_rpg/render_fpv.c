@@ -290,6 +290,21 @@ static void floor_mark(Canvas* canvas, int plan, int x, int y, bool near) {
             canvas_draw_dot(canvas, x + 1, y - 1);
             canvas_draw_dot(canvas, x + 2, y);
         }
+    } else if(plan == TERRAIN_PLAN_FLAG) {    /* a flagstone joint: a long line + a tick */
+        int half = near ? 3 : 2;
+        for(int dx = -half; dx <= half; dx++) canvas_draw_dot(canvas, x + dx, y);
+        canvas_draw_dot(canvas, x, y + 1);
+    } else if(plan == TERRAIN_PLAN_RAILS) {   /* a sleeper under two rails */
+        int half = near ? 4 : 2;
+        for(int dx = -half; dx <= half; dx++) canvas_draw_dot(canvas, x + dx, y);
+        canvas_draw_dot(canvas, x - half + 1, y - 1);
+        canvas_draw_dot(canvas, x + half - 1, y - 1);
+    } else if(plan == TERRAIN_PLAN_GRASS) {   /* tall blades */
+        int h = near ? 3 : 2;
+        for(int dy = 0; dy < h; dy++) {
+            canvas_draw_dot(canvas, x - 1, y - dy);
+            canvas_draw_dot(canvas, x + 1, y - dy - 1);
+        }
     } else if(plan == TERRAIN_PLAN_SCREE) {   /* loose stones: flat pebbles */
         canvas_draw_dot(canvas, x, y);
         canvas_draw_dot(canvas, x + 1, y);
@@ -568,7 +583,9 @@ static int prop_planes(char glyph, uint8_t variant, int size, const uint8_t** in
     return 1;
 }
 
-/* Spanning props (TerrainDef.span > 1): a block of the same glyph is ONE
+/* Spanning / scaled props (TerrainDef.span or .scale > 1). Scale sets the
+ * billboard's size in tiles (a tree stands two tiles tall over the walls);
+ * span sets the footprint. A block of the same glyph is ONE
  * thing. Found from the tiles actually present (a clipped block still
  * works), drawn once per frame — the first time ANY of its tiles is
  * visited, so it can't pop when the anchor leaves the cone — at the
@@ -606,14 +623,14 @@ static void draw_span_prop(
     if(fwd_fp < FP_ONE / 2) return;   /* centre at or behind the eye */
 
     int floor_y = FPV_HORIZON_Y + (WALL_HEIGHT_SCALE / 2) / fwd_fp;
-    int size = (WALL_HEIGHT_SCALE * td->span) / fwd_fp;
+    int size = (WALL_HEIGHT_SCALE * td->scale) / fwd_fp;
     int center_col = FPV_VIEW_W / 2 + (side_fp * (FPV_VIEW_W / 2) * FP_ONE) / (fwd_fp * PLANE_SCALE);
     int box = size > PIXKIT_MAX_PX ? PIXKIT_MAX_PX : size;
     if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
     const uint8_t *pi, *pm;
     if(prop_planes(td->glyph, (uint8_t)(tile_hash(ax, ay) >> 8), box, &pi, &pm))
         draw_billboard_max(canvas, pi, pm, box, center_col, floor_y, size,
-                           BILLBOARD_MAX_PX * td->span, fwd_fp, wall_dist);
+                           BILLBOARD_MAX_PX * td->scale, fwd_fp, wall_dist);
 }
 
 static void render_sprite_pass(
@@ -672,7 +689,7 @@ static void render_sprite_pass(
             }
             /* Terrain props: composed from data (terrain.h), opaque. */
             const TerrainDef* td = terrain_def(tile);
-            if(td && td->form == TF_PROP && td->span > 1) {
+            if(td && td->form == TF_PROP && (td->span > 1 || td->scale > 1)) {
                 draw_span_prop(canvas, world, td, tx, ty, player_x, player_y, fdx, fdy,
                                rdx, rdy, span_done, &span_n, wall_dist);
                 continue;
@@ -757,6 +774,14 @@ static const int WALL_DARK_INK[WALL_DARK_STEPS] = {1, 3, 5, 8, 11, 14};
 #define COLUMN_CAPITAL_V      28    /* carved column: capital band depth (of 256) */
 #define MONOLITH_DARKER        2    /* raw monolith sits darker than coursed stone */
 #define MONOLITH_CRACK_WOBBLE 10    /* monolith crack: sideways step per third */
+#define BRICK_COURSES          6    /* crypt brick: courses per tile (running bond) */
+#define NICHE_U0              72    /* crypt niche: left edge (of 256) */
+#define NICHE_U1             184    /* crypt niche: right edge */
+#define NICHE_V0              96    /* crypt niche: top */
+#define NICHE_V1             168    /* crypt niche: bottom */
+#define NICHE_EVERY            3    /* one wall tile face in this many has a niche */
+#define TIMBER_POST_U         28    /* mine: post width at the tile's left edge */
+#define TIMBER_LINTEL_V       26    /* mine: lintel depth at the top */
 
 static const uint8_t BAYER4[4][4] = {
     { 0,  8,  2, 10},
@@ -812,6 +837,20 @@ static bool surface_seam(SlabMaterial mat, uint32_t th, int u, int v, int px_u, 
         if(du < 0) du = -du;
         return du * 2 < px_u + 2;
     }
+    case TM_BRICK: {
+        if(th % NICHE_EVERY == 0 && u >= NICHE_U0 && u <= NICHE_U1 &&
+           v >= NICHE_V0 && v <= NICHE_V1)
+            return true;                              /* a burial niche: a dark recess */
+        const int course_h = 256 / BRICK_COURSES;
+        int dv = v % course_h;
+        if(dv * 2 < px_v + 2) return true;            /* bed joint */
+        int course = v / course_h;
+        int du = (u + (course & 1) * 64) % 128;       /* head joints, half-bond */
+        return du * 2 < px_u + 2;
+    }
+    case TM_TIMBER:
+        if(u < TIMBER_POST_U || v < TIMBER_LINTEL_V) return true;   /* the shoring */
+        return stone_seam(th, u, v, px_u, px_v);
     case TM_MONOLITH: {
         int crack = 64 + (int)(th % 128) + ((v * 3 / 256) & 1) * MONOLITH_CRACK_WOBBLE;
         int du = u - crack;
@@ -977,7 +1016,8 @@ void render_fpv_world(
         }
         prev_hx = hit_x; prev_hy = hit_y; prev_side = side; prev_perp = perp;
 
-        SlabMaterial mat = off_grid ? TM_STONE : terrain_material(world->tiles[hit_y][hit_x]);
+        SlabMaterial mat = off_grid ? TM_STYLE_WALL : terrain_material(world->tiles[hit_y][hit_x]);
+        if(mat == TM_STYLE_WALL) mat = (SlabMaterial)STYLE_TABLE[world->style].wall_material;
         draw_wall_column(canvas, c, wall_h, perp, side, u,
                          tile_hash(hit_x * 2 + side, hit_y), edge, mat);
     }

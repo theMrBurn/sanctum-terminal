@@ -37,16 +37,21 @@ shots:
 	  ./$(SHOT_BIN) scene 12345678 $$1 $$2 $$3 $$4 test/shots/scene_$$1_$$2_$$3_$$4.pbm; \
 	done
 	python3 test/pbm2png.py test/shots/scenes.png test/shots/scene_*.pbm
-	@for g in 'I' 'Q' 'o' '~' ';' 'q' 'O' 'H' ',' ':'; do \
-	  b=1; case "$$g" in O|q|,) b=0;; esac; \
-	  for d in 1 2 4; do \
-	    ./$(SHOT_BIN) terrain $$b "$$g" $$d "test/shots/terrain_$$(printf '%02x' "'$$g")_$$d.pbm" || exit 1; \
-	  done; \
-	done
+	rm -f test/shots/terrain_*.pbm
+	./$(SHOT_BIN) terrainset test/shots
 	python3 test/pbm2png.py test/shots/terrain.png --cols 3 test/shots/terrain_*.pbm
 	./$(SHOT_BIN) field 0 test/shots/field_0.pbm
 	./$(SHOT_BIN) field 1 test/shots/field_1.pbm
 	python3 test/pbm2png.py test/shots/fields.png --cols 1 test/shots/field_*.pbm
+	@set -e; for st in 0 1 2 3 4; do ./$(SHOT_BIN) stylefield $$st test/shots/style_$$st.pbm; done
+	python3 test/pbm2png.py test/shots/styles.png --cols 1 test/shots/style_*.pbm
+	@set -e; for st in 0 2 3; do for d in 1 2 4; do ./$(SHOT_BIN) wall $$st $$d test/shots/wall_$${st}_$${d}.pbm; done; done
+	python3 test/pbm2png.py test/shots/walls.png --cols 3 test/shots/wall_*.pbm
+	@set -e; for s in 12345678:4:-2 12345678:7:1 12345678:1:-5 12345678:1:1 12345678:4:1 CAFEBABE:4:-8; do \
+	  set -- $$(echo $$s | tr ':' ' '); \
+	  ./$(SHOT_BIN) fpv $$1 $$2 $$3 a test/shots/real_$$1_$$2_$$3.pbm; \
+	done
+	python3 test/pbm2png.py test/shots/real.png --cols 2 test/shots/real_*.pbm
 	@set -e; for v in 7:2:1 6:2:1 4:2:1 9:5:0 8:0:2 4:0:1 3:5:1 12:3:3; do \
 	  set -- $$(echo $$v | tr ':' ' '); \
 	  ./$(SHOT_BIN) span H $$1 $$2 $$3 test/shots/span_$$1_$$2_$$3.pbm; \

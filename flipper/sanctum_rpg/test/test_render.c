@@ -223,8 +223,16 @@ static void test_figures_are_opaque(void) {
 }
 
 /* ── terrain (terrain.h) ─────────────────────────────────────────── */
-static const char PROPS[] = {'I', 'Q', 'o', '~', ';', 'q', 'H'};
-#define PROP_N ((int)sizeof(PROPS))
+/* Every PROP in the TERRAIN table, in table order — built from the table so
+ * a new prop can't escape the identity / opacity / golden checks. */
+#define PROP_MAX 48
+static char PROPS[PROP_MAX];
+static int PROP_N;
+static void props_init(void) {
+    PROP_N = 0;
+    for(int i = 0; i < terrain_count() && PROP_N < PROP_MAX; i++)
+        if(terrain_at(i)->form == TF_PROP) PROPS[PROP_N++] = terrain_at(i)->glyph;
+}
 
 static void flat_chunk(World* w, int biome) {
     memset(w, 0, sizeof(*w));
@@ -252,8 +260,8 @@ static void test_props_do_not_stop_rays(void) {
         canvas_clear(&c);
         render_fpv_world(&c, &w, 1, 3, 1, NULL, 0);
         if(fpv_test_wall_top[64] != empty_top) bad++;
-        CHECK(world_is_blocking(PROPS[i]) == (PROPS[i] != ';' && PROPS[i] != 'q'),
-              "terrain: prop form is render-only — movement rules unchanged");
+        CHECK(world_is_blocking(PROPS[i]) == (PROPS[i] == TILE_ROCK || primitive_glyph_blocks(PROPS[i])),
+              "terrain: prop form is render-only — movement comes from the primitive table");
     }
     CHECK(bad == 0, "terrain: props do not stop first-person rays");
     w.tiles[3][3] = 'O';
@@ -265,7 +273,7 @@ static void test_props_do_not_stop_rays(void) {
 /* RULE: identity — every prop has its own silhouette at the device size,
  * and is still distinct at a distant size; mask contains ink. */
 static void test_prop_identity(void) {
-    static uint8_t ink[PROP_N][PIXKIT_PLANE_BYTES], mask[PROP_N][PIXKIT_PLANE_BYTES];
+    static uint8_t ink[PROP_MAX][PIXKIT_PLANE_BYTES], mask[PROP_MAX][PIXKIT_PLANE_BYTES];
     static const int sizes[] = {32, 12};
     for(unsigned z = 0; z < 2; z++) {
         int same = 0, bad_mask = 0;
@@ -282,7 +290,7 @@ static void test_prop_identity(void) {
     CHECK(!terrain_compose_prop('#', 0, 32, a, b), "terrain: a wall is not a prop");
 }
 
-#define TERRAIN_GOLDEN 0x9BDBF2D228D9D3BFULL
+#define TERRAIN_GOLDEN 0x2B75E94D181104E7ULL
 static void test_terrain_golden(void) {
     static uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
     uint64_t h = 0xCBF29CE484222325ULL;
@@ -367,6 +375,7 @@ static void test_props_are_opaque(void) {
 }
 
 int main(void) {
+    props_init();
     printf("Sanctum RPG — render rule tests\n");
     test_walls_are_opaque();
     test_figure_rules();

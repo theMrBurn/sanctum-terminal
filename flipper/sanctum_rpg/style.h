@@ -26,12 +26,18 @@
 typedef enum {
     STYLE_CAVERN = 0,   /* natural cavern — the original cavern biome */
     STYLE_MOOR,         /* moor / heath — the original outdoor biome */
+    STYLE_CRYPT,        /* dungeon: brick, niches, tombs */
+    STYLE_MINE,         /* old mine: timber shoring, rails, rubble */
+    STYLE_FOREST,       /* forest: trees, stumps, tall grass */
     STYLE_COUNT,
 } Style;
 
 typedef enum {
     FAMILY_CAVERNS = 0, /* underground, natural, big */
     FAMILY_MOOR,        /* above ground, open, stones and scrub */
+    FAMILY_DUNGEONS,    /* underground, built to hold or bury */
+    FAMILY_MINES,       /* underground, dug for ore */
+    FAMILY_FOREST,      /* above ground, open, wooded */
     FAMILY_COUNT,
 } StyleFamily;
 

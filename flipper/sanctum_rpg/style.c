@@ -11,11 +11,24 @@
  * also the stamp-catalog ids (StampDef.style). Pinned so no world moves. */
 _Static_assert(STYLE_CAVERN == STAMP_STYLE_CAVERN, "cavern style id is the cavern stamp id");
 _Static_assert(STYLE_MOOR == STAMP_STYLE_MOOR, "moor style id is the outdoor stamp id");
+_Static_assert(STYLE_CRYPT == STAMP_STYLE_CRYPT && STYLE_MINE == STAMP_STYLE_MINE &&
+               STYLE_FOREST == STAMP_STYLE_FOREST, "style ids are stamp-catalog ids");
+
+/* Pick weights within a biome: natural caverns stay the commonest underground;
+ * moor and forest share the surface. */
+#define STYLE_W_CAVERN 2
+#define STYLE_W_CRYPT  1
+#define STYLE_W_MINE   1
+#define STYLE_W_MOOR   1
+#define STYLE_W_FOREST 1
 
 const StyleDef STYLE_TABLE[STYLE_COUNT] = {
-    /*               name      biome          terrain         family          wall      weight */
-    [STYLE_CAVERN] = {"cavern", BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_CAVERNS, TM_STONE, 1},
-    [STYLE_MOOR]   = {"moor",   BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_MOOR,    TM_STONE, 1},
+    /*               name      biome          terrain         family           wall       weight */
+    [STYLE_CAVERN] = {"cavern", BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_CAVERNS,  TM_STONE,  STYLE_W_CAVERN},
+    [STYLE_MOOR]   = {"moor",   BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_MOOR,     TM_STONE,  STYLE_W_MOOR},
+    [STYLE_CRYPT]  = {"crypt",  BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_DUNGEONS, TM_BRICK,  STYLE_W_CRYPT},
+    [STYLE_MINE]   = {"mine",   BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_MINES,    TM_TIMBER, STYLE_W_MINE},
+    [STYLE_FOREST] = {"forest", BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_FOREST,   TM_STONE,  STYLE_W_FOREST},
 };
 
 /* Distinct salt so a region's style doesn't correlate with its biome. */
