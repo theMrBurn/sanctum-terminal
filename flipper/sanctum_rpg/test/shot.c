@@ -139,6 +139,7 @@ static int creature_scene(uint32_t seed, int fam, int trait, int dist, int state
 static void bare_chunk(World* w, int biome) {
     memset(w, 0, sizeof(*w));
     w->biome = (Biome)biome;
+    w->style = style_for_biome(w->biome);
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) {
             bool rim = x == 0 || y == 0 || x == WORLD_COLS - 1 || y == WORLD_ROWS - 1;
@@ -222,8 +223,7 @@ int main(int argc, char** argv) {
     /* Same spawn path as sanctum_rpg.c populate_creatures(), so a scene shows
      * what the device would show at this seed/chunk. */
     Pool pool;
-    uint8_t pool_biome = (biome_terrain(w.biome) == TERRAIN_OPEN) ? STAMP_BIOME_OUTDOOR
-                                                                  : STAMP_BIOME_CAVERN;
+    uint8_t pool_biome = biome_pool(w.biome);
     pool_at(seed, pool_biome, cx, cy, &pool);
     int n = creatures_populate_pooled(rng_chunk_seed(seed, cx, cy), w.biome, &w,
                                       w.spawn_x, w.spawn_y, &pool, cr, CREATURES_MAX);

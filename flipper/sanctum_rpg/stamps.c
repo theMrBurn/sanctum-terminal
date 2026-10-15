@@ -60,73 +60,73 @@ bool primitive_glyph_blocks_sight(char glyph) {
 const StampDef STAMPS[] = {
     /* ─── CAVERN (ids 0-9) ───────────────────────────────────────── */
     /* id=0 — two pillars (Pinch) */
-    {0, STAMP_BIOME_CAVERN, 3, 1, SF_COMMON, R_FLIP, 2,
+    {0, STAMP_STYLE_CAVERN, 3, 1, SF_COMMON, R_FLIP, 2,
      {{PRIM_C, 0, 0}, {PRIM_C, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
     /* id=1 — stelag row (Pinch) */
-    {1, STAMP_BIOME_CAVERN, 3, 1, SF_COMMON, R_FLIP, 3,
+    {1, STAMP_STYLE_CAVERN, 3, 1, SF_COMMON, R_FLIP, 3,
      {{PRIM_ST, 0, 0}, {PRIM_ST, 1, 0}, {PRIM_ST, 2, 0}, {0,0,0},{0,0,0},{0,0,0}}},
     /* id=2 — moss nook (Pocket) */
-    {2, STAMP_BIOME_CAVERN, 2, 2, SF_COMMON, R_ALL, 3,
+    {2, STAMP_STYLE_CAVERN, 2, 2, SF_COMMON, R_ALL, 3,
      {{PRIM_C, 0, 0}, {PRIM_MW, 0, 1}, {PRIM_MW, 1, 1}, {0,0,0},{0,0,0},{0,0,0}}},
     /* id=3 — pillar grove (Pocket) — 3×3, intensity-gated */
-    {3, STAMP_BIOME_CAVERN, 3, 3, SF_UNCOMMON, R_ALL, 5,
+    {3, STAMP_STYLE_CAVERN, 3, 3, SF_UNCOMMON, R_ALL, 5,
      {{PRIM_MC, 0, 0}, {PRIM_MC, 1, 0}, {PRIM_MC, 0, 1}, {PRIM_MC, 1, 1},
       {PRIM_MW, 2, 2}, {0,0,0}}},
     /* id=4 — hall pillar (Sprawl) */
-    {4, STAMP_BIOME_CAVERN, 2, 2, SF_UNCOMMON, R_NONE, 4,
+    {4, STAMP_STYLE_CAVERN, 2, 2, SF_UNCOMMON, R_NONE, 4,
      {{PRIM_MC, 0, 0}, {PRIM_MC, 1, 0}, {PRIM_MC, 0, 1}, {PRIM_MC, 1, 1},
       {0,0,0},{0,0,0}}},
     /* id=5 — pillar with view (Lookout) */
-    {5, STAMP_BIOME_CAVERN, 2, 2, SF_UNCOMMON, R_ALL, 4,
+    {5, STAMP_STYLE_CAVERN, 2, 2, SF_UNCOMMON, R_ALL, 4,
      {{PRIM_MC, 0, 0}, {PRIM_MC, 1, 0}, {PRIM_MC, 0, 1}, {PRIM_MC, 1, 1},
       {0,0,0},{0,0,0}}},
     /* id=6 — low ridge (Lookout) */
-    {6, STAMP_BIOME_CAVERN, 2, 1, SF_COMMON, R_ALL, 2,
+    {6, STAMP_STYLE_CAVERN, 2, 1, SF_COMMON, R_ALL, 2,
      {{PRIM_LST, 0, 0}, {PRIM_LST, 1, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
     /* id=7 — broken ridge (Thicket) — 3×2 */
-    {7, STAMP_BIOME_CAVERN, 3, 2, SF_UNCOMMON, R_ALL, 3,
+    {7, STAMP_STYLE_CAVERN, 3, 2, SF_UNCOMMON, R_ALL, 3,
      {{PRIM_LST, 0, 0}, {PRIM_LST, 1, 0}, {PRIM_ST, 2, 1}, {0,0,0},{0,0,0},{0,0,0}}},
     /* id=8 — stelag bend (Thicket) — L-bend */
-    {8, STAMP_BIOME_CAVERN, 2, 2, SF_UNCOMMON, R_ALL, 3,
+    {8, STAMP_STYLE_CAVERN, 2, 2, SF_UNCOMMON, R_ALL, 3,
      {{PRIM_LST, 0, 0}, {PRIM_LST, 1, 0}, {PRIM_ST, 0, 1}, {0,0,0},{0,0,0},{0,0,0}}},
     /* id=9 — moss carpet (Threshold) — 2×2 walkable */
-    {9, STAMP_BIOME_CAVERN, 2, 2, SF_COMMON, R_NONE, 4,
+    {9, STAMP_STYLE_CAVERN, 2, 2, SF_COMMON, R_NONE, 4,
      {{PRIM_MW, 0, 0}, {PRIM_MW, 1, 0}, {PRIM_MW, 0, 1}, {PRIM_MW, 1, 1},
       {0,0,0},{0,0,0}}},
 
     /* ─── OUTDOOR (ids 10-19) ────────────────────────────────────── */
     /* id=10 — two stones (Pinch) */
-    {10, STAMP_BIOME_OUTDOOR, 3, 1, SF_COMMON, R_FLIP, 2,
+    {10, STAMP_STYLE_MOOR, 3, 1, SF_COMMON, R_FLIP, 2,
      {{PRIM_SS, 0, 0}, {PRIM_SS, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
     /* id=11 — scrub hollow (Pocket) */
-    {11, STAMP_BIOME_OUTDOOR, 2, 2, SF_COMMON, R_ALL, 3,
+    {11, STAMP_STYLE_MOOR, 2, 2, SF_COMMON, R_ALL, 3,
      {{PRIM_SS, 0, 0}, {PRIM_SC, 0, 1}, {PRIM_SC, 1, 1}, {0,0,0},{0,0,0},{0,0,0}}},
     /* id=12 — cairn at rest (Pocket) */
-    {12, STAMP_BIOME_OUTDOOR, 2, 2, SF_COMMON, R_ALL, 4,
+    {12, STAMP_STYLE_MOOR, 2, 2, SF_COMMON, R_ALL, 4,
      {{PRIM_CA, 0, 0}, {PRIM_SC, 1, 0}, {PRIM_SC, 0, 1}, {PRIM_SC, 1, 1},
       {0,0,0},{0,0,0}}},
     /* id=13 — lone stone (Sprawl) — 1×1 */
-    {13, STAMP_BIOME_OUTDOOR, 1, 1, SF_COMMON, R_NONE, 1,
+    {13, STAMP_STYLE_MOOR, 1, 1, SF_COMMON, R_NONE, 1,
      {{PRIM_SS, 0, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
     /* id=14 — the menhir (Sprawl) — SF_RARE distance-gated */
-    {14, STAMP_BIOME_OUTDOOR, 2, 2, SF_RARE, R_NONE, 4,
+    {14, STAMP_STYLE_MOOR, 2, 2, SF_RARE, R_NONE, 4,
      {{PRIM_MH, 0, 0}, {PRIM_MH, 1, 0}, {PRIM_MH, 0, 1}, {PRIM_MH, 1, 1},
       {0,0,0},{0,0,0}}},
     /* id=15 — cairn watch (Lookout) */
-    {15, STAMP_BIOME_OUTDOOR, 2, 2, SF_COMMON, R_ALL, 2,
+    {15, STAMP_STYLE_MOOR, 2, 2, SF_COMMON, R_ALL, 2,
      {{PRIM_CA, 0, 0}, {PRIM_SR, 1, 1}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
     /* id=16 — wayfinders (Lookout) — line of cairns */
-    {16, STAMP_BIOME_OUTDOOR, 3, 1, SF_UNCOMMON, R_FLIP, 2,
+    {16, STAMP_STYLE_MOOR, 3, 1, SF_UNCOMMON, R_FLIP, 2,
      {{PRIM_CA, 0, 0}, {PRIM_CA, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
     /* id=17 — deadfall (Thicket) */
-    {17, STAMP_BIOME_OUTDOOR, 2, 1, SF_UNCOMMON, R_ALL, 2,
+    {17, STAMP_STYLE_MOOR, 2, 1, SF_UNCOMMON, R_ALL, 2,
      {{PRIM_DF, 0, 0}, {PRIM_DF, 1, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
     /* id=18 — scree patch (Threshold) */
-    {18, STAMP_BIOME_OUTDOOR, 2, 2, SF_COMMON, R_NONE, 4,
+    {18, STAMP_STYLE_MOOR, 2, 2, SF_COMMON, R_NONE, 4,
      {{PRIM_SR, 0, 0}, {PRIM_SR, 1, 0}, {PRIM_SR, 0, 1}, {PRIM_SR, 1, 1},
       {0,0,0},{0,0,0}}},
     /* id=19 — scrub field (Threshold) */
-    {19, STAMP_BIOME_OUTDOOR, 2, 2, SF_COMMON, R_NONE, 4,
+    {19, STAMP_STYLE_MOOR, 2, 2, SF_COMMON, R_NONE, 4,
      {{PRIM_SC, 0, 0}, {PRIM_SC, 1, 0}, {PRIM_SC, 0, 1}, {PRIM_SC, 1, 1},
       {0,0,0},{0,0,0}}},
 };
@@ -162,7 +162,7 @@ static uint32_t stamp_bag_affinity(const StampDef* s, const Pool* pool) {
     return sum;
 }
 
-int pick_stamp(Rng* rng, const Pool* pool, uint8_t biome) {
+int pick_stamp(Rng* rng, const Pool* pool, uint8_t style) {
     if(!rng || !pool) return -1;
 
     /* Single accumulator walk; same idiom as loot_roll. */
@@ -173,7 +173,7 @@ int pick_stamp(Rng* rng, const Pool* pool, uint8_t biome) {
 
     for(int i = 0; i < STAMP_COUNT; i++) {
         const StampDef* s = &STAMPS[i];
-        if(s->biome != biome) continue;
+        if(s->style != style) continue;
         /* Intensity gate for big stamps (§F1.1) — 3×3 only at intensity ≥ 64. */
         if(s->width >= 3 && s->height >= 3 &&
            pool->intensity < BIG_STAMP_INTENSITY_GATE) continue;

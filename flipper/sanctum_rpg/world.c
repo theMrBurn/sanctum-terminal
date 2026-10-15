@@ -57,6 +57,7 @@ void world_starter_room(World* w) {
     w->spawn_x = 1;
     w->spawn_y = 1;
     w->biome = BIOME_CAVERN; /* walled room */
+    w->style = STYLE_CAVERN;
 }
 
 static void fill_floor_with_border(World* w) {
@@ -452,7 +453,7 @@ static void gen_cavern_stamped(
     place_vendor_if_any(seed, cx, cy, out);
     (void)pick_door_tile;
     (void)place_blob; /* slice 50.F1 — blob algorithm retired */
-    compose_stamps_into_interior(rng, pool, STAMP_BIOME_CAVERN, out);
+    compose_stamps_into_interior(rng, pool, (uint8_t)out->style, out);
     scatter_items(out, rng, pool);
     find_spawn(out);
     /* Anti-trap: ensure spawn + all 4 doors + every walkable cell share one
@@ -470,13 +471,13 @@ static void gen_cavern_stamped(
  * traversal. A corner becomes wall if EITHER of its two edges is walled —
  * which falls out of walling the full edge row/col. The door sits at the same
  * hashed position the walled neighbor uses, so crossing lands door-to-door.
- * Consumes no RNG (biome_of is self-seeded), so the geometry stream is
+ * Consumes no RNG (region_terrain is self-seeded), so the geometry stream is
  * unchanged. Returns true if any door was placed (chunk needs egress). */
 static bool wall_edges_facing_walled(uint32_t seed, int cx, int cy, World* out) {
-    bool n = biome_terrain(biome_of(seed, cx, cy - 1)) == TERRAIN_WALLED;
-    bool s = biome_terrain(biome_of(seed, cx, cy + 1)) == TERRAIN_WALLED;
-    bool w = biome_terrain(biome_of(seed, cx - 1, cy)) == TERRAIN_WALLED;
-    bool e = biome_terrain(biome_of(seed, cx + 1, cy)) == TERRAIN_WALLED;
+    bool n = region_terrain(seed, cx, cy - 1) == TERRAIN_WALLED;
+    bool s = region_terrain(seed, cx, cy + 1) == TERRAIN_WALLED;
+    bool w = region_terrain(seed, cx - 1, cy) == TERRAIN_WALLED;
+    bool e = region_terrain(seed, cx + 1, cy) == TERRAIN_WALLED;
     if(!n && !s && !w && !e) return false;
 
     if(n) for(int x = 0; x < WORLD_COLS; x++) out->tiles[0][x] = TILE_WALL;
@@ -509,7 +510,7 @@ static void gen_outdoor_stamped(
     }
     bool doored = wall_edges_facing_walled(seed, cx, cy, out);
     place_vendor_if_any(seed, cx, cy, out);
-    compose_stamps_into_interior(rng, pool, STAMP_BIOME_OUTDOOR, out);
+    compose_stamps_into_interior(rng, pool, (uint8_t)out->style, out);
     scatter_items(out, rng, pool);
     find_spawn(out);
     /* Any door we grew must be reachable from spawn (a stamp could otherwise
@@ -524,18 +525,16 @@ void world_generate_chunk(
     /* biome_of uses its own salted seed — does NOT consume `rng`, so the
      * per-chunk geometry stream stays deterministic. */
     out->biome = biome_of(base_seed, chunk_x, chunk_y);
+    out->style = style_of(base_seed, chunk_x, chunk_y);
 
     /* Slice 50.F1: build the Pool by canonical X-first-then-Y walk from
      * the campaign prime (chunk 0, 0). Same (base_seed, biome, cx, cy) →
      * byte-equal Pool → byte-equal stamp placement. The Pool is internal
      * to gen — never persisted, regenerated on every call (spec 50 §3.3). */
     Pool pool;
-    uint8_t pool_biome = (biome_terrain(out->biome) == TERRAIN_OPEN)
-                             ? STAMP_BIOME_OUTDOOR
-                             : STAMP_BIOME_CAVERN;
-    pool_at(base_seed, pool_biome, chunk_x, chunk_y, &pool);
+    pool_at(base_seed, biome_pool(out->biome), chunk_x, chunk_y, &pool);
 
-    if(biome_terrain(out->biome) == TERRAIN_OPEN) {
+    if(world_terrain(out) == TERRAIN_OPEN) {
         gen_outdoor_stamped(base_seed, chunk_x, chunk_y, &rng, &pool, out);
     } else {
         gen_cavern_stamped(base_seed, chunk_x, chunk_y, &rng, &pool, out);
@@ -573,6 +572,8 @@ void world_generate_chunk(
     }
 }
 
+TerrainMode world_terrain(const World* w) { return style_terrain(w->style); }
+
 bool world_is_blocking(char glyph) {
     /* Legacy blockers + spec 50 §F1 primitive blockers (MC/MH/etc.). A secret
      * passage is solid to movement, FOV, and carve_egress — it only opens at
@@ -600,7 +601,7 @@ MoveResult world_try_move(World* w, MoveDir dir, int* px, int* py, char* out_des
     if(nx < 0 || nx >= WORLD_COLS || ny < 0 || ny >= WORLD_ROWS) {
         /* Off-grid: in an OPEN biome that's a chunk crossing; in a WALLED
          * biome there's no exit there (doors are the only way out). */
-        return (biome_terrain(w->biome) == TERRAIN_OPEN)
+        return (world_terrain(w) == TERRAIN_OPEN)
                    ? MoveWalkedOffEdge
                    : MoveBlockedByEdge;
     }

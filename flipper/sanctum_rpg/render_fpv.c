@@ -897,7 +897,7 @@ void render_fpv_world(
      * column there, or the player sees walls where they can walk through.
      * In WALLED biomes (cavern), the perimeter is TILE_WALL and the ray
      * never reaches off-grid before hitting that wall. */
-    bool open_biome = (biome_terrain(world->biome) == TERRAIN_OPEN);
+    bool open_biome = (world_terrain(world) == TERRAIN_OPEN);
 
     /* Step 1: floor detail pass — sparse biome-specific dots in the
      * floor zone, anchored at each visible tile's projected center.

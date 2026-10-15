@@ -20,12 +20,12 @@
 #include "world.h"
 
 /* Place a Pool-biased stamp composition into the chunk's interior.
- * Stamps are eligible-by-biome (cavern stamps for cavern, outdoor for
- * outdoor). Border cells (row 0 / row N-1 / col 0 / col N-1) are never
+ * Stamps are eligible by STYLE (style.h): each region's style owns its
+ * catalog. Border cells (row 0 / row N-1 / col 0 / col N-1) are never
  * written. Existing non-floor tiles (e.g. mid-edge doors written before
  * this call) are respected and never overwritten. */
 void compose_stamps_into_interior(Rng* rng, const Pool* pool,
-                                  uint8_t biome, World* out);
+                                  uint8_t style, World* out);
 
 #ifdef SANCTUM_RPG_HOST_TEST
 /* Host-test hook: verifies the corner-snap math pair (box_corner /

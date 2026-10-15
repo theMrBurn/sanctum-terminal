@@ -36,7 +36,7 @@ static int scene(uint32_t seed, int cx, int cy, uint8_t facing, Canvas* out) {
     World w;
     world_generate_chunk(seed, cx, cy, &w);
     Pool pool;
-    uint8_t pb = (biome_terrain(w.biome) == TERRAIN_OPEN) ? STAMP_BIOME_OUTDOOR : STAMP_BIOME_CAVERN;
+    uint8_t pb = biome_pool(w.biome);
     pool_at(seed, pb, cx, cy, &pool);
     Creature cr[CREATURES_MAX];
     int n = creatures_populate_pooled(rng_chunk_seed(seed, cx, cy), w.biome, &w,
@@ -229,6 +229,7 @@ static const char PROPS[] = {'I', 'Q', 'o', '~', ';', 'q', 'H'};
 static void flat_chunk(World* w, int biome) {
     memset(w, 0, sizeof(*w));
     w->biome = (Biome)biome;
+    w->style = style_for_biome(w->biome);
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++)
             w->tiles[y][x] = (x == 0 || y == 0 || x == WORLD_COLS - 1 || y == WORLD_ROWS - 1)

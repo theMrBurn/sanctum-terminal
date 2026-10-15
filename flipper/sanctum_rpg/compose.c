@@ -241,7 +241,7 @@ static void add_new_corners(Frontier* f, int x_min, int y_min,
 /* ─── Composer entry point ──────────────────────────────────────────────── */
 
 void compose_stamps_into_interior(Rng* rng, const Pool* pool,
-                                  uint8_t biome, World* out) {
+                                  uint8_t style, World* out) {
     if(!rng || !pool || !out) return;
 
     /* 1. Seed occupancy from existing non-floor interior tiles (e.g. a
@@ -279,7 +279,7 @@ void compose_stamps_into_interior(Rng* rng, const Pool* pool,
     while(budget > 0 && frontier.count > 0) {
         FrontierAnchor anchor = frontier_pop(&frontier, rng);
 
-        int stamp_id = pick_stamp(rng, pool, biome);
+        int stamp_id = pick_stamp(rng, pool, style);
         if(stamp_id < 0) break; /* no eligible stamp this chunk — done */
         const StampDef* s = &STAMPS[stamp_id];
         uint8_t rot = pick_rotation(rng, s, pool);

@@ -359,8 +359,7 @@ static void refresh_weather(AppState* st) {
     furi_hal_rtc_get_datetime(&now);
     uint64_t now_unix = datetime_datetime_to_timestamp(&now);
     uint32_t day = (uint32_t)(now_unix / 86400u);
-    uint8_t wbiome = (biome_terrain(st->world.biome) == TERRAIN_OPEN)
-                         ? STAMP_BIOME_OUTDOOR : STAMP_BIOME_CAVERN;
+    uint8_t wbiome = biome_pool(st->world.biome);
     weather_at(st->campaign_seed,
                (int)st->character.chunk_x, (int)st->character.chunk_y,
                day, wbiome, &st->current_weather);
@@ -373,8 +372,7 @@ static void populate_creatures(AppState* st) {
      * so the family roll reads pool->family_bias. Same canonical walk as
      * world.c uses for the stamp composer — byte-equal Pool. */
     Pool pool;
-    uint8_t pool_biome = (biome_terrain(st->world.biome) == TERRAIN_OPEN)
-                             ? STAMP_BIOME_OUTDOOR : STAMP_BIOME_CAVERN;
+    uint8_t pool_biome = biome_pool(st->world.biome);
     pool_at(st->campaign_seed, pool_biome,
             (int)st->character.chunk_x, (int)st->character.chunk_y, &pool);
     st->creature_count = creatures_populate_pooled(
@@ -483,8 +481,7 @@ static void enter_world_phase2(
         /* Slice 50.F4: Pool-biased narrative pick — themes whose Pool
          * weight is "foreground" boost the picked template's score. */
         Pool npool;
-        uint8_t nbiome = (biome_terrain(st->world.biome) == TERRAIN_OPEN)
-                             ? STAMP_BIOME_OUTDOOR : STAMP_BIOME_CAVERN;
+        uint8_t nbiome = biome_pool(st->world.biome);
         pool_at(st->campaign_seed, nbiome,
                 (int)st->character.chunk_x, (int)st->character.chunk_y, &npool);
         uint8_t qe, qt;
@@ -2416,8 +2413,7 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     if(st->pending_quest_entry < 0) {
         /* Slice 50.F4: Pool-biased narrative pick on chunk transition. */
         Pool npool;
-        uint8_t nbiome = (biome_terrain(st->world.biome) == TERRAIN_OPEN)
-                             ? STAMP_BIOME_OUTDOOR : STAMP_BIOME_CAVERN;
+        uint8_t nbiome = biome_pool(st->world.biome);
         pool_at(st->campaign_seed, nbiome, cx, cy, &npool);
         uint8_t qe, qt;
         if(narrative_pick_for_chunk_pooled(st->campaign_seed, cx, cy,
@@ -2627,8 +2623,7 @@ static void combat_strike(AppState* st) {
          * CURRENT chunk shifts kind probabilities — a Heart-themed
          * region drops different kinds than a Craft-themed one. */
         Pool dpool;
-        uint8_t dbiome = (biome_terrain(st->world.biome) == TERRAIN_OPEN)
-                             ? STAMP_BIOME_OUTDOOR : STAMP_BIOME_CAVERN;
+        uint8_t dbiome = biome_pool(st->world.biome);
         pool_at(st->campaign_seed, dbiome,
                 (int)st->character.chunk_x, (int)st->character.chunk_y, &dpool);
         uint8_t drop_id = loot_roll_pooled(&drop_rng, st->world.biome, &dpool);

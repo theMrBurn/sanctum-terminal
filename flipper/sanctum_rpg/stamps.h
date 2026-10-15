@@ -91,7 +91,11 @@ bool primitive_glyph_blocks_sight(char glyph);
 #define SF_UNCOMMON 1u
 #define SF_RARE     2u  /* distance-gated: skipped within RARE_SETPIECE_DIST */
 
-/* Biome eligibility — each stamp belongs to one biome (cavern OR outdoor). */
+/* Style eligibility — each stamp belongs to one style (style.h). The first
+ * two styles are the original biomes, so their ids are unchanged. The
+ * STAMP_BIOME_* names remain the Pool / weather / narrative ids (biome_pool). */
+#define STAMP_STYLE_CAVERN  0u
+#define STAMP_STYLE_MOOR    1u
 #define STAMP_BIOME_CAVERN  0u
 #define STAMP_BIOME_OUTDOOR 1u
 
@@ -107,7 +111,7 @@ typedef struct {
 
 typedef struct {
     uint8_t  id;
-    uint8_t  biome;          /* STAMP_BIOME_* */
+    uint8_t  style;          /* Style (style.h) this stamp belongs to */
     uint8_t  width;
     uint8_t  height;
     uint8_t  rarity;         /* SF_* */
@@ -131,7 +135,7 @@ extern const int STAMP_COUNT;
  * rarity gate) and returns one stamp_id, weighted by the Pool's
  * primitive_bag (catalog re-weighting per engine addendum §F1.4.a).
  * Returns -1 if no stamp is eligible. */
-int pick_stamp(Rng* rng, const Pool* pool, uint8_t biome);
+int pick_stamp(Rng* rng, const Pool* pool, uint8_t style);
 
 /* Pool-biased rotation pick. Picks one valid rotation (0..3) for the stamp,
  * with a 2:1 weight skew toward `pool->rotation_bias` per §F1.4.b. */

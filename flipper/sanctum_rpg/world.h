@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include "biome.h"
+#include "style.h"
 
 #define WORLD_COLS 16
 #define WORLD_ROWS 6
@@ -67,7 +68,15 @@ typedef struct {
     int spawn_x;
     int spawn_y;
     Biome biome;
+    Style style;   /* the region's style — enclosed/open lives here */
 } World;
+
+/* World-generator version (spec 43 §14.0). Any change that moves a chunk
+ * golden MUST bump this, and the golden test pins fingerprints to it. */
+#define WORLDGEN_VERSION 1
+
+/* Enclosed/open of a generated chunk (its style's terrain mode). */
+TerrainMode world_terrain(const World* w);
 
 /* Is this tile glyph impassable? (walls + outdoor rocks) */
 bool world_is_blocking(char glyph);

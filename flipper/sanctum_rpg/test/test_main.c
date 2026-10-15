@@ -147,7 +147,7 @@ static bool nbr_walled(uint32_t seed, int cx, int cy, MoveDir dir) {
     case MoveEast:  nx++; break;
     default: break;
     }
-    return biome_terrain(biome_of(seed, nx, ny)) == TERRAIN_WALLED;
+    return region_terrain(seed, nx, ny) == TERRAIN_WALLED;
 }
 
 /* The shared-edge coherence invariant (spec 50 §R): an edge is walled iff this
@@ -156,7 +156,7 @@ static bool nbr_walled(uint32_t seed, int cx, int cy, MoveDir dir) {
  * is free of wall/door. Checks the non-corner span only. */
 static bool edge_is_coherent(const World* w, uint32_t seed, int cx, int cy,
                              MoveDir dir) {
-    bool walled = (biome_terrain(w->biome) == TERRAIN_WALLED) ||
+    bool walled = (world_terrain(w) == TERRAIN_WALLED) ||
                   nbr_walled(seed, cx, cy, dir);
     int door = world_edge_door_perp(seed, cx, cy, dir);
     if(dir == MoveNorth || dir == MoveSouth) {
@@ -194,7 +194,7 @@ static void test_chunk_invariants(void) {
             World w;
             world_generate_chunk(0x12345678, cx, cy, &w);
             CHECK(world_walkable(&w, w.spawn_x, w.spawn_y), "chunk: spawn walkable");
-            if(biome_terrain(w.biome) == TERRAIN_WALLED && !found_cave) {
+            if(world_terrain(&w) == TERRAIN_WALLED && !found_cave) {
                 found_cave = 1;
                 /* One door per edge, each at its hashed shared-edge position. */
                 int nc = world_edge_door_perp(0x12345678, cx, cy, MoveNorth);
@@ -219,7 +219,7 @@ static void test_chunk_invariants(void) {
                 CHECK(td == 1 && bd == 1 && ld == 1 && rd == 1,
                       "cavern: exactly one door per edge (rest is wall)");
             }
-            if(biome_terrain(w.biome) == TERRAIN_OPEN && !found_out) {
+            if(world_terrain(&w) == TERRAIN_OPEN && !found_out) {
                 found_out = 1;
                 /* Each edge matches its neighbor: open where the neighbor is
                  * open, wall+door where the neighbor is walled. */
@@ -240,7 +240,14 @@ static void test_chunk_invariants(void) {
  * the future PC port would diverge. Such a change is allowed ONLY with
  * a deliberate generator-version bump (spec 43 §14.0). Re-record these
  * values intentionally, never to "make the test pass". */
+/* The generator version these fingerprints were recorded under. Re-record
+ * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
+ * this to match — the check below fails if the two drift apart. */
+#define GOLDEN_WORLDGEN_VERSION 1
+
 static void test_chunk_golden(void) {
+    CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
+          "chunk goldens were recorded under the current WORLDGEN_VERSION");
     struct {
         uint32_t seed;
         int cx, cy;
@@ -267,12 +274,47 @@ static void test_chunk_golden(void) {
          * change if it actually covers the biome that change touches — e.g.
          * the §17.3 #4 Pool-bias guard moves cavern chunks only, so a set of
          * all-outdoor goldens would have looked green and proved nothing. */
-        printf("  golden[%d] seed=%08lX (%d,%d) biome=%s -> fp=0x%08lX\n",
+        printf("  golden[%d] seed=%08lX (%d,%d) biome=%s style=%s -> fp=0x%08lX\n",
                i, (unsigned long)cases[i].seed, cases[i].cx, cases[i].cy,
-               w.biome == BIOME_CAVERN ? "cavern" : "outdoor",
+               w.biome == BIOME_CAVERN ? "cavern" : "outdoor", STYLE_TABLE[w.style].name,
                (unsigned long)fp);
         CHECK(fp == cases[i].fp, "chunk golden-master fingerprint");
     }
+}
+
+/* ── styles (SHARED_STATE 2026-10-14, "a region has a style") ───────
+ * A region's style is shared by all its chunks, belongs to the chunk's
+ * biome, and decides enclosed/open; the generator and the edge logic
+ * agree on it. */
+static void test_styles(void) {
+    int bad_region = 0, bad_biome = 0, bad_terrain = 0, n = 0;
+    static const uint32_t SEEDS[] = {0xCAFEBABEu, 0xDEADBEEFu, 0x00000001u, 0x12345678u};
+    for(unsigned k = 0; k < sizeof(SEEDS) / sizeof(SEEDS[0]); k++)
+        for(int cy = -7; cy <= 7; cy++)
+            for(int cx = -7; cx <= 7; cx++) {
+                uint32_t seed = SEEDS[k];
+                Style st = style_of(seed, cx, cy);
+                int ax = region_of(cx) * 3, ay = region_of(cy) * 3;   /* region anchor */
+                if(style_of(seed, ax, ay) != st) bad_region++;
+                if(STYLE_TABLE[st].biome != biome_of(seed, cx, cy)) bad_biome++;
+                if(((cx + cy) & 7) == 0) {   /* a sample of real chunks */
+                    World w;
+                    world_generate_chunk(seed, cx, cy, &w);
+                    if(w.style != st || world_terrain(&w) != region_terrain(seed, cx, cy)) bad_terrain++;
+                    n++;
+                }
+            }
+    CHECK(bad_region == 0, "style: every chunk of a region shares its style");
+    CHECK(bad_biome == 0, "style: a region's style belongs to its biome");
+    CHECK(n > 0 && bad_terrain == 0, "style: generated chunks carry their region's style + terrain");
+    for(int b = 0; b < BIOME_COUNT; b++)
+        CHECK(STYLE_TABLE[style_for_biome((Biome)b)].biome == (Biome)b,
+              "style: style_for_biome returns a style of that biome");
+    CHECK(style_terrain(STYLE_CAVERN) == TERRAIN_WALLED && style_terrain(STYLE_MOOR) == TERRAIN_OPEN,
+          "style: the original styles keep their biome's terrain mode");
+    CHECK(biome_pool(BIOME_CAVERN) == STAMP_BIOME_CAVERN && biome_pool(BIOME_OUTDOOR) == STAMP_BIOME_OUTDOOR,
+          "style: the Pool stays keyed by biome");
+    CHECK(region_hash(1, 2, 3) != region_hash(1, -2, -3), "style: region hash has no mirror twins");
 }
 
 /* ── names (procedural place names, slice 2026-06-03c) ──────────────
@@ -850,7 +892,7 @@ static void test_cavern_egress_no_trap(void) {
             for(int cx = -4; cx <= 4; cx++) {
                 World w;
                 world_generate_chunk(seeds[s], cx, cy, &w);
-                if(biome_terrain(w.biome) != TERRAIN_WALLED) continue;
+                if(world_terrain(&w) != TERRAIN_WALLED) continue;
                 caverns_seen++;
                 int reachable = egress_doors_reachable(&w, w.spawn_x, w.spawn_y);
                 if(reachable < 4) {
@@ -883,7 +925,7 @@ static void test_cavern_egress_known_traps(void) {
     for(int i = 0; i < n; i++) {
         World w;
         world_generate_chunk(cases[i].seed, cases[i].cx, cases[i].cy, &w);
-        if(biome_terrain(w.biome) != TERRAIN_WALLED) continue;
+        if(world_terrain(&w) != TERRAIN_WALLED) continue;
         int reachable = egress_doors_reachable(&w, w.spawn_x, w.spawn_y);
         CHECK(reachable == 4,
               "egress: previously-sealed chunk now fully connected");
@@ -1351,6 +1393,7 @@ static void test_creatures_aggro(void) {
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
     w.biome = BIOME_CAVERN;
+    w.style = style_for_biome(BIOME_CAVERN);
     w.spawn_x = 0;
     w.spawn_y = 0;
 
@@ -1420,6 +1463,7 @@ static void test_creatures_storm_grounds_flyers(void) {
         for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
     w.tiles[2][5] = TILE_ROCK; /* obstacle between bat and player */
     w.biome = BIOME_OUTDOOR;
+    w.style = style_for_biome(BIOME_OUTDOOR);
 
     Creature c_clear;
     memset(&c_clear, 0, sizeof(c_clear));
@@ -1448,6 +1492,7 @@ static void test_creatures_fog_extends_stealth_notice(void) {
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
     w.biome = BIOME_CAVERN;
+    w.style = style_for_biome(BIOME_CAVERN);
 
     Creature c_clear;
     memset(&c_clear, 0, sizeof(c_clear));
@@ -1483,6 +1528,7 @@ static void test_creatures_heat_dampens_aggro(void) {
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
     w.biome = BIOME_OUTDOOR;
+    w.style = style_for_biome(BIOME_OUTDOOR);
 
     Creature c_clear;
     memset(&c_clear, 0, sizeof(c_clear));
@@ -1514,6 +1560,7 @@ static void test_creatures_rain_pacifies_fire(void) {
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
     w.biome = BIOME_OUTDOOR;
+    w.style = style_for_biome(BIOME_OUTDOOR);
 
     Creature c_clear;
     memset(&c_clear, 0, sizeof(c_clear));
@@ -2043,7 +2090,7 @@ static void test_edge_walls_match_neighbors(void) {
                     if(!edge_is_coherent(&w, seeds[s], cx, cy, dirs[d])) {
                         all_coherent = false;
                     }
-                    bool walled = (biome_terrain(w.biome) == TERRAIN_WALLED) ||
+                    bool walled = (world_terrain(&w) == TERRAIN_WALLED) ||
                                   nbr_walled(seeds[s], cx, cy, dirs[d]);
                     if(walled) walled_edges++; else open_edges++;
                 }
@@ -2278,6 +2325,7 @@ int main(void) {
     test_chunk_determinism();
     test_chunk_invariants();
     test_chunk_golden();
+    test_styles();
     test_names_determinism();
     test_names_biome_distinct();
     test_names_cap_truncates();
