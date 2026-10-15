@@ -360,7 +360,10 @@ static void refresh_weather(AppState* st) {
     furi_hal_rtc_get_datetime(&now);
     uint64_t now_unix = datetime_datetime_to_timestamp(&now);
     uint32_t day = (uint32_t)(now_unix / 86400u);
-    uint8_t wbiome = biome_pool(st->world.biome);
+    /* Indoors is attenuated by ENCLOSURE, not realm: a manor's hall hears
+     * the rain above like a cavern does (weather.h). */
+    uint8_t wbiome = (world_terrain(&st->world) == TERRAIN_WALLED)
+                         ? STAMP_BIOME_CAVERN : STAMP_BIOME_OUTDOOR;
     weather_at(st->campaign_seed,
                (int)st->character.chunk_x, (int)st->character.chunk_y,
                day, wbiome, &st->current_weather);
@@ -2950,9 +2953,23 @@ static void on_world_move(AppState* st, MoveDir dir) {
         }
         break;
     }
-    case MoveOk:
+    case MoveOk: {
         st->status_line = NULL;
+        /* Terrain underfoot (spec 50 §L): scree costs a fuel tick, a
+         * glowcap is harvested for fuel. Data lives in the TERRAIN row. */
+        TerrainStep ts;
+        if(terrain_step(dest_glyph, &ts)) {
+            st->character.torch_fuel =
+                terrain_step_fuel(st->character.torch_fuel, ts.fuel, TORCH_FUEL_MAX);
+            if(ts.consumed) {
+                st->world.tiles[py][px] = TILE_FLOOR;
+                deltas_record(
+                    st->character.campaign_id, &st->current_deltas, px, py, TILE_FLOOR);
+            }
+            if(ts.message) set_status(st, ts.message);
+        }
         break;
+    }
     }
 
     /* Transitions recompute visibility for the new chunk inside

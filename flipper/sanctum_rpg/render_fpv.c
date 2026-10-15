@@ -305,6 +305,10 @@ static void floor_mark(Canvas* canvas, int plan, int x, int y, bool near) {
             canvas_draw_dot(canvas, x - 1, y - dy);
             canvas_draw_dot(canvas, x + 1, y - dy - 1);
         }
+    } else if(plan == TERRAIN_PLAN_PLANKS) {  /* two board seams, staggered */
+        int half = near ? 5 : 3;
+        for(int dx = -half; dx <= half; dx++) canvas_draw_dot(canvas, x + dx, y);
+        for(int dx = -half + 2; dx <= half + 2; dx++) canvas_draw_dot(canvas, x + dx, y + 2);
     } else if(plan == TERRAIN_PLAN_SCREE) {   /* loose stones: flat pebbles */
         canvas_draw_dot(canvas, x, y);
         canvas_draw_dot(canvas, x + 1, y);
@@ -782,6 +786,20 @@ static const int WALL_DARK_INK[WALL_DARK_STEPS] = {1, 3, 5, 8, 11, 14};
 #define NICHE_EVERY            3    /* one wall tile face in this many has a niche */
 #define TIMBER_POST_U         28    /* mine: post width at the tile's left edge */
 #define TIMBER_LINTEL_V       26    /* mine: lintel depth at the top */
+#define FRAME_BEAM_U          18    /* manor: post width at each tile edge */
+#define FRAME_PLATE_V         18    /* manor: top plate depth */
+#define FRAME_RAIL_V         128    /* manor: mid-rail centre */
+#define FRAME_RAIL_HALF       10    /* manor: mid-rail half-depth */
+#define FRAME_BRACE_HALF      12    /* manor: diagonal brace half-width */
+#define ASHLAR_COURSES         3    /* keep: courses of big blocks */
+#define SLIT_HALF_U           12    /* keep: arrow slit half-width */
+#define SLIT_V0               56    /* keep: slit top */
+#define SLIT_V1              200    /* keep: slit bottom */
+#define SLIT_EVERY             3    /* keep: one face in this many has a slit */
+#define LANCET_HALF_U         26    /* abbey: window half-width */
+#define LANCET_SPRING_V      112    /* abbey: where the pointed arch springs */
+#define LANCET_V1            216    /* abbey: window sill */
+#define LANCET_EVERY           2    /* abbey: one face in this many has a window */
 
 static const uint8_t BAYER4[4][4] = {
     { 0,  8,  2, 10},
@@ -851,6 +869,43 @@ static bool surface_seam(SlabMaterial mat, uint32_t th, int u, int v, int px_u, 
     case TM_TIMBER:
         if(u < TIMBER_POST_U || v < TIMBER_LINTEL_V) return true;   /* the shoring */
         return stone_seam(th, u, v, px_u, px_v);
+    case TM_FRAME: {                                  /* timber frame; plaster panels */
+        if(u < FRAME_BEAM_U / 2 || u > 255 - FRAME_BEAM_U / 2 || v < FRAME_PLATE_V) return true;
+        int dr = v - FRAME_RAIL_V;
+        if(dr < 0) dr = -dr;
+        if(dr < FRAME_RAIL_HALF) return true;
+        if(v > FRAME_RAIL_V) {                        /* a brace in the lower panel, alternating */
+            int along = FRAME_BEAM_U + ((v - FRAME_RAIL_V) * (256 - 2 * FRAME_BEAM_U)) / (256 - FRAME_RAIL_V);
+            if(th & 1) along = 255 - along;
+            int db = u - along;
+            if(db < 0) db = -db;
+            if(db < FRAME_BRACE_HALF) return true;
+        }
+        return false;
+    }
+    case TM_ASHLAR: {                                 /* big blocks; a slit on some faces */
+        int du = u - 128;
+        if(du < 0) du = -du;
+        if(th % SLIT_EVERY == 0 && du < SLIT_HALF_U && v > SLIT_V0 && v < SLIT_V1) return true;
+        const int course_h = 256 / ASHLAR_COURSES;
+        int dv = v % course_h;
+        if(dv * 2 < px_v + 2) return true;
+        int joint = ((v / course_h) & 1) ? 128 : 0;
+        int dj = (u - joint) & 255;
+        if(dj > 128) dj = 256 - dj;
+        return dj * 2 < px_u + 2;
+    }
+    case TM_CARVED: {                                 /* smooth stone; a pointed window */
+        if(th % LANCET_EVERY != 0 || v > LANCET_V1) return false;
+        int du = u - 128;
+        if(du < 0) du = -du;
+        if(du > LANCET_HALF_U) return false;
+        if(v >= LANCET_SPRING_V) return true;
+        /* above the springing line the sides lean in to a point: full
+         * width at the spring, zero at the apex 2 half-widths higher */
+        int apex = LANCET_SPRING_V - 2 * LANCET_HALF_U;
+        return v > apex && du * 2 < v - apex;
+    }
     case TM_MONOLITH: {
         int crack = 64 + (int)(th % 128) + ((v * 3 / 256) & 1) * MONOLITH_CRACK_WOBBLE;
         int du = u - crack;

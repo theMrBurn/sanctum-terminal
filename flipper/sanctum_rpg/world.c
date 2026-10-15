@@ -14,6 +14,7 @@
 #include "pool.h"
 #include "rng.h"
 #include "stamps.h"
+#include "terrain.h"
 #include "trade.h"
 
 /* ─── procgen tunables ───────────────────────────────────────────── */
@@ -573,7 +574,9 @@ void world_generate_chunk(
 }
 
 bool world_mutation_applies(char fresh_tile) {
-    return fresh_tile == TILE_FLOOR || loot_is_item_glyph(fresh_tile);
+    TerrainStep ts;
+    bool harvestable = terrain_step(fresh_tile, &ts) && ts.consumed;   /* a glowcap */
+    return fresh_tile == TILE_FLOOR || loot_is_item_glyph(fresh_tile) || harvestable;
 }
 
 TerrainMode world_terrain(const World* w) { return style_terrain(w->style); }

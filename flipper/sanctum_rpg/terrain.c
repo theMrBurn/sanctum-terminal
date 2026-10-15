@@ -38,6 +38,12 @@
 #define STALAG_TIP          3   /* stalagmite: the tip row */
 #define STALAG_BASE_HW      7   /* stalagmite: half-width at the floor */
 #define STALAG_TWIN_TIP    18   /* stalagmite: the smaller twin's tip */
+#define TABLE_TOP          17   /* table: the top's upper edge */
+#define BARREL_HOOP_A      15   /* barrel: hoop rows */
+#define BARREL_HOOP_B      27
+#define HEARTH_MANTEL       8   /* hearth: mantel row */
+#define RACK_SPEARS         3   /* weapon rack: spears */
+#define STATUE_PLINTH      27   /* statue: plinth top row */
 #define POST_HW             3   /* mine post: half-width */
 
 /* ── plans ─────────────────────────────────────────────────────────── */
@@ -46,39 +52,51 @@ enum { PLAN_NONE = 0, PLAN_STANDING, PLAN_CAIRN, PLAN_BOULDER, PLAN_DEADFALL,
        PLAN_SARCOPHAGUS, PLAN_BONES, PLAN_URN,          /* crypt */
        PLAN_CART, PLAN_RUBBLE, PLAN_POST,               /* mine */
        PLAN_TREE, PLAN_DEADTREE, PLAN_STUMP,            /* forest */
+       PLAN_TABLE, PLAN_BARREL, PLAN_HEARTH,            /* manor */
+       PLAN_RACK, PLAN_BRAZIER,                         /* keep */
+       PLAN_ALTAR, PLAN_STATUE, PLAN_PEW,               /* abbey */
        PLAN_MOSS = TERRAIN_PLAN_MOSS, PLAN_SCREE = TERRAIN_PLAN_SCREE,
        PLAN_FLAG = TERRAIN_PLAN_FLAG, PLAN_RAILS = TERRAIN_PLAN_RAILS,
-       PLAN_GRASS = TERRAIN_PLAN_GRASS };
+       PLAN_GRASS = TERRAIN_PLAN_GRASS, PLAN_PLANKS = TERRAIN_PLAN_PLANKS };
 
 static const TerrainDef TERRAIN[] = {
-    /* glyph       form      material       plan              span name            scale */
-    {TILE_WALL,   TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1, NULL,             1},
-    {TILE_SECRET, TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1, NULL,             1},   /* a secret looks like wall */
-    {'O',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1, "great column",   1},   /* mega column */
-    {'|',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1, "column",         1},
-    {'M',         TF_SLAB,  TM_MONOLITH,   PLAN_NONE,        1, "flowstone",      1},   /* chamber divider */
-    {'A',         TF_PROP,  0,             PLAN_STALAGMITE,  1, "stalagmite",     1},
-    {'H',         TF_PROP,  0,             PLAN_MENHIR,      2, "menhir",         2},   /* one stone on a 2x2 */
-    {'I',         TF_PROP,  0,             PLAN_STANDING,    1, "standing stone", 1},
-    {'Q',         TF_PROP,  0,             PLAN_CAIRN,       1, "cairn",          1},
-    {TILE_ROCK,   TF_PROP,  0,             PLAN_BOULDER,     1, "boulder",        1},
-    {'~',         TF_PROP,  0,             PLAN_DEADFALL,    1, "deadfall",       1},
-    {';',         TF_PROP,  0,             PLAN_SCRUB,       1, "scrub",          1},
-    {'q',         TF_PROP,  0,             PLAN_GLOWCAP,     1, "glowcap",        1},
-    {'n',         TF_PROP,  0,             PLAN_SARCOPHAGUS, 1, "sarcophagus",    1},   /* crypt */
-    {'x',         TF_PROP,  0,             PLAN_BONES,       1, "bone pile",      1},
-    {'U',         TF_PROP,  0,             PLAN_URN,         1, "funeral urn",    1},
-    {'c',         TF_PROP,  0,             PLAN_CART,        1, "ore cart",       1},   /* mine */
-    {'^',         TF_PROP,  0,             PLAN_RUBBLE,      1, "rubble",         1},
-    {'l',         TF_PROP,  0,             PLAN_POST,        1, "timber prop",    1},
-    {'Y',         TF_PROP,  0,             PLAN_TREE,        1, "tree",           2},   /* forest */
-    {'y',         TF_PROP,  0,             PLAN_DEADTREE,    1, "dead tree",      2},
-    {'t',         TF_PROP,  0,             PLAN_STUMP,       1, "stump",          1},
-    {',',         TF_FLOOR, 0,             PLAN_MOSS,        1, "moss",           1},
-    {':',         TF_FLOOR, 0,             PLAN_SCREE,       1, "scree",          1},
-    {'_',         TF_FLOOR, 0,             PLAN_FLAG,        1, "cracked flags",  1},
-    {'-',         TF_FLOOR, 0,             PLAN_RAILS,       1, "rails",          1},
-    {'"',         TF_FLOOR, 0,             PLAN_GRASS,       1, "tall grass",     1},
+    /* glyph       form      material       plan              span name            scale  step: fuel, flags, message */
+    {TILE_WALL,   TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1, NULL,             1, 0, 0, NULL},
+    {TILE_SECRET, TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1, NULL,             1, 0, 0, NULL},   /* a secret looks like wall */
+    {'O',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1, "great column",   1, 0, 0, NULL},   /* mega column */
+    {'|',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1, "column",         1, 0, 0, NULL},
+    {'M',         TF_SLAB,  TM_MONOLITH,   PLAN_NONE,        1, "flowstone",      1, 0, 0, NULL},   /* chamber divider */
+    {'A',         TF_PROP,  0,             PLAN_STALAGMITE,  1, "stalagmite",     1, 0, 0, NULL},
+    {'H',         TF_PROP,  0,             PLAN_MENHIR,      2, "menhir",         2, 0, 0, NULL},   /* one stone on a 2x2 */
+    {'I',         TF_PROP,  0,             PLAN_STANDING,    1, "standing stone", 1, 0, 0, NULL},
+    {'Q',         TF_PROP,  0,             PLAN_CAIRN,       1, "cairn",          1, 0, 0, NULL},
+    {TILE_ROCK,   TF_PROP,  0,             PLAN_BOULDER,     1, "boulder",        1, 0, 0, NULL},
+    {'~',         TF_PROP,  0,             PLAN_DEADFALL,    1, "deadfall",       1, 0, 0, NULL},
+    {';',         TF_PROP,  0,             PLAN_SCRUB,       1, "scrub",          1, 0, 0, NULL},
+    {'q',         TF_PROP,  0,             PLAN_GLOWCAP,     1, "glowcap",        1, 2, TSF_CONSUMED, "glowcap  +2 fuel"},
+    {'n',         TF_PROP,  0,             PLAN_SARCOPHAGUS, 1, "sarcophagus",    1, 0, 0, NULL},   /* crypt */
+    {'x',         TF_PROP,  0,             PLAN_BONES,       1, "bone pile",      1, 0, 0, NULL},
+    {'U',         TF_PROP,  0,             PLAN_URN,         1, "funeral urn",    1, 0, 0, NULL},
+    {'c',         TF_PROP,  0,             PLAN_CART,        1, "ore cart",       1, 0, 0, NULL},   /* mine */
+    {'^',         TF_PROP,  0,             PLAN_RUBBLE,      1, "rubble",         1, 0, 0, NULL},
+    {'l',         TF_PROP,  0,             PLAN_POST,        1, "timber prop",    1, 0, 0, NULL},
+    {'Y',         TF_PROP,  0,             PLAN_TREE,        1, "tree",           2, 0, 0, NULL},   /* forest */
+    {'y',         TF_PROP,  0,             PLAN_DEADTREE,    1, "dead tree",      2, 0, 0, NULL},
+    {'t',         TF_PROP,  0,             PLAN_STUMP,       1, "stump",          1, 0, 0, NULL},
+    {'m',         TF_PROP,  0,             PLAN_TABLE,       1, "table",          1, 0, 0, NULL},   /* manor */
+    {'d',         TF_PROP,  0,             PLAN_BARREL,      1, "barrel",         1, 0, 0, NULL},
+    {'w',         TF_PROP,  0,             PLAN_HEARTH,      1, "hearth",         1, 0, 0, NULL},
+    {'k',         TF_PROP,  0,             PLAN_RACK,        1, "weapon rack",    1, 0, 0, NULL},   /* keep */
+    {'v',         TF_PROP,  0,             PLAN_BRAZIER,     1, "brazier",        1, 0, 0, NULL},
+    {'a',         TF_PROP,  0,             PLAN_ALTAR,       1, "altar",          1, 0, 0, NULL},   /* abbey */
+    {'Z',         TF_PROP,  0,             PLAN_STATUE,      1, "statue",         2, 0, 0, NULL},
+    {'p',         TF_PROP,  0,             PLAN_PEW,         1, "pew",            1, 0, 0, NULL},
+    {',',         TF_FLOOR, 0,             PLAN_MOSS,        1, "moss",           1, 0, 0, NULL},
+    {':',         TF_FLOOR, 0,             PLAN_SCREE,       1, "scree",          1, -1, 0, "loose footing"},
+    {'_',         TF_FLOOR, 0,             PLAN_FLAG,        1, "cracked flags",  1, 0, 0, NULL},
+    {'-',         TF_FLOOR, 0,             PLAN_RAILS,       1, "rails",          1, 0, 0, NULL},
+    {'"',         TF_FLOOR, 0,             PLAN_GRASS,       1, "tall grass",     1, 0, 0, NULL},
+    {'\'',        TF_FLOOR, 0,             PLAN_PLANKS,      1, "boards",         1, 0, 0, NULL},
 };
 
 int terrain_count(void) { return (int)(sizeof(TERRAIN) / sizeof(TERRAIN[0])); }
@@ -97,6 +115,22 @@ bool terrain_stops_ray(char glyph) {
     const TerrainDef* d = terrain_def(glyph);
     if(d) return d->form == TF_SLAB;
     return world_is_blocking(glyph);
+}
+
+bool terrain_step(char glyph, TerrainStep* out) {
+    const TerrainDef* d = terrain_def(glyph);
+    if(!d || (!d->step_fuel && !d->step_flags && !d->step_msg)) return false;
+    out->fuel = d->step_fuel;
+    out->consumed = (d->step_flags & TSF_CONSUMED) != 0;
+    out->message = d->step_msg;
+    return true;
+}
+
+uint16_t terrain_step_fuel(uint16_t fuel, int8_t delta, uint16_t max) {
+    int f = (int)fuel + delta;
+    if(f < 0) f = 0;
+    if(f > (int)max) f = (int)max;
+    return (uint16_t)f;
 }
 
 const char* terrain_name(char glyph, const char* wall_name) {
@@ -208,6 +242,62 @@ static void shape(int plan, Plane* m, int size, uint8_t var) {
         }
         break;
     }
+    case PLAN_TABLE:        /* a board on four legs (two show), a jug on some */
+        rect(m, size, 3, TABLE_TOP, 28, TABLE_TOP + 3, 1);
+        rect(m, size, 5, TABLE_TOP + 4, 8, 31, 1);
+        rect(m, size, 23, TABLE_TOP + 4, 26, 31, 1);
+        if(var & 1) { ell(m, size, 10, TABLE_TOP - 4, 3, 4, 1); rect(m, size, 9, TABLE_TOP - 9, 11, TABLE_TOP - 6, 1); }
+        break;
+    case PLAN_BARREL:       /* staves bulging between narrower ends */
+        for(int y = 11; y <= 31; y++) {
+            int d = y - 21;
+            rect(m, size, 16 - (8 - (d * d) / 33), y, 16 + (8 - (d * d) / 33), y, 1);
+        }
+        break;
+    case PLAN_HEARTH:       /* a stone fireplace under a mantel */
+        rect(m, size, 4, HEARTH_MANTEL, 27, 31, 1);
+        rect(m, size, 2, HEARTH_MANTEL, 29, HEARTH_MANTEL + 2, 1);
+        break;
+    case PLAN_RACK:         /* two uprights, a bar, spears standing in it */
+        rect(m, size, 5, 9, 7, 31, 1);
+        rect(m, size, 24, 9, 26, 31, 1);
+        rect(m, size, 5, 11, 26, 13, 1);
+        for(int k = 0; k < RACK_SPEARS; k++) {
+            int x = 11 + k * 5;
+            rect(m, size, x, 4, x + 1, 30, 1);
+            ell(m, size, x, 3, 1, 2, 1);                          /* the blade */
+        }
+        break;
+    case PLAN_BRAZIER:      /* a fire bowl on three legs */
+        ell(m, size, 16, 9, 4, 5, 1);                             /* flames */
+        ell(m, size, 16, 15, 9, 4, 1);                            /* bowl */
+        thick_seg(m, size, 10, 17, 7, 31, 1);
+        thick_seg(m, size, 21, 17, 24, 31, 1);
+        rect(m, size, 15, 18, 16, 31, 1);
+        break;
+    case PLAN_ALTAR:        /* a stone block, a cloth, two candles */
+        rect(m, size, 4, 17, 27, 31, 1);
+        rect(m, size, 2, 14, 29, 17, 1);
+        rect(m, size, 6, 8, 7, 13, 1);
+        rect(m, size, 24, 8, 25, 13, 1);
+        break;
+    case PLAN_STATUE: {     /* a robed figure on a plinth; two tiles tall */
+        rect(m, size, 10, STATUE_PLINTH, 22, 31, 1);
+        ell(m, size, 16, 5, 3, 3, 1);                             /* head */
+        rect(m, size, 15, 8, 17, 9, 1);                           /* neck */
+        ell(m, size, 16, 12, 6, 2, 1);                            /* shoulders */
+        for(int y = 12; y < STATUE_PLINTH; y++) {                 /* robe, flaring */
+            int hw = y < 18 ? 4 : 4 + ((y - 18) * 4) / (STATUE_PLINTH - 18);
+            rect(m, size, 16 - hw, y, 16 + hw, y, 1);
+        }
+        break;
+    }
+    case PLAN_PEW:          /* a bench with a back, seen end-on to the aisle */
+        rect(m, size, 3, 14, 28, 17, 1);                          /* back rail */
+        rect(m, size, 3, 22, 28, 24, 1);                          /* seat */
+        rect(m, size, 3, 14, 6, 31, 1);                           /* ends */
+        rect(m, size, 25, 14, 28, 31, 1);
+        break;
     case PLAN_SARCOPHAGUS:  /* a long lidded stone box */
         rect(m, size, 5, 20, 26, 31, 1);
         rect(m, size, 3, 17, 28, 20, 1);                      /* lid, overhanging */
@@ -317,6 +407,20 @@ static bool shade(int plan, const Plane* m, int x, int y, int size, uint8_t var)
     }
     case PLAN_BOULDER:  return v > BOULDER_TERM;
     case PLAN_STALAGMITE: return x > S(15, size);            /* lit left, shadow right */
+    case PLAN_TABLE:    return y > S(TABLE_TOP + 3, size) && x > S(16, size) ? true
+                               : y == S(TABLE_TOP + 3, size);  /* the board's edge, legs in shade */
+    case PLAN_BARREL:   return x > S(19, size);
+    case PLAN_HEARTH: {                  /* dark firebox, a lit flame in it */
+        bool box = x > S(9, size) && x < S(22, size) && y > S(HEARTH_MANTEL + 6, size);
+        bool flame = in_ellipse(x, y, S(16, size), S(27, size), R(4, size), R(4, size));
+        return box && !flame;
+    }
+    case PLAN_RACK:     return y > S(13, size) && (x < S(8, size) || x > S(23, size));
+    case PLAN_BRAZIER:  return y > S(13, size);                /* bowl + legs dark, flames lit */
+    case PLAN_ALTAR:                     /* lit top and face, the side in shadow */
+        return y > S(17, size) && x > S(22, size);
+    case PLAN_STATUE:   return x > S(16, size);
+    case PLAN_PEW:      return x < S(7, size) || x > S(24, size);
     case PLAN_SARCOPHAGUS:               /* lid lit, the box's face in shadow below the lid */
         return y > S(21, size);
     case PLAN_BONES:    return y > S(29, size);              /* pale bone; a shadow under the heap */
@@ -372,6 +476,21 @@ static void detail(int plan, Plane* ink, Plane* m, int size, uint8_t var) {
         }
         break;
     }
+    case PLAN_ALTAR:                     /* the cloth's edges down the front */
+        seg(ink, size, 10, 17, 10, 26, 1);
+        seg(ink, size, 21, 17, 21, 26, 1);
+        seg(ink, size, 10, 26, 21, 26, 1);
+        break;
+    case PLAN_BARREL:                    /* the hoops */
+        seg(ink, size, 9, BARREL_HOOP_A, 23, BARREL_HOOP_A, 1);
+        seg(ink, size, 9, BARREL_HOOP_B, 23, BARREL_HOOP_B, 1);
+        break;
+    case PLAN_HEARTH:                    /* the flame's tongue */
+        seg(ink, size, 16, 24, 16, 28, 1);
+        break;
+    case PLAN_STATUE:                    /* folds of the robe */
+        seg(ink, size, 14, 14, 13, 25, 1);
+        break;
     case PLAN_STALAGMITE:                /* drip rings on the lit face */
         seg(ink, size, 12, 18, 15, 19, 1);
         seg(ink, size, 10, 25, 15, 26, 1);

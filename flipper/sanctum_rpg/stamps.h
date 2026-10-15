@@ -77,9 +77,20 @@
 #define PRIM_SP  22u  /* 't' stump         — blocking, low */
 #define PRIM_TG  23u  /* '"' tall grass    — walkable */
 
+/* Manor / keep / abbey (above-ground interiors) */
+#define PRIM_TB  24u  /* 'm' table         — blocking */
+#define PRIM_BA  25u  /* 'd' barrel        — blocking */
+#define PRIM_HE  26u  /* 'w' hearth        — blocking */
+#define PRIM_RK  27u  /* 'k' weapon rack   — blocking */
+#define PRIM_BZ  28u  /* 'v' brazier       — blocking */
+#define PRIM_AL  29u  /* 'a' altar         — blocking */
+#define PRIM_SU  30u  /* 'Z' statue        — blocking, blocks sight */
+#define PRIM_PW  31u  /* 'p' pew           — blocking */
+#define PRIM_PL  32u  /* '\'' boards       — floor mark */
+
 #define PRIM_COUNT_CAVERN  6
 #define PRIM_COUNT_OUTDOOR 6
-#define PRIM_COUNT_TOTAL  24
+#define PRIM_COUNT_TOTAL  33
 
 typedef struct {
     uint8_t id;
@@ -115,6 +126,9 @@ bool primitive_glyph_blocks_sight(char glyph);
 #define STAMP_STYLE_CRYPT   2u
 #define STAMP_STYLE_MINE    3u
 #define STAMP_STYLE_FOREST  4u
+#define STAMP_STYLE_MANOR   5u
+#define STAMP_STYLE_KEEP    6u
+#define STAMP_STYLE_ABBEY   7u
 #define STAMP_BIOME_CAVERN  0u
 #define STAMP_BIOME_OUTDOOR 1u
 

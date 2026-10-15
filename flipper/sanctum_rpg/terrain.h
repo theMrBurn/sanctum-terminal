@@ -35,6 +35,9 @@ typedef enum {
                     * dungeon styles' wall materials. */
     TM_BRICK,      /* crypt: regular brick courses, a burial niche on some tiles */
     TM_TIMBER,     /* mine: rough stone shored with timber posts + lintels */
+    TM_FRAME,      /* manor: plaster in a dark timber frame, a brace on some tiles */
+    TM_ASHLAR,     /* keep: big dressed blocks, an arrow slit on some tiles */
+    TM_CARVED,     /* abbey: smooth stone, a lancet window on some tiles */
     TM_STYLE_WALL, /* "this region's wall": resolved by the renderer from the
                     * world's style (StyleDef.wall_material). Plain walls and
                     * secrets use it, so a crypt's walls are brick. */
@@ -53,7 +56,26 @@ typedef struct {
     uint8_t scale;      /* PROP billboard size in tiles (square, bottom-anchored):
                          * 1 = wall height; 2 = a tree or menhir that stands
                          * over the walls. Independent of the footprint. */
+    int8_t step_fuel;   /* torch fuel on stepping onto it (spec 50 §L): scree
+                         * -1 ("loose footing"), glowcap +2 (harvested) */
+    uint8_t step_flags; /* TSF_* */
+    const char* step_msg; /* status line on stepping onto it, or NULL */
 } TerrainDef;
+
+#define TSF_CONSUMED 0x01u  /* stepping onto it harvests it: tile -> floor (a delta) */
+
+/* What stepping onto a tile does. */
+typedef struct {
+    int8_t fuel;
+    bool consumed;
+    const char* message;
+} TerrainStep;
+
+/* True (and `out` filled) if stepping onto `glyph` has an effect. */
+bool terrain_step(char glyph, TerrainStep* out);
+
+/* Torch fuel after a step effect, clamped to 0..max. */
+uint16_t terrain_step_fuel(uint16_t fuel, int8_t delta, uint16_t max);
 
 #define TERRAIN_VARIANTS 4
 #define TERRAIN_SPAN_MAX 2
@@ -65,6 +87,7 @@ typedef struct {
 #define TERRAIN_PLAN_FLAG  34   /* cracked flagstone: joints */
 #define TERRAIN_PLAN_RAILS 35   /* mine rails: sleepers */
 #define TERRAIN_PLAN_GRASS 36   /* tall grass: blades */
+#define TERRAIN_PLAN_PLANKS 37  /* plank floor: board seams */
 
 /* Every def, in table order — tests and the shot harness iterate this, so
  * a new row can't escape the identity / opacity / golden checks. */

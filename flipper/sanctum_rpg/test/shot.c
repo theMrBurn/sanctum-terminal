@@ -231,13 +231,32 @@ static const char* STYLE_FIELD[STYLE_COUNT][WORLD_ROWS] = {
                      "................",
                      "..t.~~.Y..;\"..Y.",
                      ".......Y....y..."},
+    [STYLE_MANOR] = {"................",
+                     "....m.m.m...w...",
+                     "...\'\'\'...d.d....",
+                     ".....m..........",
+                     "..d...\'\'..w.d...",
+                     "................"},
+    [STYLE_KEEP]  = {"................",
+                     "....k...k...v...",
+                     "...__..v...d....",
+                     ".....k..........",
+                     "..v...__..k.d...",
+                     "................"},
+    [STYLE_ABBEY] = {"................",
+                     "....p...p...Z...",
+                     "...__..a...v....",
+                     ".....Z..........",
+                     "..p...__..U.a...",
+                     "................"},
 };
 
 static int stylefield_shot(int style, const char* path) {
     if(style < 0 || style >= STYLE_COUNT) return 2;
     if(!STYLE_FIELD[style][0]) return field_shot(STYLE_TABLE[style].biome, path);
     World w;
-    bare_chunk(&w, STYLE_TABLE[style].biome);
+    bare_chunk(&w, style_terrain((Style)style) == TERRAIN_WALLED ? BIOME_CAVERN : BIOME_OUTDOOR);   /* walled rim */
+    w.biome = STYLE_TABLE[style].biome;
     w.style = (Style)style;
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) {

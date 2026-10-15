@@ -29,6 +29,9 @@ typedef enum {
     STYLE_CRYPT,        /* dungeon: brick, niches, tombs */
     STYLE_MINE,         /* old mine: timber shoring, rails, rubble */
     STYLE_FOREST,       /* forest: trees, stumps, tall grass */
+    STYLE_MANOR,        /* above ground, enclosed: a dwelling */
+    STYLE_KEEP,         /* above ground, enclosed: a fortification */
+    STYLE_ABBEY,        /* above ground, enclosed: a holy place */
     STYLE_COUNT,
 } Style;
 
@@ -38,6 +41,9 @@ typedef enum {
     FAMILY_DUNGEONS,    /* underground, built to hold or bury */
     FAMILY_MINES,       /* underground, dug for ore */
     FAMILY_FOREST,      /* above ground, open, wooded */
+    FAMILY_DWELLINGS,   /* above ground, enclosed, lived in */
+    FAMILY_FORTIFICATIONS, /* above ground, enclosed, held */
+    FAMILY_HOLY,        /* above ground, enclosed, kept */
     FAMILY_COUNT,
 } StyleFamily;
 

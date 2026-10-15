@@ -38,6 +38,15 @@ const PrimitiveDef PRIMITIVES[PRIM_COUNT_TOTAL] = {
     {PRIM_DT,  'y',  0,   0},
     {PRIM_SP,  't',  0,   0},
     {PRIM_TG,  '"',  1,   0},
+    {PRIM_TB,  'm',  0,   0},
+    {PRIM_BA,  'd',  0,   0},
+    {PRIM_HE,  'w',  0,   0},
+    {PRIM_RK,  'k',  0,   0},
+    {PRIM_BZ,  'v',  0,   0},
+    {PRIM_AL,  'a',  0,   0},
+    {PRIM_SU,  'Z',  0,   1},
+    {PRIM_PW,  'p',  0,   0},
+    {PRIM_PL,  '\'', 1,   0},
 };
 
 const PrimitiveDef* primitive_def(uint8_t id) {
@@ -219,6 +228,71 @@ const StampDef STAMPS[] = {
     /* id=41 — undergrowth */
     {41, STAMP_STYLE_FOREST, 2, 1, SF_COMMON, R_FLIP, 2,
      {{PRIM_SC, 0, 0}, {PRIM_TG, 1, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+
+    /* ── manor (2026-10-14) ── */
+    /* id=42 — long table */
+    {42, STAMP_STYLE_MANOR, 3, 1, SF_COMMON, R_FLIP, 3,
+     {{PRIM_TB, 0, 0}, {PRIM_TB, 1, 0}, {PRIM_TB, 2, 0}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=43 — the hearth and its wood */
+    {43, STAMP_STYLE_MANOR, 2, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_HE, 0, 0}, {PRIM_BA, 1, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=44 — buttery */
+    {44, STAMP_STYLE_MANOR, 2, 2, SF_COMMON, R_ALL, 3,
+     {{PRIM_BA, 0, 0}, {PRIM_BA, 1, 0}, {PRIM_BA, 0, 1}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=45 — boards */
+    {45, STAMP_STYLE_MANOR, 2, 2, SF_COMMON, R_NONE, 4,
+     {{PRIM_PL, 0, 0}, {PRIM_PL, 1, 0}, {PRIM_PL, 0, 1}, {PRIM_PL, 1, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=46 — a table on the boards */
+    {46, STAMP_STYLE_MANOR, 3, 2, SF_UNCOMMON, R_FLIP, 4,
+     {{PRIM_PL, 0, 0}, {PRIM_TB, 1, 0}, {PRIM_PL, 2, 0}, {PRIM_PL, 1, 1},
+      {0,0,0},{0,0,0}}},
+
+    /* ── keep (2026-10-14) ── */
+    /* id=47 — armoury */
+    {47, STAMP_STYLE_KEEP, 3, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_RK, 0, 0}, {PRIM_RK, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=48 — watch fires */
+    {48, STAMP_STYLE_KEEP, 3, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_BZ, 0, 0}, {PRIM_BZ, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=49 — stores */
+    {49, STAMP_STYLE_KEEP, 2, 2, SF_UNCOMMON, R_NONE, 4,
+     {{PRIM_BA, 0, 0}, {PRIM_BA, 1, 0}, {PRIM_BA, 0, 1}, {PRIM_BA, 1, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=50 — guard post */
+    {50, STAMP_STYLE_KEEP, 2, 2, SF_COMMON, R_ALL, 4,
+     {{PRIM_RK, 0, 0}, {PRIM_BZ, 1, 0}, {PRIM_FS, 0, 1}, {PRIM_FS, 1, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=51 — flagged hall */
+    {51, STAMP_STYLE_KEEP, 2, 2, SF_COMMON, R_NONE, 4,
+     {{PRIM_FS, 0, 0}, {PRIM_FS, 1, 0}, {PRIM_FS, 0, 1}, {PRIM_FS, 1, 1},
+      {0,0,0},{0,0,0}}},
+
+    /* ── abbey (2026-10-14) ── */
+    /* id=52 — the altar between its fires */
+    {52, STAMP_STYLE_ABBEY, 3, 1, SF_UNCOMMON, R_NONE, 3,
+     {{PRIM_BZ, 0, 0}, {PRIM_AL, 1, 0}, {PRIM_BZ, 2, 0}, {0,0,0},{0,0,0},{0,0,0}}},
+    /* id=53 — pews */
+    {53, STAMP_STYLE_ABBEY, 3, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_PW, 0, 0}, {PRIM_PW, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=54 — a saint */
+    {54, STAMP_STYLE_ABBEY, 1, 1, SF_COMMON, R_NONE, 1,
+     {{PRIM_SU, 0, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=55 — the two saints */
+    {55, STAMP_STYLE_ABBEY, 3, 1, SF_UNCOMMON, R_FLIP, 2,
+     {{PRIM_SU, 0, 0}, {PRIM_SU, 2, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+    /* id=56 — cloister floor */
+    {56, STAMP_STYLE_ABBEY, 2, 2, SF_COMMON, R_NONE, 4,
+     {{PRIM_FS, 0, 0}, {PRIM_FS, 1, 0}, {PRIM_FS, 0, 1}, {PRIM_FS, 1, 1},
+      {0,0,0},{0,0,0}}},
+    /* id=57 — reliquary */
+    {57, STAMP_STYLE_ABBEY, 2, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_UR, 0, 0}, {PRIM_AL, 1, 0}, {0,0,0},{0,0,0},{0,0,0},{0,0,0}}},
+
+    /* ── cavern, v1.1 slot 5 (spec 50 §F1: "glowcap pocket") ── */
+    /* id=58 — glowcap pocket: light in the dark, +2 fuel each */
+    {58, STAMP_STYLE_CAVERN, 2, 2, SF_UNCOMMON, R_ALL, 3,
+     {{PRIM_GC, 0, 0}, {PRIM_MW, 1, 0}, {PRIM_GC, 1, 1}, {0,0,0},{0,0,0},{0,0,0}}},
 };
 
 const int STAMP_COUNT = (int)(sizeof(STAMPS) / sizeof(STAMPS[0]));

@@ -33,6 +33,7 @@
 #include "../weather.h"
 #include "../world.h"
 #include "../stamps.h"
+#include "../terrain.h"
 #include "../compose.h"
 
 static int g_pass = 0;
@@ -245,7 +246,7 @@ static void test_chunk_invariants(void) {
 /* The generator version these fingerprints were recorded under. Re-record
  * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
  * this to match — the check below fails if the two drift apart. */
-#define GOLDEN_WORLDGEN_VERSION 3
+#define GOLDEN_WORLDGEN_VERSION 4
 
 static void test_chunk_golden(void) {
     CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
@@ -269,14 +270,21 @@ static void test_chunk_golden(void) {
          * Prior (v1): 0x9A4F21E6 0x01821F0D 0xB00E3D15 0xB39F63AE.
          * WORLDGEN 3 (same day): the cavern's stalagmite / column / divider
          * get their own glyphs ('A' '|' 'M', were all '#'). Only the two
-         * cavern-style cases move (v2: 0xD0925D12 0x6CD6E177). */
-        {0xCAFEBABE, 0, 0, 0x65B1E3F9},
-        {0xCAFEBABE, 1, 0, 0xA52B45BB},
-        {0xDEADBEEF, 0, 0, 0x3A6A267C},
-        {0x00000001, -3, 5, 0x72E9EC7D},
+         * cavern-style cases move (v2: 0xD0925D12 0x6CD6E177).
+         * WORLDGEN 4 (same day): above-ground interiors (manor / keep /
+         * abbey) join the surface styles, and caverns gain the glowcap
+         * pocket. (-3,5) of seed 1 is now an abbey; DEADBEEF (0,0) stays
+         * moor but grew a west wall + door onto the abbey next door.
+         * v3: 0x65B1E3F9 0xA52B45BB 0x3A6A267C 0x72E9EC7D. */
+        {0xCAFEBABE, 0, 0, 0xAA0B4171},
+        {0xCAFEBABE, 1, 0, 0x0642A257},
+        {0xDEADBEEF, 0, 0, 0x07E6DFEC},
+        {0x00000001, -3, 5, 0xE07A1B4E},
         {0x12345678, 4, -2, 0x076874FA},   /* crypt */
         {0x12345678, 1, -5, 0x24E3D04E},   /* mine */
         {0x12345678, 4, 1, 0x414E736C},    /* forest */
+        {0x12345678, 7, -5, 0x6B304778},   /* manor */
+        {0x12345678, 7, -8, 0xDFEE86F4},   /* keep */
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     for(int i = 0; i < n; i++) {
@@ -306,6 +314,48 @@ static void test_mutation_guard(void) {
           !world_mutation_applies(TILE_VENDOR) && !world_mutation_applies(TILE_VAULT) &&
           !world_mutation_applies('n') && !world_mutation_applies(TILE_SECRET),
           "deltas: a stale pickup never erases structure after a generator bump");
+}
+
+/* Spec 50 §L: scree costs a fuel tick; a glowcap is harvested for +2. */
+static void test_terrain_steps(void) {
+    TerrainStep ts;
+    CHECK(terrain_step(':', &ts) && ts.fuel == -1 && !ts.consumed, "step: scree costs one fuel");
+    CHECK(terrain_step('q', &ts) && ts.fuel == 2 && ts.consumed, "step: a glowcap is harvested for +2 fuel");
+    CHECK(!terrain_step('.', &ts) && !terrain_step(',', &ts) && !terrain_step('#', &ts),
+          "step: floor, moss and walls do nothing underfoot");
+    CHECK(terrain_step_fuel(0, -1, 100) == 0 && terrain_step_fuel(99, 2, 100) == 100 &&
+          terrain_step_fuel(50, 2, 100) == 52, "step: fuel clamps to 0..max");
+    CHECK(world_mutation_applies('q'), "deltas: a harvested glowcap stays harvested on reload");
+    /* Glowcaps are actually placed now (the pocket stamp). */
+    int caps = 0;
+    for(int cy = -6; cy <= 6; cy++)
+        for(int cx = -6; cx <= 6; cx++) {
+            World w;
+            world_generate_chunk(0xCAFEBABEu, cx, cy, &w);
+            for(int y = 0; y < WORLD_ROWS; y++)
+                for(int x = 0; x < WORLD_COLS; x++) caps += w.tiles[y][x] == 'q';
+        }
+    CHECK(caps > 0, "step: glowcaps appear in generated caverns");
+}
+
+/* Catalog integrity: every style has stamps, and every glyph a stamp can
+ * place has a TERRAIN row — so first-person view knows how to draw it. */
+static void test_style_catalog(void) {
+    for(int st = 0; st < STYLE_COUNT; st++) {
+        int n = 0;
+        for(int i = 0; i < STAMP_COUNT; i++) n += STAMPS[i].style == st;
+        CHECK(n >= 4, "catalog: every style has its own stamps");
+    }
+    int undrawn = 0;
+    for(int i = 0; i < STAMP_COUNT; i++)
+        for(int k = 0; k < STAMPS[i].prim_count; k++) {
+            const PrimitiveDef* p = primitive_def(STAMPS[i].prims[k].prim_id);
+            if(!p || !terrain_def(p->glyph)) undrawn++;
+        }
+    CHECK(undrawn == 0, "catalog: every stamped glyph has a terrain form");
+    for(int i = 0; i < PRIM_COUNT_TOTAL; i++)
+        for(int j = 0; j < i; j++)
+            CHECK(PRIMITIVES[i].glyph != PRIMITIVES[j].glyph, "catalog: primitive glyphs are unique");
 }
 
 static void test_styles(void) {
@@ -2349,6 +2399,8 @@ int main(void) {
     test_chunk_golden();
     test_styles();
     test_mutation_guard();
+    test_terrain_steps();
+    test_style_catalog();
     test_names_determinism();
     test_names_biome_distinct();
     test_names_cap_truncates();

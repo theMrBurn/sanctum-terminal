@@ -12,15 +12,20 @@
 _Static_assert(STYLE_CAVERN == STAMP_STYLE_CAVERN, "cavern style id is the cavern stamp id");
 _Static_assert(STYLE_MOOR == STAMP_STYLE_MOOR, "moor style id is the outdoor stamp id");
 _Static_assert(STYLE_CRYPT == STAMP_STYLE_CRYPT && STYLE_MINE == STAMP_STYLE_MINE &&
-               STYLE_FOREST == STAMP_STYLE_FOREST, "style ids are stamp-catalog ids");
+               STYLE_FOREST == STAMP_STYLE_FOREST && STYLE_MANOR == STAMP_STYLE_MANOR &&
+               STYLE_KEEP == STAMP_STYLE_KEEP && STYLE_ABBEY == STAMP_STYLE_ABBEY,
+               "style ids are stamp-catalog ids");
 
 /* Pick weights within a biome: natural caverns stay the commonest underground;
  * moor and forest share the surface. */
 #define STYLE_W_CAVERN 2
 #define STYLE_W_CRYPT  1
 #define STYLE_W_MINE   1
-#define STYLE_W_MOOR   1
-#define STYLE_W_FOREST 1
+#define STYLE_W_MOOR   3   /* the open country stays the commonest surface */
+#define STYLE_W_FOREST 3
+#define STYLE_W_MANOR  1
+#define STYLE_W_KEEP   1
+#define STYLE_W_ABBEY  1
 
 const StyleDef STYLE_TABLE[STYLE_COUNT] = {
     /*               name      biome          terrain         family           wall       wall name      weight */
@@ -29,6 +34,9 @@ const StyleDef STYLE_TABLE[STYLE_COUNT] = {
     [STYLE_CRYPT]  = {"crypt",  BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_DUNGEONS, TM_BRICK,  "brick wall",  STYLE_W_CRYPT},
     [STYLE_MINE]   = {"mine",   BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_MINES,    TM_TIMBER, "shored rock", STYLE_W_MINE},
     [STYLE_FOREST] = {"forest", BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_FOREST,   TM_STONE,  "rock wall",   STYLE_W_FOREST},
+    [STYLE_MANOR]  = {"manor",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_DWELLINGS, TM_FRAME, "plaster wall", STYLE_W_MANOR},
+    [STYLE_KEEP]   = {"keep",   BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_FORTIFICATIONS, TM_ASHLAR, "curtain wall", STYLE_W_KEEP},
+    [STYLE_ABBEY]  = {"abbey",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_HOLY,     TM_CARVED, "carved wall", STYLE_W_ABBEY},
 };
 
 /* Distinct salt so a region's style doesn't correlate with its biome. */

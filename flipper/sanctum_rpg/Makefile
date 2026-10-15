@@ -43,11 +43,11 @@ shots:
 	./$(SHOT_BIN) field 0 test/shots/field_0.pbm
 	./$(SHOT_BIN) field 1 test/shots/field_1.pbm
 	python3 test/pbm2png.py test/shots/fields.png --cols 1 test/shots/field_*.pbm
-	@set -e; for st in 0 1 2 3 4; do ./$(SHOT_BIN) stylefield $$st test/shots/style_$$st.pbm; done
+	@set -e; for st in 0 1 2 3 4 5 6 7; do ./$(SHOT_BIN) stylefield $$st test/shots/style_$$st.pbm; done
 	python3 test/pbm2png.py test/shots/styles.png --cols 1 test/shots/style_*.pbm
-	@set -e; for st in 0 2 3; do for d in 1 2 4; do ./$(SHOT_BIN) wall $$st $$d test/shots/wall_$${st}_$${d}.pbm; done; done
+	@set -e; for st in 0 2 3 5 6 7; do for d in 1 2 4; do ./$(SHOT_BIN) wall $$st $$d test/shots/wall_$${st}_$${d}.pbm; done; done
 	python3 test/pbm2png.py test/shots/walls.png --cols 3 test/shots/wall_*.pbm
-	@set -e; for s in 12345678:4:-2 12345678:7:1 12345678:1:-5 12345678:1:1 12345678:4:1 CAFEBABE:4:-8; do \
+	@set -e; for s in 12345678:4:-2 12345678:7:1 12345678:1:-5 12345678:1:1 12345678:4:1 12345678:7:-5 12345678:7:-8 CAFEBABE:1:-2; do \
 	  set -- $$(echo $$s | tr ':' ' '); \
 	  ./$(SHOT_BIN) fpv $$1 $$2 $$3 a test/shots/real_$$1_$$2_$$3.pbm; \
 	done
