@@ -29,7 +29,7 @@ const PrimitiveDef PRIMITIVES[PRIM_COUNT_TOTAL] = {
     {PRIM_SA,  'n',  0,   0},
     {PRIM_BP,  'x',  1,   0},
     {PRIM_UR,  'U',  0,   0},
-    {PRIM_FS,  '_',  1,   0},
+    {PRIM_FS,  '/',  1,   0},   /* WORLDGEN 5: '_' was the dust-storm overlay */
     {PRIM_OC,  'c',  0,   0},
     {PRIM_RB,  '^',  0,   1},
     {PRIM_PO,  'l',  0,   0},
@@ -37,7 +37,7 @@ const PrimitiveDef PRIMITIVES[PRIM_COUNT_TOTAL] = {
     {PRIM_TR,  'Y',  0,   1},
     {PRIM_DT,  'y',  0,   0},
     {PRIM_SP,  't',  0,   0},
-    {PRIM_TG,  '"',  1,   0},
+    {PRIM_TG,  '`',  1,   0},   /* WORLDGEN 5: '"' was the storm overlay */
     {PRIM_TB,  'm',  0,   0},
     {PRIM_BA,  'd',  0,   0},
     {PRIM_HE,  'w',  0,   0},
@@ -46,7 +46,7 @@ const PrimitiveDef PRIMITIVES[PRIM_COUNT_TOTAL] = {
     {PRIM_AL,  'a',  0,   0},
     {PRIM_SU,  'Z',  0,   1},
     {PRIM_PW,  'p',  0,   0},
-    {PRIM_PL,  '\'', 1,   0},
+    {PRIM_PL,  '[',  1,   0},   /* WORLDGEN 5: '\'' was the rain overlay */
 };
 
 const PrimitiveDef* primitive_def(uint8_t id) {

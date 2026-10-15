@@ -93,10 +93,10 @@ static const TerrainDef TERRAIN[] = {
     {'p',         TF_PROP,  0,             PLAN_PEW,         1, "pew",            1, 0, 0, NULL},
     {',',         TF_FLOOR, 0,             PLAN_MOSS,        1, "moss",           1, 0, 0, NULL},
     {':',         TF_FLOOR, 0,             PLAN_SCREE,       1, "scree",          1, -1, 0, "loose footing"},
-    {'_',         TF_FLOOR, 0,             PLAN_FLAG,        1, "cracked flags",  1, 0, 0, NULL},
+    {'/',         TF_FLOOR, 0,             PLAN_FLAG,        1, "cracked flags",  1, 0, 0, NULL},
     {'-',         TF_FLOOR, 0,             PLAN_RAILS,       1, "rails",          1, 0, 0, NULL},
-    {'"',         TF_FLOOR, 0,             PLAN_GRASS,       1, "tall grass",     1, 0, 0, NULL},
-    {'\'',        TF_FLOOR, 0,             PLAN_PLANKS,      1, "boards",         1, 0, 0, NULL},
+    {'`',         TF_FLOOR, 0,             PLAN_GRASS,       1, "tall grass",     1, 0, 0, NULL},
+    {'[',         TF_FLOOR, 0,             PLAN_PLANKS,      1, "boards",         1, 0, 0, NULL},
 };
 
 int terrain_count(void) { return (int)(sizeof(TERRAIN) / sizeof(TERRAIN[0])); }

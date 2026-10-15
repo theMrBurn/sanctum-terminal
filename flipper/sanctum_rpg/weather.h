@@ -31,6 +31,12 @@ typedef enum {
     WEATHER_HEAT       = 4, /* fuel burn from heat; mirage = false-positive lit cells */
     WEATHER_DUST_STORM = 5, /* heavy FOV cap + dust overlay + fuel burn */
 } WeatherKind;
+#define WEATHER_KIND_COUNT 6
+
+/* The glyph the top-down view draws over a lit FLOOR cell for an overlaid
+ * weather kind (rain ', storm ", heat ~, dust _). Terrain floor glyphs must
+ * never equal one of these, or grass would read as rain (test_main). */
+char weather_overlay_glyph(WeatherKind kind);
 
 /* Biome temperature gradient — biases the weather kind distribution.
  * COOL biomes (cavern) get rain/fog more; HOT biomes (future ARID) get

@@ -615,9 +615,11 @@ static void draw_span_prop(
     SpanAnchor* done, int* n_done, const int* wall_dist) {
     int ax, ay, w, h;
     span_extent(world, td->glyph, tx, ty, td->span, &ax, &ay, &w, &h);
-    for(int i = 0; i < *n_done; i++)
-        if(done[i].x == ax && done[i].y == ay) return;
-    if(*n_done < SPAN_GROUPS_PER_FRAME) done[(*n_done)++] = (SpanAnchor){(uint8_t)ax, (uint8_t)ay};
+    if(td->span > 1) {   /* only multi-tile blocks need de-duplicating */
+        for(int i = 0; i < *n_done; i++)
+            if(done[i].x == ax && done[i].y == ay) return;
+        if(*n_done < SPAN_GROUPS_PER_FRAME) done[(*n_done)++] = (SpanAnchor){(uint8_t)ax, (uint8_t)ay};
+    }
 
     /* Block centre relative to the player, 8.8 fp tiles. */
     int rx = (ax - player_x) * FP_ONE + (w - 1) * FP_ONE / 2;

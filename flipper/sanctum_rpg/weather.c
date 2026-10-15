@@ -199,3 +199,13 @@ char weather_hud_glyph(const Weather* w) {
     default:                 return '\0';
     }
 }
+
+char weather_overlay_glyph(WeatherKind kind) {
+    switch(kind) {
+    case WEATHER_STORM:      return '"';
+    case WEATHER_HEAT:       return '~';   /* only ever drawn over FLOOR, never a deadfall tile */
+    case WEATHER_DUST_STORM: return '_';
+    case WEATHER_RAIN:
+    default:                 return '\'';
+    }
+}

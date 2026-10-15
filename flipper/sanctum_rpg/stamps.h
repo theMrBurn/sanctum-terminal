@@ -65,7 +65,7 @@
 #define PRIM_SA  12u  /* 'n' sarcophagus   — blocking */
 #define PRIM_BP  13u  /* 'x' bone pile     — walkable, low */
 #define PRIM_UR  14u  /* 'U' urn           — blocking */
-#define PRIM_FS  15u  /* '_' flagstone     — floor mark */
+#define PRIM_FS  15u  /* '/' flagstone     — floor mark */
 /* Old mine */
 #define PRIM_OC  16u  /* 'c' ore cart      — blocking */
 #define PRIM_RB  17u  /* '^' rubble        — blocking */
@@ -75,7 +75,7 @@
 #define PRIM_TR  20u  /* 'Y' tree          — blocking, blocks sight */
 #define PRIM_DT  21u  /* 'y' dead tree     — blocking */
 #define PRIM_SP  22u  /* 't' stump         — blocking, low */
-#define PRIM_TG  23u  /* '"' tall grass    — walkable */
+#define PRIM_TG  23u  /* '`' tall grass    — walkable */
 
 /* Manor / keep / abbey (above-ground interiors) */
 #define PRIM_TB  24u  /* 'm' table         — blocking */
@@ -86,7 +86,7 @@
 #define PRIM_AL  29u  /* 'a' altar         — blocking */
 #define PRIM_SU  30u  /* 'Z' statue        — blocking, blocks sight */
 #define PRIM_PW  31u  /* 'p' pew           — blocking */
-#define PRIM_PL  32u  /* '\'' boards       — floor mark */
+#define PRIM_PL  32u  /* '[' boards       — floor mark */
 
 #define PRIM_COUNT_CAVERN  6
 #define PRIM_COUNT_OUTDOOR 6

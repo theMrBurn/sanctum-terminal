@@ -816,13 +816,7 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
                      *   HEAT       → ~ (shimmer line — only collides with
                      *                   deadfall on deadfall tiles, never on FLOOR)
                      *   DUST_STORM → _ (low blowing dust) */
-                    switch(st->current_weather.kind) {
-                    case WEATHER_STORM:      glyph = '"'; break;
-                    case WEATHER_HEAT:       glyph = '~'; break;
-                    case WEATHER_DUST_STORM: glyph = '_'; break;
-                    case WEATHER_RAIN:
-                    default:                 glyph = '\''; break;
-                    }
+                    glyph = weather_overlay_glyph((WeatherKind)st->current_weather.kind);
                 }
             } else if(st->seen[y][x]) {
                 glyph = loot_is_item_glyph(tile) ? TILE_FLOOR : tile;
@@ -2959,8 +2953,14 @@ static void on_world_move(AppState* st, MoveDir dir) {
          * glowcap is harvested for fuel. Data lives in the TERRAIN row. */
         TerrainStep ts;
         if(terrain_step(dest_glyph, &ts)) {
-            st->character.torch_fuel =
-                terrain_step_fuel(st->character.torch_fuel, ts.fuel, TORCH_FUEL_MAX);
+            uint16_t before = st->character.torch_fuel;
+            st->character.torch_fuel = terrain_step_fuel(before, ts.fuel, TORCH_FUEL_MAX);
+            /* Same light alarms as advance_turn: scree can put the torch out. */
+            if(before > 0 && st->character.torch_fuel == 0) {
+                notify(st, &sequence_error);
+            } else if(fov_radius_for_fuel(st->character.torch_fuel) < fov_radius_for_fuel(before)) {
+                notify(st, &sequence_single_vibro);
+            }
             if(ts.consumed) {
                 st->world.tiles[py][px] = TILE_FLOOR;
                 deltas_record(

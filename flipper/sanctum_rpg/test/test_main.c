@@ -246,7 +246,7 @@ static void test_chunk_invariants(void) {
 /* The generator version these fingerprints were recorded under. Re-record
  * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
  * this to match — the check below fails if the two drift apart. */
-#define GOLDEN_WORLDGEN_VERSION 4
+#define GOLDEN_WORLDGEN_VERSION 5
 
 static void test_chunk_golden(void) {
     CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
@@ -275,16 +275,20 @@ static void test_chunk_golden(void) {
          * abbey) join the surface styles, and caverns gain the glowcap
          * pocket. (-3,5) of seed 1 is now an abbey; DEADBEEF (0,0) stays
          * moor but grew a west wall + door onto the abbey next door.
-         * v3: 0x65B1E3F9 0xA52B45BB 0x3A6A267C 0x72E9EC7D. */
+         * v3: 0x65B1E3F9 0xA52B45BB 0x3A6A267C 0x72E9EC7D.
+         * WORLDGEN 5 (same day): floor glyphs that were weather-overlay
+         * glyphs in the top-down view move: grass '"'->'`', flagstone
+         * '_'->'/', boards '\''->'['. Forest + keep cases move (v4:
+         * 0x414E736C 0xDFEE86F4); the crypt and manor cases hold none. */
         {0xCAFEBABE, 0, 0, 0xAA0B4171},
         {0xCAFEBABE, 1, 0, 0x0642A257},
         {0xDEADBEEF, 0, 0, 0x07E6DFEC},
         {0x00000001, -3, 5, 0xE07A1B4E},
         {0x12345678, 4, -2, 0x076874FA},   /* crypt */
         {0x12345678, 1, -5, 0x24E3D04E},   /* mine */
-        {0x12345678, 4, 1, 0x414E736C},    /* forest */
+        {0x12345678, 4, 1, 0xAEAD9456},    /* forest */
         {0x12345678, 7, -5, 0x6B304778},   /* manor */
-        {0x12345678, 7, -8, 0xDFEE86F4},   /* keep */
+        {0x12345678, 7, -8, 0xF1B665B4},   /* keep */
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     for(int i = 0; i < n; i++) {
@@ -340,6 +344,29 @@ static void test_terrain_steps(void) {
 
 /* Catalog integrity: every style has stamps, and every glyph a stamp can
  * place has a TERRAIN row — so first-person view knows how to draw it. */
+/* Top-down: a floor glyph must not look like weather (grass vs storm). */
+static void test_glyphs_vs_weather(void) {
+    int clash = 0;
+    for(int k = 0; k < WEATHER_KIND_COUNT; k++) {
+        char g = weather_overlay_glyph((WeatherKind)k);
+        const TerrainDef* d = terrain_def(g);
+        if(d && d->form == TF_FLOOR) clash++;
+    }
+    CHECK(clash == 0, "glyphs: no terrain floor glyph is a weather overlay glyph");
+    /* The device applies step effects from world_try_move's dest glyph. */
+    World w;
+    memset(&w, 0, sizeof(w));
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
+    w.biome = BIOME_OUTDOOR; w.style = STYLE_MOOR;
+    w.tiles[2][3] = ':'; w.tiles[2][4] = 'q';
+    int px = 2, py = 2; char dest = 0;
+    CHECK(world_try_move(&w, MoveEast, &px, &py, &dest) == MoveOk && dest == ':',
+          "step: moving onto scree is MoveOk and reports the glyph");
+    CHECK(world_try_move(&w, MoveEast, &px, &py, &dest) == MoveOk && dest == 'q',
+          "step: moving onto a glowcap is MoveOk and reports the glyph");
+}
+
 static void test_style_catalog(void) {
     for(int st = 0; st < STYLE_COUNT; st++) {
         int n = 0;
@@ -2401,6 +2428,7 @@ int main(void) {
     test_mutation_guard();
     test_terrain_steps();
     test_style_catalog();
+    test_glyphs_vs_weather();
     test_names_determinism();
     test_names_biome_distinct();
     test_names_cap_truncates();
