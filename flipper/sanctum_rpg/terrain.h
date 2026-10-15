@@ -30,7 +30,9 @@ typedef enum { TF_NONE = 0, TF_SLAB, TF_PROP, TF_FLOOR } TerrainForm;
 typedef enum {
     TM_STONE = 0,  /* coursed stone: chamber walls, secrets */
     TM_COLUMN,     /* carved column: vertical flutes, no courses */
-    TM_MONOLITH,   /* one raw stone: no courses, a single long crack */
+    TM_MONOLITH,   /* one raw stone: no courses, a single long crack. No glyph
+                    * uses it since the menhir became a prop; kept for the
+                    * dungeon styles' wall materials. */
 } SlabMaterial;
 
 typedef struct {
@@ -38,9 +40,13 @@ typedef struct {
     uint8_t form;       /* TerrainForm */
     uint8_t material;   /* SlabMaterial, for SLAB */
     uint8_t plan;       /* prop / floor plan index (terrain.c) */
+    uint8_t span;       /* PROP footprint, tiles per side: 1 = one tile; 2 = a
+                         * 2x2 block of the glyph drawn as ONE billboard at
+                         * the block's centre, `span` tiles wide and tall */
 } TerrainDef;
 
 #define TERRAIN_VARIANTS 4
+#define TERRAIN_SPAN_MAX 2
 
 /* Floor plans (TF_FLOOR defs' `plan`): what render_fpv marks on the ground. */
 #define TERRAIN_PLAN_MOSS  7

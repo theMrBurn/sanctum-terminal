@@ -23,6 +23,7 @@ extern int fpv_test_wall_top[];
 extern int fpv_test_wall_bot[];
 extern int fpv_test_underpaint;
 extern int fpv_test_last_figure_x0, fpv_test_last_figure_y0, fpv_test_last_figure_size;
+extern int fpv_test_masked_billboards;
 
 static int g_pass, g_fail;
 #define CHECK(cond, msg)                                                   \
@@ -222,7 +223,7 @@ static void test_figures_are_opaque(void) {
 }
 
 /* ── terrain (terrain.h) ─────────────────────────────────────────── */
-static const char PROPS[] = {'I', 'Q', 'o', '~', ';', 'q'};
+static const char PROPS[] = {'I', 'Q', 'o', '~', ';', 'q', 'H'};
 #define PROP_N ((int)sizeof(PROPS))
 
 static void flat_chunk(World* w, int biome) {
@@ -280,7 +281,7 @@ static void test_prop_identity(void) {
     CHECK(!terrain_compose_prop('#', 0, 32, a, b), "terrain: a wall is not a prop");
 }
 
-#define TERRAIN_GOLDEN 0x54662DF3BBD40BD0ULL
+#define TERRAIN_GOLDEN 0x9BDBF2D228D9D3BFULL
 static void test_terrain_golden(void) {
     static uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
     uint64_t h = 0xCBF29CE484222325ULL;
@@ -293,6 +294,32 @@ static void test_terrain_golden(void) {
             }
     printf("  terrain golden (props): 0x%016llX\n", (unsigned long long)h);
     CHECK(h == TERRAIN_GOLDEN, "terrain: prop golden fingerprint unchanged");
+}
+
+/* RULE: a spanning prop is ONE thing — a 2x2 menhir block draws exactly one
+ * billboard, from every facing, and grows past the 32 px one-tile cap
+ * when close (it is two tiles tall). */
+static void test_menhir_is_one_stone(void) {
+    World w;
+    flat_chunk(&w, BIOME_OUTDOOR);
+    w.tiles[2][7] = w.tiles[2][8] = w.tiles[3][7] = w.tiles[3][8] = 'H';
+    /* Player positions with the block ahead: east, west, north, south. */
+    static const int VIEW[4][3] = {{4, 2, 1}, {11, 3, 3}, {7, 5, 0}, {8, 0, 2}};
+    int bad = 0;
+    Canvas c;
+    for(int i = 0; i < 4; i++) {
+        canvas_clear(&c);
+        fpv_test_masked_billboards = 0;
+        render_fpv_world(&c, &w, VIEW[i][0], VIEW[i][1], (uint8_t)VIEW[i][2], NULL, 0);
+        if(fpv_test_masked_billboards != 1) bad++;
+    }
+    CHECK(bad == 0, "terrain: a 2x2 menhir draws as one billboard from every facing");
+    canvas_clear(&c);
+    render_fpv_world(&c, &w, 5, 2, 1, NULL, 0);   /* centre 2.5 tiles ahead */
+    CHECK(fpv_test_last_figure_size > 24, "terrain: a near menhir is drawn two tiles tall");
+    canvas_clear(&c);
+    render_fpv_world(&c, &w, 6, 2, 1, NULL, 0);   /* centre 1.5 tiles ahead */
+    CHECK(fpv_test_last_figure_size > 32, "terrain: a spanning prop scales past the one-tile cap");
 }
 
 /* OPAQUE PROPS (rule 8): a prop in front of a wall hides it. */
@@ -320,7 +347,7 @@ static void test_props_are_opaque(void) {
             int leaked = 1;
             for(int v = 0; v < TERRAIN_VARIANTS && leaked; v++) {
                 terrain_compose_prop(PROPS[i], (uint8_t)v, box, ink, mask);
-                int stride = (box + 7) / 8, bad = 0, drawn = size > 32 ? 32 : size;
+                int stride = (box + 7) / 8, bad = 0, drawn = size;   /* recorded post-clamp */
                 for(int yy = 0; yy < drawn && !bad; yy++)
                     for(int xx = 0; xx < drawn; xx++) {
                         int px = x0 + xx, py = y0 + yy;
@@ -348,6 +375,7 @@ int main(void) {
     test_props_do_not_stop_rays();
     test_prop_identity();
     test_terrain_golden();
+    test_menhir_is_one_stone();
     test_props_are_opaque();
     printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

@@ -47,6 +47,11 @@ shots:
 	./$(SHOT_BIN) field 0 test/shots/field_0.pbm
 	./$(SHOT_BIN) field 1 test/shots/field_1.pbm
 	python3 test/pbm2png.py test/shots/fields.png --cols 1 test/shots/field_*.pbm
+	@set -e; for v in 7:2:1 6:2:1 4:2:1 9:5:0 8:0:2 4:0:1 3:5:1 12:3:3; do \
+	  set -- $$(echo $$v | tr ':' ' '); \
+	  ./$(SHOT_BIN) span H $$1 $$2 $$3 test/shots/span_$$1_$$2_$$3.pbm; \
+	done
+	python3 test/pbm2png.py test/shots/spans.png --cols 2 test/shots/span_*.pbm
 	@for f in 0 1 2 3 4; do \
 	  ./$(SHOT_BIN) lineup $$f test/shots/lineup_$$f.pbm || exit 1; \
 	  python3 test/pbm2png.py test/shots/lineup_$$f.png --scale 3 --cols 1 test/shots/lineup_$$f.pbm; \

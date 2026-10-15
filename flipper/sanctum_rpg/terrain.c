@@ -22,25 +22,30 @@
 #define BOULDER_TERM       10   /* boulder: shadow below this column depth */
 #define SCRUB_TERM          5   /* scrub: leaf shadow below this depth */
 #define PROP_LOD_SMALL_PX  16   /* below this: solid silhouette, no accents */
+/* Menhir: drawn in a 2x2-tile box, so 16 design units = one tile. */
+#define MENHIR_TOP          4   /* crown row: ~1.75 tiles tall, over the walls */
+#define MENHIR_HALF_W       4   /* half-width at the crown */
+#define MENHIR_FOOT_FLARE   5   /* extra half-width gained down to the foot */
+#define MENHIR_CRACK_Y     11   /* first crack row */
 
 /* ── plans ─────────────────────────────────────────────────────────── */
 enum { PLAN_NONE = 0, PLAN_STANDING, PLAN_CAIRN, PLAN_BOULDER, PLAN_DEADFALL,
-       PLAN_SCRUB, PLAN_GLOWCAP, PLAN_MOSS = TERRAIN_PLAN_MOSS, PLAN_SCREE = TERRAIN_PLAN_SCREE };
+       PLAN_SCRUB, PLAN_GLOWCAP, PLAN_MENHIR, PLAN_MOSS = TERRAIN_PLAN_MOSS, PLAN_SCREE = TERRAIN_PLAN_SCREE };
 
 static const TerrainDef TERRAIN[] = {
-    /* glyph       form      material     plan */
-    {TILE_WALL,   TF_SLAB,  TM_STONE,    PLAN_NONE},
-    {TILE_SECRET, TF_SLAB,  TM_STONE,    PLAN_NONE},   /* a secret looks like wall */
-    {'O',         TF_SLAB,  TM_COLUMN,   PLAN_NONE},   /* mega column */
-    {'H',         TF_SLAB,  TM_MONOLITH, PLAN_NONE},   /* menhir */
-    {'I',         TF_PROP,  0,           PLAN_STANDING},
-    {'Q',         TF_PROP,  0,           PLAN_CAIRN},
-    {TILE_ROCK,   TF_PROP,  0,           PLAN_BOULDER},
-    {'~',         TF_PROP,  0,           PLAN_DEADFALL},
-    {';',         TF_PROP,  0,           PLAN_SCRUB},
-    {'q',         TF_PROP,  0,           PLAN_GLOWCAP},
-    {',',         TF_FLOOR, 0,           PLAN_MOSS},
-    {':',         TF_FLOOR, 0,           PLAN_SCREE},
+    /* glyph       form      material     plan           span */
+    {TILE_WALL,   TF_SLAB,  TM_STONE,    PLAN_NONE,     1},
+    {TILE_SECRET, TF_SLAB,  TM_STONE,    PLAN_NONE,     1},   /* a secret looks like wall */
+    {'O',         TF_SLAB,  TM_COLUMN,   PLAN_NONE,     1},   /* mega column */
+    {'H',         TF_PROP,  0,           PLAN_MENHIR,   2},   /* menhir: one stone on a 2x2 */
+    {'I',         TF_PROP,  0,           PLAN_STANDING, 1},
+    {'Q',         TF_PROP,  0,           PLAN_CAIRN,    1},
+    {TILE_ROCK,   TF_PROP,  0,           PLAN_BOULDER,  1},
+    {'~',         TF_PROP,  0,           PLAN_DEADFALL, 1},
+    {';',         TF_PROP,  0,           PLAN_SCRUB,    1},
+    {'q',         TF_PROP,  0,           PLAN_GLOWCAP,  1},
+    {',',         TF_FLOOR, 0,           PLAN_MOSS,     1},
+    {':',         TF_FLOOR, 0,           PLAN_SCREE,    1},
 };
 
 const TerrainDef* terrain_def(char glyph) {
@@ -100,6 +105,16 @@ static void shape(int plan, Plane* m, int size, uint8_t var) {
         ell(m, size, 16 + lean, 7, 4, 3, 1);                  /* rounded crown */
         break;
     }
+    case PLAN_MENHIR: {     /* one great stone: broad, flat-shouldered, leaning */
+        int lean = stone_lean(var);
+        for(int y = MENHIR_TOP; y <= 31; y++) {
+            int hw = MENHIR_HALF_W + (MENHIR_FOOT_FLARE * (y - MENHIR_TOP)) / (31 - MENHIR_TOP);
+            int cx = 16 + (lean * (31 - y)) / (31 - MENHIR_TOP);
+            for(int x = S(cx - hw, size); x <= S(cx + hw, size); x++) pset(m, x, S(y, size), 1);
+        }
+        ell(m, size, 16 + lean + (var & 2 ? 1 : -1), MENHIR_TOP + 1, MENHIR_HALF_W, 3, 1);  /* weathered, off-centre crown */
+        break;
+    }
     case PLAN_CAIRN:
         for(int k = 0; k < CAIRN_STONES; k++)
             ell(m, size, CAIRN[k][0] + ((k & 1) ? (var & 1) * 2 - 1 : 0), CAIRN[k][1],
@@ -133,6 +148,7 @@ static bool shade(int plan, const Plane* m, int x, int y, int size, uint8_t var)
     int v = column_v(m, x, y);
     switch(plan) {
     case PLAN_STANDING:                  /* lit face left, shadow face right */
+    case PLAN_MENHIR:
         return x > S(16 + stone_lean(var), size);
     case PLAN_CAIRN: {                   /* each stone: clear top, dark under-crescent */
         int lift = R(1, size);
@@ -161,6 +177,15 @@ static void detail(int plan, Plane* ink, Plane* m, int size, uint8_t var) {
         int lean = stone_lean(var), y = STONE_CRACK_Y + (var & 3) * 3;
         int cx = 16 + (lean * (31 - y)) / 25;
         seg(ink, size, cx - 3, y, cx, y + 1, 1);
+        break;
+    }
+    case PLAN_MENHIR: {                  /* two cracks across the lit face */
+        int lean = stone_lean(var);
+        for(int k = 0; k < 2; k++) {
+            int y = MENHIR_CRACK_Y + (var & 1) * 2 + k * 8;
+            int cx = 16 + (lean * (31 - y)) / (31 - MENHIR_TOP);
+            seg(ink, size, cx - 5 + k, y, cx, y + 1 + k, 1);
+        }
         break;
     }
     case PLAN_BOULDER:                   /* a split down the face */

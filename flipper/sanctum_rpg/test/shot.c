@@ -17,6 +17,8 @@
  *     side, a wall/edge at the far end — every terrain form seen in place.
  *
  *   test/shot field <biome 0|1> <out.pbm>
+ *   test/shot span <glyph> <x> <y> <facing> <out.pbm>
+ *     a 2x2 block of a spanning prop at x 8..9, y 2..3, from (x, y)
  *     a synthetic chunk with every feature of that biome scattered in view.
  *
  * facing `a` = auto: the facing with the longest open run from spawn, so a
@@ -156,6 +158,18 @@ static int terrain_shot(int biome, char glyph, int dist, const char* path) {
     return write_pbm(&cv, path);
 }
 
+/* A 2x2 block of a spanning prop (menhir) at x 8..9, y 2..3, seen from
+ * (px, py) facing f — so a test can look at it head-on, side-on, oblique. */
+static int span_shot(char glyph, int px, int py, int f, const char* path) {
+    World w;
+    bare_chunk(&w, BIOME_OUTDOOR);
+    w.tiles[2][8] = w.tiles[2][9] = w.tiles[3][8] = w.tiles[3][9] = glyph;
+    Canvas cv;
+    canvas_clear(&cv);
+    render_fpv_world(&cv, &w, px, py, (uint8_t)f, NULL, 0);
+    return write_pbm(&cv, path);
+}
+
 static int field_shot(int biome, const char* path) {
     /* Full 16x6 layouts; the player stands at (1, 3) facing east. Features
      * sit inside the 60-degree view: side +-1 from 2 tiles out, +-2 from 4. */
@@ -188,6 +202,8 @@ static int field_shot(int biome, const char* path) {
 int main(int argc, char** argv) {
     if(argc == 6 && strcmp(argv[1], "terrain") == 0)
         return terrain_shot(atoi(argv[2]), argv[3][0], atoi(argv[4]), argv[5]);
+    if(argc == 7 && strcmp(argv[1], "span") == 0)
+        return span_shot(argv[2][0], atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), argv[6]);
     if(argc == 4 && strcmp(argv[1], "field") == 0) return field_shot(atoi(argv[2]), argv[3]);
     if(argc == 8 && strcmp(argv[1], "scene") == 0)
         return creature_scene((uint32_t)strtoul(argv[2], NULL, 16), atoi(argv[3]), atoi(argv[4]),

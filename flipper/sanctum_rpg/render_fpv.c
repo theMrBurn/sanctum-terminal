@@ -71,6 +71,7 @@ int fpv_test_wall_top[FPV_VIEW_W];
 int fpv_test_wall_bot[FPV_VIEW_W];
 int fpv_test_underpaint = 0;
 int fpv_test_last_figure_x0, fpv_test_last_figure_y0, fpv_test_last_figure_size = 0;
+int fpv_test_masked_billboards = 0;   /* composed billboards drawn (count) */
 #endif
 
 /* ─── Facing helpers (exported) ────────────────────────────────── */
@@ -473,11 +474,11 @@ const uint8_t* fpv_sprite_for_creature_glyph(char glyph) {
  * OPAQUE: with a `mask`, mask && !ink is written as background, so walls
  * can't show through a body; without one (legacy tile sprites) each row is
  * solid between its outermost inked pixels. `src` = source side in px. */
-static void draw_billboard(
+static void draw_billboard_max(
     Canvas* canvas, const uint8_t* xbm, const uint8_t* mask, int src,
-    int cx, int floor_y, int size, int sprite_dist_fp, const int* wall_dist) {
+    int cx, int floor_y, int size, int max_size, int sprite_dist_fp, const int* wall_dist) {
     if(size < 4) return;        /* too small — reads as noise */
-    if(size > 32) size = 32;    /* sprites are at most 32x32; clip */
+    if(size > max_size) size = max_size;
 
     int x0 = cx - size / 2;
     int y0 = floor_y - size;
@@ -516,8 +517,18 @@ static void draw_billboard(
     }
 #ifdef SANCTUM_RPG_HOST_TEST
     if(mask) fpv_test_last_figure_x0 = x0, fpv_test_last_figure_y0 = y0,
-             fpv_test_last_figure_size = size;
+             fpv_test_last_figure_size = size, fpv_test_masked_billboards++;
 #endif
+}
+
+/* One-tile billboards are at most 32 px; a spanning prop scales up to
+ * its span (nearest-neighbour), so a 2x2 menhir looms when you're close. */
+#define BILLBOARD_MAX_PX 32
+static void draw_billboard(
+    Canvas* canvas, const uint8_t* xbm, const uint8_t* mask, int src,
+    int cx, int floor_y, int size, int sprite_dist_fp, const int* wall_dist) {
+    draw_billboard_max(canvas, xbm, mask, src, cx, floor_y, size, BILLBOARD_MAX_PX,
+                       sprite_dist_fp, wall_dist);
 }
 
 /* Smallest box the composer draws in; billboards below it are composed at
@@ -557,6 +568,54 @@ static int prop_planes(char glyph, uint8_t variant, int size, const uint8_t** in
     return 1;
 }
 
+/* Spanning props (TerrainDef.span > 1): a block of the same glyph is ONE
+ * thing. Found from the tiles actually present (a clipped block still
+ * works), drawn once per frame — the first time ANY of its tiles is
+ * visited, so it can't pop when the anchor leaves the cone — at the
+ * block's centre, projected with fractional depth. Returns false if the
+ * block was already drawn this frame. */
+#define SPAN_GROUPS_PER_FRAME 8
+typedef struct { uint8_t x, y; } SpanAnchor;
+
+static void span_extent(const World* world, char g, int tx, int ty, int span,
+                        int* ax, int* ay, int* w, int* h) {
+    int x = tx, y = ty;
+    for(int k = 1; k < span && x > 0 && world->tiles[ty][x - 1] == g; k++) x--;
+    for(int k = 1; k < span && y > 0 && world->tiles[y - 1][tx] == g; k++) y--;
+    int ww = 1, hh = 1;
+    while(ww < span && x + ww < WORLD_COLS && world->tiles[y][x + ww] == g) ww++;
+    while(hh < span && y + hh < WORLD_ROWS && world->tiles[y + hh][x] == g) hh++;
+    *ax = x; *ay = y; *w = ww; *h = hh;
+}
+
+static void draw_span_prop(
+    Canvas* canvas, const World* world, const TerrainDef* td, int tx, int ty,
+    int player_x, int player_y, int fdx, int fdy, int rdx, int rdy,
+    SpanAnchor* done, int* n_done, const int* wall_dist) {
+    int ax, ay, w, h;
+    span_extent(world, td->glyph, tx, ty, td->span, &ax, &ay, &w, &h);
+    for(int i = 0; i < *n_done; i++)
+        if(done[i].x == ax && done[i].y == ay) return;
+    if(*n_done < SPAN_GROUPS_PER_FRAME) done[(*n_done)++] = (SpanAnchor){(uint8_t)ax, (uint8_t)ay};
+
+    /* Block centre relative to the player, 8.8 fp tiles. */
+    int rx = (ax - player_x) * FP_ONE + (w - 1) * FP_ONE / 2;
+    int ry = (ay - player_y) * FP_ONE + (h - 1) * FP_ONE / 2;
+    int fwd_fp = rx * fdx + ry * fdy;
+    int side_fp = rx * rdx + ry * rdy;
+    if(fwd_fp < FP_ONE / 2) return;   /* centre at or behind the eye */
+
+    int floor_y = FPV_HORIZON_Y + (WALL_HEIGHT_SCALE / 2) / fwd_fp;
+    int size = (WALL_HEIGHT_SCALE * td->span) / fwd_fp;
+    int center_col = FPV_VIEW_W / 2 + (side_fp * (FPV_VIEW_W / 2) * FP_ONE) / (fwd_fp * PLANE_SCALE);
+    int box = size > PIXKIT_MAX_PX ? PIXKIT_MAX_PX : size;
+    if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
+    const uint8_t *pi, *pm;
+    if(prop_planes(td->glyph, (uint8_t)(tile_hash(ax, ay) >> 8), box, &pi, &pm))
+        draw_billboard_max(canvas, pi, pm, box, center_col, floor_y, size,
+                           BILLBOARD_MAX_PX * td->span, fwd_fp, wall_dist);
+}
+
 static void render_sprite_pass(
     Canvas* canvas, const World* world,
     int player_x, int player_y, uint8_t facing,
@@ -566,6 +625,8 @@ static void render_sprite_pass(
     int fdy = fpv_facing_dy(facing);
     int rdx = -fdy;
     int rdy = fdx;
+    SpanAnchor span_done[SPAN_GROUPS_PER_FRAME];
+    int span_n = 0;
 
     /* Far-to-near so closer sprites overdraw farther ones. */
     for(int fwd = FPV_SPRITE_RANGE; fwd >= 1; fwd--) {
@@ -611,6 +672,11 @@ static void render_sprite_pass(
             }
             /* Terrain props: composed from data (terrain.h), opaque. */
             const TerrainDef* td = terrain_def(tile);
+            if(td && td->form == TF_PROP && td->span > 1) {
+                draw_span_prop(canvas, world, td, tx, ty, player_x, player_y, fdx, fdy,
+                               rdx, rdy, span_done, &span_n, wall_dist);
+                continue;
+            }
             if(td && td->form == TF_PROP) {
                 int box = sprite_size > PIXKIT_MAX_PX ? PIXKIT_MAX_PX : sprite_size;
                 if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
