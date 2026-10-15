@@ -14,10 +14,10 @@
 
 const PrimitiveDef PRIMITIVES[PRIM_COUNT_TOTAL] = {
     /* id      glyph walk sight-block */
-    {PRIM_ST,  '#',  0,   1},
-    {PRIM_C,   '#',  0,   1},
+    {PRIM_ST,  'A',  0,   1},   /* WORLDGEN 3: own glyphs (were all '#') */
+    {PRIM_C,   '|',  0,   1},
     {PRIM_MC,  'O',  0,   1},
-    {PRIM_LST, '#',  0,   1},
+    {PRIM_LST, 'M',  0,   1},
     {PRIM_MW,  ',',  1,   0},
     {PRIM_GC,  'q',  1,   0},
     {PRIM_SS,  'I',  0,   1},

@@ -23,12 +23,12 @@ _Static_assert(STYLE_CRYPT == STAMP_STYLE_CRYPT && STYLE_MINE == STAMP_STYLE_MIN
 #define STYLE_W_FOREST 1
 
 const StyleDef STYLE_TABLE[STYLE_COUNT] = {
-    /*               name      biome          terrain         family           wall       weight */
-    [STYLE_CAVERN] = {"cavern", BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_CAVERNS,  TM_STONE,  STYLE_W_CAVERN},
-    [STYLE_MOOR]   = {"moor",   BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_MOOR,     TM_STONE,  STYLE_W_MOOR},
-    [STYLE_CRYPT]  = {"crypt",  BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_DUNGEONS, TM_BRICK,  STYLE_W_CRYPT},
-    [STYLE_MINE]   = {"mine",   BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_MINES,    TM_TIMBER, STYLE_W_MINE},
-    [STYLE_FOREST] = {"forest", BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_FOREST,   TM_STONE,  STYLE_W_FOREST},
+    /*               name      biome          terrain         family           wall       wall name      weight */
+    [STYLE_CAVERN] = {"cavern", BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_CAVERNS,  TM_STONE,  "rock wall",   STYLE_W_CAVERN},
+    [STYLE_MOOR]   = {"moor",   BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_MOOR,     TM_STONE,  "rock wall",   STYLE_W_MOOR},
+    [STYLE_CRYPT]  = {"crypt",  BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_DUNGEONS, TM_BRICK,  "brick wall",  STYLE_W_CRYPT},
+    [STYLE_MINE]   = {"mine",   BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_MINES,    TM_TIMBER, "shored rock", STYLE_W_MINE},
+    [STYLE_FOREST] = {"forest", BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_FOREST,   TM_STONE,  "rock wall",   STYLE_W_FOREST},
 };
 
 /* Distinct salt so a region's style doesn't correlate with its biome. */

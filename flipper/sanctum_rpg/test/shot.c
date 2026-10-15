@@ -187,10 +187,10 @@ static int field_shot(int biome, const char* path) {
      * sit inside the 60-degree view: side +-1 from 2 tiles out, +-2 from 4. */
     static const char* FIELD[2][WORLD_ROWS] = {
         {"................",                 /* cavern (rim becomes wall) */
-         "......OO....q...",
+         "......OO....q.A.",
          "...,,.OO..q.....",
-         ".....q..........",
-         "..,,,....,,,....",
+         ".....q.....A....",
+         "..,,,..|.,,,MM..",
          "................"},
         {"........HH......",                 /* outdoor */
          "....I...HH..Q...",

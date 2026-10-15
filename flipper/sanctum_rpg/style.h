@@ -47,6 +47,7 @@ typedef struct {
     TerrainMode terrain;  /* enclosed (walled, doors) / open */
     uint8_t family;       /* StyleFamily */
     uint8_t wall_material;/* SlabMaterial for TILE_WALL in this style */
+    const char* wall_name;/* what a wall here is called when examined */
     uint8_t weight;       /* pick weight among its biome's styles */
 } StyleDef;
 

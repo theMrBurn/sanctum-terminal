@@ -245,7 +245,7 @@ static void test_chunk_invariants(void) {
 /* The generator version these fingerprints were recorded under. Re-record
  * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
  * this to match — the check below fails if the two drift apart. */
-#define GOLDEN_WORLDGEN_VERSION 2
+#define GOLDEN_WORLDGEN_VERSION 3
 
 static void test_chunk_golden(void) {
     CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
@@ -266,9 +266,12 @@ static void test_chunk_golden(void) {
          * style (crypt / old mine / forest join cavern / moor), and the style
          * is hashed into the fingerprint. The last three cases were chosen
          * to land IN the new styles, so the goldens cover what changed.
-         * Prior (v1): 0x9A4F21E6 0x01821F0D 0xB00E3D15 0xB39F63AE. */
-        {0xCAFEBABE, 0, 0, 0xD0925D12},
-        {0xCAFEBABE, 1, 0, 0x6CD6E177},
+         * Prior (v1): 0x9A4F21E6 0x01821F0D 0xB00E3D15 0xB39F63AE.
+         * WORLDGEN 3 (same day): the cavern's stalagmite / column / divider
+         * get their own glyphs ('A' '|' 'M', were all '#'). Only the two
+         * cavern-style cases move (v2: 0xD0925D12 0x6CD6E177). */
+        {0xCAFEBABE, 0, 0, 0x65B1E3F9},
+        {0xCAFEBABE, 1, 0, 0xA52B45BB},
         {0xDEADBEEF, 0, 0, 0x3A6A267C},
         {0x00000001, -3, 5, 0x72E9EC7D},
         {0x12345678, 4, -2, 0x076874FA},   /* crypt */

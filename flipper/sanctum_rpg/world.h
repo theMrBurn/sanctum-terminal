@@ -73,7 +73,7 @@ typedef struct {
 
 /* World-generator version (spec 43 §14.0). Any change that moves a chunk
  * golden MUST bump this, and the golden test pins fingerprints to it. */
-#define WORLDGEN_VERSION 2   /* 2: regions have styles (2026-10-14) */
+#define WORLDGEN_VERSION 3   /* 2: regions have styles; 3: cavern blockers get own glyphs (2026-10-14) */
 
 /* May a saved tile mutation (deltas) land on this freshly generated tile?
  * Only floor and loot tiles take one. After a WORLDGEN_VERSION bump a saved

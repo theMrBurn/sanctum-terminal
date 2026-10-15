@@ -48,6 +48,8 @@ typedef struct {
     uint8_t span;       /* PROP footprint, tiles per side: 1 = one tile; 2 = a
                          * 2x2 block of the glyph drawn as ONE billboard at
                          * the block's centre */
+    const char* name;   /* what the player examines ("sarcophagus"); NULL for
+                         * TM_STYLE_WALL slabs, named by the style instead */
     uint8_t scale;      /* PROP billboard size in tiles (square, bottom-anchored):
                          * 1 = wall height; 2 = a tree or menhir that stands
                          * over the walls. Independent of the footprint. */
@@ -76,6 +78,10 @@ const TerrainDef* terrain_def(char glyph);
  * movement-blocking glyph without a def (safe default: unknown solid
  * things stay walls). PROPs and FLOORs never do. */
 bool terrain_stops_ray(char glyph);
+
+/* What a terrain glyph is called when examined, in a region of `wall_name`
+ * walls (StyleDef.wall_name). NULL if the glyph has no def. */
+const char* terrain_name(char glyph, const char* wall_name);
 
 /* Slab material for a ray-stopping glyph (TM_STONE if it has no def). May
  * return TM_STYLE_WALL, which the caller resolves from the world's style. */

@@ -33,10 +33,10 @@
  * (6..11). The composer + Pool only ever sample a biome-eligible slice.
  *
  * Glyph mapping (1-bit Flipper display):
- *   ST  '#' stelag (1×1 hard blocker)         — render = TILE_WALL
- *   C   '#' column                            — same glyph as ST; grammar distinguishes
+ *   ST  'A' stalagmite (1×1 hard blocker)     — a PROP (was '#', WORLDGEN 3)
+ *   C   '|' column                            — SLAB, fluted (was '#')
  *   MC  'O' mega column (2×2 landmark)         — new glyph
- *   LST '#' large stelag (chamber-divider)    — same glyph as ST
+ *   LST 'M' large stelag (chamber-divider)    — SLAB, raw flowstone (was '#')
  *   MW  ',' moss (walkable soft)              — new glyph
  *   GC  'q' glowcap (walkable; +fuel hook)    — reserved slot resolved 2026-06-02
  *

@@ -36,6 +36,7 @@
 #include "deeds.h"
 #include "deltas.h"
 #include "fov.h"
+#include "terrain.h"
 #include "loot.h"
 #include "narrative.h"
 #include "pool.h"
@@ -731,9 +732,10 @@ static const char* examine_name(const AppState* st, int x, int y) {
         bool known = ((st->character.identified >> k->id) & 1ull) != 0;
         return known ? k->true_name : k->unid_name;
     }
+    /* Terrain is named by its TERRAIN row; walls by the region's style. */
+    const char* tn = terrain_name(t, STYLE_TABLE[st->world.style].wall_name);
+    if(tn) return tn;
     switch(t) {
-    case TILE_WALL:        return "rock wall";
-    case TILE_ROCK:        return "boulder";
     case TILE_DOOR:        return "doorway";
     case TILE_VENDOR:      return "vendor";
     case TILE_VAULT:       return "vault";
