@@ -19,3 +19,12 @@ packages = []
 
 [project.scripts]
 sanctum = "main:main"
+
+[tool.pytest.ini_options]
+# Registered so `-m slow` / `-m integration` filter cleanly and unregistered-
+# marker warnings don't fire. The kitbash Blender backend tests carry both
+# (they shell out to the Blender binary headless).
+markers = [
+    "slow: shells out to an external binary / is not a fast unit test",
+    "integration: exercises a real external tool end-to-end (e.g. Blender)",
+]

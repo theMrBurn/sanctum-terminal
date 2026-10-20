@@ -7,6 +7,8 @@ One object. Ask it anything.
 Tables:
     archive          -- relics (real-world events, impact-rated)
     scenarios        -- scenario ledger (provenance hash = primary key)
+    assemblies       -- kitbash/greeble assembly ledger (renderer-agnostic;
+                        time-free provenance_hash, reproducible from the row)
     objects          -- catalog cache (seeded from objects.json)
     entries          -- Permanent Objects journal-planner entries (her voice, canon)
     lexicon          -- derived personal lexicon, grows monotonically
@@ -20,6 +22,7 @@ The vault is the ledger. Everything that passes through the world
 leaves a mark. The Yellow Sign is on every record.
 """
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -222,6 +225,24 @@ class vault:
                     "CREATE INDEX IF NOT EXISTS idx_runs_profile "
                     "ON runs(instance_id, profile_name)"
                 )
+                # -- Kitbash / greeble assembly ledger -------------------------
+                # Renderer-agnostic record of WHICH combination was assembled
+                # (spec_kitbash_greeble.md §1-2). One ledger serves both the
+                # wireframe and Blender backends -- it stores part ids + socket
+                # bindings, not meshes. provenance_hash is TIME-FREE so a replay
+                # of the same base/parts/signal reproduces the same row. MIGRATION:
+                # CREATE TABLE IF NOT EXISTS -- an old vault loads unchanged.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS assemblies (
+                        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                        provenance_hash  TEXT UNIQUE NOT NULL,
+                        base_id          TEXT NOT NULL,
+                        part_list        TEXT NOT NULL DEFAULT '[]',
+                        socket_bindings  TEXT NOT NULL DEFAULT '[]',
+                        signal_snapshot  TEXT NOT NULL DEFAULT '{}',
+                        created_at       TEXT NOT NULL
+                    )
+                """)
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Vault: schema init failed -- {e}")
@@ -944,3 +965,92 @@ class vault:
         if peak == float("-inf"):
             return 0.0, None
         return peak, peak_run
+
+    # -- Kitbash / greeble assembly ledger -------------------------------------
+    # Renderer-agnostic provenance for the kitbash core (spec_kitbash_greeble.md
+    # §1-2). record_assembly duck-types the AssemblyResult (base_id / bindings /
+    # signal_snapshot) so vault never imports kitbash_engine -- one ledger,
+    # both backends, no circular dependency. The provenance_hash is derived
+    # from CANONICAL json of the stored columns (time-free), so re-deriving it
+    # from a ledger row alone reproduces the same hash -- the acceptance bar.
+
+    @staticmethod
+    def _assembly_hash(
+        base_id: str,
+        part_list_json: str,
+        socket_bindings_json: str,
+        signal_snapshot_json: str,
+    ) -> str:
+        """Canonical, time-free provenance hash for an assembly. Takes the
+        already-canonicalized json strings so the SAME inputs are used to hash
+        AND to store -- reproducible from the row. sha256(...)[:16]."""
+        material = (
+            f"{base_id}:{part_list_json}:"
+            f"{socket_bindings_json}:{signal_snapshot_json}"
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def _canonical_assembly(result) -> tuple:
+        """Duck-type an AssemblyResult into the canonical json strings the
+        ledger stores + hashes. Returns
+        (base_id, part_list_json, socket_bindings_json, signal_snapshot_json).
+        `bindings` is any iterable of (socket_name, part_id)."""
+        bindings = [list(b) for b in (result.bindings or [])]
+        bindings.sort(key=lambda b: (str(b[0]), str(b[1])))
+        part_ids = sorted(str(b[1]) for b in bindings)
+        part_list_json       = json.dumps(part_ids)
+        socket_bindings_json = json.dumps(bindings)
+        signal_snapshot_json = json.dumps(result.signal_snapshot or {}, sort_keys=True)
+        return (result.base_id, part_list_json, socket_bindings_json, signal_snapshot_json)
+
+    def record_assembly(self, result) -> str:
+        """
+        Record an AssemblyResult in the assembly ledger. INSERT OR IGNORE keyed
+        on the UNIQUE provenance_hash -- a replay of the same base/parts/signal
+        silently no-ops. Returns the provenance_hash (whether newly inserted or
+        already present). `result` is duck-typed (base_id / bindings /
+        signal_snapshot); vault does not import the engine.
+        """
+        from datetime import datetime, timezone
+        base_id, part_list_json, socket_bindings_json, signal_snapshot_json = (
+            self._canonical_assembly(result)
+        )
+        provenance_hash = self._assembly_hash(
+            base_id, part_list_json, socket_bindings_json, signal_snapshot_json
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO assemblies "
+                "(provenance_hash, base_id, part_list, socket_bindings, "
+                " signal_snapshot, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    provenance_hash,
+                    base_id,
+                    part_list_json,
+                    socket_bindings_json,
+                    signal_snapshot_json,
+                    now,
+                ),
+            )
+            conn.commit()
+        return provenance_hash
+
+    def assembly_by_hash(self, provenance_hash: str) -> dict | None:
+        """Return an assembly ledger row (or None). part_list / socket_bindings
+        / signal_snapshot are deserialized from json for caller convenience."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM assemblies WHERE provenance_hash = ?",
+                (provenance_hash,),
+            ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        d["part_list"]       = json.loads(d.get("part_list")       or "[]")
+        d["socket_bindings"] = json.loads(d.get("socket_bindings") or "[]")
+        d["signal_snapshot"] = json.loads(d.get("signal_snapshot") or "{}")
+        return d
