@@ -76,3 +76,8 @@ sessions/
 # Tests use SANCTUM_SAVE_PATH to redirect to tmp_path so they don't pollute
 # the real save. Brain regenerates a fresh PlayerState on missing file.
 save/
+
+# Nested independent repo (Sanctum Voice) and local agent state
+sanctum_voice/
+.claude/agent-memory/
+.claude/*.bak
