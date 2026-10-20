@@ -823,6 +823,14 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
             } else {
                 continue; /* unseen → dark */
             }
+            /* A terrain row or item kind may carry its own top-down form
+             * (map_icon) where the glyph alone would mislead or spill. */
+            const uint8_t* icon = terrain_map_icon(glyph);
+            if(!icon) icon = loot_map_icon(glyph);
+            if(icon) {
+                canvas_draw_xbm(canvas, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX, icon);
+                continue;
+            }
             char buf[2] = {glyph, '\0'};
             canvas_draw_str(canvas, x * TILE_PX, y * TILE_PX + WORLD_TILE_BASELINE_Y_OFFSET, buf);
         }

@@ -60,6 +60,10 @@ typedef struct {
                          * -1 ("loose footing"), glowcap +2 (harvested) */
     uint8_t step_flags; /* TSF_* */
     const char* step_msg; /* status line on stepping onto it, or NULL */
+    const uint8_t* map_icon; /* top-down form: an 8x8 XBM drawn in the tile's
+                              * cell in place of the glyph, where the glyph
+                              * alone reads as an item; NULL = draw the glyph.
+                              * Display only: the world keeps the glyph. */
 } TerrainDef;
 
 #define TSF_CONSUMED 0x01u  /* stepping onto it harvests it: tile -> floor (a delta) */
@@ -105,6 +109,10 @@ bool terrain_stops_ray(char glyph);
 /* What a terrain glyph is called when examined, in a region of `wall_name`
  * walls (StyleDef.wall_name). NULL if the glyph has no def. */
 const char* terrain_name(char glyph, const char* wall_name);
+
+/* The top-down form of a tile: an 8x8 XBM (one byte per row, LSB = left
+ * column) to draw at the cell's top-left, or NULL to draw the glyph. */
+const uint8_t* terrain_map_icon(char glyph);
 
 /* Slab material for a ray-stopping glyph (TM_STONE if it has no def). May
  * return TM_STYLE_WALL, which the caller resolves from the world's style. */

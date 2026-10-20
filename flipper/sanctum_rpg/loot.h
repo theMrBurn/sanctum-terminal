@@ -62,6 +62,10 @@ typedef struct {
     int8_t      atk_bonus;   /* slice 5 — flat ATK delta when equipped (weapon) */
     int8_t      def_bonus;   /* slice 5 — flat DEF delta when equipped (armor) */
     int8_t      light_bonus; /* slice 5 — FOV radius delta when equipped (light) */
+    const uint8_t* map_icon; /* top-down form: an 8x8 XBM drawn in the tile's
+                              * cell in place of the glyph, where the glyph
+                              * doesn't fit the cell; NULL = draw the glyph.
+                              * Display only (see TerrainDef.map_icon). */
 } KindDef;
 
 /* The catalog. Indexed by id (id == array index). */
@@ -74,6 +78,9 @@ const KindDef* kind_by_glyph(char glyph);
 
 /* Is this tile glyph a pickupable item? (Fast path for world_try_move.) */
 int loot_is_item_glyph(char glyph);
+
+/* The top-down form of an item glyph (KindDef.map_icon), or NULL. */
+const uint8_t* loot_map_icon(char glyph);
 
 /* Weighted pick of a loot kind id for a biome. Deterministic for a given
  * rng state. Only KF_PICKUPABLE kinds with weight>0 whose biome affinity

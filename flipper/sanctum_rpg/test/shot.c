@@ -27,6 +27,11 @@
  *   test/shot wall <style> <dist> <out.pbm>
  *     that style's walls up close, with a corner.
  *
+ *   test/shot map <seed-hex> <chunk_x> <chunk_y> <out.pbm>
+ *     the top-down world screen for that chunk, every tile lit: glyphs in
+ *     the device's FontSecondary (test/font_secondary.h), terrain_map_icon
+ *     forms where a row has one, and the separator above the status strip.
+ *
  *   test/shot terrainset <outdir>
  *     every TERRAIN row at 1, 2 and 4 tiles: <outdir>/terrain_<hex>_<d>.pbm.
  *
@@ -42,6 +47,7 @@
 #include "../biome.h"
 #include "../creatures.h"
 #include "../figure.h"
+#include "../loot.h"
 #include "../pool.h"
 #include "../rng.h"
 #include "../stamps.h"
@@ -49,6 +55,7 @@
 #include "../terrain.h"
 #include "../render_fpv.h"
 #include "../world.h"
+#include "font_secondary.h"
 
 static int write_pbm(const Canvas* c, const char* path) {
     FILE* f = fopen(path, "w");
@@ -310,8 +317,36 @@ static int terrainset(const char* dir) {
     return 0;
 }
 
+/* Mirrors draw_world_screen's tile loop (sanctum_rpg.c): one 8px cell per
+ * tile, the glyph at baseline row 7, or the tile's top-down form. */
+#define MAP_TILE_PX 8
+#define MAP_VIEW_H  (WORLD_ROWS * MAP_TILE_PX)
+static void map_draw_tile(Canvas* c, int x, int y, char g) {
+    const uint8_t* icon = terrain_map_icon(g);
+    if(!icon) icon = loot_map_icon(g);
+    if(icon) {
+        canvas_draw_xbm(c, x * MAP_TILE_PX, y * MAP_TILE_PX, MAP_TILE_PX, MAP_TILE_PX, icon);
+        return;
+    }
+    if(g < 32 || g > 126) return;
+    canvas_draw_xbm(c, x * MAP_TILE_PX, y * MAP_TILE_PX, MAP_TILE_PX, FONT2_ROWS, FONT2_CELL[g - 32]);
+}
+
+static int map_shot(uint32_t seed, int cx, int cy, const char* path) {
+    static World w;
+    world_generate_chunk(seed, cx, cy, &w);
+    Canvas c;
+    canvas_clear(&c);
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) map_draw_tile(&c, x, y, w.tiles[y][x]);
+    canvas_draw_line(&c, 0, MAP_VIEW_H, SHIM_W - 1, MAP_VIEW_H);
+    return write_pbm(&c, path);
+}
+
 int main(int argc, char** argv) {
     if(argc == 4 && strcmp(argv[1], "stylefield") == 0) return stylefield_shot(atoi(argv[2]), argv[3]);
+    if(argc == 6 && strcmp(argv[1], "map") == 0)
+        return map_shot((uint32_t)strtoul(argv[2], NULL, 16), atoi(argv[3]), atoi(argv[4]), argv[5]);
     if(argc == 3 && strcmp(argv[1], "terrainset") == 0) return terrainset(argv[2]);
     if(argc == 5 && strcmp(argv[1], "wall") == 0) return wall_shot(atoi(argv[2]), atoi(argv[3]), argv[4]);
     if(argc == 6 && strcmp(argv[1], "terrain") == 0)

@@ -57,6 +57,11 @@ shots:
 	  ./$(SHOT_BIN) span H $$1 $$2 $$3 test/shots/span_$$1_$$2_$$3.pbm; \
 	done
 	python3 test/pbm2png.py test/shots/spans.png --cols 2 test/shots/span_*.pbm
+	@set -e; rm -f test/shots/map_*.pbm; for s in CAFEBABE:0:0 DEADBEEF:0:0 12345678:4:-2 12345678:1:-5 12345678:4:1 12345678:7:-5 12345678:7:-8 00000001:-3:5 12345678:5:-1 CAFEBABE:-7:-5; do \
+	  set -- $$(echo $$s | tr ':' ' '); \
+	  ./$(SHOT_BIN) map $$1 $$2 $$3 test/shots/map_$$1_$$2_$$3.pbm; \
+	done
+	python3 test/pbm2png.py test/shots/map.png --cols 2 test/shots/map_*.pbm
 	@for f in 0 1 2 3 4; do \
 	  ./$(SHOT_BIN) lineup $$f test/shots/lineup_$$f.pbm || exit 1; \
 	  python3 test/pbm2png.py test/shots/lineup_$$f.png --scale 3 --cols 1 test/shots/lineup_$$f.pbm; \

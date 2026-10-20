@@ -32,15 +32,19 @@
  * in player_atk to a data row here — future weapons (sword, club, gauntlet)
  * differentiate via the catalog without touching combat code. Armor and
  * lantern items will land later; their columns are zero today. */
+/* Top-down forms (KindDef.map_icon): 8x8 XBM, row 0 first, LSB = left.
+ * Rows 1..7 only, so an item never touches the tile above or below. */
+static const uint8_t MAP_TOOL[8] = {0x00, 0x04, 0x0E, 0x0E, 0x0E, 0x04, 0x04, 0x04}; /* a head on a haft */
+
 const KindDef KIND_CATALOG[] = {
-    /* id glyph true_name        unid_name             class           wt  val  flags                                          biomes  fuel heal effect       slot       atk def lt */
-    {0, '*', "crystal shard", "a glinting sliver",  KC_CRYSTALLINE, 38,  5, KF_PICKUPABLE,                                 B_CAVE,  0, 0, ""       ,    EQ_NONE,   0,  0,  0},
-    {1, '&', "fungus cap",    "a fleshy growth",    KC_ORGANIC,     28,  3, KF_PICKUPABLE | KF_CONSUMABLE,                 B_OUT,   0, 3, "+3 HP",     EQ_NONE,   0,  0,  0},
-    {2, 'u', "clay pot",      "a clay vessel",      KC_LIFE,        24,  2, KF_PICKUPABLE,                                 B_BOTH,  0, 0, ""       ,    EQ_NONE,   0,  0,  0},
-    {3, '!', "vial",          "a stoppered vial",   KC_ENCOUNTER,   14,  8, KF_PICKUPABLE | KF_CONSUMABLE,                 B_BOTH,  0, 8, "+8 HP",     EQ_NONE,   0,  0,  0},
-    {4, '(', "tool",          "a worn implement",   KC_ENCOUNTER,   11, 12, KF_PICKUPABLE | KF_EQUIP,                      B_BOTH,  0, 0, "+2 atk",    EQ_WEAPON, 2,  0,  0},
-    {5, 'i', "torch",         "an unlit brand",     KC_ENCOUNTER,   15,  2, KF_PICKUPABLE,                                 B_BOTH, 50, 0, "+50 fuel",  EQ_NONE,   0,  0,  0},
-    {6, 'T', "chest",         "a banded coffer",    KC_LIFE,         8, 30, KF_PICKUPABLE,                                 B_BOTH,  0, 0, ""       ,    EQ_NONE,   0,  0,  0},
+    /* id glyph true_name        unid_name             class           wt  val  flags                                          biomes  fuel heal effect       slot       atk def lt  map form */
+    {0, '*', "crystal shard", "a glinting sliver",  KC_CRYSTALLINE, 38,  5, KF_PICKUPABLE,                                 B_CAVE,  0, 0, ""       ,    EQ_NONE,   0,  0,  0, NULL},
+    {1, '&', "fungus cap",    "a fleshy growth",    KC_ORGANIC,     28,  3, KF_PICKUPABLE | KF_CONSUMABLE,                 B_OUT,   0, 3, "+3 HP",     EQ_NONE,   0,  0,  0, NULL},
+    {2, 'u', "clay pot",      "a clay vessel",      KC_LIFE,        24,  2, KF_PICKUPABLE,                                 B_BOTH,  0, 0, ""       ,    EQ_NONE,   0,  0,  0, NULL},
+    {3, '!', "vial",          "a stoppered vial",   KC_ENCOUNTER,   14,  8, KF_PICKUPABLE | KF_CONSUMABLE,                 B_BOTH,  0, 8, "+8 HP",     EQ_NONE,   0,  0,  0, NULL},
+    {4, '(', "tool",          "a worn implement",   KC_ENCOUNTER,   11, 12, KF_PICKUPABLE | KF_EQUIP,                      B_BOTH,  0, 0, "+2 atk",    EQ_WEAPON, 2,  0,  0, MAP_TOOL},   /* '(' fills its cell top to bottom */
+    {5, 'i', "torch",         "an unlit brand",     KC_ENCOUNTER,   15,  2, KF_PICKUPABLE,                                 B_BOTH, 50, 0, "+50 fuel",  EQ_NONE,   0,  0,  0, NULL},
+    {6, 'T', "chest",         "a banded coffer",    KC_LIFE,         8, 30, KF_PICKUPABLE,                                 B_BOTH,  0, 0, ""       ,    EQ_NONE,   0,  0,  0, NULL},
 };
 
 const int KIND_COUNT = (int)(sizeof(KIND_CATALOG) / sizeof(KIND_CATALOG[0]));
@@ -55,6 +59,11 @@ const KindDef* kind_by_glyph(char glyph) {
         if(KIND_CATALOG[i].glyph == glyph) return &KIND_CATALOG[i];
     }
     return NULL;
+}
+
+const uint8_t* loot_map_icon(char glyph) {
+    const KindDef* k = kind_by_glyph(glyph);
+    return k ? k->map_icon : NULL;
 }
 
 int loot_is_item_glyph(char glyph) {

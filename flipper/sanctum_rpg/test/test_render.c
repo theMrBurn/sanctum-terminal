@@ -11,6 +11,7 @@
 
 #include "../biome.h"
 #include "../creatures.h"
+#include "../loot.h"
 #include "../figure.h"
 #include "../pool.h"
 #include "../render_fpv.h"
@@ -18,6 +19,7 @@
 #include "../stamps.h"
 #include "../terrain.h"
 #include "../world.h"
+#include "font_secondary.h"
 
 extern int fpv_test_wall_top[];
 extern int fpv_test_wall_bot[];
@@ -374,6 +376,68 @@ static void test_props_are_opaque(void) {
     if(leaks) printf("    %d of %d prop billboards leaked\n", leaks, scenes);
 }
 
+/* RULE: on the top-down world screen, terrain never passes for something
+ * you act on. Each terrain row's top-down form (its map_icon, else its glyph
+ * in the device font) must differ from every item, creature and structure
+ * glyph by at least MAP_MIN_APART pixels, and stay inside its own 8px cell
+ * (a descender spills into the tile below). Before map_icon, 'l' timber was
+ * 1px off the torch 'i', 'v' brazier 1px off the clay pot 'u'.
+ * Items and creatures must keep row 0 clear as well: the tool '(' filled
+ * it, so a clay pot above it read as a 'y'. Only the player may touch it. */
+#define MAP_MIN_APART 3
+static void map_form(char g, uint8_t out[FONT2_ROWS]) {
+    const uint8_t* icon = terrain_map_icon(g);
+    if(!icon) icon = loot_map_icon(g);
+    memset(out, 0, FONT2_ROWS);
+    if(icon) memcpy(out, icon, 8);
+    else if(g >= 32 && g <= 126) memcpy(out, FONT2_CELL[g - 32], FONT2_ROWS);
+}
+static int map_apart(const uint8_t* a, const uint8_t* b) {
+    int d = 0;
+    for(int r = 0; r < FONT2_ROWS; r++)
+        for(uint8_t x = a[r] ^ b[r]; x; x &= (uint8_t)(x - 1)) d++;
+    return d;
+}
+static void test_map_legibility(void) {
+    char actable[64];
+    int n = 0;
+    for(int i = 0; i < KIND_COUNT; i++) actable[n++] = KIND_CATALOG[i].glyph;
+    for(int i = 0; i < CREATURE_FAMILY_COUNT; i++) actable[n++] = CREATURE_FAMILIES[i].glyph;
+    static const char STRUCTURE[] = {'@', TILE_DOOR, TILE_STAIRS_UP, TILE_STAIRS_DOWN, TILE_VENDOR, TILE_VAULT};
+    for(unsigned i = 0; i < sizeof(STRUCTURE); i++) actable[n++] = STRUCTURE[i];
+    int close = 0, spills = 0;
+    for(int t = 0; t < terrain_count(); t++) {
+        uint8_t f[FONT2_ROWS], o[FONT2_ROWS];
+        char g = terrain_at(t)->glyph;
+        map_form(g, f);
+        if(f[8] || f[9]) {
+            spills++;
+            printf("    '%c' spills into the tile below\n", g);
+        }
+        for(int k = 0; k < n; k++) {
+            map_form(actable[k], o);
+            int d = map_apart(f, o);
+            if(d < MAP_MIN_APART) {
+                close++;
+                printf("    '%c' is %dpx from '%c'\n", g, d, actable[k]);
+            }
+        }
+    }
+    int crowds = 0;
+    for(int k = 0; k < n; k++) {
+        uint8_t o[FONT2_ROWS];
+        if(actable[k] == '@') continue;
+        map_form(actable[k], o);
+        if(o[0] || o[8] || o[9]) {
+            crowds++;
+            printf("    '%c' reaches past its cell's rows 1..7\n", actable[k]);
+        }
+    }
+    CHECK(close == 0, "map: no terrain looks like an item, creature or structure top-down");
+    CHECK(crowds == 0, "map: items, creatures and structures keep a clear row above and below");
+    CHECK(spills == 0, "map: every terrain form stays inside its cell");
+}
+
 int main(void) {
     props_init();
     printf("Sanctum RPG — render rule tests\n");
@@ -387,6 +451,7 @@ int main(void) {
     test_terrain_golden();
     test_menhir_is_one_stone();
     test_props_are_opaque();
+    test_map_legibility();
     printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
