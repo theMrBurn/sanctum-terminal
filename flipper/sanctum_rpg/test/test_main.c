@@ -34,6 +34,7 @@
 #include "../weather.h"
 #include "../world.h"
 #include "../region.h"
+#include "../quirk.h"
 #include "../stamps.h"
 #include "../terrain.h"
 #include "../compose.h"
@@ -2567,6 +2568,111 @@ static void test_region_gates(void) {
     CHECK(ok && !region_mark_ritual(&full, -1, -1), "region save: the set refuses past REGION_DONE_MAX");
 }
 
+/* ── quirks: the cave-in (spec 50 Q1 §Q.1.1) ─────────────────────── */
+
+/* Find a mine chunk with a timber prop that has open floor beside it. */
+static bool find_timber(uint32_t seed, World* w, int* cx, int* cy, int* tx, int* ty) {
+    for(int y0 = -10; y0 <= 10; y0++)
+        for(int x0 = -10; x0 <= 10; x0++) {
+            if(style_of(seed, x0, y0) != STYLE_MINE) continue;
+            world_generate_chunk(seed, x0, y0, w);
+            for(int y = 1; y < WORLD_ROWS - 1; y++)
+                for(int x = 1; x < WORLD_COLS - 1; x++)
+                    if(w->tiles[y][x] == 'l') { *cx = x0; *cy = y0; *tx = x; *ty = y; return true; }
+        }
+    return false;
+}
+
+static void test_quirk_cave_in(void) {
+    /* The roll: about 1 in 64, and a pure function of its inputs. */
+    int fired = 0, n = 0;
+    for(uint32_t turn = 0; turn < 20000; turn++) {
+        QuirkPending p = {0};
+        fired += quirk_fire(0x12345678u, 1, -5, turn, QUIRK_CAVE_IN, 5, 3, QUIRK_BY_CHANCE, &p);
+        n++;
+    }
+    CHECK(fired > n / 64 * 7 / 10 && fired < n / 64 * 13 / 10, "cave-in: fires on about 1 in 64 steps");
+    QuirkPending a = {0}, b = {0};
+    bool fa = false, fb = false;
+    for(uint32_t t = 0; t < 500 && !fa; t++) {
+        fa = quirk_fire(0xCAFEBABEu, 3, 3, t, QUIRK_CAVE_IN, 4, 2, QUIRK_BY_CHANCE, &a);
+        fb = quirk_fire(0xCAFEBABEu, 3, 3, t, QUIRK_CAVE_IN, 4, 2, QUIRK_BY_CHANCE, &b);
+    }
+    CHECK(fa && fb && a.due_turn == b.due_turn, "cave-in: the same inputs replay the same roll");
+
+    /* The trigger path skips the roll but keeps one pending at a time. */
+    QuirkPending p = {0};
+    CHECK(quirk_fire(1, 0, 0, 7, QUIRK_CAVE_IN, 3, 3, QUIRK_BY_TRIGGER, &p) && p.due_turn == 8,
+          "cave-in: a trigger arms it without a roll, due next turn");
+    CHECK(!quirk_fire(1, 0, 0, 7, QUIRK_CAVE_IN, 4, 4, QUIRK_BY_TRIGGER, &p), "cave-in: only one pending at a time");
+
+    /* Tell, then land a turn later; never on the player; never cuts a door off. */
+    World w;
+    int cx, cy, tx, ty;
+    bool have = find_timber(0x12345678u, &w, &cx, &cy, &tx, &ty);
+    CHECK(have, "cave-in: a generated mine has a timber prop");
+    int on_player = 0, sealed = 0, placed = 0, hits = 0, misses = 0, early = 0, scenes = 0;
+    static const uint32_t SEEDS[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu, 1u, 0x0BADF00Du};
+    for(unsigned k = 0; k < sizeof(SEEDS) / sizeof(SEEDS[0]); k++) {
+        if(!find_timber(SEEDS[k], &w, &cx, &cy, &tx, &ty)) continue;
+        for(int dy = -1; dy <= 1; dy++)
+            for(int dx = -1; dx <= 1; dx++) {
+                int px = tx + dx, py = ty + dy;
+                if((dx == 0 && dy == 0) || !world_walkable(&w, px, py)) continue;
+                for(int stay = 0; stay < 2; stay++) {
+                    World t = w;
+                    QuirkPending q = {0};
+                    QuirkOutcome o;
+                    quirk_fire(SEEDS[k], cx, cy, 100, QUIRK_CAVE_IN, tx, ty, QUIRK_BY_TRIGGER, &q);
+                    quirk_step(SEEDS[k], cx, cy, 100, &t, px, py, &q, &o);
+                    if(o.landed) early++;                         /* same turn: must not land yet */
+                    int ex = px, ey = py;
+                    if(!stay) {                                   /* step away from the timber */
+                        for(int ay = -1; ay <= 1 && ex == px && ey == py; ay++)
+                            for(int ax = -1; ax <= 1; ax++) {
+                                int nx = px + ax, ny = py + ay;
+                                int fdx = nx - tx, fdy = ny - ty;
+                                if(world_walkable(&t, nx, ny) && (fdx * fdx > 1 || fdy * fdy > 1)) { ex = nx; ey = ny; break; }
+                            }
+                        if(ex == px && ey == py) continue;        /* nowhere to step away to */
+                    }
+                    quirk_step(SEEDS[k], cx, cy, 101, &t, ex, ey, &q, &o);
+                    scenes++;
+                    if(!o.landed || q.active) early++;
+                    if(o.placed) {
+                        placed++;
+                        if(o.rx == ex && o.ry == ey) on_player++;
+                        if(t.tiles[o.ry][o.rx] != CAVE_IN_RUBBLE) on_player++;
+                    }
+                    if(!world_doors_reachable_from(&t, ex, ey)) sealed++;
+                    if(o.damage) hits++; else misses++;
+                    if(stay && !o.damage) early++;
+                }
+            }
+    }
+    CHECK(scenes > 10 && early == 0, "cave-in: the tell comes one turn before it lands");
+    CHECK(placed > 0 && on_player == 0, "cave-in: rubble lands next to the timber, never on the player");
+    CHECK(sealed == 0, "cave-in: rubble never cuts the player off from a door");
+    CHECK(hits > 0 && misses > 0, "cave-in: staying by the timber hurts, stepping away doesn't");
+
+    /* By chance: a step next to a timber eventually tells. */
+    if(have && find_timber(0x12345678u, &w, &cx, &cy, &tx, &ty)) {
+        World t = w;
+        int px = -1, py = -1;
+        for(int dy = -1; dy <= 1 && px < 0; dy++)
+            for(int dx = -1; dx <= 1; dx++)
+                if((dx || dy) && world_walkable(&t, tx + dx, ty + dy)) { px = tx + dx; py = ty + dy; break; }
+        QuirkPending q = {0};
+        QuirkOutcome o;
+        int told = 0;
+        for(uint32_t turn = 0; turn < 2000 && !told; turn++) {
+            quirk_step(0x12345678u, cx, cy, turn, &t, px, py, &q, &o);
+            if(o.told) told = (o.message && strcmp(o.message, QUIRK_TABLE[QUIRK_CAVE_IN].tell) == 0) ? 1 : -1;
+        }
+        CHECK(told == 1, "cave-in: standing by a timber, the timbers eventually groan");
+    }
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -2591,6 +2697,7 @@ int main(void) {
     test_names_by_style();
     test_region_tree();
     test_region_gates();
+    test_quirk_cave_in();
     test_names_cap_truncates();
     test_names_distribution();
     test_trade_determinism();

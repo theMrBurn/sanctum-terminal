@@ -38,6 +38,10 @@
  *   test/shot fpv <seed-hex> <cx> <cy> <facing 0-3> <px> <py> <out.pbm>
  *     first person from an explicit tile, no creatures.
  *
+ *   test/shot cavein <seed-hex> <cx> <cy> <before.pbm> <after.pbm>
+ *     a mine chunk top-down, before and after a cave-in by its first timber
+ *     prop, the player one tile off it (spec 50 Q1).
+ *
  *   test/shot terrainset <outdir>
  *     every TERRAIN row at 1, 2 and 4 tiles: <outdir>/terrain_<hex>_<d>.pbm.
  *
@@ -62,6 +66,7 @@
 #include "../render_fpv.h"
 #include "../world.h"
 #include "../region.h"
+#include "../quirk.h"
 #include "font_secondary.h"
 
 static int write_pbm(const Canvas* c, const char* path) {
@@ -364,7 +369,42 @@ static int map_shot(uint32_t seed, int cx, int cy, const char* path) {
     return write_pbm(&c, path);
 }
 
+/* cavein: the top-down screen before and after a cave-in lands by the first
+ * timber prop of a mine chunk, the player one tile off it (forced by the
+ * trigger path, so the shot doesn't wait on the roll). */
+static int cavein_shot(uint32_t seed, int cx, int cy, const char* before, const char* after) {
+    static World w;
+    world_generate_chunk(seed, cx, cy, &w);
+    int tx = -1, ty = -1, px = -1, py = -1;
+    for(int y = 1; y < WORLD_ROWS - 1 && tx < 0; y++)
+        for(int x = 1; x < WORLD_COLS - 1; x++)
+            if(w.tiles[y][x] == 'l') { tx = x; ty = y; break; }
+    if(tx < 0) return 1;
+    for(int dy = -1; dy <= 1 && px < 0; dy++)
+        for(int dx = -1; dx <= 1; dx++)
+            if((dx || dy) && world_walkable(&w, tx + dx, ty + dy)) { px = tx + dx; py = ty + dy; break; }
+    if(px < 0) return 1;
+    for(int pass = 0; pass < 2; pass++) {
+        if(pass == 1) {
+            QuirkPending q = {0};
+            QuirkOutcome o;
+            quirk_fire(seed, cx, cy, 10, QUIRK_CAVE_IN, tx, ty, QUIRK_BY_TRIGGER, &q);
+            quirk_step(seed, cx, cy, 11, &w, px, py, &q, &o);
+            printf("%s\n", o.message ? o.message : "(nothing)");
+        }
+        Canvas c;
+        canvas_clear(&c);
+        for(int y = 0; y < WORLD_ROWS; y++)
+            for(int x = 0; x < WORLD_COLS; x++) map_draw_tile(&c, &w, x, y, (x == px && y == py) ? '@' : w.tiles[y][x]);
+        canvas_draw_line(&c, 0, MAP_VIEW_H, SHIM_W - 1, MAP_VIEW_H);
+        if(write_pbm(&c, pass ? after : before)) return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if(argc == 7 && strcmp(argv[1], "cavein") == 0)
+        return cavein_shot((uint32_t)strtoul(argv[2], NULL, 16), atoi(argv[3]), atoi(argv[4]), argv[5], argv[6]);
     if(argc >= 2 && strncmp(argv[1], "gate", 4) == 0) {   /* gatemap / gatefpv */
         g_gated = true;
         argv[1] += 4;

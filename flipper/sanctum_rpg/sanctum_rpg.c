@@ -49,6 +49,7 @@
 #include "figure.h"
 #include "trade.h"
 #include "region.h"
+#include "quirk.h"
 #include "weather.h"
 #include "world.h"
 
@@ -172,6 +173,7 @@ typedef struct {
      * on chunk entry from the chunk seed (spec 45 §4.5-4.8). */
     Creature creatures[CREATURES_MAX];
     RegionRituals rituals;  /* regions whose ritual is done (spec 58); saved from slice 4 */
+    QuirkPending quirk;     /* an armed cave-in (spec 50 Q1); RAM-only, cleared on leaving the chunk */
     int creature_count;
 
     /* Examine mode (v0.3.5b) — the teaching channel. OK toggles a cursor
@@ -2368,6 +2370,7 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
 
     st->character.chunk_x = (int16_t)cx;
     st->character.chunk_y = (int16_t)cy;
+    st->quirk.active = false;   /* an armed quirk belongs to the chunk you left */
     world_generate_chunk(st->campaign_seed, cx, cy, &st->world);
     if(REGION_GATES_LIVE) region_mark_world_edges(st->campaign_seed, &st->rituals, cx, cy, &st->world);
 
@@ -2822,6 +2825,35 @@ static uint8_t character_base_axis(const CharacterState* c, uint8_t axis_id) {
  * the gating axis without being unreachable. */
 #define SECRET_AXIS_THRESHOLD 16u
 
+/* A turn ended inside the chunk: a pending quirk lands, or the trigger
+ * tiles next to the player roll (spec 50 Q1 §Q.1). Rubble is a delta,
+ * like a pickup, so it stays after a reload. */
+static void quirk_tick(AppState* st) {
+    QuirkOutcome o;
+    quirk_step(st->campaign_seed, st->character.chunk_x, st->character.chunk_y,
+               st->character.turn, &st->world,
+               st->character.player_x, st->character.player_y, &st->quirk, &o);
+    if(o.placed) {
+        /* quirk.c can't see creatures: never bury one. The rubble just doesn't fall. */
+        for(int i = 0; i < st->creature_count && o.placed; i++) {
+            const Creature* c = &st->creatures[i];
+            if(c->alive && c->x == (uint8_t)o.rx && c->y == (uint8_t)o.ry) {
+                st->world.tiles[o.ry][o.rx] = TILE_FLOOR;
+                o.placed = false;
+            }
+        }
+    }
+    if(o.placed)
+        deltas_record(st->character.campaign_id, &st->current_deltas, o.rx, o.ry, CAVE_IN_RUBBLE);
+    if(o.told) notify(st, &sequence_single_vibro);
+    if(o.damage) {
+        st->character.hp = (st->character.hp > o.damage) ? (uint16_t)(st->character.hp - o.damage) : 0;
+        notify(st, &sequence_error);
+    }
+    if(o.message) set_status(st, o.message);
+    if(o.damage && st->character.hp == 0) player_fall(st);
+}
+
 static void on_world_move(AppState* st, MoveDir dir) {
     if(dir == MoveNone) return;
     /* Update facing to the walked direction — keeps the FPV camera
@@ -3005,6 +3037,9 @@ static void on_world_move(AppState* st, MoveDir dir) {
     /* Transitions recompute visibility for the new chunk inside
      * do_transition; same-chunk actions refresh here (fuel change may
      * have shrunk/grown the lit radius). */
+    if(took_turn && r != MoveSteppedOnDoor && r != MoveWalkedOffEdge && st->screen == ScreenWorld) {
+        quirk_tick(st);
+    }
     if(r != MoveSteppedOnDoor && r != MoveWalkedOffEdge) {
         recompute_visibility(st);
     }

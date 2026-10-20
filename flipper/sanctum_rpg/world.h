@@ -166,6 +166,11 @@ int world_edge_secret_axis(uint32_t seed, int chunk_x, int chunk_y, MoveDir dir,
 /* Is (x, y) walkable? Walls + edges are not. */
 bool world_walkable(const World* w, int x, int y);
 
+/* Can (sx, sy) still reach every door on foot (4-connected over walkable
+ * tiles)? The egress guarantee, as a check: a player-caused change (a
+ * cave-in's rubble, spec 50 Q1) must never make it false. */
+bool world_doors_reachable_from(const World* w, int sx, int sy);
+
 /* Apply `dir` to (px, py); returns new position via in-out params and a
  * status code. May mutate the world (e.g. clears a picked-up item tile),
  * hence non-const. No I/O, no autosave; caller handles those.

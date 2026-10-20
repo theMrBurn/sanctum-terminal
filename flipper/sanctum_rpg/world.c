@@ -238,6 +238,16 @@ static void egress_bfs_walkable(
     }
 }
 
+bool world_doors_reachable_from(const World* w, int sx, int sy) {
+    uint8_t reach[WORLD_ROWS][WORLD_COLS];
+    memset(reach, 0, sizeof(reach));
+    egress_bfs_walkable(w, sx, sy, reach);
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++)
+            if(w->tiles[y][x] == TILE_DOOR && !reach[y][x]) return false;
+    return true;
+}
+
 /* Carve the shortest 4-connected path from (sx, sy) to any cell already
  * in `reach`, ignoring blocking. Sets every blocking cell on the path to
  * TILE_FLOOR and marks each path cell in `reach`. The carve BFS is
