@@ -14,7 +14,7 @@ CFLAGS = -std=c11 -Wall -Wextra -Werror -O0 -g -I. -DSANCTUM_RPG_HOST_TEST
 # deeds.c is host-testable via the SANCTUM_RPG_HOST_TEST macro — its
 # Flipper-side I/O paths are #ifdef'd out under the host build, leaving
 # the pure event-table + axis-rollup logic exposed for assertions.
-PURE_SRC = figure.c pixkit.c terrain.c style.c rng.c world.c loot.c biome.c fov.c creatures.c classes.c recipes.c deeds.c narrative.c pool.c stamps.c compose.c weather.c names.c trade.c bearing.c
+PURE_SRC = figure.c pixkit.c terrain.c style.c region.c rng.c world.c loot.c biome.c fov.c creatures.c classes.c recipes.c deeds.c narrative.c pool.c stamps.c compose.c weather.c names.c trade.c bearing.c
 TEST_SRC = test/test_main.c $(PURE_SRC)
 TEST_BIN = test/run_tests
 
@@ -62,6 +62,15 @@ shots:
 	  ./$(SHOT_BIN) map $$1 $$2 $$3 test/shots/map_$$1_$$2_$$3.pbm; \
 	done
 	python3 test/pbm2png.py test/shots/map.png --cols 2 test/shots/map_*.pbm
+	@set -e; rm -f test/shots/gate_*.pbm; for s in 12345678:0:0 12345678:2:0 CAFEBABE:0:2 DEADBEEF:2:2; do \
+	  set -- $$(echo $$s | tr ':' ' '); \
+	  ./$(SHOT_BIN) gatemap $$1 $$2 $$3 test/shots/gate_map_$$1_$$2_$$3.pbm; \
+	 done
+	./$(SHOT_BIN) gatefpv 12345678 2 0 1 13 4 test/shots/gate_fpv_a.pbm
+	./$(SHOT_BIN) gatefpv DEADBEEF 2 2 1 12 2 test/shots/gate_fpv_b.pbm
+	./$(SHOT_BIN) gatefpv DEADBEEF 2 2 2 6 2 test/shots/gate_fpv_c.pbm
+	python3 test/pbm2png.py test/shots/gate_map.png --cols 2 test/shots/gate_map_*.pbm
+	python3 test/pbm2png.py test/shots/gate_fpv.png --cols 1 test/shots/gate_fpv_*.pbm
 	@for f in 0 1 2 3 4; do \
 	  ./$(SHOT_BIN) lineup $$f test/shots/lineup_$$f.pbm || exit 1; \
 	  python3 test/pbm2png.py test/shots/lineup_$$f.png --scale 3 --cols 1 test/shots/lineup_$$f.pbm; \

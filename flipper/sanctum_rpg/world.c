@@ -53,6 +53,18 @@ static const char* const STARTER_ROOM[WORLD_ROWS] = {
 
 void world_clear_seams(World* w) {
     for(int i = 0; i < 4; i++) w->seam_style[i] = WORLD_SEAM_NONE;
+    w->closed_edges = 0;
+}
+
+const uint8_t WORLD_HAZE_XBM[8] = {0x11, 0x00, 0x44, 0x00, 0x11, 0x00, 0x44, 0x00};
+
+bool world_cell_in_haze(const World* w, int x, int y) {
+    if(!w->closed_edges || x < 0 || y < 0 || x >= WORLD_COLS || y >= WORLD_ROWS) return false;
+    bool on = ((w->closed_edges & (1u << WORLD_SEAM_N)) && y == 0) ||
+              ((w->closed_edges & (1u << WORLD_SEAM_S)) && y == WORLD_ROWS - 1) ||
+              ((w->closed_edges & (1u << WORLD_SEAM_W)) && x == 0) ||
+              ((w->closed_edges & (1u << WORLD_SEAM_E)) && x == WORLD_COLS - 1);
+    return on && !world_is_blocking(w->tiles[y][x]);
 }
 
 Style world_wall_style(const World* w, int x, int y) {

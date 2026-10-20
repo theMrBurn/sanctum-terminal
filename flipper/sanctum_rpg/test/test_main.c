@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../biome.h"
@@ -32,6 +33,7 @@
 #include "../rng.h"
 #include "../weather.h"
 #include "../world.h"
+#include "../region.h"
 #include "../stamps.h"
 #include "../terrain.h"
 #include "../compose.h"
@@ -2475,6 +2477,96 @@ static void test_compose_preserves_nonfloor(void) {
           "compose: never overwrites a pre-placed non-floor tile (vendor)");
 }
 
+/* ── region tree (spec 58 §58.3) ─────────────────────────────────── */
+static void test_region_tree(void) {
+    static const uint32_t SEEDS[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu, 1u};
+    int bad_step = 0, bad_root = 0, bad_card = 0;
+    for(unsigned k = 0; k < sizeof(SEEDS) / sizeof(SEEDS[0]); k++)
+        for(int ry = -8; ry <= 8; ry++)
+            for(int rx = -8; rx <= 8; rx++) {
+                uint32_t seed = SEEDS[k];
+                int d = region_depth(seed, rx, ry);
+                if(d == 0) continue;
+                int ix, iy;
+                region_inward(seed, rx, ry, &ix, &iy);
+                if(abs(ix - rx) + abs(iy - ry) != 1) bad_card++;          /* one cardinal step */
+                if(region_depth(seed, ix, iy) != d - 1) bad_step++;       /* one step closer */
+                int x = rx, y = ry, guard = 0;                            /* inward reaches the root */
+                while(region_depth(seed, x, y) > 0 && guard++ < 64) region_inward(seed, x, y, &x, &y);
+                if(region_depth(seed, x, y) != 0) bad_root++;
+            }
+    CHECK(bad_card == 0, "region: the way inward is one cardinal step");
+    CHECK(bad_step == 0, "region: the way inward is one ring closer to the origin");
+    CHECK(bad_root == 0, "region: following inward always reaches the origin");
+    int ox, oy;
+    region_origin(0x12345678u, &ox, &oy);
+    CHECK(ox == region_of(0) && oy == region_of(0), "region: the origin holds the waking chunk");
+    int ix, iy;
+    region_inward(0x12345678u, 3, 0, &ix, &iy);
+    CHECK(ix == 2 && iy == 0, "region: on an axis, inward is straight toward the origin");
+
+    /* A diagonal region's inward choice varies (the hash picks an axis). */
+    int via_x = 0, via_y = 0;
+    for(int ry = 1; ry <= 8; ry++)
+        for(int rx = 1; rx <= 8; rx++) {
+            region_inward(0xCAFEBABEu, rx, ry, &ix, &iy);
+            if(ix != rx) via_x++; else via_y++;
+        }
+    CHECK(via_x > 8 && via_y > 8, "region: diagonal regions turn inward both ways");
+}
+
+static void test_region_gates(void) {
+    uint32_t seed = 0x12345678u;
+    RegionRituals r;
+    region_rituals_clear(&r);
+    CHECK(region_open(seed, &r, 0, 0), "region gate: the origin is open");
+    CHECK(!region_open(seed, &r, 1, 0) && !region_open(seed, &r, 0, -1),
+          "region gate: ring 1 is closed until the origin's ritual");
+    CHECK(!region_edge_closed(seed, &r, 0, 0, MoveEast) && !region_edge_closed(seed, &r, 1, 1, MoveSouth),
+          "region gate: crossings inside a region are never closed");
+    CHECK(region_edge_closed(seed, &r, 2, 0, MoveEast) && region_edge_closed(seed, &r, 0, 0, MoveWest),
+          "region gate: crossing into a closed region is refused");
+    region_mark_ritual(&r, 0, 0);
+    int opened = 0;
+    for(int ry = -1; ry <= 1; ry++)
+        for(int rx = -1; rx <= 1; rx++)
+            if(region_depth(seed, rx, ry) == 1) opened += region_open(seed, &r, rx, ry);
+    CHECK(opened == 4, "region gate: the origin's ritual opens all of ring 1");
+    int ring2_open = 0, ring2 = 0;
+    for(int ry = -2; ry <= 2; ry++)
+        for(int rx = -2; rx <= 2; rx++)
+            if(region_depth(seed, rx, ry) == 2) ring2++, ring2_open += region_open(seed, &r, rx, ry);
+    CHECK(ring2 == 8 && ring2_open == 0, "region gate: ring 2 stays closed");
+    /* Going back inward is never refused: every open region's inward is open. */
+    region_mark_ritual(&r, 1, 0);
+    int back_closed = 0;
+    for(int ry = -3; ry <= 3; ry++)
+        for(int rx = -3; rx <= 3; rx++) {
+            if(!region_open(seed, &r, rx, ry) || region_depth(seed, rx, ry) == 0) continue;
+            int ix, iy;
+            region_inward(seed, rx, ry, &ix, &iy);
+            if(!region_open(seed, &r, ix, iy)) back_closed++;
+        }
+    CHECK(back_closed == 0, "region gate: the way back toward the origin is always open");
+
+    /* Save round trip; tolerant of junk. */
+    char buf[REGION_DONE_TEXT_MAX];
+    region_rituals_format(&r, buf, sizeof(buf));
+    RegionRituals q;
+    region_rituals_parse(buf, &q);
+    CHECK(q.count == 2 && region_ritual_done(&q, 0, 0) && region_ritual_done(&q, 1, 0),
+          "region save: rituals survive a round trip");
+    region_rituals_parse("v9\n0 0\n", &q);
+    CHECK(q.count == 0, "region save: an unknown version loads as none");
+    region_rituals_parse("v1\n0 0\nnonsense\n-2 3\n0 0\n", &q);
+    CHECK(q.count == 2 && region_ritual_done(&q, -2, 3), "region save: bad lines skipped, repeats merged");
+    RegionRituals full;
+    region_rituals_clear(&full);
+    int ok = 1;
+    for(int i = 0; i < REGION_DONE_MAX; i++) ok &= region_mark_ritual(&full, i, 100);
+    CHECK(ok && !region_mark_ritual(&full, -1, -1), "region save: the set refuses past REGION_DONE_MAX");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -2497,6 +2589,8 @@ int main(void) {
     test_names_determinism();
     test_names_biome_distinct();
     test_names_by_style();
+    test_region_tree();
+    test_region_gates();
     test_names_cap_truncates();
     test_names_distribution();
     test_trade_determinism();

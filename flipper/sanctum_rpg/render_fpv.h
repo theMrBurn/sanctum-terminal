@@ -62,3 +62,7 @@ void render_fpv_world(
     int player_x, int player_y,
     uint8_t facing,
     const Creature* creatures, int creature_count);
+
+/* Host tests: fpv_test_wall_mat[] holds this for a column drawn as the haze
+ * of an edge closed by corruption (spec 58 §58.4). */
+#define FPV_TEST_MAT_HAZE 100

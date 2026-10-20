@@ -74,6 +74,11 @@ typedef struct {
      * neighbour's, so they take its material and name. WORLD_SEAM_NONE =
      * the chunk's own style. Display only: never hashed, never saved. */
     uint8_t seam_style[4];
+    /* Bit (1u << WORLD_SEAM_*): crossing that edge leads into a region still
+     * closed by corruption (spec 58 §58.4). Display only — set by the app
+     * from the rituals done (region_mark_world_edges), never by generation,
+     * never hashed. Drawn as a haze on that edge in both views. */
+    uint8_t closed_edges;
 } World;
 
 #define WORLD_SEAM_N 0
@@ -85,6 +90,14 @@ typedef struct {
 /* Reset every edge to the chunk's own style. Generation does this; worlds
  * built by hand (tests, the starter room) must too. */
 void world_clear_seams(World* w);
+
+/* The top-down haze over such a cell: an 8x8 XBM (LSB = left), sparse,
+ * drawn under the cell's glyph. */
+extern const uint8_t WORLD_HAZE_XBM[8];
+
+/* Is cell (x, y) on an edge marked closed, and open ground or a doorway
+ * (where the haze shows)? */
+bool world_cell_in_haze(const World* w, int x, int y);
 
 /* The style whose wall stands at (x, y): a seam's neighbour style on an
  * edge row/column the chunk grew facing it (north/south win at corners,

@@ -48,6 +48,7 @@
 #include "render_fpv.h"
 #include "figure.h"
 #include "trade.h"
+#include "region.h"
 #include "weather.h"
 #include "world.h"
 
@@ -86,6 +87,12 @@
 
 /* World render */
 #define TILE_PX               8                       /* tile cell, 8x8 */
+
+/* Region gates (spec 58 §58.4). OFF on the device until rituals exist
+ * (slice 4): with no way to perform one, closing every region but the
+ * origin would wall the player into nine chunks. The logic is live in the
+ * host tests and shots either way. */
+#define REGION_GATES_LIVE 0
 #define WORLD_VIEW_W          (WORLD_COLS * TILE_PX)  /* 128 px */
 #define WORLD_VIEW_H          (WORLD_ROWS * TILE_PX)  /*  48 px */
 #define WORLD_TILE_BASELINE_Y_OFFSET 7                /* FontSecondary baseline within 8px cell */
@@ -164,6 +171,7 @@ typedef struct {
     /* Live creatures in the current chunk (v0.4.0b) — RAM-only, regenerated
      * on chunk entry from the chunk seed (spec 45 §4.5-4.8). */
     Creature creatures[CREATURES_MAX];
+    RegionRituals rituals;  /* regions whose ritual is done (spec 58); saved from slice 4 */
     int creature_count;
 
     /* Examine mode (v0.3.5b) — the teaching channel. OK toggles a cursor
@@ -439,6 +447,9 @@ static void enter_world_phase2(
         st->campaign_seed,
         st->character.chunk_x, st->character.chunk_y,
         &st->world);
+    if(REGION_GATES_LIVE)
+        region_mark_world_edges(st->campaign_seed, &st->rituals,
+                                st->character.chunk_x, st->character.chunk_y, &st->world);
 
     deltas_load(
         campaign_id,
@@ -823,6 +834,9 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
             } else {
                 continue; /* unseen → dark */
             }
+            /* An edge closed by corruption: the haze under the glyph (spec 58). */
+            if(world_cell_in_haze(&st->world, x, y))
+                canvas_draw_xbm(canvas, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX, WORLD_HAZE_XBM);
             /* A terrain row or item kind may carry its own top-down form
              * (map_icon) where the glyph alone would mislead or spill. */
             const uint8_t* icon = terrain_map_icon(glyph);
@@ -2337,6 +2351,13 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     int cy = st->character.chunk_y;
     int new_px, new_py;
 
+    /* An edge into a region still closed by corruption refuses the crossing
+     * (spec 58). The haze on that edge already shows it. */
+    if(REGION_GATES_LIVE && region_edge_closed(st->campaign_seed, &st->rituals, cx, cy, dir)) {
+        set_status(st, "the fog does not thin.");
+        return;
+    }
+
     switch(dir) {
     case MoveNorth: cy -= 1; new_px = perp;              new_py = WORLD_ROWS - 2; break;
     case MoveSouth: cy += 1; new_px = perp;              new_py = 1;              break;
@@ -2348,6 +2369,7 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     st->character.chunk_x = (int16_t)cx;
     st->character.chunk_y = (int16_t)cy;
     world_generate_chunk(st->campaign_seed, cx, cy, &st->world);
+    if(REGION_GATES_LIVE) region_mark_world_edges(st->campaign_seed, &st->rituals, cx, cy, &st->world);
 
     /* Load + overlay persisted deltas for the entered chunk. */
     deltas_load(st->character.campaign_id, cx, cy, &st->current_deltas);

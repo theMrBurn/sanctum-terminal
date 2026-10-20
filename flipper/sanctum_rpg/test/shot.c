@@ -32,6 +32,12 @@
  *     the device's FontSecondary (test/font_secondary.h), terrain_map_icon
  *     forms where a row has one, and the separator above the status strip.
  *
+ *   test/shot gatemap|gatefpv ...   (same arguments as map / fpv)
+ *     as map / fpv, with the edges a fresh campaign finds closed (only the
+ *     origin region open) drawn as spec 58's haze.
+ *   test/shot fpv <seed-hex> <cx> <cy> <facing 0-3> <px> <py> <out.pbm>
+ *     first person from an explicit tile, no creatures.
+ *
  *   test/shot terrainset <outdir>
  *     every TERRAIN row at 1, 2 and 4 tiles: <outdir>/terrain_<hex>_<d>.pbm.
  *
@@ -55,6 +61,7 @@
 #include "../terrain.h"
 #include "../render_fpv.h"
 #include "../world.h"
+#include "../region.h"
 #include "font_secondary.h"
 
 static int write_pbm(const Canvas* c, const char* path) {
@@ -322,7 +329,9 @@ static int terrainset(const char* dir) {
  * tile, the glyph at baseline row 7, or the tile's top-down form. */
 #define MAP_TILE_PX 8
 #define MAP_VIEW_H  (WORLD_ROWS * MAP_TILE_PX)
-static void map_draw_tile(Canvas* c, int x, int y, char g) {
+static void map_draw_tile(Canvas* c, const World* w, int x, int y, char g) {
+    if(world_cell_in_haze(w, x, y))
+        canvas_draw_xbm(c, x * MAP_TILE_PX, y * MAP_TILE_PX, MAP_TILE_PX, MAP_TILE_PX, WORLD_HAZE_XBM);
     const uint8_t* icon = terrain_map_icon(g);
     if(!icon) icon = loot_map_icon(g);
     if(icon) {
@@ -333,18 +342,45 @@ static void map_draw_tile(Canvas* c, int x, int y, char g) {
     canvas_draw_xbm(c, x * MAP_TILE_PX, y * MAP_TILE_PX, MAP_TILE_PX, FONT2_ROWS, FONT2_CELL[g - 32]);
 }
 
+/* gate* modes: mark closed edges as a fresh campaign would (no ritual done
+ * yet, so only the origin region is open) — spec 58's haze. */
+static bool g_gated = false;
+static void maybe_gate(uint32_t seed, int cx, int cy, World* w) {
+    if(!g_gated) return;
+    RegionRituals none;
+    region_rituals_clear(&none);
+    region_mark_world_edges(seed, &none, cx, cy, w);
+}
+
 static int map_shot(uint32_t seed, int cx, int cy, const char* path) {
     static World w;
     world_generate_chunk(seed, cx, cy, &w);
+    maybe_gate(seed, cx, cy, &w);
     Canvas c;
     canvas_clear(&c);
     for(int y = 0; y < WORLD_ROWS; y++)
-        for(int x = 0; x < WORLD_COLS; x++) map_draw_tile(&c, x, y, w.tiles[y][x]);
+        for(int x = 0; x < WORLD_COLS; x++) map_draw_tile(&c, &w, x, y, w.tiles[y][x]);
     canvas_draw_line(&c, 0, MAP_VIEW_H, SHIM_W - 1, MAP_VIEW_H);
     return write_pbm(&c, path);
 }
 
 int main(int argc, char** argv) {
+    if(argc >= 2 && strncmp(argv[1], "gate", 4) == 0) {   /* gatemap / gatefpv */
+        g_gated = true;
+        argv[1] += 4;
+    }
+    /* fpv with an explicit position: fpv <seed> <cx> <cy> <facing> <px> <py> <out> */
+    if(argc == 9 && strcmp(argv[1], "fpv") == 0) {
+        uint32_t seed = (uint32_t)strtoul(argv[2], NULL, 16);
+        int cx = atoi(argv[3]), cy = atoi(argv[4]);
+        static World w;
+        world_generate_chunk(seed, cx, cy, &w);
+        maybe_gate(seed, cx, cy, &w);
+        Canvas c;
+        canvas_clear(&c);
+        render_fpv_world(&c, &w, atoi(argv[6]), atoi(argv[7]), (uint8_t)atoi(argv[5]), NULL, 0);
+        return write_pbm(&c, argv[8]);
+    }
     if(argc == 4 && strcmp(argv[1], "stylefield") == 0) return stylefield_shot(atoi(argv[2]), argv[3]);
     if(argc == 6 && strcmp(argv[1], "map") == 0)
         return map_shot((uint32_t)strtoul(argv[2], NULL, 16), atoi(argv[3]), atoi(argv[4]), argv[5]);
@@ -368,6 +404,7 @@ int main(int argc, char** argv) {
 
     World w;
     world_generate_chunk(seed, cx, cy, &w);
+    maybe_gate(seed, cx, cy, &w);
     Creature cr[CREATURES_MAX];
     /* Same spawn path as sanctum_rpg.c populate_creatures(), so a scene shows
      * what the device would show at this seed/chunk. */

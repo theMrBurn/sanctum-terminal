@@ -71,8 +71,8 @@ int fpv_test_wall_top[FPV_VIEW_W];
 int fpv_test_wall_bot[FPV_VIEW_W];
 int fpv_test_underpaint = 0;
 int fpv_test_last_figure_x0, fpv_test_last_figure_y0, fpv_test_last_figure_size = 0;
-int fpv_test_masked_billboards = 0;
-int fpv_test_wall_mat[FPV_VIEW_W];   /* resolved SlabMaterial per wall column */   /* composed billboards drawn (count) */
+int fpv_test_masked_billboards = 0;   /* composed billboards drawn (count) */
+int fpv_test_wall_mat[FPV_VIEW_W];      /* resolved SlabMaterial per wall column, or FPV_TEST_MAT_HAZE */
 #endif
 
 /* ─── Facing helpers (exported) ────────────────────────────────── */
@@ -920,6 +920,33 @@ static bool surface_seam(SlabMaterial mat, uint32_t th, int u, int v, int px_u, 
     }
 }
 
+/* The haze on an edge closed by corruption (spec 58 §58.4): a column as
+ * tall as a wall would be at `perp`, inked sparsely so it reads as fog,
+ * not stone, with slow horizontal wisps. Opaque like a wall: the gaps are
+ * written as background, so nothing beyond the edge shows. */
+#define HAZE_INK        2   /* of 16 (Bayer): the fog's base density */
+#define HAZE_WISP_EVERY 5   /* a wisp row every N rows */
+#define HAZE_WISP_LEN   5   /* wisp dash length (of 8) */
+static void draw_haze_column(Canvas* canvas, int c, int perp) {
+    int h = WALL_HEIGHT_SCALE / (perp > 0 ? perp : 1);
+    if(h > FPV_VIEW_H * 4) h = FPV_VIEW_H * 4;
+    int top = FPV_HORIZON_Y - h / 2, bot = top + h - 1;
+    if(top < 0) top = 0;
+    if(bot >= FPV_VIEW_H) bot = FPV_VIEW_H - 1;
+    for(int y = top; y <= bot; y++) {
+        bool ink = BAYER4[y & 3][c & 3] < HAZE_INK ||
+                   (y % HAZE_WISP_EVERY == 0 && ((c + y * 3) & 7) < HAZE_WISP_LEN);
+        if(!ink) canvas_set_color(canvas, ColorWhite);
+        canvas_draw_dot(canvas, c, y);
+        if(!ink) canvas_set_color(canvas, ColorBlack);
+    }
+#ifdef SANCTUM_RPG_HOST_TEST
+    fpv_test_wall_top[c] = top;
+    fpv_test_wall_bot[c] = bot;
+    fpv_test_wall_mat[c] = FPV_TEST_MAT_HAZE;
+#endif
+}
+
 static void draw_wall_column(
     Canvas* canvas, int c, int wall_h, int perp, int side, int u,
     uint32_t th, bool edge, SlabMaterial mat) {
@@ -1034,6 +1061,19 @@ void render_fpv_world(
         int perp = cast_ray(
             world, px_fp, py_fp, rdx, rdy, &hit_x, &hit_y, &side, &off_grid);
 
+        /* A ray leaving through an edge closed by corruption meets the haze
+         * (spec 58 §58.4): a sparse dithered veil at the edge, which also
+         * hides whatever lies past it. */
+        if(off_grid && world->closed_edges) {
+            int e = hit_y < 0 ? WORLD_SEAM_N : hit_y >= WORLD_ROWS ? WORLD_SEAM_S
+                  : hit_x < 0 ? WORLD_SEAM_W : WORLD_SEAM_E;
+            if(world->closed_edges & (1u << e)) {
+                wall_dist[c] = perp;
+                draw_haze_column(canvas, c, perp);
+                prev_hx = -99;
+                continue;
+            }
+        }
         if(off_grid && open_biome) {
             wall_dist[c] = 0x7FFFFFFF; /* no wall here — sprites pass through */
             prev_hx = -99;

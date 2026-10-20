@@ -19,6 +19,7 @@
 #include "../stamps.h"
 #include "../terrain.h"
 #include "../world.h"
+#include "../region.h"
 #include "font_secondary.h"
 
 extern int fpv_test_wall_top[];
@@ -476,6 +477,53 @@ static void test_seam_walls_are_the_neighbours(void) {
           "seam: a corner takes the north/south edge's style first");
 }
 
+/* RULE (spec 58 §58.4): an edge into a region still closed by corruption
+ * reads as closed before you touch it — the haze, in both views. A fresh
+ * campaign (no ritual done) opens only the origin region (chunks 0..2). */
+static void test_closed_edges_show_the_haze(void) {
+    RegionRituals none;
+    region_rituals_clear(&none);
+    World w;
+    world_generate_chunk(0x12345678, 1, 1, &w);
+    region_mark_world_edges(0x12345678, &none, 1, 1, &w);
+    CHECK(w.closed_edges == 0, "haze: a chunk inside the origin region has no closed edge");
+    world_generate_chunk(0x12345678, 2, 0, &w);
+    region_mark_world_edges(0x12345678, &none, 2, 0, &w);
+    CHECK(w.closed_edges == ((1u << WORLD_SEAM_N) | (1u << WORLD_SEAM_E)),
+          "haze: the origin's corner chunk is closed to the north and east");
+    int hazed_door = 0, hazed_wall = 0;
+    for(int y = 0; y < WORLD_ROWS; y++) {
+        if(world_cell_in_haze(&w, WORLD_COLS - 1, y)) {
+            if(w.tiles[y][WORLD_COLS - 1] == TILE_DOOR) hazed_door++;
+            else hazed_wall++;
+        }
+    }
+    CHECK(hazed_door == 1 && hazed_wall == 0, "haze: on a walled closed edge only the doorway hazes");
+    CHECK(!world_cell_in_haze(&w, 1, 1), "haze: never inside the chunk");
+
+    /* First person, open ground: DEADBEEF (2,2) is a moor closed east and south. */
+    world_generate_chunk(0xDEADBEEF, 2, 2, &w);
+    Canvas c;
+    canvas_clear(&c);
+    render_fpv_world(&c, &w, 12, 2, FPV_FACE_E, NULL, 0);
+    int before = fpv_test_wall_mat[64];
+    region_mark_world_edges(0xDEADBEEF, &none, 2, 2, &w);
+    canvas_clear(&c);
+    render_fpv_world(&c, &w, 12, 2, FPV_FACE_E, NULL, 0);
+    CHECK(before == -1 && fpv_test_wall_mat[64] == FPV_TEST_MAT_HAZE,
+          "haze: an open edge into a closed region draws the haze, not nothing");
+    canvas_clear(&c);
+    render_fpv_world(&c, &w, 12, 2, FPV_FACE_W, NULL, 0);
+    CHECK(fpv_test_wall_mat[64] != FPV_TEST_MAT_HAZE, "haze: an open edge into an open region stays clear");
+
+    /* Generation never reads it: the same chunk generates the same tiles. */
+    World a, b;
+    world_generate_chunk(0x12345678, 2, 0, &a);
+    world_generate_chunk(0x12345678, 2, 0, &b);
+    region_mark_world_edges(0x12345678, &none, 2, 0, &b);
+    CHECK(memcmp(a.tiles, b.tiles, sizeof(a.tiles)) == 0, "haze: display only, the tiles never change");
+}
+
 int main(void) {
     props_init();
     printf("Sanctum RPG — render rule tests\n");
@@ -491,6 +539,7 @@ int main(void) {
     test_props_are_opaque();
     test_map_legibility();
     test_seam_walls_are_the_neighbours();
+    test_closed_edges_show_the_haze();
     printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
