@@ -295,7 +295,9 @@ static void test_prop_identity(void) {
     CHECK(!terrain_compose_prop('#', 0, 32, a, b), "terrain: a wall is not a prop");
 }
 
-#define TERRAIN_GOLDEN 0xC970AA7987CCE727ULL
+/* Re-recorded for WORLDGEN 7a: four burial props added (art only, no world
+ * change — nothing places them yet). */
+#define TERRAIN_GOLDEN 0xC8E84D4F270890D7ULL
 static void test_terrain_golden(void) {
     static uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
     uint64_t h = 0xCBF29CE484222325ULL;

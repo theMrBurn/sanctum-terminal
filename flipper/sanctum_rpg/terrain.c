@@ -45,6 +45,9 @@
 #define RACK_SPEARS         3   /* weapon rack: spears */
 #define STATUE_PLINTH      27   /* statue: plinth top row */
 #define POST_HW             3   /* mine post: half-width */
+#define GRAVE_STONE_TOP    10   /* grave: the headstone's crown row */
+#define GRAVE_MOUND_Y      29   /* grave: the mound's centre row */
+#define DOLMEN_CAP_Y        9   /* altar stone: the capstone's top row */
 
 /* ── plans ─────────────────────────────────────────────────────────── */
 enum { PLAN_NONE = 0, PLAN_STANDING, PLAN_CAIRN, PLAN_BOULDER, PLAN_DEADFALL,
@@ -55,6 +58,7 @@ enum { PLAN_NONE = 0, PLAN_STANDING, PLAN_CAIRN, PLAN_BOULDER, PLAN_DEADFALL,
        PLAN_TABLE, PLAN_BARREL, PLAN_HEARTH,            /* manor */
        PLAN_RACK, PLAN_BRAZIER,                         /* keep */
        PLAN_ALTAR, PLAN_STATUE, PLAN_PEW,               /* abbey */
+       PLAN_GRAVE, PLAN_GRAVE_OPEN, PLAN_SARC_OPEN, PLAN_DOLMEN,  /* the dead (spec 50 Q1) */
        PLAN_MOSS = TERRAIN_PLAN_MOSS, PLAN_SCREE = TERRAIN_PLAN_SCREE,
        PLAN_FLAG = TERRAIN_PLAN_FLAG, PLAN_RAILS = TERRAIN_PLAN_RAILS,
        PLAN_GRASS = TERRAIN_PLAN_GRASS, PLAN_PLANKS = TERRAIN_PLAN_PLANKS };
@@ -73,6 +77,9 @@ static const uint8_t MAP_GLOWCAP[8]  = {0x00, 0x15, 0x00, 0x0E, 0x1F, 0x04, 0x04
 static const uint8_t MAP_MOSS[8]     = {0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x15, 0x00}; /* low soft tufts */
 static const uint8_t MAP_COLUMN[8]   = {0x00, 0x1F, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x1F}; /* a solid shaft, capital and base */
 static const uint8_t MAP_CAIRN[8]    = {0x00, 0x00, 0x04, 0x0E, 0x0E, 0x1F, 0x1F, 0x00}; /* a solid heap of stones */
+static const uint8_t MAP_GRAVE[8]      = {0x00, 0x0E, 0x11, 0x15, 0x11, 0x11, 0x1F, 0x1F}; /* a headstone with a mark */
+static const uint8_t MAP_GRAVE_OPEN[8] = {0x00, 0x00, 0x00, 0x1F, 0x11, 0x11, 0x1F, 0x00}; /* an empty pit */
+static const uint8_t MAP_SARC_OPEN[8]  = {0x00, 0x00, 0x1C, 0x00, 0x11, 0x11, 0x1F, 0x00}; /* the lid lifted off the box */
 static const uint8_t MAP_STANDING[8] = {0x00, 0x0C, 0x0E, 0x0E, 0x0E, 0x06, 0x07, 0x0F}; /* a weathered slab, a slight lean */
 
 static const TerrainDef TERRAIN[] = {
@@ -107,6 +114,11 @@ static const TerrainDef TERRAIN[] = {
     {'a',         TF_PROP,  0,             PLAN_ALTAR,       1, "altar",          1, 0, 0, NULL, NULL},   /* abbey */
     {'Z',         TF_PROP,  0,             PLAN_STATUE,      1, "statue",         2, 0, 0, NULL, NULL},
     {'p',         TF_PROP,  0,             PLAN_PEW,         1, "pew",            1, 0, 0, NULL, MAP_PEW},   /* 'p' hangs into the tile below */
+    /* the dead (spec 50 Q1, WORLDGEN 7a): resting places and the altar stone. Icons picked by the user. */
+    {'g',         TF_PROP,  0,             PLAN_GRAVE,       1, "grave",          1, 0, 0, NULL, MAP_GRAVE},
+    {'G',         TF_PROP,  0,             PLAN_GRAVE_OPEN,  1, "open grave",     1, 0, 0, NULL, MAP_GRAVE_OPEN},
+    {'N',         TF_PROP,  0,             PLAN_SARC_OPEN,   1, "open sarcophagus", 1, 0, 0, NULL, MAP_SARC_OPEN},
+    {'h',         TF_PROP,  0,             PLAN_DOLMEN,      1, "altar stone",    1, 0, 0, NULL, NULL},
     {',',         TF_FLOOR, 0,             PLAN_MOSS,        1, "moss",           1, 0, 0, NULL, MAP_MOSS},   /* ',' hangs into the tile below */
     {':',         TF_FLOOR, 0,             PLAN_SCREE,       1, "scree",          1, -1, 0, "loose footing", NULL},
     {'/',         TF_FLOOR, 0,             PLAN_FLAG,        1, "cracked flags",  1, 0, 0, NULL, MAP_FLAGS},   /* '/' hatches a whole room */
@@ -319,6 +331,37 @@ static void shape(int plan, Plane* m, int size, uint8_t var) {
         rect(m, size, 3, 14, 6, 31, 1);                           /* ends */
         rect(m, size, 25, 14, 28, 31, 1);
         break;
+    case PLAN_GRAVE: {      /* a rounded headstone on a low mound */
+        int lean = (var & 2) ? 1 : 0;
+        ell(m, size, 16, GRAVE_MOUND_Y, 13, 2, 1);
+        for(int y = GRAVE_STONE_TOP + 2; y <= 28; y++) {
+            int cx = 16 + (lean * (28 - y)) / 16;
+            rect(m, size, cx - 5, y, cx + 5, y, 1);
+        }
+        ell(m, size, 16 + lean, GRAVE_STONE_TOP + 2, 5, 3, 1);
+        break;
+    }
+    case PLAN_GRAVE_OPEN:   /* a dug pit, the spoil heaped beside, the stone behind */
+        rect(m, size, 10, 13, 16, 26, 1);
+        ell(m, size, 13, 13, 3, 2, 1);
+        ell(m, size, 15, 29, 11, 2, 1);
+        ell(m, size, 25, 25, 6, 6, 1);
+        break;
+    case PLAN_SARC_OPEN:    /* the box open and dark, its lid slid off askew */
+        rect(m, size, 5, 20, 26, 31, 1);
+        thick_seg(m, size, 2, 21, 20, 14, 1);
+        thick_seg(m, size, 3, 22, 21, 15, 1);
+        break;
+    case PLAN_DOLMEN: {     /* a capstone on two uprights: an old altar stone */
+        int tilt = (var & 1) ? 1 : -1;
+        rect(m, size, 6, DOLMEN_CAP_Y + 4, 10, 31, 1);
+        rect(m, size, 21, DOLMEN_CAP_Y + 4, 25, 31, 1);
+        for(int x = 3; x <= 28; x++) {
+            int y0 = DOLMEN_CAP_Y + (tilt * (x - 16)) / 13;
+            rect(m, size, x, y0, x, y0 + 4, 1);
+        }
+        break;
+    }
     case PLAN_SARCOPHAGUS:  /* a long lidded stone box */
         rect(m, size, 5, 20, 26, 31, 1);
         rect(m, size, 3, 17, 28, 20, 1);                      /* lid, overhanging */
@@ -444,6 +487,14 @@ static bool shade(int plan, const Plane* m, int x, int y, int size, uint8_t var)
     case PLAN_PEW:      return x < S(7, size) || x > S(24, size);
     case PLAN_SARCOPHAGUS:               /* lid lit, the box's face in shadow below the lid */
         return y > S(21, size);
+    case PLAN_GRAVE:    return (x > S(19, size) && y < S(GRAVE_MOUND_Y - 1, size)) || y > S(GRAVE_MOUND_Y, size);
+    case PLAN_GRAVE_OPEN:                /* the pit is a dark mouth; stone and spoil lit */
+        return in_ellipse(x, y, S(15, size), S(29, size), R(9, size), R(1, size)) || (y > S(25, size) && x > S(28, size));
+    case PLAN_SARC_OPEN:                 /* the open box: dark inside, the face in shade */
+        return y > S(21, size) && x > S(6, size) && x < S(25, size);
+    case PLAN_DOLMEN:                    /* lit capstone; each upright shadowed on its right */
+        return y > S(DOLMEN_CAP_Y + 5, size) &&
+               ((x > S(8, size) && x <= S(10, size)) || x > S(23, size));
     case PLAN_BONES:    return y > S(29, size);              /* pale bone; a shadow under the heap */
     case PLAN_URN:      return x > S(URN_TERM, size);
     case PLAN_CART:                      /* dark ore heap + iron wheels, light planks */
@@ -519,6 +570,27 @@ static void detail(int plan, Plane* ink, Plane* m, int size, uint8_t var) {
     case PLAN_SARCOPHAGUS:               /* the lid's edge, and a carved panel */
         seg(ink, size, 3, 20, 28, 20, 1);
         seg(ink, size, 11, 24, 20, 24, 1);
+        break;
+    case PLAN_GRAVE:                     /* a small cross, or lines of a worn inscription */
+        if(var & 1) {
+            seg(ink, size, 16, GRAVE_STONE_TOP + 3, 16, GRAVE_STONE_TOP + 10, 1);
+            seg(ink, size, 13, GRAVE_STONE_TOP + 5, 19, GRAVE_STONE_TOP + 5, 1);
+        } else {
+            seg(ink, size, 13, GRAVE_STONE_TOP + 5, 19, GRAVE_STONE_TOP + 5, 1);
+            seg(ink, size, 13, GRAVE_STONE_TOP + 8, 18, GRAVE_STONE_TOP + 8, 1);
+        }
+        break;
+    case PLAN_GRAVE_OPEN:                /* clods on the spoil heap */
+        seg(ink, size, 22, 23, 24, 23, 1);
+        seg(ink, size, 26, 27, 28, 27, 1);
+        break;
+    case PLAN_SARC_OPEN:                 /* the box's rim, the lid's edge */
+        seg(ink, size, 5, 20, 26, 20, 1);
+        seg(ink, size, 3, 22, 21, 15, 1);
+        break;
+    case PLAN_DOLMEN:                    /* a stain run down the capstone's edge and one upright */
+        seg(ink, size, 15, DOLMEN_CAP_Y + 1, 16, DOLMEN_CAP_Y + 3, 1);
+        seg(ink, size, 8, DOLMEN_CAP_Y + 6, 8, 22, 1);
         break;
     case PLAN_BONES: {                   /* dark eye sockets + teeth line */
         int sx = 13 + (var & 1) * 5;
