@@ -45,8 +45,16 @@ tests/mock_exports/
 # ── macOS noise ───────────────────────────────────────────────────────────────
 .DS_Store
 
-# ── Reference model packs (CC0, downloaded locally) ──────────────────────────
-assets/kenney/
+# ── Reference model packs (raw vendor packs — downloaded locally) ────────────
+# Per docs/spec_open_source_primitive_pipeline.md D1/Q3: raw vendor packs stay
+# OUT of git (code reads assets/derived/, never the raw pack), but each pack's
+# License.txt IS committed so attribution/licensing travels with the repo.
+# Ignore pack contents, keep the License.txt (standard git re-include idiom).
+assets/kenney/**
+!assets/kenney/
+!assets/kenney/**/
+!assets/kenney/**/License.txt
+# assets/derived/ is intentionally NOT ignored — cleaned meshes are committed.
 
 # ── Godot ─────────────────────────────────────────────────────────────────────
 godot/.godot/
