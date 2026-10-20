@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "biome.h"
+#include "style.h"
 
 /* 16 prefixes × 16 suffixes per biome. Order is the contract — reordering
  * a slot is a determinism break (a chunk that was "Vael Hollow" becomes
@@ -35,6 +36,58 @@ static const char* const CAV_SUFFIX[16] = {
     " Cavern", " Hollow", " Reaches", " Vein",
 };
 
+/* WORLDGEN 6: the styles that aren't the original two get their own
+ * endings (prefixes still come from the realm: underground / above ground).
+ * Same contract as above — order is the determinism key. */
+static const char* const CRYPT_SUFFIX[16] = {
+    " Crypt", " Tomb", " Ossuary", " Barrow", " Sepulchre", " Catacomb",
+    " Charnel", "grave", " Rest", " Cairn", " Mound", " Sleep",
+    " Tombs", " Undercroft", " Vaults", " Lich-gate",
+};
+
+static const char* const MINE_SUFFIX[16] = {
+    " Mine", " Shaft", " Adit", " Drift", " Lode", " Works",
+    " Diggings", " Pit", " Seam", " Gallery", "cut", " Stope",
+    " Delve", " Heading", " Winze", " Level",
+};
+
+static const char* const FOREST_SUFFIX[16] = {
+    "wood", " Wood", " Grove", " Thicket", " Weald", " Holt",
+    " Copse", " Shaw", " Tangle", " Brake", "hurst", " Glade",
+    " Wilds", " Greenwood", "dell", " Coppice",
+};
+
+static const char* const MANOR_SUFFIX[16] = {
+    " Hall", " Manor", " House", " Court", " Grange", " Lodge",
+    " Place", " Garth", " Croft", "bury", " Steading", " Rooms",
+    " Chambers", " Mansion", " Seat", " Halls",
+};
+
+static const char* const KEEP_SUFFIX[16] = {
+    " Keep", " Tower", " Hold", " Castle", " Fort", " Bastion",
+    " Citadel", " Ward", " Gate", " Watch", " Redoubt", " Donjon",
+    " Rampart", " Bailey", "guard", " Spire",
+};
+
+static const char* const ABBEY_SUFFIX[16] = {
+    " Abbey", " Priory", " Chapel", " Cloister", " Minster", " Shrine",
+    " Sanctum", " Chantry", " Friary", " Hermitage", " Nave", " Kirk",
+    " Oratory", " Cell", " Rood", " Sanctuary",
+};
+
+/* Endings per style. A style's realm (STYLE_TABLE.biome) picks the
+ * prefixes; its name_scope picks chunk or region (style.h). */
+static const char* const* const STYLE_SUFFIX[STYLE_COUNT] = {
+    [STYLE_CAVERN] = CAV_SUFFIX,   [STYLE_MOOR]   = OUT_SUFFIX,
+    [STYLE_CRYPT]  = CRYPT_SUFFIX, [STYLE_MINE]   = MINE_SUFFIX,
+    [STYLE_FOREST] = FOREST_SUFFIX, [STYLE_MANOR] = MANOR_SUFFIX,
+    [STYLE_KEEP]   = KEEP_SUFFIX,  [STYLE_ABBEY]  = ABBEY_SUFFIX,
+};
+
+/* Salt for region-scoped names, so a region's name is not its anchor
+ * chunk's per-chunk name. */
+#define NAME_REGION_SALT 0x52E61F0Du
+
 /* FNV-1a-flavored hash, byte-equal port target. Same shape as
  * weather.c's hash so future re-unification is trivial. */
 static uint32_t names_hash32(uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
@@ -54,11 +107,17 @@ static uint32_t names_hash32(uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
 }
 
 void name_for_chunk(uint32_t campaign_seed, int chunk_x, int chunk_y,
-                    uint8_t biome, char* out, size_t cap) {
+                    uint8_t style, char* out, size_t cap) {
     if(!out || cap < 2) return;
+    if(style >= STYLE_COUNT) style = STYLE_MOOR;
+    const StyleDef* sd = &STYLE_TABLE[style];
 
-    uint32_t h = names_hash32(
-        campaign_seed, (uint32_t)chunk_x, (uint32_t)chunk_y, 0x9E3779B9u);
+    /* A built place (name_scope REGION) carries one name for every chunk of
+     * its region; wild places are named chunk by chunk, as before. */
+    uint32_t h = (sd->name_scope == NAME_SCOPE_REGION)
+        ? names_hash32(campaign_seed, (uint32_t)region_of(chunk_x),
+                       (uint32_t)region_of(chunk_y), NAME_REGION_SALT)
+        : names_hash32(campaign_seed, (uint32_t)chunk_x, (uint32_t)chunk_y, 0x9E3779B9u);
 
     /* Lower nibble → prefix index; upper nibble of low byte → suffix. The
      * two nibbles share a byte, but the hash pre-avalanches enough that
@@ -66,18 +125,10 @@ void name_for_chunk(uint32_t campaign_seed, int chunk_x, int chunk_y,
     uint8_t pi = (uint8_t)((h >>  0) & 0x0Fu);
     uint8_t si = (uint8_t)((h >>  4) & 0x0Fu);
 
-    const char* const* prefixes;
-    const char* const* suffixes;
-    if((Biome)biome == BIOME_CAVERN) {
-        prefixes = CAV_PREFIX;
-        suffixes = CAV_SUFFIX;
-    } else {
-        /* OUTDOOR + any future biome that isn't explicitly cavern reads
-         * as an outdoor-style name. ARID etc. will get their own table
-         * when those biomes ship. */
-        prefixes = OUT_PREFIX;
-        suffixes = OUT_SUFFIX;
-    }
+    /* Underground styles take the stony prefixes; everything else reads
+     * as above ground. */
+    const char* const* prefixes = (sd->biome == BIOME_CAVERN) ? CAV_PREFIX : OUT_PREFIX;
+    const char* const* suffixes = STYLE_SUFFIX[style];
 
     const char* p = prefixes[pi];
     const char* s = suffixes[si];

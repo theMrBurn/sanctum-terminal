@@ -28,9 +28,10 @@
 #include "rng.h"
 
 /* ─── Primitive vocabulary ──────────────────────────────────────────────
- * IDs match pool.h conceptually: the Pool's primitive_bag carries IDs
- * from THIS table. The first 6 are cavern (0..5), next 6 are outdoor
- * (6..11). The composer + Pool only ever sample a biome-eligible slice.
+ * The first 6 are cavern (0..5), next 6 are outdoor (6..11), then the
+ * styles' own. The Pool's primitive_bag is POSITIONAL: slot k biases the
+ * k-th primitive of the stamp's style vocabulary (StyleDef.vocab), not
+ * primitive id k. Cavern's vocabulary is {0..5}, so there slot = id.
  *
  * Glyph mapping (1-bit Flipper display):
  *   ST  'A' stalagmite (1×1 hard blocker)     — a PROP (was '#', WORLDGEN 3)

@@ -68,9 +68,12 @@ bool pool_equal(const Pool* a, const Pool* b) {
     return memcmp(a, b, sizeof(Pool)) == 0;
 }
 
-/* ─── Biome primitive vocabulary (the user's locked sets) ─────────────
- * Cavern: ST=0, C=1, MC=2, LST=3, MW=4, reserved=5 (spec 50 §C.1).
- * Outdoor: SS=0, CA=1, MH=2, DF=3, SC=4, SR=5 (spec 50 §C.2).
+/* ─── Bag slots (the user's locked sets) ────────────────────────────
+ * These are bag SLOT positions, not primitive ids: slot k biases the k-th
+ * primitive of a stamp's style vocabulary (StyleDef.vocab, stamps.c). So
+ * Cavern: ST=0, C=1, MC=2, LST=3, MW=4, GC=5 (spec 50 §C.1) and
+ * Outdoor: SS=0, CA=1, MH=2, DF=3, SC=4, SR=5 (spec 50 §C.2) both read
+ * {0..5}. Do not "fix" OUTDOOR_VOCAB to the outdoor primitive ids 6..11.
  *
  * The vocabulary is UNIVERSAL — every save uses the same primitive IDs.
  * The per-save starting weights are hashed from prime_seed (below), so

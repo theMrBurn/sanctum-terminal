@@ -71,7 +71,8 @@ int fpv_test_wall_top[FPV_VIEW_W];
 int fpv_test_wall_bot[FPV_VIEW_W];
 int fpv_test_underpaint = 0;
 int fpv_test_last_figure_x0, fpv_test_last_figure_y0, fpv_test_last_figure_size = 0;
-int fpv_test_masked_billboards = 0;   /* composed billboards drawn (count) */
+int fpv_test_masked_billboards = 0;
+int fpv_test_wall_mat[FPV_VIEW_W];   /* resolved SlabMaterial per wall column */   /* composed billboards drawn (count) */
 #endif
 
 /* ─── Facing helpers (exported) ────────────────────────────────── */
@@ -978,7 +979,7 @@ void render_fpv_world(
     canvas_clear(canvas);
     if(!world) return;
 #ifdef SANCTUM_RPG_HOST_TEST
-    for(int c = 0; c < FPV_VIEW_W; c++) fpv_test_wall_top[c] = -1, fpv_test_wall_bot[c] = -2;
+    for(int c = 0; c < FPV_VIEW_W; c++) fpv_test_wall_top[c] = -1, fpv_test_wall_bot[c] = -2, fpv_test_wall_mat[c] = -1;
     if(fpv_test_underpaint)
         for(int y = 0; y < FPV_VIEW_H; y++)
             for(int c = 0; c < FPV_VIEW_W; c++) canvas_draw_dot(canvas, c, y);
@@ -1074,7 +1075,12 @@ void render_fpv_world(
         prev_hx = hit_x; prev_hy = hit_y; prev_side = side; prev_perp = perp;
 
         SlabMaterial mat = off_grid ? TM_STYLE_WALL : terrain_material(world->tiles[hit_y][hit_x]);
-        if(mat == TM_STYLE_WALL) mat = (SlabMaterial)STYLE_TABLE[world->style].wall_material;
+        /* A seam wall (and a secret in it) is the neighbour's: its material. */
+        if(mat == TM_STYLE_WALL)
+            mat = (SlabMaterial)STYLE_TABLE[world_wall_style(world, hit_x, hit_y)].wall_material;
+#ifdef SANCTUM_RPG_HOST_TEST
+        fpv_test_wall_mat[c] = (int)mat;
+#endif
         draw_wall_column(canvas, c, wall_h, perp, side, u,
                          tile_hash(hit_x * 2 + side, hit_y), edge, mat);
     }

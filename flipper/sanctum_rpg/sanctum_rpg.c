@@ -473,7 +473,7 @@ static void enter_world_phase2(
             name_for_chunk(
                 st->campaign_seed,
                 st->character.chunk_x, st->character.chunk_y,
-                (uint8_t)st->world.biome, place, sizeof(place));
+                (uint8_t)st->world.style, place, sizeof(place));
             set_statusf(st, "%s", place);
         }
     }
@@ -736,7 +736,7 @@ static const char* examine_name(const AppState* st, int x, int y) {
         return known ? k->true_name : k->unid_name;
     }
     /* Terrain is named by its TERRAIN row; walls by the region's style. */
-    const char* tn = terrain_name(t, STYLE_TABLE[st->world.style].wall_name);
+    const char* tn = terrain_name(t, STYLE_TABLE[world_wall_style(&st->world, x, y)].wall_name);
     if(tn) return tn;
     switch(t) {
     case TILE_DOOR:        return "doorway";
@@ -755,7 +755,7 @@ static const char* examine_name(const AppState* st, int x, int y) {
         name_for_chunk(
             st->campaign_seed,
             st->character.chunk_x, st->character.chunk_y,
-            (uint8_t)st->world.biome, place, sizeof(place));
+            (uint8_t)st->world.style, place, sizeof(place));
         snprintf(fbuf, sizeof(fbuf), "%s (%d, %d)",
                  place,
                  (int)st->character.chunk_x, (int)st->character.chunk_y);
@@ -2407,7 +2407,7 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
         } else {
             char place[NAME_MAX_LEN];
             name_for_chunk(
-                st->campaign_seed, cx, cy, (uint8_t)st->world.biome,
+                st->campaign_seed, cx, cy, (uint8_t)st->world.style,
                 place, sizeof(place));
             set_statusf(st, "%s", place);
         }

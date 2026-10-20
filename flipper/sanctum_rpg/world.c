@@ -51,6 +51,22 @@ static const char* const STARTER_ROOM[WORLD_ROWS] = {
 
 /* ─── helpers ────────────────────────────────────────────────────── */
 
+void world_clear_seams(World* w) {
+    for(int i = 0; i < 4; i++) w->seam_style[i] = WORLD_SEAM_NONE;
+}
+
+Style world_wall_style(const World* w, int x, int y) {
+    int edge = -1;
+    if(y <= 0) edge = WORLD_SEAM_N;
+    else if(y >= WORLD_ROWS - 1) edge = WORLD_SEAM_S;
+    if(edge >= 0 && w->seam_style[edge] != WORLD_SEAM_NONE) return (Style)w->seam_style[edge];
+    edge = -1;
+    if(x <= 0) edge = WORLD_SEAM_W;
+    else if(x >= WORLD_COLS - 1) edge = WORLD_SEAM_E;
+    if(edge >= 0 && w->seam_style[edge] != WORLD_SEAM_NONE) return (Style)w->seam_style[edge];
+    return w->style;
+}
+
 void world_starter_room(World* w) {
     for(int y = 0; y < WORLD_ROWS; y++) {
         memcpy(w->tiles[y], STARTER_ROOM[y], WORLD_COLS);
@@ -58,6 +74,7 @@ void world_starter_room(World* w) {
     w->spawn_x = 1;
     w->spawn_y = 1;
     w->biome = BIOME_CAVERN; /* walled room */
+    world_clear_seams(w);
     w->style = STYLE_CAVERN;
 }
 
@@ -481,6 +498,12 @@ static bool wall_edges_facing_walled(uint32_t seed, int cx, int cy, World* out) 
     bool e = region_terrain(seed, cx + 1, cy) == TERRAIN_WALLED;
     if(!n && !s && !w && !e) return false;
 
+    /* Those walls belong to the neighbour: they take its style. */
+    if(n) out->seam_style[WORLD_SEAM_N] = (uint8_t)style_of(seed, cx, cy - 1);
+    if(s) out->seam_style[WORLD_SEAM_S] = (uint8_t)style_of(seed, cx, cy + 1);
+    if(w) out->seam_style[WORLD_SEAM_W] = (uint8_t)style_of(seed, cx - 1, cy);
+    if(e) out->seam_style[WORLD_SEAM_E] = (uint8_t)style_of(seed, cx + 1, cy);
+
     if(n) for(int x = 0; x < WORLD_COLS; x++) out->tiles[0][x] = TILE_WALL;
     if(s) for(int x = 0; x < WORLD_COLS; x++) out->tiles[WORLD_ROWS - 1][x] = TILE_WALL;
     if(w) for(int y = 0; y < WORLD_ROWS; y++) out->tiles[y][0] = TILE_WALL;
@@ -527,6 +550,7 @@ void world_generate_chunk(
      * per-chunk geometry stream stays deterministic. */
     out->biome = biome_of(base_seed, chunk_x, chunk_y);
     out->style = style_of(base_seed, chunk_x, chunk_y);
+    world_clear_seams(out);
 
     /* Slice 50.F1: build the Pool by canonical X-first-then-Y walk from
      * the campaign prime (chunk 0, 0). Same (base_seed, biome, cx, cy) →

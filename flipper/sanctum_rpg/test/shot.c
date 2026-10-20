@@ -158,6 +158,7 @@ static void bare_chunk(World* w, int biome) {
     memset(w, 0, sizeof(*w));
     w->biome = (Biome)biome;
     w->style = style_for_biome(w->biome);
+    world_clear_seams(w);
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) {
             bool rim = x == 0 || y == 0 || x == WORLD_COLS - 1 || y == WORLD_ROWS - 1;

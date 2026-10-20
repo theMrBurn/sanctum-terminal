@@ -26,6 +26,7 @@ extern int fpv_test_wall_bot[];
 extern int fpv_test_underpaint;
 extern int fpv_test_last_figure_x0, fpv_test_last_figure_y0, fpv_test_last_figure_size;
 extern int fpv_test_masked_billboards;
+extern int fpv_test_wall_mat[];
 
 static int g_pass, g_fail;
 #define CHECK(cond, msg)                                                   \
@@ -240,6 +241,7 @@ static void flat_chunk(World* w, int biome) {
     memset(w, 0, sizeof(*w));
     w->biome = (Biome)biome;
     w->style = style_for_biome(w->biome);
+    world_clear_seams(w);
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++)
             w->tiles[y][x] = (x == 0 || y == 0 || x == WORLD_COLS - 1 || y == WORLD_ROWS - 1)
@@ -438,6 +440,42 @@ static void test_map_legibility(void) {
     CHECK(spills == 0, "map: every terrain form stays inside its cell");
 }
 
+/* RULE: a wall an open chunk grows to face a walled neighbour is the
+ * neighbour's wall (World.seam_style): it takes the neighbour's material,
+ * and so does a secret in it — a secret drawn in the open chunk's stone
+ * among abbey walls would give itself away in first person. DEADBEEF (0,0)
+ * is a moor whose west edge faces an abbey. */
+static void test_seam_walls_are_the_neighbours(void) {
+    World w;
+    world_generate_chunk(0xDEADBEEF, 0, 0, &w);
+    CHECK(w.style == STYLE_MOOR && w.seam_style[WORLD_SEAM_W] == STYLE_ABBEY,
+          "seam: DEADBEEF (0,0) is a moor whose west wall faces an abbey");
+    int y = 3;
+    while(y < WORLD_ROWS - 1 && w.tiles[y][1] != TILE_FLOOR) y++;
+    Canvas c;
+    canvas_clear(&c);
+    render_fpv_world(&c, &w, 1, y, FPV_FACE_W, NULL, 0);
+    CHECK(fpv_test_wall_mat[64] == TM_CARVED, "seam: the moor's west wall is drawn as abbey stone");
+    CHECK(w.seam_style[WORLD_SEAM_E] == WORLD_SEAM_NONE && world_wall_style(&w, WORLD_COLS - 1, y) == STYLE_MOOR,
+          "seam: an edge facing open ground keeps the chunk's own style");
+
+    /* A secret in a seam wall: same material as the wall around it. */
+    World s;
+    flat_chunk(&s, BIOME_OUTDOOR);
+    s.seam_style[WORLD_SEAM_W] = STYLE_ABBEY;
+    s.tiles[3][0] = TILE_SECRET;
+    canvas_clear(&c);
+    render_fpv_world(&c, &s, 1, 3, FPV_FACE_W, NULL, 0);
+    int secret_mat = fpv_test_wall_mat[64];
+    canvas_clear(&c);
+    render_fpv_world(&c, &s, 1, 2, FPV_FACE_W, NULL, 0);
+    CHECK(secret_mat == TM_CARVED && fpv_test_wall_mat[64] == TM_CARVED,
+          "seam: a secret in a seam wall wears the neighbour's material too");
+    s.seam_style[WORLD_SEAM_N] = STYLE_KEEP;
+    CHECK(world_wall_style(&s, 0, 0) == STYLE_KEEP && world_wall_style(&s, 0, 3) == STYLE_ABBEY,
+          "seam: a corner takes the north/south edge's style first");
+}
+
 int main(void) {
     props_init();
     printf("Sanctum RPG — render rule tests\n");
@@ -452,6 +490,7 @@ int main(void) {
     test_menhir_is_one_stone();
     test_props_are_opaque();
     test_map_legibility();
+    test_seam_walls_are_the_neighbours();
     printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

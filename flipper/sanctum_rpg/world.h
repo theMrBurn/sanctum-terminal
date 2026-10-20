@@ -69,11 +69,31 @@ typedef struct {
     int spawn_y;
     Biome biome;
     Style style;   /* the region's style — enclosed/open lives here */
+    /* Per edge (WORLD_SEAM_*): the style whose walls an OPEN chunk grew on
+     * that edge to face a WALLED neighbour — those walls are the
+     * neighbour's, so they take its material and name. WORLD_SEAM_NONE =
+     * the chunk's own style. Display only: never hashed, never saved. */
+    uint8_t seam_style[4];
 } World;
+
+#define WORLD_SEAM_N 0
+#define WORLD_SEAM_S 1
+#define WORLD_SEAM_W 2
+#define WORLD_SEAM_E 3
+#define WORLD_SEAM_NONE 0xFFu
+
+/* Reset every edge to the chunk's own style. Generation does this; worlds
+ * built by hand (tests, the starter room) must too. */
+void world_clear_seams(World* w);
+
+/* The style whose wall stands at (x, y): a seam's neighbour style on an
+ * edge row/column the chunk grew facing it (north/south win at corners,
+ * and coordinates past an edge count as that edge), else the chunk's own. */
+Style world_wall_style(const World* w, int x, int y);
 
 /* World-generator version (spec 43 §14.0). Any change that moves a chunk
  * golden MUST bump this, and the golden test pins fingerprints to it. */
-#define WORLDGEN_VERSION 5   /* 2: styles; 3: cavern blockers' own glyphs; 4: interiors + glowcaps; 5: floor glyphs clear of weather overlays (2026-10-14) */
+#define WORLDGEN_VERSION 6   /* 2: styles; 3: cavern blockers' own glyphs; 4: interiors + glowcaps; 5: floor glyphs clear of weather overlays (2026-10-14); 6: Pool bias by style vocabulary, place names by style (2026-10-20) */
 
 /* May a saved tile mutation (deltas) land on this freshly generated tile?
  * Only floor, loot and harvestable terrain (a glowcap) take one. After a WORLDGEN_VERSION bump a saved

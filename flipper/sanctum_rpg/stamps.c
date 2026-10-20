@@ -8,6 +8,8 @@
 
 #include "stamps.h"
 
+#include "style.h"
+
 #include <stddef.h>
 
 /* ─── Primitive vocabulary table ────────────────────────────────────── */
@@ -310,18 +312,17 @@ static uint32_t stamp_base_weight(const StampDef* s) {
 }
 
 /* Bag affinity: sum of pool bag weights for primitives this stamp uses.
- * Range 0..(sum of all bag weights, typically 8..120). */
+ * Range 0..(sum of all bag weights, typically 8..120). A primitive is
+ * biased by the bag slot at its index in the stamp's style vocabulary
+ * (StyleDef.vocab) — the bag is positional, so every style drifts. Before
+ * WORLDGEN 6 this matched bag ids against primitive ids, and only cavern
+ * ids (0..5) were ever in the bag: no other style got any bias. */
 static uint32_t stamp_bag_affinity(const StampDef* s, const Pool* pool) {
     if(!s || !pool) return 0u;
     uint32_t sum = 0;
     for(uint8_t pi = 0; pi < s->prim_count; pi++) {
-        uint8_t target = s->prims[pi].prim_id;
-        for(int slot = 0; slot < POOL_BAG_SLOTS; slot++) {
-            if(pool->primitive_bag[slot][0] == target) {
-                sum += pool->primitive_bag[slot][1];
-                break;
-            }
-        }
+        int slot = style_vocab_slot((Style)s->style, s->prims[pi].prim_id);
+        if(slot >= 0 && slot < POOL_BAG_SLOTS) sum += pool->primitive_bag[slot][1];
     }
     return sum;
 }

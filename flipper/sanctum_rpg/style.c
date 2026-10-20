@@ -28,15 +28,24 @@ _Static_assert(STYLE_CRYPT == STAMP_STYLE_CRYPT && STYLE_MINE == STAMP_STYLE_MIN
 #define STYLE_W_ABBEY  1
 
 const StyleDef STYLE_TABLE[STYLE_COUNT] = {
-    /*               name      biome          terrain         family           wall       wall name      weight */
-    [STYLE_CAVERN] = {"cavern", BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_CAVERNS,  TM_STONE,  "rock wall",   STYLE_W_CAVERN},
-    [STYLE_MOOR]   = {"moor",   BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_MOOR,     TM_STONE,  "rock wall",   STYLE_W_MOOR},
-    [STYLE_CRYPT]  = {"crypt",  BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_DUNGEONS, TM_BRICK,  "brick wall",  STYLE_W_CRYPT},
-    [STYLE_MINE]   = {"mine",   BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_MINES,    TM_TIMBER, "shored rock", STYLE_W_MINE},
-    [STYLE_FOREST] = {"forest", BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_FOREST,   TM_STONE,  "rock wall",   STYLE_W_FOREST},
-    [STYLE_MANOR]  = {"manor",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_DWELLINGS, TM_FRAME, "plaster wall", STYLE_W_MANOR},
-    [STYLE_KEEP]   = {"keep",   BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_FORTIFICATIONS, TM_ASHLAR, "curtain wall", STYLE_W_KEEP},
-    [STYLE_ABBEY]  = {"abbey",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_HOLY,     TM_CARVED, "carved wall", STYLE_W_ABBEY},
+    /*               name      biome          terrain         family           wall       wall name      weight
+     *               vocabulary (bag-slot order), count, name scope */
+    [STYLE_CAVERN] = {"cavern", BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_CAVERNS,  TM_STONE,  "rock wall",   STYLE_W_CAVERN,
+                     {PRIM_ST, PRIM_C, PRIM_MC, PRIM_LST, PRIM_MW, PRIM_GC}, 6, NAME_SCOPE_CHUNK},
+    [STYLE_MOOR]   = {"moor",   BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_MOOR,     TM_STONE,  "rock wall",   STYLE_W_MOOR,
+                     {PRIM_SS, PRIM_CA, PRIM_MH, PRIM_DF, PRIM_SC, PRIM_SR}, 6, NAME_SCOPE_CHUNK},
+    [STYLE_CRYPT]  = {"crypt",  BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_DUNGEONS, TM_BRICK,  "brick wall",  STYLE_W_CRYPT,
+                     {PRIM_SA, PRIM_BP, PRIM_UR, PRIM_FS, PRIM_MC}, 5, NAME_SCOPE_REGION},
+    [STYLE_MINE]   = {"mine",   BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_MINES,    TM_TIMBER, "shored rock", STYLE_W_MINE,
+                     {PRIM_OC, PRIM_RB, PRIM_PO, PRIM_RL}, 4, NAME_SCOPE_REGION},
+    [STYLE_FOREST] = {"forest", BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_FOREST,   TM_STONE,  "rock wall",   STYLE_W_FOREST,
+                     {PRIM_TR, PRIM_DT, PRIM_SP, PRIM_TG, PRIM_DF, PRIM_SC}, 6, NAME_SCOPE_CHUNK},
+    [STYLE_MANOR]  = {"manor",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_DWELLINGS, TM_FRAME, "plaster wall", STYLE_W_MANOR,
+                     {PRIM_TB, PRIM_BA, PRIM_HE, PRIM_PL}, 4, NAME_SCOPE_REGION},
+    [STYLE_KEEP]   = {"keep",   BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_FORTIFICATIONS, TM_ASHLAR, "curtain wall", STYLE_W_KEEP,
+                     {PRIM_RK, PRIM_BZ, PRIM_BA, PRIM_FS}, 4, NAME_SCOPE_REGION},
+    [STYLE_ABBEY]  = {"abbey",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_HOLY,     TM_CARVED, "carved wall", STYLE_W_ABBEY,
+                     {PRIM_AL, PRIM_SU, PRIM_PW, PRIM_BZ, PRIM_UR, PRIM_FS}, 6, NAME_SCOPE_REGION},
 };
 
 /* Distinct salt so a region's style doesn't correlate with its biome. */
@@ -77,4 +86,12 @@ TerrainMode style_terrain(Style s) {
 
 TerrainMode region_terrain(uint32_t seed, int chunk_x, int chunk_y) {
     return style_terrain(style_of(seed, chunk_x, chunk_y));
+}
+
+int style_vocab_slot(Style s, uint8_t prim_id) {
+    if((unsigned)s >= STYLE_COUNT) return -1;
+    const StyleDef* d = &STYLE_TABLE[s];
+    for(int k = 0; k < d->vocab_count; k++)
+        if(d->vocab[k] == prim_id) return k;
+    return -1;
 }

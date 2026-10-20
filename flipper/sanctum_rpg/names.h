@@ -28,7 +28,9 @@
 #define NAME_MAX_LEN 24
 
 /* Fill `out` (cap including '\0') with the deterministic name for
- * (campaign_seed × chunk_x × chunk_y × biome). Same inputs → byte-equal
- * output. Cap < 2 is a no-op. */
+ * (campaign_seed × chunk_x × chunk_y × style). The style (style.h) picks
+ * the endings and whether the name is per chunk or shared by its whole
+ * region (StyleDef.name_scope). STYLE_CAVERN / STYLE_MOOR are the original
+ * cavern / outdoor names, byte for byte. Cap < 2 is a no-op. */
 void name_for_chunk(uint32_t campaign_seed, int chunk_x, int chunk_y,
-                    uint8_t biome, char* out, size_t cap);
+                    uint8_t style, char* out, size_t cap);

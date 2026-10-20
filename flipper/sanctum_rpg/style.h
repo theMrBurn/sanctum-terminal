@@ -47,6 +47,13 @@ typedef enum {
     FAMILY_COUNT,
 } StyleFamily;
 
+/* How far a place name reaches (names.c). */
+#define NAME_SCOPE_CHUNK  0u   /* wild places: every chunk its own name */
+#define NAME_SCOPE_REGION 1u   /* built places: the whole region shares one */
+
+/* Pool bag slots that are seeded (pool.c seeds 6 of POOL_BAG_SLOTS). */
+#define STYLE_VOCAB_MAX 6
+
 typedef struct {
     const char* name;
     Biome biome;          /* realm: underground / above ground */
@@ -55,6 +62,13 @@ typedef struct {
     uint8_t wall_material;/* SlabMaterial for TILE_WALL in this style */
     const char* wall_name;/* what a wall here is called when examined */
     uint8_t weight;       /* pick weight among its biome's styles */
+    /* The style's primitive vocabulary (PRIM_*), in Pool bag-slot order:
+     * vocab[k] is biased by the Pool's bag slot k (stamps.c). The ORDER is
+     * part of the generator — reordering moves the world (WORLDGEN bump).
+     * Cavern is {0..5}, so slot = id and its chunks predate this table. */
+    uint8_t vocab[STYLE_VOCAB_MAX];
+    uint8_t vocab_count;
+    uint8_t name_scope;   /* NAME_SCOPE_*: a built place has one name per region */
 } StyleDef;
 
 extern const StyleDef STYLE_TABLE[STYLE_COUNT];
@@ -66,6 +80,10 @@ Style style_of(uint32_t seed, int chunk_x, int chunk_y);
 /* The biome's original style (cavern -> STYLE_CAVERN, outdoor -> STYLE_MOOR):
  * for worlds built by hand (starter room, test fixtures). */
 Style style_for_biome(Biome b);
+
+/* The Pool bag slot that biases `prim_id` in style `s` (its index in
+ * StyleDef.vocab), or -1 if the style has no such primitive. */
+int style_vocab_slot(Style s, uint8_t prim_id);
 
 /* Enclosed/open for a style (TERRAIN_WALLED for out-of-range). */
 TerrainMode style_terrain(Style s);

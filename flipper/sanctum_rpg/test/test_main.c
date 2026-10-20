@@ -246,7 +246,7 @@ static void test_chunk_invariants(void) {
 /* The generator version these fingerprints were recorded under. Re-record
  * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
  * this to match — the check below fails if the two drift apart. */
-#define GOLDEN_WORLDGEN_VERSION 5
+#define GOLDEN_WORLDGEN_VERSION 6
 
 static void test_chunk_golden(void) {
     CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
@@ -279,16 +279,23 @@ static void test_chunk_golden(void) {
          * WORLDGEN 5 (same day): floor glyphs that were weather-overlay
          * glyphs in the top-down view move: grass '"'->'`', flagstone
          * '_'->'/', boards '\''->'['. Forest + keep cases move (v4:
-         * 0x414E736C 0xDFEE86F4); the crypt and manor cases hold none. */
+         * 0x414E736C 0xDFEE86F4); the crypt and manor cases hold none.
+         * WORLDGEN 6 (2026-10-20): the Pool bag is positional — a stamp's
+         * primitive is biased by the bag slot at its index in its style's
+         * vocabulary (StyleDef.vocab). Before, bag ids were matched against
+         * primitive ids and only cavern ids (0..5) were ever in the bag, so
+         * no other style was ever biased. Cavern vocab = {0..5}, so both
+         * cavern cases hold; the other seven move. v5: 0x07E6DFEC
+         * 0xE07A1B4E 0x076874FA 0x24E3D04E 0xAEAD9456 0x6B304778 0xF1B665B4. */
         {0xCAFEBABE, 0, 0, 0xAA0B4171},
         {0xCAFEBABE, 1, 0, 0x0642A257},
-        {0xDEADBEEF, 0, 0, 0x07E6DFEC},
-        {0x00000001, -3, 5, 0xE07A1B4E},
-        {0x12345678, 4, -2, 0x076874FA},   /* crypt */
-        {0x12345678, 1, -5, 0x24E3D04E},   /* mine */
-        {0x12345678, 4, 1, 0xAEAD9456},    /* forest */
-        {0x12345678, 7, -5, 0x6B304778},   /* manor */
-        {0x12345678, 7, -8, 0xF1B665B4},   /* keep */
+        {0xDEADBEEF, 0, 0, 0xF0190C9A},
+        {0x00000001, -3, 5, 0xD76992DE},
+        {0x12345678, 4, -2, 0x9284A31F},   /* crypt */
+        {0x12345678, 1, -5, 0xC42D099E},   /* mine */
+        {0x12345678, 4, 1, 0x8907914B},    /* forest */
+        {0x12345678, 7, -5, 0xF884806D},   /* manor */
+        {0x12345678, 7, -8, 0xAFCF19E9},   /* keep */
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     for(int i = 0; i < n; i++) {
@@ -383,6 +390,23 @@ static void test_style_catalog(void) {
     for(int i = 0; i < PRIM_COUNT_TOTAL; i++)
         for(int j = 0; j < i; j++)
             CHECK(PRIMITIVES[i].glyph != PRIMITIVES[j].glyph, "catalog: primitive glyphs are unique");
+    /* Pool bias is positional (StyleDef.vocab): a primitive missing from its
+     * style's vocabulary would silently get no bias. */
+    int unbiased = 0, dup = 0, oversize = 0;
+    for(int i = 0; i < STAMP_COUNT; i++)
+        for(int k = 0; k < STAMPS[i].prim_count; k++)
+            if(style_vocab_slot((Style)STAMPS[i].style, STAMPS[i].prims[k].prim_id) < 0) unbiased++;
+    for(int st = 0; st < STYLE_COUNT; st++) {
+        const StyleDef* d = &STYLE_TABLE[st];
+        if(d->vocab_count > STYLE_VOCAB_MAX) oversize++;
+        for(int a = 0; a < d->vocab_count; a++)
+            for(int b = 0; b < a; b++) dup += d->vocab[a] == d->vocab[b];
+    }
+    CHECK(unbiased == 0, "catalog: every stamped primitive is in its style's Pool vocabulary");
+    CHECK(oversize == 0 && dup == 0, "catalog: style vocabularies fit the seeded bag, no repeats");
+    int identity = STYLE_TABLE[STYLE_CAVERN].vocab_count == PRIM_COUNT_CAVERN;
+    for(int k = 0; k < PRIM_COUNT_CAVERN; k++) identity &= STYLE_TABLE[STYLE_CAVERN].vocab[k] == k;
+    CHECK(identity, "catalog: cavern vocabulary is slot = id (its chunks predate the table)");
 }
 
 static void test_styles(void) {
@@ -432,6 +456,47 @@ static void test_names_determinism(void) {
      * hard guarantee (16x16 = 256 possible names per biome → collisions
      * exist) but should hold for these specific inputs. */
     CHECK(strcmp(a, c) != 0, "names: neighbour chunk gets different name");
+}
+
+/* WORLDGEN 6: names by style. Cavern + moor names are pinned byte for byte
+ * from v5 (recorded before the change); built places share one name per
+ * region; every style's longest name fits without truncation. */
+static void test_names_by_style(void) {
+    static const struct { uint8_t style; int cx, cy; const char* name; } PIN[] = {
+        {STYLE_CAVERN, 0, 0, "Stone Cavern"}, {STYLE_CAVERN, 3, -2, "Deep Pit"},
+        {STYLE_CAVERN, -7, 5, "Black Shaft"}, {STYLE_CAVERN, 12, 9, "Deepshaft"},
+        {STYLE_MOOR, 0, 0, "Windshore"},      {STYLE_MOOR, 3, -2, "Lorwood"},
+        {STYLE_MOOR, -7, 5, "Briar Moor"},    {STYLE_MOOR, 12, 9, "Lordown"},
+    };
+    char a[NAME_MAX_LEN], b[NAME_MAX_LEN];
+    int moved = 0;
+    for(unsigned i = 0; i < sizeof(PIN) / sizeof(PIN[0]); i++) {
+        name_for_chunk(0xCAFEBABE, PIN[i].cx, PIN[i].cy, PIN[i].style, a, sizeof(a));
+        if(strcmp(a, PIN[i].name) != 0) moved++, printf("    %s -> %s\n", PIN[i].name, a);
+    }
+    CHECK(moved == 0, "names: cavern + moor names unchanged by WORLDGEN 6");
+
+    int split = 0, shared = 0, too_long = 0;
+    for(int st = 0; st < STYLE_COUNT; st++) {
+        int per_region = STYLE_TABLE[st].name_scope == NAME_SCOPE_REGION;
+        for(int cy = -9; cy <= 9; cy++)
+            for(int cx = -9; cx <= 9; cx++) {
+                char big[64];
+                name_for_chunk(0x12345678, cx, cy, (uint8_t)st, big, sizeof(big));
+                if(strlen(big) >= NAME_MAX_LEN) too_long++;
+                name_for_chunk(0x12345678, cx, cy, (uint8_t)st, a, sizeof(a));
+                name_for_chunk(0x12345678, cx + 1, cy, (uint8_t)st, b, sizeof(b));
+                int same_region = region_of(cx) == region_of(cx + 1);
+                if(per_region && same_region && strcmp(a, b) != 0) split++;
+                if(!per_region && strcmp(a, b) == 0) shared++;
+            }
+    }
+    CHECK(split == 0, "names: every chunk of a built place's region shares its name");
+    CHECK(shared < 40, "names: wild places still name chunk by chunk");
+    CHECK(too_long == 0, "names: every style's names fit NAME_MAX_LEN");
+    name_for_chunk(0x12345678, 0, 0, STYLE_KEEP, a, sizeof(a));
+    name_for_chunk(0x12345678, 0, 0, STYLE_MANOR, b, sizeof(b));
+    CHECK(strcmp(a, b) != 0, "names: a keep and a manor on the same ground are named differently");
 }
 
 static void test_names_biome_distinct(void) {
@@ -2431,6 +2496,7 @@ int main(void) {
     test_glyphs_vs_weather();
     test_names_determinism();
     test_names_biome_distinct();
+    test_names_by_style();
     test_names_cap_truncates();
     test_names_distribution();
     test_trade_determinism();
