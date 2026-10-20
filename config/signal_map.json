@@ -93,6 +93,17 @@
       "ambient": null,
       "status": "built"
     },
+    "KitbashEngine": {
+      "emits": [
+        "assembly_ready"
+      ],
+      "consumes": [
+        "entropy_jitter",
+        "atmosphere_snapshot"
+      ],
+      "ambient": null,
+      "status": "built"
+    },
     "SessionBoundary": {
       "emits": [
         "world_age",
