@@ -81,11 +81,11 @@ bool pool_equal(const Pool* a, const Pool* b) {
 #define BIOME_CAVERN  0u
 #define BIOME_OUTDOOR 1u
 
-#define CAVERN_VOCAB_COUNT  6
-#define OUTDOOR_VOCAB_COUNT 6
+#define CAVERN_VOCAB_COUNT  8   /* WORLDGEN 7: every bag slot seeded (was 6) */
+#define OUTDOOR_VOCAB_COUNT 8
 
-static const uint8_t CAVERN_VOCAB[CAVERN_VOCAB_COUNT] = {0, 1, 2, 3, 4, 5};
-static const uint8_t OUTDOOR_VOCAB[OUTDOOR_VOCAB_COUNT] = {0, 1, 2, 3, 4, 5};
+static const uint8_t CAVERN_VOCAB[CAVERN_VOCAB_COUNT] = {0, 1, 2, 3, 4, 5, 6, 7};
+static const uint8_t OUTDOOR_VOCAB[OUTDOOR_VOCAB_COUNT] = {0, 1, 2, 3, 4, 5, 6, 7};
 
 static void pool_seed_bag(Pool* p, uint32_t prime_seed, uint8_t biome) {
     /* Initialize bag from biome vocabulary. The primitive IDs go in

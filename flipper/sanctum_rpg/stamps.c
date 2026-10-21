@@ -49,6 +49,8 @@ const PrimitiveDef PRIMITIVES[PRIM_COUNT_TOTAL] = {
     {PRIM_SU,  'Z',  0,   1},
     {PRIM_PW,  'p',  0,   0},
     {PRIM_PL,  '[',  1,   0},   /* WORLDGEN 5: '\'' was the rain overlay */
+    {PRIM_GR,  'g',  0,   0},   /* WORLDGEN 7: the dead */
+    {PRIM_DL,  'h',  0,   0},
 };
 
 const PrimitiveDef* primitive_def(uint8_t id) {
@@ -295,6 +297,95 @@ const StampDef STAMPS[] = {
     /* id=58 — glowcap pocket: light in the dark, +2 fuel each */
     {58, STAMP_STYLE_CAVERN, 2, 2, SF_UNCOMMON, R_ALL, 3,
      {{PRIM_GC, 0, 0}, {PRIM_MW, 1, 0}, {PRIM_GC, 1, 1}, {0,0,0},{0,0,0},{0,0,0}}},
+
+    /* ── mausoleum (WORLDGEN 7) ── */
+    /* id=59 — the two tombs */
+    {59, STAMP_STYLE_MAUSOLEUM, 3, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_SA, 0, 0}, {PRIM_SA, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=60 — a mourner in stone */
+    {60, STAMP_STYLE_MAUSOLEUM, 1, 1, SF_COMMON, R_NONE, 1,
+     {{PRIM_SU, 0, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=61 — laid in state */
+    {61, STAMP_STYLE_MAUSOLEUM, 3, 1, SF_COMMON, R_FLIP, 3,
+     {{PRIM_UR, 0, 0}, {PRIM_SA, 1, 0}, {PRIM_UR, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=62 — flagged floor */
+    {62, STAMP_STYLE_MAUSOLEUM, 2, 2, SF_COMMON, R_NONE, 4,
+     {{PRIM_FS, 0, 0}, {PRIM_FS, 1, 0}, {PRIM_FS, 0, 1}, {PRIM_FS, 1, 1}, {0,0,0}, {0,0,0}}},
+    /* id=63 — the little altar */
+    {63, STAMP_STYLE_MAUSOLEUM, 2, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_UR, 0, 0}, {PRIM_AL, 1, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=64 — the family vault (rare) */
+    {64, STAMP_STYLE_MAUSOLEUM, 3, 2, SF_RARE, R_NONE, 5,
+     {{PRIM_SU, 0, 0}, {PRIM_SA, 1, 0}, {PRIM_SU, 2, 0}, {PRIM_FS, 0, 1}, {PRIM_FS, 2, 1}, {0,0,0}}},
+
+    /* ── burial mound (WORLDGEN 7) ── */
+    /* id=65 — a grave in the barrow */
+    {65, STAMP_STYLE_MOUND, 1, 1, SF_COMMON, R_NONE, 1,
+     {{PRIM_GR, 0, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=66 — two graves */
+    {66, STAMP_STYLE_MOUND, 3, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_GR, 0, 0}, {PRIM_GR, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=67 — the passage stones */
+    {67, STAMP_STYLE_MOUND, 3, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_SS, 0, 0}, {PRIM_SS, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=68 — grave goods */
+    {68, STAMP_STYLE_MOUND, 2, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_UR, 0, 0}, {PRIM_BP, 1, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=69 — a bed of bones */
+    {69, STAMP_STYLE_MOUND, 2, 2, SF_COMMON, R_ALL, 3,
+     {{PRIM_BP, 0, 0}, {PRIM_BP, 1, 0}, {PRIM_BP, 1, 1}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=70 — the chamber */
+    {70, STAMP_STYLE_MOUND, 3, 1, SF_UNCOMMON, R_NONE, 3,
+     {{PRIM_SS, 0, 0}, {PRIM_GR, 1, 0}, {PRIM_SS, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+
+    /* ── burial cavern (WORLDGEN 7): no masonry ── */
+    /* id=71 — bone heap */
+    {71, STAMP_STYLE_BURIAL_CAVE, 2, 2, SF_COMMON, R_ALL, 3,
+     {{PRIM_BP, 0, 0}, {PRIM_BP, 1, 0}, {PRIM_BP, 1, 1}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=72 — laid by the rock */
+    {72, STAMP_STYLE_BURIAL_CAVE, 2, 1, SF_COMMON, R_FLIP, 2,
+     {{PRIM_ST, 0, 0}, {PRIM_BP, 1, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=73 — offerings */
+    {73, STAMP_STYLE_BURIAL_CAVE, 3, 1, SF_COMMON, R_FLIP, 3,
+     {{PRIM_UR, 0, 0}, {PRIM_BP, 1, 0}, {PRIM_UR, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=74 — moss over the dead */
+    {74, STAMP_STYLE_BURIAL_CAVE, 2, 2, SF_COMMON, R_NONE, 4,
+     {{PRIM_MW, 0, 0}, {PRIM_BP, 1, 0}, {PRIM_MW, 0, 1}, {PRIM_MW, 1, 1}, {0,0,0}, {0,0,0}}},
+    /* id=75 — the old stone */
+    {75, STAMP_STYLE_BURIAL_CAVE, 1, 1, SF_UNCOMMON, R_NONE, 1,
+     {{PRIM_DL, 0, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=76 — the gathering (rare) */
+    {76, STAMP_STYLE_BURIAL_CAVE, 3, 2, SF_RARE, R_NONE, 5,
+     {{PRIM_ST, 0, 0}, {PRIM_DL, 1, 0}, {PRIM_ST, 2, 0}, {PRIM_BP, 0, 1}, {PRIM_BP, 2, 1}, {0,0,0}}},
+
+    /* ── the dead in the older styles (WORLDGEN 7, spec 50 Q1 §Q.0) ── */
+    /* id=77 — moor: a lone grave */
+    {77, STAMP_STYLE_MOOR, 1, 1, SF_UNCOMMON, R_NONE, 1,
+     {{PRIM_GR, 0, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=78 — moor: the old altar (rare) */
+    {78, STAMP_STYLE_MOOR, 3, 1, SF_RARE, R_FLIP, 3,
+     {{PRIM_SC, 0, 0}, {PRIM_DL, 1, 0}, {PRIM_SC, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=79 — forest: a stone in a clearing (rare) */
+    {79, STAMP_STYLE_FOREST, 3, 1, SF_RARE, R_FLIP, 3,
+     {{PRIM_TG, 0, 0}, {PRIM_DL, 1, 0}, {PRIM_TG, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=80 — abbey: the churchyard */
+    {80, STAMP_STYLE_ABBEY, 3, 2, SF_COMMON, R_FLIP, 4,
+     {{PRIM_GR, 0, 0}, {PRIM_GR, 2, 0}, {PRIM_GR, 0, 1}, {PRIM_GR, 2, 1}, {0,0,0}, {0,0,0}}},
+    /* id=81 — manor: the family plot */
+    {81, STAMP_STYLE_MANOR, 2, 1, SF_UNCOMMON, R_FLIP, 2,
+     {{PRIM_GR, 0, 0}, {PRIM_GR, 1, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=82 — keep: soldiers' graves */
+    {82, STAMP_STYLE_KEEP, 3, 1, SF_UNCOMMON, R_FLIP, 2,
+     {{PRIM_GR, 0, 0}, {PRIM_GR, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=83 — crypt: the altar */
+    {83, STAMP_STYLE_CRYPT, 3, 1, SF_UNCOMMON, R_NONE, 3,
+     {{PRIM_UR, 0, 0}, {PRIM_AL, 1, 0}, {PRIM_UR, 2, 0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=84 — cavern: the old stone (rare) */
+    {84, STAMP_STYLE_CAVERN, 1, 1, SF_RARE, R_NONE, 1,
+     {{PRIM_DL, 0, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
+    /* id=85 — mine: a stone they dug around (rare) */
+    {85, STAMP_STYLE_MINE, 2, 1, SF_RARE, R_FLIP, 2,
+     {{PRIM_DL, 0, 0}, {PRIM_RB, 1, 0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}}},
 };
 
 const int STAMP_COUNT = (int)(sizeof(STAMPS) / sizeof(STAMPS[0]));

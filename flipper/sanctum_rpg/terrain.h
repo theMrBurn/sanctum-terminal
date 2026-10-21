@@ -38,6 +38,8 @@ typedef enum {
     TM_FRAME,      /* manor: plaster in a dark timber frame, a brace on some tiles */
     TM_ASHLAR,     /* keep: big dressed blocks, an arrow slit on some tiles */
     TM_CARVED,     /* abbey: smooth stone, a lancet window on some tiles */
+    TM_EARTH,      /* burial mound: packed earth under turf, roots and stones
+                      in it (no slab: an upright outline read as a door) */
     TM_STYLE_WALL, /* "this region's wall": resolved by the renderer from the
                     * world's style (StyleDef.wall_material). Plain walls and
                     * secrets use it, so a crypt's walls are brick. */

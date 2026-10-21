@@ -106,7 +106,7 @@ Style world_wall_style(const World* w, int x, int y);
 
 /* World-generator version (spec 43 §14.0). Any change that moves a chunk
  * golden MUST bump this, and the golden test pins fingerprints to it. */
-#define WORLDGEN_VERSION 6   /* 2: styles; 3: cavern blockers' own glyphs; 4: interiors + glowcaps; 5: floor glyphs clear of weather overlays (2026-10-14); 6: Pool bias by style vocabulary, place names by style (2026-10-20) */
+#define WORLDGEN_VERSION 7   /* 2: styles; 3: cavern blockers' own glyphs; 4: interiors + glowcaps; 5: floor glyphs clear of weather overlays (2026-10-14); 6: Pool bias by style vocabulary, place names by style (2026-10-20); 7: the burial family, graves + altar stones, 8-slot Pool, a neutral waking region (2026-10-21) */
 
 /* May a saved tile mutation (deltas) land on this freshly generated tile?
  * Only floor, loot and harvestable terrain (a glowcap) take one. After a WORLDGEN_VERSION bump a saved

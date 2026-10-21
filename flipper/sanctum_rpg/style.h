@@ -32,6 +32,9 @@ typedef enum {
     STYLE_MANOR,        /* above ground, enclosed: a dwelling */
     STYLE_KEEP,         /* above ground, enclosed: a fortification */
     STYLE_ABBEY,        /* above ground, enclosed: a holy place */
+    STYLE_MAUSOLEUM,    /* above ground, enclosed: a house for the dead */
+    STYLE_MOUND,        /* above ground, enclosed: an earthen burial mound */
+    STYLE_BURIAL_CAVE,  /* underground, rough: a small cavern of the dead */
     STYLE_COUNT,
 } Style;
 
@@ -44,6 +47,7 @@ typedef enum {
     FAMILY_DWELLINGS,   /* above ground, enclosed, lived in */
     FAMILY_FORTIFICATIONS, /* above ground, enclosed, held */
     FAMILY_HOLY,        /* above ground, enclosed, kept */
+    FAMILY_BURIAL,      /* either realm: places made for the dead (spec 50 Q1) */
     FAMILY_COUNT,
 } StyleFamily;
 
@@ -51,8 +55,9 @@ typedef enum {
 #define NAME_SCOPE_CHUNK  0u   /* wild places: every chunk its own name */
 #define NAME_SCOPE_REGION 1u   /* built places: the whole region shares one */
 
-/* Pool bag slots that are seeded (pool.c seeds 6 of POOL_BAG_SLOTS). */
-#define STYLE_VOCAB_MAX 6
+/* Pool bag slots that are seeded (pool.c seeds all POOL_BAG_SLOTS since
+ * WORLDGEN 7; it seeded 6 before). */
+#define STYLE_VOCAB_MAX 8
 
 typedef struct {
     const char* name;
@@ -65,10 +70,13 @@ typedef struct {
     /* The style's primitive vocabulary (PRIM_*), in Pool bag-slot order:
      * vocab[k] is biased by the Pool's bag slot k (stamps.c). The ORDER is
      * part of the generator — reordering moves the world (WORLDGEN bump).
-     * Cavern is {0..5}, so slot = id and its chunks predate this table. */
+     * Cavern starts {0..5}, so slot = id and its chunks predate this table.
+     * New primitives are APPENDED (slots 6, 7), never inserted. */
     uint8_t vocab[STYLE_VOCAB_MAX];
     uint8_t vocab_count;
     uint8_t name_scope;   /* NAME_SCOPE_*: a built place has one name per region */
+    uint8_t may_wake;     /* 1 = the waking region may be this style. The player
+                           * wakes somewhere neutral: no burial place (spec 58) */
 } StyleDef;
 
 extern const StyleDef STYLE_TABLE[STYLE_COUNT];

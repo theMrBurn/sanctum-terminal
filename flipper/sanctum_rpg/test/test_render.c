@@ -446,15 +446,16 @@ static void test_map_legibility(void) {
 /* RULE: a wall an open chunk grows to face a walled neighbour is the
  * neighbour's wall (World.seam_style): it takes the neighbour's material,
  * and so does a secret in it — a secret drawn in the open chunk's stone
- * among abbey walls would give itself away in first person. DEADBEEF (0,0)
- * is a moor whose west edge faces an abbey. */
+ * among abbey walls would give itself away in first person. DEADBEF2 (3,6)
+ * is a moor whose west edge faces an abbey (WORLDGEN 7; it was DEADBEEF
+ * (0,0) until the burial styles reshuffled the regions). */
 static void test_seam_walls_are_the_neighbours(void) {
     World w;
-    world_generate_chunk(0xDEADBEEF, 0, 0, &w);
+    world_generate_chunk(0xDEADBEF2, 3, 6, &w);
     CHECK(w.style == STYLE_MOOR && w.seam_style[WORLD_SEAM_W] == STYLE_ABBEY,
-          "seam: DEADBEEF (0,0) is a moor whose west wall faces an abbey");
-    int y = 3;
-    while(y < WORLD_ROWS - 1 && w.tiles[y][1] != TILE_FLOOR) y++;
+          "seam: DEADBEF2 (3,6) is a moor whose west wall faces an abbey");
+    int y = 1;   /* a row where the west edge is wall (not the door) with floor before it */
+    while(y < WORLD_ROWS - 1 && (w.tiles[y][1] != TILE_FLOOR || w.tiles[y][0] != TILE_WALL)) y++;
     Canvas c;
     canvas_clear(&c);
     render_fpv_world(&c, &w, 1, y, FPV_FACE_W, NULL, 0);

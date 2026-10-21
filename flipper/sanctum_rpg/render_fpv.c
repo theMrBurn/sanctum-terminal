@@ -803,6 +803,14 @@ static const int WALL_DARK_INK[WALL_DARK_STEPS] = {1, 3, 5, 8, 11, 14};
 #define LANCET_SPRING_V      112    /* abbey: where the pointed arch springs */
 #define LANCET_V1            216    /* abbey: window sill */
 #define LANCET_EVERY           2    /* abbey: one face in this many has a window */
+#define EARTH_TURF_V          44    /* mound: where the turf meets the earth */
+#define EARTH_TURF_WOBBLE      6    /* mound: turf line rise and fall */
+#define EARTH_ROOT_LEN        22    /* mound: roots hanging below the turf */
+#define EARTH_ROOT_PITCH      48    /* mound: one root in this many u */
+#define EARTH_STONE_R         14    /* mound: a stone in the earth, smallest radius */
+#define EARTH_STONE_GROW      12    /* mound: ...plus up to this much */
+#define EARTH_STONES           3    /* mound: stones per face */
+#define EARTH_DARKER           1    /* mound: earth sits a little darker than stone */
 
 static const uint8_t BAYER4[4][4] = {
     { 0,  8,  2, 10},
@@ -909,6 +917,25 @@ static bool surface_seam(SlabMaterial mat, uint32_t th, int u, int v, int px_u, 
         int apex = LANCET_SPRING_V - 2 * LANCET_HALF_U;
         return v > apex && du * 2 < v - apex;
     }
+    case TM_EARTH: {                                  /* earth under turf; roots; stones */
+        int wob = (int)(((uint32_t)(u / 32) * 37u + th) % (2 * EARTH_TURF_WOBBLE + 1)) - EARTH_TURF_WOBBLE;
+        int turf = EARTH_TURF_V + wob, dt = v - turf;
+        if(dt < 0) dt = -dt;
+        if(dt * 2 < px_v + 2) return true;            /* the turf line */
+        if(v < turf) return false;                    /* the turf itself: plain */
+        int ru = (u + (int)(th % EARTH_ROOT_PITCH)) % EARTH_ROOT_PITCH;
+        if(v < turf + EARTH_ROOT_LEN - (int)(th >> 5) % 8 && ru * 2 < px_u + 2) return true;   /* a root */
+        for(int k = 0; k < EARTH_STONES; k++) {       /* stones packed in the earth */
+            uint32_t sh = th * (2654435761u + (uint32_t)k * 40503u);
+            int cu = 24 + (int)((sh >> 4) % 208u);
+            int cv = turf + 36 + (int)((sh >> 12) % (uint32_t)(212 - turf));
+            int du = u - cu, dv = v - cv;
+            int r = EARTH_STONE_R + (int)((sh >> 20) % EARTH_STONE_GROW);
+            int d2 = du * du + dv * dv, w = px_u > px_v ? px_u : px_v;
+            if(d2 >= r * r && d2 < (r + w + 1) * (r + w + 1)) return true;
+        }
+        return false;
+    }
     case TM_MONOLITH: {
         int crack = 64 + (int)(th % 128) + ((v * 3 / 256) & 1) * MONOLITH_CRACK_WOBBLE;
         int du = u - crack;
@@ -954,7 +981,8 @@ static void draw_wall_column(
     int bot = top + wall_h - 1;
     int y0 = top < 0 ? 0 : top;
     int y1 = bot >= FPV_VIEW_H ? FPV_VIEW_H - 1 : bot;
-    int dens = wall_density(perp, side) + (mat == TM_MONOLITH ? MONOLITH_DARKER : 0);
+    int dens = wall_density(perp, side) + (mat == TM_MONOLITH ? MONOLITH_DARKER : 0) +
+               (mat == TM_EARTH ? EARTH_DARKER : 0);
     if(dens > 16) dens = 16;
     bool textured = wall_h >= WALL_TEXTURE_MIN_H;
     /* Texture units per screen pixel: vertical from the wall height;

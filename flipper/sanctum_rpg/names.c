@@ -75,6 +75,25 @@ static const char* const ABBEY_SUFFIX[16] = {
     " Oratory", " Cell", " Rood", " Sanctuary",
 };
 
+/* The burial family (WORLDGEN 7). */
+static const char* const MAUSOLEUM_SUFFIX[16] = {
+    " Mausoleum", " Vault", " Tomb", " Sepulchre", " House", " Rest",
+    " Ossuary", " Hold", " Sleep", " Charnel", " Tombs", " Repose",
+    " Shrine", " Lair", " Hallows", " Vaults",
+};
+
+static const char* const MOUND_SUFFIX[16] = {
+    " Barrow", " Mound", " Howe", " Tump", " Low", " Hill",
+    "barrow", " Knoll", " Cairn", " Tumulus", " Rise", " Grave",
+    " Mounds", " Hump", " Hlaw", " Barrows",
+};
+
+static const char* const BURIAL_CAVE_SUFFIX[16] = {
+    " Hollow", " Bonehole", " Den", " Grotto", " Pit", " Cleft",
+    " Rest", " Sleep", " Hole", " Chamber", " Nook", " Deep",
+    " Undercliff", " Bones", " Hollows", " Fissure",
+};
+
 /* Endings per style. A style's realm (STYLE_TABLE.biome) picks the
  * prefixes; its name_scope picks chunk or region (style.h). */
 static const char* const* const STYLE_SUFFIX[STYLE_COUNT] = {
@@ -82,7 +101,10 @@ static const char* const* const STYLE_SUFFIX[STYLE_COUNT] = {
     [STYLE_CRYPT]  = CRYPT_SUFFIX, [STYLE_MINE]   = MINE_SUFFIX,
     [STYLE_FOREST] = FOREST_SUFFIX, [STYLE_MANOR] = MANOR_SUFFIX,
     [STYLE_KEEP]   = KEEP_SUFFIX,  [STYLE_ABBEY]  = ABBEY_SUFFIX,
+    [STYLE_MAUSOLEUM] = MAUSOLEUM_SUFFIX, [STYLE_MOUND] = MOUND_SUFFIX,
+    [STYLE_BURIAL_CAVE] = BURIAL_CAVE_SUFFIX,
 };
+_Static_assert(STYLE_COUNT == 11, "every style needs a suffix table above");
 
 /* Salt for region-scoped names, so a region's name is not its anchor
  * chunk's per-chunk name. */

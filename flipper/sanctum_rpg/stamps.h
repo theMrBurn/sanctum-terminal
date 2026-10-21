@@ -89,9 +89,14 @@
 #define PRIM_PW  31u  /* 'p' pew           — blocking */
 #define PRIM_PL  32u  /* '[' boards       — floor mark */
 
+/* The dead (WORLDGEN 7, spec 50 Q1). The opened grave 'G' and opened
+ * sarcophagus 'N' are never stamped: they are deltas, so no primitive. */
+#define PRIM_GR  33u  /* 'g' grave         — blocking, low */
+#define PRIM_DL  34u  /* 'h' altar stone   — blocking (a dolmen) */
+
 #define PRIM_COUNT_CAVERN  6
 #define PRIM_COUNT_OUTDOOR 6
-#define PRIM_COUNT_TOTAL  33
+#define PRIM_COUNT_TOTAL  35
 
 typedef struct {
     uint8_t id;
@@ -130,6 +135,9 @@ bool primitive_glyph_blocks_sight(char glyph);
 #define STAMP_STYLE_MANOR   5u
 #define STAMP_STYLE_KEEP    6u
 #define STAMP_STYLE_ABBEY   7u
+#define STAMP_STYLE_MAUSOLEUM   8u
+#define STAMP_STYLE_MOUND       9u
+#define STAMP_STYLE_BURIAL_CAVE 10u
 #define STAMP_BIOME_CAVERN  0u
 #define STAMP_BIOME_OUTDOOR 1u
 

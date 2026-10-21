@@ -249,7 +249,7 @@ static void test_chunk_invariants(void) {
 /* The generator version these fingerprints were recorded under. Re-record
  * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
  * this to match — the check below fails if the two drift apart. */
-#define GOLDEN_WORLDGEN_VERSION 6
+#define GOLDEN_WORLDGEN_VERSION 7
 
 static void test_chunk_golden(void) {
     CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
@@ -289,16 +289,30 @@ static void test_chunk_golden(void) {
          * primitive ids and only cavern ids (0..5) were ever in the bag, so
          * no other style was ever biased. Cavern vocab = {0..5}, so both
          * cavern cases hold; the other seven move. v5: 0x07E6DFEC
-         * 0xE07A1B4E 0x076874FA 0x24E3D04E 0xAEAD9456 0x6B304778 0xF1B665B4. */
+         * 0xE07A1B4E 0x076874FA 0x24E3D04E 0xAEAD9456 0x6B304778 0xF1B665B4.
+         * WORLDGEN 7 (2026-10-21): the burial family (mausoleum, burial
+         * mound, burial cavern) joins the style weights, so most regions
+         * pick again; graves and altar stones join the older styles; the
+         * Pool seeds all 8 bag slots (was 6); the waking region never picks
+         * a burial style. The two CAFEBABE cavern cases sit in the waking
+         * region, whose choice is unchanged, and hold. The rest moved, and
+         * several changed style, so the labels below are new; four cases
+         * were added so mausoleum, mound, mine and manor stay covered.
+         * v6: 0xF0190C9A 0xD76992DE 0x9284A31F 0xC42D099E 0x8907914B
+         * 0xF884806D 0xAFCF19E9. */
         {0xCAFEBABE, 0, 0, 0xAA0B4171},
         {0xCAFEBABE, 1, 0, 0x0642A257},
-        {0xDEADBEEF, 0, 0, 0xF0190C9A},
-        {0x00000001, -3, 5, 0xD76992DE},
-        {0x12345678, 4, -2, 0x9284A31F},   /* crypt */
-        {0x12345678, 1, -5, 0xC42D099E},   /* mine */
-        {0x12345678, 4, 1, 0x8907914B},    /* forest */
-        {0x12345678, 7, -5, 0xF884806D},   /* manor */
-        {0x12345678, 7, -8, 0xAFCF19E9},   /* keep */
+        {0xDEADBEEF, 0, 0, 0x46A72DBF},             /* moor */
+        {0x00000001, -3, 5, 0xFAAC554E},            /* forest */
+        {0x12345678, 4, -2, 0xCE03D6D0},            /* crypt */
+        {0x12345678, 1, -5, 0x2C560D59},            /* burial cavern */
+        {0x12345678, 4, 1, 0x4E738B0A},             /* keep */
+        {0x12345678, 7, -5, 0x84B02760},            /* forest */
+        {0x12345678, 7, -8, 0xFDF54A80},            /* abbey */
+        {0x12345678, -3, -4, 0x2F53AD25},           /* mausoleum */
+        {0x12345678, 3, -7, 0x093EE793},            /* burial mound */
+        {0x12345678, 0, 0, 0xA97EF655},             /* mine (the waking region) */
+        {0x12345678, 9, -9, 0xD3BD0BFB},            /* manor */
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     for(int i = 0; i < n; i++) {
@@ -407,9 +421,9 @@ static void test_style_catalog(void) {
     }
     CHECK(unbiased == 0, "catalog: every stamped primitive is in its style's Pool vocabulary");
     CHECK(oversize == 0 && dup == 0, "catalog: style vocabularies fit the seeded bag, no repeats");
-    int identity = STYLE_TABLE[STYLE_CAVERN].vocab_count == PRIM_COUNT_CAVERN;
+    int identity = STYLE_TABLE[STYLE_CAVERN].vocab_count >= PRIM_COUNT_CAVERN;
     for(int k = 0; k < PRIM_COUNT_CAVERN; k++) identity &= STYLE_TABLE[STYLE_CAVERN].vocab[k] == k;
-    CHECK(identity, "catalog: cavern vocabulary is slot = id (its chunks predate the table)");
+    CHECK(identity, "catalog: cavern vocabulary starts slot = id (its chunks predate the table)");
 }
 
 static void test_styles(void) {
@@ -441,6 +455,21 @@ static void test_styles(void) {
     CHECK(biome_pool(BIOME_CAVERN) == STAMP_BIOME_CAVERN && biome_pool(BIOME_OUTDOOR) == STAMP_BIOME_OUTDOOR,
           "style: the Pool stays keyed by biome");
     CHECK(region_hash(1, 2, 3) != region_hash(1, -2, -3), "style: region hash has no mirror twins");
+
+    /* The player wakes somewhere neutral (spec 58): over many seeds the
+     * waking chunk is never a burial place, and burial places do occur. */
+    int woke_in_burial = 0, burial_seen = 0;
+    for(uint32_t seed = 1; seed <= 2000; seed++) {
+        woke_in_burial += !STYLE_TABLE[style_of(seed, 0, 0)].may_wake;
+        burial_seen += !STYLE_TABLE[style_of(seed, 4, 4)].may_wake;
+    }
+    CHECK(woke_in_burial == 0, "style: the waking region is never a burial place");
+    CHECK(burial_seen > 0, "style: burial places still occur away from the waking region");
+    int wake_ok[BIOME_COUNT] = {0};
+    for(int st = 0; st < STYLE_COUNT; st++)
+        if(STYLE_TABLE[st].may_wake && STYLE_TABLE[st].weight) wake_ok[STYLE_TABLE[st].biome]++;
+    for(int b = 0; b < BIOME_COUNT; b++)
+        CHECK(wake_ok[b] > 0, "style: each realm has a style the player may wake in");
 }
 
 /* ── names (procedural place names, slice 2026-06-03c) ──────────────
