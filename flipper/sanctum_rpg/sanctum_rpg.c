@@ -50,6 +50,7 @@
 #include "trade.h"
 #include "region.h"
 #include "quirk.h"
+#include "sky.h"
 #include "weather.h"
 #include "world.h"
 
@@ -174,6 +175,7 @@ typedef struct {
     Creature creatures[CREATURES_MAX];
     RegionRituals rituals;  /* regions whose ritual is done (spec 58); saved from slice 4 */
     QuirkPending quirk;     /* an armed cave-in (spec 50 Q1); RAM-only, cleared on leaving the chunk */
+    uint32_t moon_said_night; /* sky_night_id the moon was last named on (0 = never); RAM-only */
     int creature_count;
 
     /* Examine mode (v0.3.5b) — the teaching channel. OK toggles a cursor
@@ -2854,6 +2856,24 @@ static void quirk_tick(AppState* st) {
     if(o.damage && st->character.hp == 0) player_fall(st);
 }
 
+/* Once per night, above ground, near a real full or new moon: name it
+ * (spec 50 Q1 §Q.11.2, 58 §58.9). The clock is an input: read it here,
+ * the sky is derived. Called before quirk_tick, so a cave-in's tell, which
+ * must be seen, wins the status line. */
+static void sky_tick(AppState* st) {
+    if(st->world.biome != BIOME_OUTDOOR) return;
+    DateTime now;
+    furi_hal_rtc_get_datetime(&now);
+    uint64_t t = datetime_datetime_to_timestamp(&now);
+    Sky sky;
+    sky_at(t, &sky);
+    const char* line = sky_line(&sky);
+    uint32_t night = sky_night_id(t) + 1u;   /* +1: 0 means never */
+    if(!line || st->moon_said_night == night) return;
+    st->moon_said_night = night;
+    set_status(st, line);
+}
+
 static void on_world_move(AppState* st, MoveDir dir) {
     if(dir == MoveNone) return;
     /* Update facing to the walked direction — keeps the FPV camera
@@ -3038,6 +3058,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
      * do_transition; same-chunk actions refresh here (fuel change may
      * have shrunk/grown the lit radius). */
     if(took_turn && r != MoveSteppedOnDoor && r != MoveWalkedOffEdge && st->screen == ScreenWorld) {
+        sky_tick(st);
         quirk_tick(st);
     }
     if(r != MoveSteppedOnDoor && r != MoveWalkedOffEdge) {

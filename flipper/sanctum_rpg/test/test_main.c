@@ -36,6 +36,7 @@
 #include "../region.h"
 #include "../quirk.h"
 #include "../site.h"
+#include "../sky.h"
 #include "../stamps.h"
 #include "../terrain.h"
 #include "../compose.h"
@@ -539,6 +540,73 @@ static void test_sites(void) {
             if(n > hi) hi = n;
         }
     CHECK(lo == SITES_PER_REGION_MIN && hi == SITES_PER_REGION_MAX, "sites: counts span MIN..MAX");
+}
+
+/* ── the sky (spec 50 Q1 §Q.11) ─────────────────────────────────────
+ * Real moons land at their phase with full strength; a quarter moon has
+ * none; strength waxes and wanes monotonically through each window; night
+ * splits at the configured hours. */
+static void test_sky(void) {
+    static const struct { uint64_t t; MoonPhase p; } MOONS[] = {
+        {1706205240ull, MOON_FULL},   /* 2024-01-25 17:54 UTC */
+        {1704974220ull, MOON_NEW},    /* 2024-01-11 11:57 UTC */
+        {1741935300ull, MOON_FULL},   /* 2025-03-14 06:55 UTC */
+        {1743245880ull, MOON_NEW},    /* 2025-03-29 10:58 UTC */
+    };
+    Sky s;
+    int wrong = 0, weak = 0;
+    for(unsigned i = 0; i < sizeof(MOONS) / sizeof(MOONS[0]); i++) {
+        sky_at(MOONS[i].t, &s);
+        if(s.phase != MOONS[i].p) wrong++;
+        if(s.moon_strength < MOON_STRENGTH_MAX - 1) weak++;
+    }
+    CHECK(wrong == 0, "sky: known full and new moons land at their phase");
+    CHECK(weak == 0, "sky: a full or new moon is at (near) full strength");
+    sky_at(1705549920ull, &s);   /* 2024-01-18 03:52 UTC, first quarter */
+    CHECK(s.moon_strength == 0 && s.phase == MOON_WAXING, "sky: a quarter moon has no strength");
+
+    /* Through the window around the 2024-01-25 full moon, hour by hour. A
+     * mean month puts real full moons up to ~9 h off (the moon's orbit is
+     * not a circle; measured: 8.5 h and 5.75 h early for the two fulls
+     * above, under 4 h for the news), so the checks keep a 12 h margin. */
+    const int64_t reach = (int64_t)MOON_REACH_DAYS * 86400, slack = 12 * 3600;
+    int rises = 0, falls = 0, outside = 0;
+    uint8_t prev = 0;
+    for(int64_t dt = -reach - 2 * slack; dt <= reach + 2 * slack; dt += 3600) {
+        sky_at((uint64_t)(1706205240ll + dt), &s);
+        if(dt < -slack && dt > -reach - 2 * slack + 3600 && s.moon_strength < prev) rises++;
+        if(dt > slack && s.moon_strength > prev) falls++;
+        if((dt < -reach - slack || dt > reach + slack) && s.moon_strength != 0) outside++;
+        prev = s.moon_strength;
+    }
+    CHECK(rises == 0 && falls == 0, "sky: strength waxes to the phase and wanes after it");
+    CHECK(outside == 0, "sky: no strength outside MOON_REACH_DAYS");
+
+    const uint64_t day = 1706140800ull;   /* 2024-01-25 00:00 */
+    sky_at(day + 19 * 3600 + 3599, &s);
+    int dusk_day = !s.night;
+    sky_at(day + 20 * 3600, &s);
+    int dusk_night = s.night;
+    sky_at(day + 5 * 3600 + 3599, &s);
+    int dawn_night = s.night;
+    sky_at(day + 6 * 3600, &s);
+    CHECK(dusk_day && dusk_night && dawn_night && !s.night, "sky: night is 20:00 to 06:00");
+    CHECK(sky_night_id(day + 23 * 3600) == sky_night_id(day + 86400 + 2 * 3600) &&
+          sky_night_id(day + 23 * 3600) != sky_night_id(day + 86400 + 23 * 3600),
+          "sky: the small hours belong to the night before");
+
+    /* The line: only at night, only near full or new, and it fits. */
+    sky_at(1706140800ull + 22 * 3600, &s);   /* 2024-01-25 22:00, full */
+    const char* full_night = sky_line(&s);
+    sky_at(1706140800ull + 12 * 3600, &s);   /* same day, noon */
+    const char* full_day = sky_line(&s);
+    sky_at(1705549920ull - 3 * 3600 + 22 * 3600, &s);   /* quarter moon, night */
+    const char* quarter = sky_line(&s);
+    sky_at(1704974220ull - 11 * 3600 + 23 * 3600, &s);   /* 2024-01-11 23:00, new */
+    const char* new_night = sky_line(&s);
+    CHECK(full_night && new_night && full_night != new_night, "sky: a full and a new moon each have a line at night");
+    CHECK(!full_day && !quarter, "sky: no line by day or under a quarter moon");
+    CHECK(strlen(full_night) <= 30 && strlen(new_night) <= 30, "sky: the moon lines fit the status bar");
 }
 
 /* ── names (procedural place names, slice 2026-06-03c) ──────────────
@@ -2787,6 +2855,7 @@ int main(void) {
     test_chunk_golden();
     test_styles();
     test_sites();
+    test_sky();
     test_mutation_guard();
     test_terrain_steps();
     test_style_catalog();
