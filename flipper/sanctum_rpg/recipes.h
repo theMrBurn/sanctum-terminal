@@ -26,6 +26,14 @@ typedef enum {
     PULL_JACKPOT,    /* the item, masterwork (qty 2 — bonus stack) */
 } PullTier;
 
+/* What a recipe makes (spec 50 Q1 §Q.10.1, spec 58 §58.7.1). Restorative
+ * recipes are known from the start; the others are hidden until learned. */
+typedef enum {
+    RC_RESTORATIVE = 0,  /* healing, food, tools */
+    RC_POWER,            /* an object of power for a rite (spec 58: the made way) */
+    RC_DESTRUCTIVE,      /* poisons, rot, blight (spec 50 Q1 §Q.10) */
+} RecipeClass;
+
 /* Sentinel for "no second input." */
 #define RECIPE_NO_INPUT 0xFFu
 
@@ -50,7 +58,15 @@ typedef struct {
      * must be strictly less than the summed value of the recipe's inputs —
      * a FLOOR pull is always a net loss, so it can never be an income verb. */
     uint8_t oddment_kind;    /* KindDef id granted on FLOOR */
+    uint8_t cls;             /* RecipeClass; 0 (restorative) for the original rows */
 } RecipeDef;
+
+/* Bit in CharacterState.recipes_known for recipe `id`. */
+#define RECIPE_BIT(id) ((uint16_t)(1u << (id)))
+
+/* The forge lists only what the player knows: restorative recipes always,
+ * the others once learned (`known` = CharacterState.recipes_known). */
+int recipe_known(uint8_t recipe_id, uint16_t known);
 
 extern const RecipeDef RECIPE_CATALOG[];
 extern const int RECIPE_COUNT;

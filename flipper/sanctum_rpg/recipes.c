@@ -58,10 +58,36 @@ const RecipeDef RECIPE_CATALOG[] = {
         .oddment_kind = 2, /* clay pot (value 2) — 2 < 7 input value; you
                             * salvage the pot back, having lost the crystal */
     },
+    /* "Ward" (spec 58 §58.17, the made way) — 1 cord + 1 iron nail → 1 ward,
+     * set at a sealed site for the rite. Hidden until a tome teaches it. A
+     * power recipe never pulls FLOOR: its components are finite and placed,
+     * and a failed attempt must never eat what the player found (§58.7.4). */
+    {
+        .name = "Ward",
+        .output_kind = 16, /* ward */
+        .input_kind_a = 14, /* cord */
+        .input_qty_a = 1,
+        .input_kind_b = 15, /* iron nail */
+        .input_qty_b = 1,
+        .weight_floor = 0,
+        .weight_hit = 100,
+        .weight_jackpot = 0,
+        .oddment_kind = 2, /* never paid: FLOOR can't come up */
+        .cls = RC_POWER,
+    },
 };
 
+/* Hidden rows (spec 58 §58.17). A power recipe never pulls FLOOR: its
+ * components are finite and placed, and a failed attempt must never eat
+ * what the player found (§58.7.4). */
 const int RECIPE_COUNT =
     (int)(sizeof(RECIPE_CATALOG) / sizeof(RECIPE_CATALOG[0]));
+
+int recipe_known(uint8_t recipe_id, uint16_t known) {
+    const RecipeDef* r = recipe_def(recipe_id);
+    if(!r) return 0;
+    return r->cls == RC_RESTORATIVE || (known & RECIPE_BIT(recipe_id)) != 0;
+}
 
 const RecipeDef* recipe_def(uint8_t recipe_id) {
     if((int)recipe_id >= RECIPE_COUNT) return NULL;

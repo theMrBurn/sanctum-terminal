@@ -43,6 +43,8 @@
 #include "../corruption.h"
 #include "../effort.h"
 #include "../ritual.h"
+#include "../arc.h"
+#include "../deeds.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -1051,8 +1053,14 @@ static void test_recipe_oddment_invariant(void) {
             CHECK(ib != NULL, "recipe: input B is a real kind");
             in_value += (uint32_t)ib->value * r->input_qty_b;
         }
-        CHECK((uint32_t)odd->value < in_value,
+        /* A row that can't pull FLOOR (a power recipe) pays no oddment. */
+        CHECK(r->weight_floor == 0 || (uint32_t)odd->value < in_value,
               "recipe: FLOOR is a net loss — the Forge is never income");
+        CHECK(r->cls == RC_RESTORATIVE || r->weight_floor == 0 || r->cls == RC_DESTRUCTIVE,
+              "recipe: a power recipe never pulls FLOOR (found components are never eaten)");
+        CHECK(recipe_known((uint8_t)i, 0) == (r->cls == RC_RESTORATIVE) &&
+              recipe_known((uint8_t)i, RECIPE_BIT(i)),
+              "recipe: restorative rows start known; the others only once learned");
 
         /* ⚠ RECORDED CONSEQUENCE, not yet a decision. At the current catalog
          * the oddment is worth LESS than one shard, so it cannot be sold at
@@ -3100,6 +3108,103 @@ static void test_runes(void) {
     CHECK(kinds[0] && kinds[1] && kinds[2], "runes: all three kinds of puzzle occur");
 }
 
+/* The arc's verbs, end to end in pure logic (§58.5, §58.7): in every region
+ * out to radius 2, a fresh character who picks up everything the region
+ * placed and steps on every carving can seal every site, finds the region
+ * cleansed, and has the easiest way both open and ready, with the effort to
+ * pay for it. Only what the region itself placed is used. */
+static void test_arc_route1(void) {
+    const uint32_t seeds[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu, 0x0BADF00Du};
+    int sealed_all = 1, cleansed = 1, open = 1, ready = 1, refuse = 1, regions = 0;
+    for(size_t si = 0; si < sizeof(seeds) / sizeof(seeds[0]); si++) {
+        uint32_t seed = seeds[si];
+        for(int ry = -2; ry <= 2; ry++)
+            for(int rx = -2; rx <= 2; rx++) {
+                regions++;
+                CharacterState c;
+                memset(&c, 0, sizeof(c));
+                c.hp = 10; c.torch_fuel = TORCH_FUEL_MAX;
+                RegionBook book;
+                region_book_clear(&book);
+                for(int s = 0; s < BIOME_REGION * BIOME_REGION; s++) {
+                    int cx = rx * BIOME_REGION + s % BIOME_REGION, cy = ry * BIOME_REGION + s / BIOME_REGION;
+                    World w;
+                    world_generate_chunk(seed, cx, cy, &w);
+                    for(int a = 0; a < w.arc_count; a++) {
+                        int x = w.arc[a].x, y = w.arc[a].y;
+                        char t = w.tiles[y][x];
+                        if(t == TILE_CARVING) {
+                            ArcStep st;
+                            arc_step(seed, cx, cy, &w, x, y, 10, &book, &st);
+                        } else {
+                            const KindDef* k = kind_by_glyph(t);
+                            arc_pickup(&w, x, y, &c);
+                            if(k) c.inv_qty[k->id]++;
+                        }
+                    }
+                }
+                /* the made way: craft the ward at the forge if taught */
+                const RecipeDef* ward = recipe_def(ARC_RECIPE_WARD);
+                if(recipe_known(ARC_RECIPE_WARD, c.recipes_known) &&
+                   recipe_craftable(ward, c.inv_qty, SAVE_INV_KINDS_MAX)) {
+                    c.inv_qty[ward->input_kind_a]--;
+                    c.inv_qty[ward->input_kind_b]--;
+                    c.inv_qty[ward->output_kind]++;
+                }
+                RegionRite rite;
+                region_rite(seed, rx, ry, &rite);
+                uint8_t axes[DEED_AXIS_COUNT] = {10, 10, 10, 10, 10, 10};
+                /* Not before it is cleansed: nothing is sealed yet. */
+                refuse &= !arc_region_cleansed(seed, rx, ry, &book);
+                RegionSite sites[SITES_PER_REGION_MAX];
+                int ns = region_sites(seed, rx, ry, sites);
+                for(int k = 0; k < ns; k++)
+                    sealed_all &= arc_seal(rx, ry, k, sites[k].kind, &c, &book) == ARC_SEALED;
+                cleansed &= arc_region_cleansed(seed, rx, ry, &book);
+                open &= (arc_ways_open(seed, rx, ry, axes) & WAY_BIT(rite.easiest)) != 0;
+                ready &= arc_way_ready(seed, rx, ry, (RitualWay)rite.easiest, &c, &book);
+            }
+    }
+    CHECK(regions == 100, "arc: 4 seeds x 25 regions walked");
+    CHECK(refuse, "arc: a region with nothing sealed is not cleansed");
+    CHECK(sealed_all, "arc: every site seals with only what its region placed");
+    CHECK(cleansed, "arc: a region with every site sealed is cleansed (route 1)");
+    CHECK(open, "arc: the easiest way is open to a fresh character");
+    CHECK(ready, "arc: after gathering, the easiest way is ready");
+}
+
+/* Sealing's refusals, and what it spends. */
+static void test_arc_seal_rules(void) {
+    CharacterState c;
+    memset(&c, 0, sizeof(c));
+    RegionBook b;
+    region_book_clear(&b);
+    CHECK(arc_seal(0, 0, 0, SITE_GRAVE, &c, &b) == ARC_NEED_WORDS, "seal: without the words, no");
+    c.words_known = (uint8_t)SITE_BIT(SITE_GRAVE);
+    CHECK(arc_seal(0, 0, 0, SITE_GRAVE, &c, &b) == ARC_NEED_ARTIFACT, "seal: without the artifact, no");
+    c.inv_qty[arc_artifact_kind(SITE_TOMB)] = 1;
+    CHECK(arc_seal(0, 0, 0, SITE_GRAVE, &c, &b) == ARC_NEED_ARTIFACT, "seal: the wrong artifact won't do");
+    c.inv_qty[arc_artifact_kind(SITE_GRAVE)] = 2;
+    CHECK(arc_seal(0, 0, 0, SITE_GRAVE, &c, &b) == ARC_SEALED &&
+          c.inv_qty[arc_artifact_kind(SITE_GRAVE)] == 1 && c.inv_qty[arc_artifact_kind(SITE_TOMB)] == 1,
+          "seal: one artifact of the site's kind is spent");
+    CHECK(arc_seal(0, 0, 0, SITE_GRAVE, &c, &b) == ARC_ALREADY &&
+          c.inv_qty[arc_artifact_kind(SITE_GRAVE)] == 1, "seal: a sealed site takes nothing more");
+    CHECK(region_book_get(&b, 0, 0)->flags & RR_FOUND, "seal: sealing finds the region's rot");
+    /* The kinds the arc names are the catalog's. */
+    CHECK(strcmp(kind_by_id(ARC_KIND_WARD)->true_name, "ward") == 0 &&
+          strcmp(kind_by_id(ARC_KIND_CANDLE)->true_name, "candle") == 0 &&
+          strcmp(kind_by_id(arc_artifact_kind(SITE_GRAVE))->true_name, "grave-seal") == 0 &&
+          recipe_def(ARC_RECIPE_WARD)->output_kind == ARC_KIND_WARD,
+          "arc: its kind and recipe ids match the catalogs");
+    /* Spending: only what the way consumes, never on failure (the caller
+     * calls it only on success). */
+    c.inv_qty[ARC_KIND_CANDLE] = c.inv_qty[ARC_KIND_SALT] = c.inv_qty[ARC_KIND_RELIC] = 1;
+    arc_way_spend(WAY_KEPT, &c);
+    CHECK(!c.inv_qty[ARC_KIND_CANDLE] && !c.inv_qty[ARC_KIND_SALT] && !c.inv_qty[ARC_KIND_RELIC],
+          "arc: a kept vigil spends its focus objects");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -3195,6 +3300,8 @@ int main(void) {
     test_effort();
     test_rituals_solvable();
     test_runes();
+    test_arc_route1();
+    test_arc_seal_rules();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
