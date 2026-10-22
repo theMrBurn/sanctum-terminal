@@ -52,6 +52,12 @@ static const uint8_t MAP_WARD[8]    = {0x00, 0x08, 0x2A, 0x1C, 0x7F, 0x1C, 0x2A,
 static const uint8_t MAP_CANDLE[8]  = {0x00, 0x08, 0x00, 0x08, 0x08, 0x08, 0x1C, 0x00}; /* a flame on a stub */
 static const uint8_t MAP_SALT[8]    = {0x00, 0x00, 0x00, 0x08, 0x14, 0x22, 0x7F, 0x00}; /* a little heap */
 static const uint8_t MAP_RELIC[8]   = {0x00, 0x00, 0x06, 0x0E, 0x1C, 0x38, 0x30, 0x00}; /* a finger bone */
+/* spec 50 Q1 §Q.10 — what rot leaves, and what it crafts into. */
+static const uint8_t MAP_ROTCAP[8]  = {0x00, 0x00, 0x1C, 0x2A, 0x3E, 0x08, 0x0C, 0x00}; /* a cap gone spotted, its stem bent */
+static const uint8_t MAP_SOUR[8]    = {0x00, 0x08, 0x08, 0x14, 0x2A, 0x22, 0x1C, 0x00}; /* a vial, clouded */
+static const uint8_t MAP_TINCTURE[8]= {0x00, 0x1C, 0x08, 0x14, 0x3E, 0x3E, 0x1C, 0x00}; /* a full stoppered flask */
+static const uint8_t MAP_DRAUGHT[8] = {0x00, 0x00, 0x3E, 0x22, 0x3E, 0x3E, 0x1C, 0x00}; /* a dark cup */
+static const uint8_t MAP_BLIGHT[8]  = {0x00, 0x2A, 0x1C, 0x3E, 0x7F, 0x7F, 0x3E, 0x00}; /* a round flask, fuming */
 
 const KindDef KIND_CATALOG[] = {
     /* id glyph true_name        unid_name             class           wt  val  flags                                          biomes  fuel heal effect       slot       atk def lt  map form */
@@ -76,6 +82,13 @@ const KindDef KIND_CATALOG[] = {
     {17, 'K', "candle",       "a tallow stub",      KC_ORGANIC,      0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_CANDLE},
     {18, 'P', "salt",         "a twist of salt",    KC_CRYSTALLINE,  0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_SALT},
     {19, ')', "relic",        "a finger bone",      KC_LIFE,         0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_RELIC},
+    /* spec 50 Q1 §Q.10 — spoiled by rot (weight 0: never loot; no heal), and
+     * the destructive tree's outputs (all hidden until found). */
+    {20, 'R', "rotted cap",   "a soft growth",      KC_ORGANIC,      0,  1, KF_PICKUPABLE | KF_CORRUPTED,                  0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_ROTCAP},
+    {21, 'E', "soured vial",  "a clouded vial",     KC_ENCOUNTER,    0,  2, KF_PICKUPABLE | KF_CORRUPTED,                  0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_SOUR},
+    {22, 'F', "rot tincture", "a dark flask",       KC_ENCOUNTER,    0,  4, KF_PICKUPABLE,                                 0,       0, 0, "thrown" ,    EQ_NONE,   0,  0,  0, MAP_TINCTURE},
+    {23, 'X', "sour draught", "a dark cup",         KC_ENCOUNTER,    0,  4, KF_PICKUPABLE,                                 0,       0, 0, "coating",    EQ_NONE,   0,  0,  0, MAP_DRAUGHT},
+    {24, 'L', "blight",       "a fuming flask",     KC_ENCOUNTER,    0,  6, KF_PICKUPABLE,                                 0,       0, 0, "thrown" ,    EQ_NONE,   0,  0,  0, MAP_BLIGHT},
 };
 
 const int KIND_COUNT = (int)(sizeof(KIND_CATALOG) / sizeof(KIND_CATALOG[0]));

@@ -75,6 +75,43 @@ const RecipeDef RECIPE_CATALOG[] = {
         .oddment_kind = 2, /* never paid: FLOOR can't come up */
         .cls = RC_POWER,
     },
+    /* spec 50 Q1 §Q.10.4 (approved 2026-10-22) — the destructive tree, all
+     * hidden at the start. Corrupted things craft only these. The roots
+     * take what rot left; the branch takes both roots' outputs, so it can't
+     * be reached before them. No FLOOR: the inputs are rare and unbought. */
+    {
+        .name = "Rot Tincture",
+        .output_kind = 22, /* rot tincture: thrown, the foe takes damage over turns */
+        .input_kind_a = 20, /* rotted cap */
+        .input_qty_a = 2,
+        .input_kind_b = RECIPE_NO_INPUT,
+        .input_qty_b = 0,
+        .weight_floor = 0, .weight_hit = 100, .weight_jackpot = 0,
+        .oddment_kind = 2,
+        .cls = RC_DESTRUCTIVE,
+    },
+    {
+        .name = "Sour Draught",
+        .output_kind = 23, /* sour draught: a coating, the next hits poison */
+        .input_kind_a = 21, /* soured vial */
+        .input_qty_a = 1,
+        .input_kind_b = 20, /* rotted cap */
+        .input_qty_b = 1,
+        .weight_floor = 0, .weight_hit = 100, .weight_jackpot = 0,
+        .oddment_kind = 2,
+        .cls = RC_DESTRUCTIVE,
+    },
+    {
+        .name = "Blight",
+        .output_kind = 24, /* blight: thrown, leaves a foul patch */
+        .input_kind_a = 22, /* rot tincture */
+        .input_qty_a = 1,
+        .input_kind_b = 23, /* sour draught */
+        .input_qty_b = 1,
+        .weight_floor = 0, .weight_hit = 100, .weight_jackpot = 0,
+        .oddment_kind = 2,
+        .cls = RC_DESTRUCTIVE,
+    },
 };
 
 /* Hidden rows (spec 58 §58.17). A power recipe never pulls FLOOR: its

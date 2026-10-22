@@ -32,7 +32,6 @@
 #define DISTURB_RADIUS_MIN  0    /* no moon: only the place you touched */
 #define DISTURB_RADIUS_MAX  4    /* tiles, at the strongest moon */
 #define RISEN_RECORDS_MAX   4    /* risings remembered at once; the oldest calms first */
-#define DEAD_HORDE_SPEED    3    /* a kind this much faster than the family comes as a horde */
 
 /* Copy (spec 58 §58.9, option A). */
 #define DEAD_LINE_GRAVE     "the turf heaves. once."

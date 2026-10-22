@@ -39,24 +39,24 @@ const int CREATURE_FAMILY_COUNT =
  * to dominate so most creatures spawn unmodified.
  * affix      hp atk def spd  element    add_flags         dflee apt_mod        biome   wt */
 const Trait CREATURE_TRAITS[] = {
-    { "",        0, 0,  0,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_BOTH, 50, 0, MARK_NONE },
-    { "frost-",  1, 0,  2, -1, ELEM_ICE,  CF_PHOTOPHOBIC,      0, APT_FROST,     B_CAVE, 10, 0, MARK_NONE },
-    { "pallid-", 0, 0, -1,  0, ELEM_NONE, CF_PHOTOPHOBIC,      1, APT_NONE,      B_CAVE,  9, 0, MARK_NONE },
-    { "cave-",   1, 0,  1,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_CAVE,  8, 0, MARK_NONE },
-    { "ember-",  0, 2,  0,  1, ELEM_FIRE, 0,                   0, APT_EMBER,     B_OUT,  10, 0, MARK_NONE },
-    { "swift-",  0, 0,  0,  4, ELEM_NONE, 0,                  -1, APT_NONE,      B_OUT,   9, 0, MARK_NONE },
-    { "hardy-",  2, 0,  2, -1, ELEM_NONE, 0,                   0, APT_FORTITUDE, B_OUT,   8, 0, MARK_NONE },
-    { "dire-",   3, 3,  1,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_BOTH,  4, 0, MARK_NONE },
+    { "",        0, 0,  0,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_BOTH, 50, 0, MARK_NONE, TE_NONE },
+    { "frost-",  1, 0,  2, -1, ELEM_ICE,  CF_PHOTOPHOBIC,      0, APT_FROST,     B_CAVE, 10, 0, MARK_NONE, TE_NONE },
+    { "pallid-", 0, 0, -1,  0, ELEM_NONE, CF_PHOTOPHOBIC,      1, APT_NONE,      B_CAVE,  9, 0, MARK_NONE, TE_NONE },
+    { "cave-",   1, 0,  1,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_CAVE,  8, 0, MARK_NONE, TE_NONE },
+    { "ember-",  0, 2,  0,  1, ELEM_FIRE, 0,                   0, APT_EMBER,     B_OUT,  10, 0, MARK_NONE, TE_NONE },
+    { "swift-",  0, 0,  0,  4, ELEM_NONE, 0,                  -1, APT_NONE,      B_OUT,   9, 0, MARK_NONE, TE_NONE },
+    { "hardy-",  2, 0,  2, -1, ELEM_NONE, 0,                   0, APT_FORTITUDE, B_OUT,   8, 0, MARK_NONE, TE_NONE },
+    { "dire-",   3, 3,  1,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_BOTH,  4, 0, MARK_NONE, TE_NONE },
     /* spec 50 Q1 §Q.3 — the dead's seven kinds (the user's words). One
      * body; the kind shows in a mark and its effect (dead.h). */
 #define FD FAMILY_BIT(FAMILY_DEAD)
-    { "withered ", -1, 0, -1, -2, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_GAUNT },
-    { "ghoulish ",  0, 1,  0,  4, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_NONE },
-    { "bloated ",   3, 0,  2, -3, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 12, FD, MARK_NONE },
-    { "spectral ", -1, 0,  2,  0, ELEM_NONE, CF_PHASE,        0, APT_NONE,      B_BOTH, 10, FD, MARK_NONE },
-    { "feeding ",   0, 1,  0,  0, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_MAW },
-    { "bleeding ",  0, 0,  0,  0, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_DRIP },
-    { "rotting ",   1, 0,  0, -1, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 12, FD, MARK_SPOTS },
+    { "withered ", -1, 0, -1, -2, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_GAUNT, TE_WITHER },
+    { "ghoulish ",  0, 1,  0,  4, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_NONE, TE_FLANK },
+    { "bloated ",   3, 0,  2, -3, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 12, FD, MARK_NONE, TE_FOUL },
+    { "spectral ", -1, 0,  2,  0, ELEM_NONE, CF_PHASE,        0, APT_NONE,      B_BOTH, 10, FD, MARK_NONE, TE_CHILL },
+    { "feeding ",   0, 1,  0,  0, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_MAW, TE_FEED },
+    { "bleeding ",  0, 0,  0,  0, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_DRIP, TE_BLEED },
+    { "rotting ",   1, 0,  0, -1, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 12, FD, MARK_SPOTS, TE_ROT },
 #undef FD
 };
 const int CREATURE_TRAIT_COUNT =
@@ -299,6 +299,12 @@ static int sgn(int v) {
  * outdoor rock obstacles (never solid cavern walls). */
 static int creature_can_enter(const CreatureDef* d, const World* world, int x, int y) {
     if(x < 0 || x >= WORLD_COLS || y < 0 || y >= WORLD_ROWS) return 0;
+    /* Phasing (the spectral, spec 50 Q1 §Q.4): through walls, but never onto a
+     * door, a vendor or the vault. */
+    if(d->flags & CF_PHASE) {
+        char g = world->tiles[y][x];
+        return g != TILE_DOOR && g != TILE_VENDOR && g != TILE_VAULT;
+    }
     if(world_walkable(world, x, y)) return 1;
     if((d->flags & CF_FLIGHT) && world->tiles[y][x] == TILE_ROCK) return 1;
     return 0;

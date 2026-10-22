@@ -12,13 +12,12 @@
 #define DEAD_CHANCE_SALT 0xDEAD0C4Eu
 #define DEAD_KIND_SALT   0xDEAD0F1Du
 
-/* Which kinds come as a horde (spec 50 Q1 §Q.3), by trait mark and flags:
- * data, never names. Ghoulish (fast), feeding (a jaw), bleeding (drips)
- * are hordes; withered, bloated, spectral and rotting come alone. */
+/* Which kinds come as a horde (spec 50 Q1 §Q.3): the ones whose effect is
+ * about numbers beside you (Trait.effect) — ghoulish, feeding, bleeding.
+ * The other four come alone. */
 bool dead_is_horde(uint8_t trait) {
     const Trait* t = creature_trait(trait);
-    if(!t) return false;
-    return t->mark == MARK_MAW || t->mark == MARK_DRIP || t->d_speed >= DEAD_HORDE_SPEED;
+    return t && (t->effect == TE_FLANK || t->effect == TE_FEED || t->effect == TE_BLEED);
 }
 
 bool dead_resting_place(char glyph) {

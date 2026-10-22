@@ -46,6 +46,7 @@
 #include "../arc.h"
 #include "../deeds.h"
 #include "../dead.h"
+#include "../afflict.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -3352,6 +3353,151 @@ static void test_dead_chance(void) {
     CHECK(q.count == 0, "dead: a record of a kind that isn't the dead's is dropped");
 }
 
+/* The destructive tree (spec 50 Q1 §Q.10.5) and the corrupted kinds. */
+static void test_dark_tree(void) {
+    int corrupt_restorative = 0, hidden = 1, branch_rooted = 1, branches = 0;
+    for(int i = 0; i < RECIPE_COUNT; i++) {
+        const RecipeDef* r = recipe_def((uint8_t)i);
+        const KindDef* a = kind_by_id(r->input_kind_a);
+        const KindDef* b = r->input_kind_b == RECIPE_NO_INPUT ? NULL : kind_by_id(r->input_kind_b);
+        bool corrupt_in = (a->flags & KF_CORRUPTED) || (b && (b->flags & KF_CORRUPTED));
+        if(r->cls == RC_RESTORATIVE && corrupt_in) corrupt_restorative++;
+        if(r->cls == RC_DESTRUCTIVE) {
+            hidden &= !recipe_known((uint8_t)i, 0);
+            if(!corrupt_in) {   /* a branch: fed by the tree, not by rot */
+                branches++;
+                int fed = 0;
+                for(int j = 0; j < RECIPE_COUNT; j++) {
+                    const RecipeDef* q = recipe_def((uint8_t)j);
+                    if(q->cls == RC_DESTRUCTIVE &&
+                       (q->output_kind == r->input_kind_a || q->output_kind == r->input_kind_b)) fed = 1;
+                }
+                branch_rooted &= fed;
+            }
+        }
+    }
+    CHECK(corrupt_restorative == 0, "dark: no corrupted kind is an input to a restorative recipe");
+    CHECK(hidden, "dark: every destructive recipe starts undiscovered");
+    CHECK(branches == 1 && branch_rooted, "dark: the branch (Blight) takes the roots' outputs, so it can't be skipped");
+    int corrupt_ok = 1, corrupt_n = 0;
+    for(int k = 0; k < KIND_COUNT; k++) {
+        if(!(KIND_CATALOG[k].flags & KF_CORRUPTED)) continue;
+        corrupt_n++;
+        int fresh = 0;
+        for(int f = 0; f < KIND_COUNT; f++) fresh |= afflict_spoils_into((uint8_t)f) == k;
+        corrupt_ok &= KIND_CATALOG[k].weight == 0 && KIND_CATALOG[k].heal == 0 &&
+                      !(KIND_CATALOG[k].flags & KF_CONSUMABLE) && fresh;
+    }
+    CHECK(corrupt_n == 2 && corrupt_ok, "dark: each corrupted kind never drops, heals nothing, and rot makes it");
+    /* Discovery: experimenting, reading. */
+    CharacterState c;
+    memset(&c, 0, sizeof(c));
+    CHECK(afflict_experiment(&c) == -1 && c.recipes_known == 0, "dark: experimenting with nothing teaches nothing");
+    c.inv_qty[AF_KIND_ROTCAP] = 2;
+    CHECK(afflict_carries_corrupted(&c), "dark: a rotted cap is corrupted");
+    CHECK(afflict_experiment(&c) == AF_RECIPE_TINCTURE && recipe_known(AF_RECIPE_TINCTURE, c.recipes_known) &&
+          c.inv_qty[AF_KIND_ROTCAP] == 2, "dark: experimenting finds what the bag can make, and spends nothing");
+    CHECK(afflict_experiment(&c) == -1, "dark: nothing is found twice");
+    CharacterState d;
+    memset(&d, 0, sizeof(d));
+    int root = afflict_read('}', 0x12345678u, 2, 3, 4, 1, &d);
+    CHECK((root == AF_RECIPE_TINCTURE || root == AF_RECIPE_DRAUGHT) && afflict_read('{', 0, 0, 0, 1, 1, &d) == AF_RECIPE_BLIGHT &&
+          afflict_read('?', 0, 0, 0, 1, 1, &d) == -1, "dark: a book teaches a root, a tome the branch, a scroll neither");
+}
+
+/* The seven kinds' effects (spec 50 Q1 §Q.3, §Q.4). */
+static Creature dead_at(uint8_t effect, int x, int y) {
+    Creature c;
+    memset(&c, 0, sizeof(c));
+    c.family_id = FAMILY_DEAD;
+    for(int t = 0; t < CREATURE_TRAIT_COUNT; t++)
+        if(CREATURE_TRAITS[t].family_mask && CREATURE_TRAITS[t].effect == effect) c.trait_id = (uint8_t)t;
+    c.x = (uint8_t)x; c.y = (uint8_t)y; c.alive = 1;
+    return c;
+}
+
+static void test_dead_effects(void) {
+    Creature cs[6];
+    AreaFelt a;
+    cs[0] = dead_at(TE_WITHER, 5, 2);
+    afflict_area(cs, 1, 7, 2, &a);
+    CHECK(a.wither && !a.chill && !a.rot, "effects: within reach, a withered one burns your light");
+    afflict_area(cs, 1, 8, 2, &a);
+    CHECK(!a.wither, "effects: beyond AREA_RADIUS, nothing");
+    cs[0].family_id = 0;
+    afflict_area(cs, 1, 6, 2, &a);
+    CHECK(!a.wither, "effects: only the dead carry them");
+    /* a ghoulish horde flanks: each other one beside you adds to the attack */
+    cs[0] = dead_at(TE_FLANK, 4, 2);
+    cs[1] = dead_at(TE_FLANK, 6, 2);
+    cs[2] = dead_at(TE_FLANK, 5, 1);
+    cs[3] = dead_at(TE_FLANK, 8, 2);   /* not beside you */
+    CHECK(afflict_foe_bonus(cs, 4, 0, 5, 2, 10, 10) == 2 * HORDE_FLANK_ATK, "effects: a horde flanks you");
+    cs[0] = dead_at(TE_FEED, 4, 2);
+    CHECK(afflict_foe_bonus(cs, 1, 0, 5, 2, 4, 10) == FEED_ATK && afflict_foe_bonus(cs, 1, 0, 5, 2, 6, 10) == 0,
+          "effects: a feeder is stronger once you're below half");
+    CharacterState c;
+    memset(&c, 0, sizeof(c));
+    c.hp = 10;
+    uint16_t fhp = 3;
+    afflict_foe_hit(cs[0].trait_id, &c, &fhp, 4);
+    afflict_foe_hit(cs[0].trait_id, &c, &fhp, 4);
+    CHECK(fhp == 4, "effects: a feeder heals on a hit, up to its health");
+    Creature bl = dead_at(TE_BLEED, 0, 0);
+    afflict_foe_hit(bl.trait_id, &c, &fhp, 4);
+    afflict_foe_hit(bl.trait_id, &c, &fhp, 4);
+    CHECK(c.bleed == 2 * BLEED_TURNS, "effects: bleeds stack per hit");
+    int lost = 0;
+    while(afflict_bleed_tick(&c)) lost++;
+    CHECK(lost == 2 * BLEED_TURNS && c.hp == 10 - lost && c.bleed == 0, "effects: a bleed costs 1 HP a turn while it runs");
+    /* the bloated leave a foul patch that fades */
+    FoulField f;
+    foul_clear(&f);
+    Creature bo = dead_at(TE_FOUL, 0, 0);
+    afflict_foe_died(bo.trait_id, 5, 3, 100, &f);
+    afflict_foe_died(bl.trait_id, 9, 3, 100, &f);
+    CHECK(f.n == 1 && foul_step(&f, 6, 4, 101) == FOUL_DAMAGE && foul_step(&f, 7, 3, 101) == 0,
+          "effects: a bloated one's death fouls its tile and the next ones (only the bloated's)");
+    CHECK(foul_step(&f, 5, 3, 100 + FOUL_TURNS) == 0 && f.n == 0, "effects: the patch is gone after FOUL_TURNS");
+    /* rot spoils, about 1 in ROT_ODDS turns, only what it can */
+    CharacterState r;
+    memset(&r, 0, sizeof(r));
+    r.inv_qty[AF_KIND_FUNGUS] = 200;
+    r.inv_qty[AF_KIND_VIAL] = 200;
+    int spoiled = 0;
+    for(uint32_t t = 0; t < 800; t++) spoiled += afflict_rot(0xCAFEBABEu, 1, 2, t, &r) != 0xFFu;
+    CHECK(spoiled > 60 && spoiled < 140 && r.inv_qty[AF_KIND_ROTCAP] + r.inv_qty[AF_KIND_SOURVIAL] == spoiled &&
+          r.inv_qty[AF_KIND_FUNGUS] + r.inv_qty[AF_KIND_VIAL] == 400 - spoiled,
+          "effects: rot spoils about 1 in 8 turns, a cap or a vial into its corrupted kind");
+    CharacterState e;
+    memset(&e, 0, sizeof(e));
+    int none = 0;
+    for(uint32_t t = 0; t < 200; t++) none += afflict_rot(1, 0, 0, t, &e) != 0xFFu;
+    CHECK(none == 0, "effects: rot spoils nothing when you carry nothing it can spoil");
+    /* the spectral phase through walls, never onto a door: a wall across
+     * the room, the player on the far side; a spectral crosses it, an
+     * ordinary dead one can't, and neither ever stands on the door. */
+    World w;
+    world_starter_room(&w);
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) w.tiles[y][x] = TILE_FLOOR;
+    for(int y = 0; y < WORLD_ROWS; y++) w.tiles[y][6] = TILE_WALL;
+    w.tiles[0][6] = TILE_DOOR;
+    Creature two[2];
+    two[0] = dead_at(TE_CHILL, 4, 3);
+    two[1] = dead_at(TE_WITHER, 4, 1);
+    int crossed = 0, held = 1, on_door = 0;
+    for(uint32_t t = 1; t <= 12; t++) {
+        creatures_tick(two, 2, &w, 10, 3, 6, 0x5EEDu, t, NULL);
+        on_door |= (two[0].y == 0 && two[0].x == 6) || (two[1].y == 0 && two[1].x == 6);
+        crossed |= two[0].x > 6;
+        held &= two[1].x < 6;
+    }
+    CHECK(crossed, "effects: the spectral walks through a wall to you");
+    CHECK(held, "effects: the other dead are stopped by it");
+    CHECK(!on_door, "effects: nothing phases onto a door");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -3452,6 +3598,8 @@ int main(void) {
     test_dead_traits();
     test_dead_routes();
     test_dead_chance();
+    test_dark_tree();
+    test_dead_effects();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

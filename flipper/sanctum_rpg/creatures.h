@@ -74,6 +74,18 @@ typedef enum {
     MARK_SPOTS,    /* clear blotches on the hide */
 } TraitMark;
 
+/* What a trait does to the player (spec 50 Q1 §Q.3; afflict.h applies it). */
+typedef enum {
+    TE_NONE = 0,
+    TE_WITHER,     /* area: the torch burns faster near it */
+    TE_FLANK,      /* horde: each other one beside you adds to the attack */
+    TE_FOUL,       /* area: dies into a foul patch */
+    TE_CHILL,      /* area: every other step costs a turn */
+    TE_FEED,       /* horde: stronger when you're weak; heals on a hit */
+    TE_BLEED,      /* horde: each hit that lands opens a bleed */
+    TE_ROT,        /* area: spoils what you carry */
+} TraitEffect;
+
 /* Overworld FSM state — 2 bits (spec 45 §4.2). Lives on the live creature,
  * not the def; declared here so the (later) tick + render agree. */
 typedef enum {
@@ -127,6 +139,7 @@ typedef struct {
                              * 0 = any family except those that only take their own
                              * (spec 50 Q1 §Q.3: the dead's seven kinds) */
     uint8_t     mark;       /* TraitMark: how the composer shows it */
+    uint8_t     effect;     /* TraitEffect: what it does to you */
 } Trait;
 
 /* A composed creature: family × trait resolved to flat stats. Cheap value

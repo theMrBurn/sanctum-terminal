@@ -54,6 +54,7 @@
 #include "corruption.h"
 #include "arc.h"
 #include "dead.h"
+#include "afflict.h"
 #include "effort.h"
 #include "ritual.h"
 #include "sky.h"
@@ -188,6 +189,10 @@ typedef struct {
 
     /* The risen dead (spec 58 §58.6): saved in risen.txt. */
     RisenBook risen;
+    /* What the dead leave and the dark crafts do (spec 50 Q1 §Q.4). RAM-only. */
+    FoulField foul;              /* the bloated's patches, with expiry; cleared per chunk */
+    uint8_t coating;             /* hits left on a sour-draught edge */
+    uint8_t combat_foe_poison;   /* rounds of poison left on the foe */
     /* A rising armed by chance: it lands next turn (the tell's one turn). */
     bool rise_pending;
     int8_t rise_x, rise_y;
@@ -892,6 +897,9 @@ static void examine_move(AppState* st, int dx, int dy) {
     }
 }
 
+/* The foul patch, top-down: a sparse stipple unlike the haze's. */
+static const uint8_t FOUL_XBM[8] = {0x00, 0x24, 0x00, 0x81, 0x00, 0x24, 0x00, 0x81};
+
 static void draw_world_screen(Canvas* canvas, const AppState* st) {
     canvas_set_font(canvas, FontSecondary);
 
@@ -930,6 +938,9 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
             /* An edge closed by corruption: the haze under the glyph (spec 58). */
             if(world_cell_in_haze(&st->world, x, y))
                 canvas_draw_xbm(canvas, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX, WORLD_HAZE_XBM);
+            /* A bloated one's foul patch, while it lasts (spec 50 Q1 §Q.3). */
+            if(st->lit[y][x] && foul_at(&st->foul, x, y, st->character.turn))
+                canvas_draw_xbm(canvas, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX, FOUL_XBM);
             /* A terrain row or item kind may carry its own top-down form
              * (map_icon) where the glyph alone would mislead or spill. */
             const uint8_t* icon = terrain_map_icon(glyph);
@@ -1153,8 +1164,9 @@ static void draw_combat_screen(Canvas* canvas, const AppState* st) {
         }
     }
 
-    static const char* const VERBS[2] = {"STRIKE", "FLEE"};
-    for(int i = 0; i < 2; i++) {
+    static const char* const VERBS[3] = {"STRIKE", "FLEE", "THROW"};
+    int nverbs = afflict_throwable(&st->character) != 0xFFu ? 3 : 2;   /* THROW only with a flask */
+    for(int i = 0; i < nverbs; i++) {
         int y = 34 + i * MENU_LINE_HEIGHT;
         if(i == st->combat_cursor) {
             canvas_draw_box(
@@ -1319,6 +1331,12 @@ static void inventory_use(AppState* st) {
             *slot = (uint8_t)idx;
             set_statusf(st, "equipped %s", k->true_name);
         }
+        notify(st, &sequence_success);
+    } else if(idx == AF_KIND_DRAUGHT) {
+        /* A sour draught coats your edge: the next hits that land poison. */
+        st->character.inv_qty[idx]--;
+        st->coating = COATING_HITS;
+        set_status(st, AF_LINE_COATED);
         notify(st, &sequence_success);
     } else if((k->flags & KF_CONSUMABLE) && k->heal > 0) {
         /* Consume → +heal HP (clamped to max_hp). Decrement count. */
@@ -1814,6 +1832,17 @@ static void shop_buy(AppState* st) {
  * pull, the recipe card is overlaid with a 3-reel slot animation that
  * cycles glyphs and settles on a tier-appropriate pattern. */
 static void draw_craft_screen(Canvas* canvas, const AppState* st) {
+    if(st->craft_cursor == RECIPE_COUNT) {   /* the experiment card (spec 50 Q1 §Q.10.2) */
+        canvas_set_font(canvas, FontPrimary);
+        canvas_draw_str(canvas, 0, TITLE_BASELINE_Y, "Forge");
+        canvas_draw_line(canvas, 0, DIVIDER_Y, SCREEN_W - 1, DIVIDER_Y);
+        canvas_set_font(canvas, FontSecondary);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, 32, AlignCenter, AlignBottom, AF_LINE_DARK);
+        if(st->status_line) canvas_draw_str(canvas, 0, 52, st->status_line);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, FOOTER_BASELINE_Y, AlignCenter, AlignBottom,
+                                "OK try  <> card  Back");
+        return;
+    }
     const RecipeDef* r = recipe_def((uint8_t)st->craft_cursor);
     if(!r) return;
 
@@ -1852,10 +1881,16 @@ static void draw_craft_screen(Canvas* canvas, const AppState* st) {
     }
 
     canvas_set_font(canvas, FontSecondary);
-    char counter[16];
-    snprintf(
-        counter, sizeof(counter), "%d/%d",
-        (int)(st->craft_cursor + 1), (int)RECIPE_COUNT);
+    /* The card's place among the recipes you KNOW: a hidden recipe is
+     * never counted (no numbers that tell you there's more, 43 §17.10). */
+    int known = 0, place = 0;
+    for(int i = 0; i < RECIPE_COUNT; i++)
+        if(recipe_known((uint8_t)i, st->character.recipes_known)) {
+            known++;
+            if(i == st->craft_cursor) place = known;
+        }
+    char counter[24];
+    snprintf(counter, sizeof(counter), "%d/%d", place, known);
     canvas_draw_str_aligned(
         canvas, SCREEN_W, TITLE_BASELINE_Y, AlignRight, AlignBottom, counter);
     canvas_draw_line(canvas, 0, DIVIDER_Y, SCREEN_W - 1, DIVIDER_Y);
@@ -2648,6 +2683,7 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     st->character.chunk_y = (int16_t)cy;
     st->quirk.active = false;   /* an armed quirk belongs to the chunk you left */
     st->rise_pending = false;   /* so does an armed rising */
+    foul_clear(&st->foul);      /* and the foul patches (RAM, per chunk) */
     if(dead_calm_outside(&st->risen, region_of(cx), region_of(cy))) arc_save(st);   /* left their region: they calm */
     world_generate_chunk(st->campaign_seed, cx, cy, &st->world);
     arc_mark_edges(st);
@@ -2766,13 +2802,28 @@ static void door_transition(AppState* st) {
 /* Advance the world one turn: burn torch fuel, fire the light alarms, tick
  * creatures. The caller has already committed whatever action paid the turn
  * (a player move, or one tick of a scan). */
+static void player_fall(AppState* st);
+
 static void advance_turn(AppState* st) {
     uint16_t old_fuel = st->character.torch_fuel;
     st->character.turn++;
+    /* The dead's area kinds, felt once a turn (spec 50 Q1 §Q.3): the
+     * withered burn your light, the spectral chill, rot spoils what you carry. */
+    AreaFelt felt;
+    afflict_area(st->creatures, st->creature_count, st->character.player_x,
+                 st->character.player_y, &felt);
+    st->character.chill = felt.chill;
+    if(felt.rot) {
+        uint8_t spoiled = afflict_rot(st->campaign_seed, st->character.chunk_x,
+                                      st->character.chunk_y, st->character.turn, &st->character);
+        const KindDef* k = spoiled == 0xFFu ? NULL : kind_by_id(spoiled);
+        if(k) set_statusf(st, AF_LINE_SPOIL, k->true_name);
+    }
     /* Atmosphere: rain/storm bleed extra fuel per turn. Indoor weather
      * is already attenuated upstream, so this naturally applies less. */
     uint16_t burn = FUEL_PER_TURN +
-                    (uint16_t)st->current_weather.fuel_burn_extra;
+                    (uint16_t)st->current_weather.fuel_burn_extra +
+                    (felt.wither ? WITHER_FUEL_EXTRA : 0);
     uint16_t fuel = (old_fuel >= burn) ? (uint16_t)(old_fuel - burn) : 0;
     st->character.torch_fuel = fuel;
 
@@ -2786,6 +2837,15 @@ static void advance_turn(AppState* st) {
         st->character.player_y, fov_radius_for_fuel(fuel),
         rng_chunk_seed(st->campaign_seed, st->character.chunk_x, st->character.chunk_y),
         st->character.turn, &st->current_weather);
+
+    /* A bleed, and a foul patch underfoot, cost health (spec 50 Q1 §Q.4). */
+    afflict_bleed_tick(&st->character);   /* -1 HP while a bleed runs */
+    int hurt = foul_step(&st->foul, st->character.player_x, st->character.player_y, st->character.turn);
+    if(hurt) st->character.hp = st->character.hp > hurt ? (uint16_t)(st->character.hp - hurt) : 0;
+    if(st->character.hp == 0 && st->screen != ScreenCombat) {
+        player_fall(st);
+        return;
+    }
 
     /* Light alarms: torch out, or dimmed a band. */
     uint16_t newf = st->character.torch_fuel;
@@ -2899,6 +2959,102 @@ static bool maybe_start_combat(AppState* st) {
 }
 
 /* STRIKE: you hit, then the foe hits back (player first — DQ-simple). */
+/* The foe falls (shared by a strike, a throw and poison). */
+static void combat_kill(AppState* st, Creature* foe, const char* nm) {
+    foe->alive = 0;
+    st->combat_foe_poison = 0;
+    afflict_foe_died(foe->trait_id, foe->x, foe->y, st->character.turn, &st->foul);
+    if(foe->family_id == FAMILY_DEAD) {
+        /* One of the region's dead is destroyed: route 2's tally (spec 58
+         * §58.6). The last one falls in silence. */
+        dead_destroyed(st->campaign_seed, st->character.chunk_x, st->character.chunk_y,
+                       foe->trait_id, &st->risen, &st->region_book);
+        arc_save(st);
+    } else {
+        /* Persist the kill (slice 1b): defeated creatures stay defeated across
+         * chunk re-entry — the finite-world rule. Keyed by spawn position. */
+        deltas_record_kill(
+            st->character.campaign_id, &st->current_deltas,
+            foe->spawn_x, foe->spawn_y);
+    }
+
+    /* Roll a material drop (slice 3) — deterministic from
+     * (chunk_seed × spawn) so it's reproducible across runs but unique per
+     * foe. Biome-weighted via the existing `loot_roll`. */
+    Rng drop_rng;
+    rng_seed(
+        &drop_rng,
+        rng_chunk_seed(
+            st->campaign_seed,
+            st->character.chunk_x, st->character.chunk_y) ^
+            ((uint32_t)foe->spawn_x * 73u) ^
+            ((uint32_t)foe->spawn_y * 919u) ^ 0xD12057A1u);
+    /* Slice 50.F3: Pool-biased combat drop. The Pool at the player's
+     * CURRENT chunk shifts kind probabilities — a Heart-themed
+     * region drops different kinds than a Craft-themed one. */
+    Pool dpool;
+    uint8_t dbiome = biome_pool(st->world.biome);
+    pool_at(st->campaign_seed, dbiome,
+            (int)st->character.chunk_x, (int)st->character.chunk_y, &dpool);
+    uint8_t drop_id = loot_roll_pooled(&drop_rng, st->world.biome, &dpool);
+    const KindDef* drop = kind_by_id(drop_id);
+    if(drop && drop_id < SAVE_INV_KINDS_MAX &&
+       st->character.inv_qty[drop_id] < 255) {
+        st->character.inv_qty[drop_id]++;
+        st->character.identified |= (1ull << drop_id);
+    }
+
+    st->combat_foe = -1;
+    st->screen = ScreenWorld;
+    if(drop) {
+        set_statusf(st, "felled %s (+%s)", nm, drop->true_name);
+    } else {
+        set_statusf(st, "you fell the %s", nm);
+    }
+    notify(st, &sequence_success);
+    save_io_write_character(&st->character);
+}
+
+/* The foe strikes back after your action: its attack, plus what its kind
+ * adds (a flanking horde, a feeder; spec 50 Q1 §Q.3); a hit that lands may
+ * open a bleed or feed it. Returns false if you fell. */
+static bool combat_foe_turn(AppState* st, Creature* foe, const CreatureDef* d, int dmg) {
+    int fdmg = (int)d->atk + afflict_foe_bonus(st->creatures, st->creature_count, st->combat_foe,
+                                               st->character.player_x, st->character.player_y,
+                                               st->character.hp, st->character.max_hp) -
+               player_def(&st->character, &st->deeds) / 8;
+    if(fdmg < 1) fdmg = 1;
+    if((int)st->character.hp <= fdmg) {
+        player_fall(st);
+        return false;
+    }
+    st->character.hp = (uint16_t)(st->character.hp - fdmg);
+    afflict_foe_hit(foe->trait_id, &st->character, &st->combat_foe_hp, d->hp);
+    if(dmg > 0) set_statusf(st, "hit %d  took %d", dmg, fdmg);
+    else set_statusf(st, "took %d", fdmg);
+    notify(st, &sequence_single_vibro);
+
+    if(st->character.equipped_armor != SAVE_EQUIP_NONE &&
+       st->character.equipped_armor < SAVE_INV_KINDS_MAX) {
+        uint8_t* xp = &st->character.expertise[st->character.equipped_armor];
+        if(*xp < 100) (*xp)++;
+    }
+    return true;
+}
+
+/* Poison on the foe (a tincture, a coated edge): it takes POISON_DAMAGE at
+ * the start of each round while it runs. Returns true if it fell. */
+static bool combat_poison(AppState* st, Creature* foe, const char* nm) {
+    if(st->combat_foe_poison == 0) return false;
+    st->combat_foe_poison--;
+    if(st->combat_foe_hp <= POISON_DAMAGE) {
+        combat_kill(st, foe, nm);
+        return true;
+    }
+    st->combat_foe_hp = (uint16_t)(st->combat_foe_hp - POISON_DAMAGE);
+    return false;
+}
+
 static void combat_strike(AppState* st) {
     if(st->combat_foe < 0 || st->combat_foe >= st->creature_count) return;
     Creature* foe = &st->creatures[st->combat_foe];
@@ -2907,6 +3063,8 @@ static void combat_strike(AppState* st) {
     char nm[24];
     creature_name(&d, nm, sizeof(nm));
     st->combat_round++;
+
+    if(combat_poison(st, foe, nm)) return;
 
     int dmg = player_atk(&st->character, &st->deeds) - (int)d.def / 8;
     if(dmg < 1) dmg = 1;
@@ -2925,83 +3083,51 @@ static void combat_strike(AppState* st) {
         if(*xp < 100) (*xp)++;
     }
     if((int)st->combat_foe_hp <= dmg) {
-        foe->alive = 0;
-        if(foe->family_id == FAMILY_DEAD) {
-            /* One of the region's dead is destroyed: route 2's tally (spec 58
-             * §58.6). The last one falls in silence. */
-            dead_destroyed(st->campaign_seed, st->character.chunk_x, st->character.chunk_y,
-                           foe->trait_id, &st->risen, &st->region_book);
-            arc_save(st);
-        } else {
-            /* Persist the kill (slice 1b): defeated creatures stay defeated across
-             * chunk re-entry — the finite-world rule. Keyed by spawn position. */
-            deltas_record_kill(
-                st->character.campaign_id, &st->current_deltas,
-                foe->spawn_x, foe->spawn_y);
-        }
-
-        /* Roll a material drop (slice 3) — deterministic from
-         * (chunk_seed × spawn) so it's reproducible across runs but unique per
-         * foe. Biome-weighted via the existing `loot_roll`. */
-        Rng drop_rng;
-        rng_seed(
-            &drop_rng,
-            rng_chunk_seed(
-                st->campaign_seed,
-                st->character.chunk_x, st->character.chunk_y) ^
-                ((uint32_t)foe->spawn_x * 73u) ^
-                ((uint32_t)foe->spawn_y * 919u) ^ 0xD12057A1u);
-        /* Slice 50.F3: Pool-biased combat drop. The Pool at the player's
-         * CURRENT chunk shifts kind probabilities — a Heart-themed
-         * region drops different kinds than a Craft-themed one. */
-        Pool dpool;
-        uint8_t dbiome = biome_pool(st->world.biome);
-        pool_at(st->campaign_seed, dbiome,
-                (int)st->character.chunk_x, (int)st->character.chunk_y, &dpool);
-        uint8_t drop_id = loot_roll_pooled(&drop_rng, st->world.biome, &dpool);
-        const KindDef* drop = kind_by_id(drop_id);
-        if(drop && drop_id < SAVE_INV_KINDS_MAX &&
-           st->character.inv_qty[drop_id] < 255) {
-            st->character.inv_qty[drop_id]++;
-            st->character.identified |= (1ull << drop_id);
-        }
-
-        st->combat_foe = -1;
-        st->screen = ScreenWorld;
-        if(drop) {
-            set_statusf(st, "felled %s (+%s)", nm, drop->true_name);
-        } else {
-            set_statusf(st, "you fell the %s", nm);
-        }
-        notify(st, &sequence_success);
-        save_io_write_character(&st->character);
+        combat_kill(st, foe, nm);
         return;
     }
     st->combat_foe_hp = (uint16_t)(st->combat_foe_hp - dmg);
-
-    int fdmg = (int)d.atk - player_def(&st->character, &st->deeds) / 8;
-    if(fdmg < 1) fdmg = 1;
-    if((int)st->character.hp <= fdmg) {
-        player_fall(st);
-        return;
-    }
-    st->character.hp = (uint16_t)(st->character.hp - fdmg);
-    set_statusf(st, "hit %d  took %d", dmg, fdmg);
-    notify(st, &sequence_single_vibro);
-
-    /* Thread C — equipped armor expertise +1 per absorbed hit (Tensura;
-     * capped 100). The act of taking and surviving a hit teaches you the
-     * specific armor — D&D proficiency at item level. */
-    if(st->character.equipped_armor != SAVE_EQUIP_NONE &&
-       st->character.equipped_armor < SAVE_INV_KINDS_MAX) {
-        uint8_t* xp = &st->character.expertise[st->character.equipped_armor];
-        if(*xp < 100) (*xp)++;
+    if(st->coating) {                  /* a coated edge poisons the foe it cuts */
+        st->coating--;
+        st->combat_foe_poison = (uint8_t)(st->combat_foe_poison + COATING_POISON);
     }
 
+    if(!combat_foe_turn(st, foe, &d, dmg)) return;
     save_io_write_character(&st->character);
 }
 
 /* FLEE: ~60% escape; failure costs a foe hit. Per-round seed so retries vary. */
+/* THROW (the dark tree's flasks, spec 50 Q1 §Q.10.4): a rot tincture
+ * poisons the foe for POISON_TURNS rounds; a blight hits at once and fouls
+ * the ground under it. Then the foe's turn. */
+static void combat_throw(AppState* st) {
+    if(st->combat_foe < 0 || st->combat_foe >= st->creature_count) return;
+    uint8_t k = afflict_throwable(&st->character);
+    if(k == 0xFFu) return;
+    Creature* foe = &st->creatures[st->combat_foe];
+    CreatureDef d;
+    creature_compose(foe->family_id, foe->trait_id, &d);
+    char nm[24];
+    creature_name(&d, nm, sizeof(nm));
+    st->combat_round++;
+    if(combat_poison(st, foe, nm)) return;
+    st->character.inv_qty[k]--;
+    int dmg = 0;
+    if(k == AF_KIND_TINCTURE) {
+        st->combat_foe_poison = (uint8_t)(st->combat_foe_poison + POISON_TURNS);
+    } else {
+        dmg = BLIGHT_DAMAGE;
+        foul_add(&st->foul, foe->x, foe->y, st->character.turn);
+        if((int)st->combat_foe_hp <= dmg) {
+            combat_kill(st, foe, nm);
+            return;
+        }
+        st->combat_foe_hp = (uint16_t)(st->combat_foe_hp - dmg);
+    }
+    if(!combat_foe_turn(st, foe, &d, dmg)) return;
+    save_io_write_character(&st->character);
+}
+
 static void combat_flee(AppState* st) {
     if(st->combat_foe < 0 || st->combat_foe >= st->creature_count) return;
     Creature* foe = &st->creatures[st->combat_foe];
@@ -3442,12 +3568,34 @@ static void runes_touch(AppState* st) {
     if(st->rune_ntouched >= st->runes.count) runes_try(st);
 }
 
-/* The forge lists only recipes the player knows (recipe_known). */
+/* The forge lists only recipes the player knows (recipe_known), and, while
+ * something corrupted is carried, one more card: "a dark mixture?" (the
+ * experiment slot, index RECIPE_COUNT; spec 50 Q1 §Q.10.2). */
+#define CRAFT_EXPERIMENT RECIPE_COUNT
+static bool craft_slot_open(const AppState* st, int slot) {
+    if(slot == CRAFT_EXPERIMENT) return afflict_carries_corrupted(&st->character);
+    return recipe_known((uint8_t)slot, st->character.recipes_known);
+}
+
 static void craft_step(AppState* st, int dir) {
-    for(int i = 0; i < RECIPE_COUNT; i++) {
-        st->craft_cursor = (int8_t)((st->craft_cursor + RECIPE_COUNT + dir) % RECIPE_COUNT);
-        if(recipe_known((uint8_t)st->craft_cursor, st->character.recipes_known)) return;
+    int slots = RECIPE_COUNT + 1;
+    for(int i = 0; i < slots; i++) {
+        st->craft_cursor = (int8_t)((st->craft_cursor + slots + dir) % slots);
+        if(craft_slot_open(st, st->craft_cursor)) return;
     }
+}
+
+/* Experiment: if the bag can make a hidden dark recipe, it is found and
+ * pulled; otherwise nothing is learned and nothing spent. */
+static void craft_experiment(AppState* st) {
+    int id = afflict_experiment(&st->character);
+    if(id < 0) {
+        set_status(st, AF_LINE_NOTHING);
+        return;
+    }
+    st->craft_cursor = (int8_t)id;
+    save_io_write_character(&st->character);
+    craft_pull(st);
 }
 
 static void on_world_move(AppState* st, MoveDir dir) {
@@ -3542,6 +3690,10 @@ static void on_world_move(AppState* st, MoveDir dir) {
                 /* A word source or a tome of making is read on the spot (spec 58). */
                 const char* read = arc_pickup(&st->world, px, py, &st->character);
                 if(read) set_status(st, read);
+                /* A book or a tome also teaches from the dark tree (spec 50 Q1 §Q.10.2). */
+                if(afflict_read(dest_glyph, st->campaign_seed, st->character.chunk_x,
+                                st->character.chunk_y, px, py, &st->character) >= 0)
+                    set_status(st, ARC_LINE_READ);
             }
         } else {
             set_status(st, "found item");
@@ -3681,6 +3833,10 @@ static void on_world_move(AppState* st, MoveDir dir) {
         sky_tick(st);
         dead_tick(st);
         quirk_tick(st);
+        /* The spectral's chill: every other step costs an extra turn, and
+         * the creatures take it (spec 50 Q1 §Q.3). */
+        if(st->character.chill && (st->character.turn & 1u) && st->screen == ScreenWorld)
+            advance_turn(st);
     }
     if(r != MoveSteppedOnDoor && r != MoveWalkedOffEdge) {
         recompute_visibility(st);
@@ -4000,12 +4156,17 @@ int32_t sanctum_rpg_app(void* p) {
         case ScreenCombat:
             switch(event.key) {
             case InputKeyUp:
-            case InputKeyDown:
-                state.combat_cursor ^= 1; /* two verbs — toggle */
+            case InputKeyDown: {
+                int nverbs = afflict_throwable(&state.character) != 0xFFu ? 3 : 2;
+                state.combat_cursor =
+                    (state.combat_cursor + (event.key == InputKeyUp ? nverbs - 1 : 1)) % nverbs;
                 break;
+            }
             case InputKeyOk:
                 if(state.combat_cursor == 0) combat_strike(&state);
-                else combat_flee(&state);
+                else if(state.combat_cursor == 1) combat_flee(&state);
+                else if(afflict_throwable(&state.character) != 0xFFu) combat_throw(&state);
+                else state.combat_cursor = 0;
                 break;
             case InputKeyBack:
                 combat_flee(&state); /* Back = quick-flee */
@@ -4096,7 +4257,8 @@ int32_t sanctum_rpg_app(void* p) {
                 state.status_line = NULL;
                 break;
             case InputKeyOk:
-                craft_pull(&state);
+                if(state.craft_cursor == CRAFT_EXPERIMENT) craft_experiment(&state);
+                else craft_pull(&state);
                 break;
             case InputKeyBack:
                 state.screen = ScreenInventory;
