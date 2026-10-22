@@ -35,7 +35,8 @@ typedef enum {
 
 /* Tunables (§58.17). */
 #define ARTIFACT_SPARE        1    /* artifacts beyond one per site */
-#define RITE_SKILL_EASY       10   /* the easiest way: a fresh character's axis */
+#define RITE_SKILL_EASY       8    /* the easiest way: the lowest axis a fresh character can have
+                                    * (Profile Review never lets one below 8; the default is 10) */
 #define RITE_TURNS_SPOKEN     4
 #define RITE_TURNS_MADE       2
 #define RITE_TURNS_KEPT       6

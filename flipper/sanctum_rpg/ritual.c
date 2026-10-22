@@ -67,7 +67,7 @@ void region_rite(uint32_t seed, int rx, int ry, RegionRite* out) {
     for(int i = 0; i < n; i++) {
         out->ways |= WAY_BIT(order[i]);
         out->threshold[order[i]] =
-            (uint8_t)(i == 0 ? RITE_SKILL_EASY : RITE_SKILL_EASY + (intensity + 1) / 2);
+            (uint8_t)(i == 0 ? RITE_SKILL_EASY : RITE_SKILL_EASY + 2 + (intensity + 1) / 2);
     }
     out->difficulty = (uint8_t)(2 + intensity / 2);
     int pieces = 2 + intensity / 6;

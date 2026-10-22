@@ -66,7 +66,7 @@ enum { PLAN_NONE = 0, PLAN_STANDING, PLAN_CAIRN, PLAN_BOULDER, PLAN_DEADFALL,
 
 /* Top-down forms (TerrainDef.map_icon): 8x8 XBM, row 0 first, LSB = left.
  * Drawn within rows 0..7, so none spills into the tile below. */
-static const uint8_t MAP_CARVING[8] = {0x00, 0x00, 0x00, 0x00, 0x22, 0x14, 0x22, 0x00}; /* a cut cross, low on the ground */
+static const uint8_t MAP_CARVING[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0x55, 0x00}; /* a line of cut marks, low on the ground */
 static const uint8_t MAP_TIMBER[8] = {0x00, 0x3F, 0x12, 0x12, 0x12, 0x12, 0x12, 0x12}; /* a mine set: cap overhanging two legs */
 static const uint8_t MAP_BRAZIER[8] = {0x00, 0x04, 0x0A, 0x1F, 0x0E, 0x04, 0x04, 0x0E}; /* a flame over a bowl on a stem */
 static const uint8_t MAP_DEADTREE[8] = {0x00, 0x15, 0x0E, 0x04, 0x15, 0x0E, 0x04, 0x04}; /* bare forked branches */

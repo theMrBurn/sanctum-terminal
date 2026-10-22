@@ -3010,8 +3010,8 @@ static void test_effort(void) {
 /* Solvable by construction (§58.10, §58.17): for many seeds and every
  * region out to radius 3, everything WORLDGEN 9 set aside is really placed,
  * inside the region; there's an artifact for every site and the words for
- * every kind of site; and the easiest way is open to a fresh character
- * (base axes 10, no deeds), with everything it needs placed. The waking
+ * every kind of site; and the easiest way is open to any fresh character
+ * (an axis as low as Profile Review allows, 8, and no deeds), with everything it needs placed. The waking
  * region is checked like the rest: gates only ever open outward from it. */
 static void test_rituals_solvable(void) {
     const uint32_t seeds[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu, 0x0BADF00Du, 0x00000001u, 0x7FFFFFFFu};
@@ -3053,7 +3053,7 @@ static void test_rituals_solvable(void) {
                 }
                 RegionRite rite;
                 region_rite(seed, rx, ry, &rite);
-                easy &= (rite.ways & WAY_BIT(rite.easiest)) && rite.threshold[rite.easiest] <= 10;
+                easy &= (rite.ways & WAY_BIT(rite.easiest)) && rite.threshold[rite.easiest] <= 8;
                 int ways = 0;
                 for(int w = 0; w < WAY_COUNT; w++) ways += (rite.ways >> w) & 1;
                 easy &= ways >= 2;
@@ -3064,7 +3064,7 @@ static void test_rituals_solvable(void) {
                 case WAY_SEEN:   needs &= found[ARC_CLUE] == rite.runes; break;
                 }
                 EffortTask t = ritual_task(&rite, (RitualWay)rite.easiest);
-                EffortBody fresh = {TORCH_FUEL_MAX, 10, 10};
+                EffortBody fresh = {TORCH_FUEL_MAX, 10, 8};   /* the weakest fresh axis */
                 payable &= effort_can(&t, &fresh);
             }
     }
@@ -3153,7 +3153,7 @@ static void test_arc_route1(void) {
                 }
                 RegionRite rite;
                 region_rite(seed, rx, ry, &rite);
-                uint8_t axes[DEED_AXIS_COUNT] = {10, 10, 10, 10, 10, 10};
+                uint8_t axes[DEED_AXIS_COUNT] = {8, 8, 8, 8, 8, 8};   /* the floor of Profile Review */
                 /* Not before it is cleansed: nothing is sealed yet. */
                 refuse &= !arc_region_cleansed(seed, rx, ry, &book);
                 RegionSite sites[SITES_PER_REGION_MAX];

@@ -52,6 +52,9 @@
 #include "region.h"
 #include "quirk.h"
 #include "corruption.h"
+#include "arc.h"
+#include "effort.h"
+#include "ritual.h"
 #include "sky.h"
 #include "weather.h"
 #include "world.h"
@@ -92,11 +95,11 @@
 /* World render */
 #define TILE_PX               8                       /* tile cell, 8x8 */
 
-/* Region gates (spec 58 §58.4). OFF on the device until rituals exist
- * (slice 4): with no way to perform one, closing every region but the
- * origin would wall the player into nine chunks. The logic is live in the
- * host tests and shots either way. */
-#define REGION_GATES_LIVE 0
+/* Region gates (spec 58 §58.4). Live since the rite can be performed
+ * (spec 58 step 5): the waking region is always open, and every region's
+ * rite is reachable with what the region itself places (test_rituals_solvable,
+ * test_arc_route1). */
+#define REGION_GATES_LIVE 1
 #define WORLD_VIEW_W          (WORLD_COLS * TILE_PX)  /* 128 px */
 #define WORLD_VIEW_H          (WORLD_ROWS * TILE_PX)  /*  48 px */
 #define WORLD_TILE_BASELINE_Y_OFFSET 7                /* FontSecondary baseline within 8px cell */
@@ -128,6 +131,10 @@ typedef enum {
     ScreenStash,     /* slice 2026-06-03d/C — home-chunk vault deposit/withdraw */
     ScreenQuest,     /* slice 49.F5 — quest surfaced, branch A/B choice */
     ScreenFpvDemo,   /* slice 2026-06-03e — Etrian-style FPV prototype (UAT) */
+    ScreenSite,      /* spec 58 — a bumped site: seal, the rite */
+    ScreenRite,      /* spec 58 §58.7 — the ways open to you */
+    ScreenVigil,     /* spec 58 — the kept way, turn by turn */
+    ScreenRunes,     /* spec 58 §58.7.2 — the seen way's puzzle */
 } Screen;
 
 typedef enum {
@@ -177,6 +184,23 @@ typedef struct {
     Creature creatures[CREATURES_MAX];
     RegionRituals rituals;  /* regions whose ritual is done (spec 58); rituals.txt */
     RegionBook region_book; /* what the player has done in each region (spec 58 §58.10); regions.txt */
+
+    /* The corruption arc's screens (spec 58 §58.17). RAM-only. */
+    int8_t site_k;           /* the bumped site's index in its region (ScreenSite) */
+    uint8_t site_kind;
+    int8_t site_cursor;
+    int8_t rite_cursor;      /* ScreenRite: row among the open ways */
+    uint8_t rite_way;        /* the way being performed */
+    EffortRun rite_run;      /* the vigil's / the runes' effort, turn by turn */
+    RunePuzzle runes;        /* ScreenRunes */
+    uint8_t rune_turn[RUNES_MAX];
+    uint8_t rune_touched[RUNES_MAX];
+    uint8_t rune_ntouched;
+    int8_t rune_sel;
+    /* A rune shown after the status line (a seen clue, spec 58 §58.7.2). */
+    bool status_rune;
+    uint8_t status_icon[8];
+    uint8_t status_marks;
     QuirkPending quirk;     /* an armed cave-in (spec 50 Q1); RAM-only, cleared on leaving the chunk */
     uint32_t moon_said_night; /* sky_night_id the moon was last named on (0 = never); RAM-only */
     int creature_count;
@@ -467,7 +491,7 @@ static void arc_load(AppState* st, const char* campaign_id) {
     free(buf);
 }
 
-static void __attribute__((unused)) arc_save(AppState* st) {
+static void arc_save(AppState* st) {
     char* buf = malloc(REGION_BOOK_TEXT_MAX);
     if(!buf) return;
     size_t n = region_rituals_format(&st->rituals, buf, REGION_BOOK_TEXT_MAX);
@@ -477,15 +501,28 @@ static void __attribute__((unused)) arc_save(AppState* st) {
     free(buf);
 }
 
+/* Mark this chunk's edges into closed regions (the haze, spec 58 §58.4).
+ * The waking region seems pristine until its rot is found (§58.3.1): no
+ * haze there until then, and its closed edges refuse quietly. */
+static bool arc_region_found(const AppState* st, int rx, int ry) {
+    const RegionRecord* r = region_book_get(&st->region_book, rx, ry);
+    return region_depth(st->campaign_seed, rx, ry) > 0 || (r && (r->flags & RR_FOUND));
+}
+
+static void arc_mark_edges(AppState* st) {
+    if(!REGION_GATES_LIVE) return;
+    int cx = st->character.chunk_x, cy = st->character.chunk_y;
+    region_mark_world_edges(st->campaign_seed, &st->rituals, cx, cy, &st->world);
+    if(!arc_region_found(st, region_of(cx), region_of(cy))) st->world.closed_edges = 0;
+}
+
 static void enter_world_phase2(
     AppState* st, const char* campaign_id, bool fresh_character) {
     world_generate_chunk(
         st->campaign_seed,
         st->character.chunk_x, st->character.chunk_y,
         &st->world);
-    if(REGION_GATES_LIVE)
-        region_mark_world_edges(st->campaign_seed, &st->rituals,
-                                st->character.chunk_x, st->character.chunk_y, &st->world);
+    arc_mark_edges(st);
 
     deltas_load(
         campaign_id,
@@ -938,6 +975,12 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
                         examine_name(st, st->examine_x, st->examine_y));
     } else if(st->status_line) {
         canvas_draw_str(canvas, 0, WORLD_STATUS_BASELINE, st->status_line);
+        if(st->status_rune) {   /* a seen clue: the rune, and its place as marks */
+            int x = canvas_string_width(canvas, st->status_line) + 3;
+            canvas_draw_xbm(canvas, x, WORLD_STATUS_BASELINE - 7, 8, 8, st->status_icon);
+            for(int k = 0; k < st->status_marks; k++)
+                canvas_draw_box(canvas, x + 10 + k * 3, WORLD_STATUS_BASELINE - 2, 2, 2);
+        }
     } else {
         char stats[40];
         snprintf(stats, sizeof(stats), "HP%u/%u MP%u/%u F%u",
@@ -2257,6 +2300,162 @@ static void draw_char_sheet_screen(Canvas* canvas, const AppState* st) {
 
 /* ─── render dispatch ─────────────────────────────────────────────── */
 
+/* ─── render: the corruption arc (spec 58 §58.17) ─────────────────── */
+
+static uint8_t character_base_axis(const CharacterState* c, uint8_t axis_id);
+
+typedef enum { SITE_ACT_SEAL = 0, SITE_ACT_RITE, SITE_ACT_LEAVE } SiteAct;
+static const char* const SITE_ACT_LABEL[] = {"set a seal", "the rite", "leave"};
+
+static void arc_region_here(const AppState* st, int* rx, int* ry) {
+    *rx = region_of(st->character.chunk_x);
+    *ry = region_of(st->character.chunk_y);
+}
+
+/* The six effective axes: base + deed growth. */
+static void effective_axes(const AppState* st, uint8_t* axes) {
+    for(uint8_t a = 0; a < DEED_AXIS_COUNT; a++)
+        axes[a] = deeds_effective_axis(&st->deeds, character_base_axis(&st->character, a), a);
+}
+
+/* What the bumped site offers: seal while unsealed; the rite once the
+ * region is cleansed and this site sealed; always leave. */
+static int site_actions(const AppState* st, uint8_t* acts) {
+    int rx, ry, n = 0;
+    arc_region_here(st, &rx, &ry);
+    if(!arc_site_sealed(&st->region_book, rx, ry, st->site_k))
+        acts[n++] = SITE_ACT_SEAL;
+    else if(arc_region_cleansed(st->campaign_seed, rx, ry, &st->region_book) &&
+            !region_ritual_done(&st->rituals, rx, ry))
+        acts[n++] = SITE_ACT_RITE;
+    acts[n++] = SITE_ACT_LEAVE;
+    return n;
+}
+
+/* The ways of the rite open to this player, in way order. */
+static int rite_ways(const AppState* st, uint8_t* ways) {
+    int rx, ry, n = 0;
+    arc_region_here(st, &rx, &ry);
+    uint8_t axes[DEED_AXIS_COUNT];
+    effective_axes(st, axes);
+    uint8_t open = arc_ways_open(st->campaign_seed, rx, ry, axes);
+    for(int w = 0; w < WAY_COUNT; w++)
+        if(open & WAY_BIT(w)) ways[n++] = (uint8_t)w;
+    return n;
+}
+
+static EffortBody rite_body(const AppState* st, RitualWay way) {
+    uint8_t axes[DEED_AXIS_COUNT];
+    effective_axes(st, axes);
+    EffortBody b = {st->character.torch_fuel, st->character.hp, ritual_way_axis(way, axes)};
+    return b;
+}
+
+static void draw_row(Canvas* canvas, int y, const char* text, bool sel) {
+    if(sel) {
+        canvas_draw_box(canvas, 0, y - 7, SCREEN_W, 8);
+        canvas_invert_color(canvas);
+        canvas_draw_str(canvas, 2, y, text);
+        canvas_invert_color(canvas);
+    } else {
+        canvas_draw_str(canvas, 2, y, text);
+    }
+}
+
+static void draw_title(Canvas* canvas, const char* title) {
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str(canvas, 0, TITLE_BASELINE_Y, title);
+    canvas_draw_line(canvas, 0, DIVIDER_Y, SCREEN_W - 1, DIVIDER_Y);
+    canvas_set_font(canvas, FontSecondary);
+}
+
+static void draw_footer(Canvas* canvas, const char* footer) {
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, FOOTER_BASELINE_Y, AlignCenter, AlignBottom, footer);
+}
+
+static void draw_site_screen(Canvas* canvas, const AppState* st) {
+    int rx, ry;
+    arc_region_here(st, &rx, &ry);
+    draw_title(canvas, SITE_TABLE[st->site_kind % SITE_KIND_COUNT].name);
+    bool sealed = arc_site_sealed(&st->region_book, rx, ry, st->site_k);
+    canvas_draw_str(canvas, 0, 23, sealed ? ARC_LINE_SEALED : ARC_LINE_CORRUPT);
+    uint8_t acts[3];
+    int n = site_actions(st, acts);
+    for(int i = 0; i < n; i++)
+        draw_row(canvas, 35 + i * 9, SITE_ACT_LABEL[acts[i]], i == st->site_cursor);
+    draw_footer(canvas, "OK do  Back leave");
+}
+
+static void draw_rite_screen(Canvas* canvas, const AppState* st) {
+    int rx, ry;
+    arc_region_here(st, &rx, &ry);
+    draw_title(canvas, "the rite");
+    uint8_t ways[WAY_COUNT];
+    int n = rite_ways(st, ways);
+    if(n == 0) {
+        canvas_draw_str(canvas, 0, 30, ARC_LINE_MISSING);
+    } else {
+        for(int i = 0; i < n; i++)
+            draw_row(canvas, 23 + i * 8, arc_way_name((RitualWay)ways[i]), i == st->rite_cursor);
+        RitualWay w = (RitualWay)ways[st->rite_cursor < n ? st->rite_cursor : 0];
+        const char* line = ARC_LINE_MISSING;
+        if(arc_way_ready(st->campaign_seed, rx, ry, w, &st->character, &st->region_book)) {
+            RegionRite rite;
+            region_rite(st->campaign_seed, rx, ry, &rite);
+            EffortTask t = ritual_task(&rite, w);
+            EffortBody b = rite_body(st, w);
+            line = effort_odds_line(&t, &b);
+        }
+        canvas_draw_str(canvas, 0, 55, line);
+    }
+    draw_footer(canvas, "OK begin  Back");
+}
+
+static void draw_vigil_screen(Canvas* canvas, const AppState* st) {
+    draw_title(canvas, "the vigil");
+    canvas_draw_str(canvas, 0, 25, ARC_LINE_VIGIL);
+    /* The vigil's turns: a mark per turn kept. Counting is fine here: it
+     * is the length of a wait, not a meter of the world (43 §17.10). */
+    int turns = st->rite_run.task.turns;
+    for(int i = 0; i < turns; i++) {
+        int x = 4 + i * 10;
+        if(i < st->rite_run.turns_done) canvas_draw_box(canvas, x, 32, 6, 6);
+        else canvas_draw_frame(canvas, x, 32, 6, 6);
+    }
+    char stats[24];
+    snprintf(stats, sizeof(stats), "HP%u F%u", st->character.hp, st->character.torch_fuel);
+    canvas_draw_str(canvas, 0, 52, stats);
+    draw_footer(canvas, "OK wait  Back stop");
+}
+
+/* A rune at 2x: 16x16 from its 8x8 form. */
+static void draw_rune_2x(Canvas* canvas, int x, int y, uint8_t shape, uint8_t turn) {
+    uint8_t icon[8];
+    rune_icon(shape, turn, icon);
+    for(int ry = 0; ry < 8; ry++)
+        for(int rx = 0; rx < 8; rx++)
+            if(icon[ry] & (1u << rx)) canvas_draw_box(canvas, x + rx * 2, y + ry * 2, 2, 2);
+}
+
+static void draw_runes_screen(Canvas* canvas, const AppState* st) {
+    const RunePuzzle* p = &st->runes;
+    canvas_set_font(canvas, FontSecondary);
+    int span = p->count * 26;
+    int x0 = (SCREEN_W - span) / 2 + 5;
+    for(int i = 0; i < p->count; i++) {
+        int x = x0 + i * 26;
+        draw_rune_2x(canvas, x, 12, p->shape[i], st->rune_turn[i]);
+        if(i == st->rune_sel) canvas_draw_frame(canvas, x - 3, 9, 22, 22);
+        for(int k = 0; k < st->rune_ntouched; k++)
+            if(st->rune_touched[k] == i)
+                for(int d = 0; d <= k; d++) canvas_draw_box(canvas, x + d * 4, 34, 2, 2);
+    }
+    if(st->status_line) canvas_draw_str(canvas, 0, 50, st->status_line);
+    draw_footer(canvas, p->kind == PUZZLE_TURN    ? "<> pick  ^v turn  OK try"
+                        : p->kind == PUZZLE_ORDER ? "<> pick  OK touch  Back"
+                                                  : "^v turn  OK touch  Back");
+}
+
 static void title_draw(Canvas* canvas, void* ctx) {
     const AppState* st = ctx;
     canvas_clear(canvas);
@@ -2280,6 +2479,10 @@ static void title_draw(Canvas* canvas, void* ctx) {
     case ScreenFpvDemo:     /* deprecated; FPV is now a view-mode of
                              * ScreenWorld. Kept enum for save compat. */
                             break;
+    case ScreenSite:        draw_site_screen(canvas, st); break;
+    case ScreenRite:        draw_rite_screen(canvas, st); break;
+    case ScreenVigil:       draw_vigil_screen(canvas, st); break;
+    case ScreenRunes:       draw_runes_screen(canvas, st); break;
     }
 }
 
@@ -2392,9 +2595,10 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     /* An edge into a region still closed by corruption refuses the crossing
      * (spec 58). The haze on that edge already shows it. */
     if(REGION_GATES_LIVE && region_edge_closed(st->campaign_seed, &st->rituals, cx, cy, dir)) {
-        set_status(st, "the fog does not thin.");
+        set_status(st, arc_region_found(st, region_of(cx), region_of(cy)) ? ARC_LINE_REFUSED : "blocked.");
         return;
     }
+    int from_rx = region_of(cx), from_ry = region_of(cy);
 
     switch(dir) {
     case MoveNorth: cy -= 1; new_px = perp;              new_py = WORLD_ROWS - 2; break;
@@ -2408,7 +2612,7 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     st->character.chunk_y = (int16_t)cy;
     st->quirk.active = false;   /* an armed quirk belongs to the chunk you left */
     world_generate_chunk(st->campaign_seed, cx, cy, &st->world);
-    if(REGION_GATES_LIVE) region_mark_world_edges(st->campaign_seed, &st->rituals, cx, cy, &st->world);
+    arc_mark_edges(st);
 
     /* Load + overlay persisted deltas for the entered chunk. */
     deltas_load(st->character.campaign_id, cx, cy, &st->current_deltas);
@@ -2471,6 +2675,20 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
                 st->campaign_seed, cx, cy, (uint8_t)st->world.style,
                 place, sizeof(place));
             set_statusf(st, "%s", place);
+        }
+    }
+    /* Entering a region still held by its corruption: one observed line,
+     * and its rot counts as found (spec 58 §58.8). A cleansed one is quiet. */
+    {
+        int rx = region_of(cx), ry = region_of(cy);
+        if((rx != from_rx || ry != from_ry) && region_depth(st->campaign_seed, rx, ry) > 0 &&
+           !region_ritual_done(&st->rituals, rx, ry)) {
+            set_status(st, ARC_LINE_ENTER);
+            RegionRecord* r = region_book_touch(&st->region_book, rx, ry);
+            if(r && !(r->flags & RR_FOUND)) {
+                r->flags |= RR_FOUND;
+                arc_save(st);
+            }
         }
     }
 
@@ -2908,8 +3126,183 @@ static void sky_tick(AppState* st) {
     set_status(st, line);
 }
 
+/* ─── the corruption arc's verbs (spec 58 §58.17) ─────────────────── */
+
+static void ritual_take_hold(AppState* st) {
+    int rx, ry;
+    arc_region_here(st, &rx, &ry);
+    region_mark_ritual(&st->rituals, rx, ry);
+    arc_way_spend((RitualWay)st->rite_way, &st->character);
+    arc_save(st);
+    save_io_write_character(&st->character);
+    arc_mark_edges(st);
+    notify(st, &sequence_success);
+    set_status(st, ARC_LINE_RITE);
+    st->screen = ScreenWorld;
+}
+
+/* A failed rite: what it spent stays spent; what was found is kept (§58.7.4). */
+static void rite_failed(AppState* st) {
+    save_io_write_character(&st->character);
+    set_status(st, ARC_LINE_FAILED);
+    st->screen = ScreenWorld;
+}
+
+/* Pay one rite turn: the effort from the body, and the world's turn. */
+static EffortState rite_turn(AppState* st) {
+    EffortBody b = rite_body(st, (RitualWay)st->rite_way);
+    EffortState e = effort_turn(&st->rite_run, &b);
+    st->character.torch_fuel = b.fuel;
+    st->character.hp = b.hp;
+    advance_turn(st);
+    return e;
+}
+
+/* Walking into a site opens it, and finds its region's rot (§58.3.1). */
+static void site_open(AppState* st, int k) {
+    int rx, ry;
+    arc_region_here(st, &rx, &ry);
+    st->site_k = (int8_t)k;
+    st->site_kind = st->world.site_kind;
+    st->site_cursor = 0;
+    st->screen = ScreenSite;
+    RegionRecord* r = region_book_touch(&st->region_book, rx, ry);
+    if(r && !(r->flags & RR_FOUND)) {
+        r->flags |= RR_FOUND;
+        arc_save(st);
+        arc_mark_edges(st);
+    }
+}
+
+static void site_act(AppState* st) {
+    uint8_t acts[3];
+    int n = site_actions(st, acts);
+    if(st->site_cursor >= n) st->site_cursor = (int8_t)(n - 1);
+    int rx, ry;
+    arc_region_here(st, &rx, &ry);
+    switch(acts[st->site_cursor]) {
+    case SITE_ACT_SEAL: {
+        ArcSealResult r = arc_seal(rx, ry, st->site_k, st->site_kind, &st->character, &st->region_book);
+        if(r == ARC_SEALED) {
+            arc_save(st);
+            save_io_write_character(&st->character);
+            notify(st, &sequence_success);
+        }
+        set_status(st, arc_seal_line(r));
+        st->screen = ScreenWorld;
+        break;
+    }
+    case SITE_ACT_RITE:
+        st->rite_cursor = 0;
+        st->screen = ScreenRite;
+        break;
+    default:
+        st->screen = ScreenWorld;
+        break;
+    }
+}
+
+/* Begin the highlighted way (ScreenRite, OK). Spoken and made pass their
+ * turns in one go; the vigil and the runes go turn by turn. */
+static void rite_begin(AppState* st) {
+    uint8_t ways[WAY_COUNT];
+    int n = rite_ways(st, ways);
+    if(n == 0) return;
+    if(st->rite_cursor >= n) st->rite_cursor = 0;
+    RitualWay w = (RitualWay)ways[st->rite_cursor];
+    int rx, ry;
+    arc_region_here(st, &rx, &ry);
+    if(!arc_way_ready(st->campaign_seed, rx, ry, w, &st->character, &st->region_book)) {
+        set_status(st, ARC_LINE_MISSING);
+        st->screen = ScreenWorld;
+        return;
+    }
+    RegionRite rite;
+    region_rite(st->campaign_seed, rx, ry, &rite);
+    EffortTask t = ritual_task(&rite, w);
+    EffortBody b = rite_body(st, w);
+    st->rite_way = (uint8_t)w;
+    effort_begin(&st->rite_run, &t, &b);
+    if(w == WAY_KEPT) {
+        st->screen = ScreenVigil;
+        return;
+    }
+    if(w == WAY_SEEN) {
+        rune_puzzle(st->campaign_seed, rx, ry, &st->runes);
+        for(int i = 0; i < RUNES_MAX; i++) st->rune_turn[i] = st->runes.start[i];
+        st->rune_ntouched = 0;
+        st->rune_sel = 0;
+        st->status_line = NULL;
+        st->screen = ScreenRunes;
+        return;
+    }
+    EffortState e = EFFORT_GOING;
+    while(e == EFFORT_GOING) e = rite_turn(st);
+    recompute_visibility(st);
+    if(e == EFFORT_DONE) ritual_take_hold(st);
+    else rite_failed(st);
+}
+
+/* The vigil: one turn kept (OK). Anything that comes for you breaks it,
+ * and it starts again from the beginning (§58.7.5). */
+static void vigil_wait(AppState* st) {
+    EffortState e = rite_turn(st);
+    recompute_visibility(st);
+    if(e == EFFORT_SPENT) {
+        rite_failed(st);
+        return;
+    }
+    st->screen = ScreenWorld;
+    if(maybe_start_combat(st)) {
+        set_status(st, ARC_LINE_BROKEN);
+        return;
+    }
+    if(e == EFFORT_DONE) {
+        ritual_take_hold(st);
+        return;
+    }
+    st->screen = ScreenVigil;
+}
+
+/* The runes: each try is a rite turn. Wrong costs the turn; the touches
+ * reset; out of turns or strength, the rite fails. */
+static void runes_try(AppState* st) {
+    bool right = rune_answer(&st->runes, st->rune_turn, st->rune_touched);
+    EffortState e = rite_turn(st);
+    if(right && e != EFFORT_SPENT) {
+        ritual_take_hold(st);
+        return;
+    }
+    st->rune_ntouched = 0;
+    if(e != EFFORT_GOING) {
+        rite_failed(st);
+        return;
+    }
+    set_status(st, ARC_LINE_FAILED);
+}
+
+static void runes_touch(AppState* st) {
+    if(st->runes.kind == PUZZLE_TURN) {
+        runes_try(st);
+        return;
+    }
+    for(int k = 0; k < st->rune_ntouched; k++)
+        if(st->rune_touched[k] == st->rune_sel) return;
+    st->rune_touched[st->rune_ntouched++] = (uint8_t)st->rune_sel;
+    if(st->rune_ntouched >= st->runes.count) runes_try(st);
+}
+
+/* The forge lists only recipes the player knows (recipe_known). */
+static void craft_step(AppState* st, int dir) {
+    for(int i = 0; i < RECIPE_COUNT; i++) {
+        st->craft_cursor = (int8_t)((st->craft_cursor + RECIPE_COUNT + dir) % RECIPE_COUNT);
+        if(recipe_known((uint8_t)st->craft_cursor, st->character.recipes_known)) return;
+    }
+}
+
 static void on_world_move(AppState* st, MoveDir dir) {
     if(dir == MoveNone) return;
+    st->status_rune = false;
     /* Update facing to the walked direction — keeps the FPV camera
      * aimed where the player is heading (slice 2026-06-03e). */
     switch(dir) {
@@ -2996,6 +3389,9 @@ static void on_world_move(AppState* st, MoveDir dir) {
                     st->character.inv_qty[k->id]++;
                 }
                 set_statusf(st, "got %s", k->true_name);
+                /* A word source or a tome of making is read on the spot (spec 58). */
+                const char* read = arc_pickup(&st->world, px, py, &st->character);
+                if(read) set_status(st, read);
             }
         } else {
             set_status(st, "found item");
@@ -3035,13 +3431,23 @@ static void on_world_move(AppState* st, MoveDir dir) {
         set_status(st, "stairs (Phase 4)");
         break;
     case MoveBlockedByWall:
-    case MoveBlockedByEdge:
+    case MoveBlockedByEdge: {
+        /* Walking into a site opens it (spec 58 §58.17). */
+        int k = r == MoveBlockedByWall
+                    ? arc_site_at(st->campaign_seed, st->character.chunk_x, st->character.chunk_y,
+                                  &st->world, nx, ny)
+                    : -1;
+        if(k >= 0) {
+            site_open(st, k);
+            break;
+        }
         /* Slice 2026-06-04 — give collision a voice. In FPV especially,
          * an unmoved view doesn't read as "you bumped a wall" without
          * the status line saying so. Top-down still benefits — the
          * player gets confirmation their input registered. */
         set_status(st, "blocked.");
         break;
+    }
     case MoveBlockedBySecret: {
         /* A hidden passage. It opens once the player's EFFECTIVE growth on the
          * axis that gates this edge (deterministic per shared edge; base +
@@ -3083,6 +3489,26 @@ static void on_world_move(AppState* st, MoveDir dir) {
                     st->character.campaign_id, &st->current_deltas, px, py, TILE_FLOOR);
             }
             if(ts.message) set_status(st, ts.message);
+        }
+        /* A carving underfoot (spec 58 §58.17): spoken words are learned;
+         * a seen clue shows its rune to whoever has the SIGHT to read it. */
+        {
+            uint8_t axes[DEED_AXIS_COUNT];
+            effective_axes(st, axes);
+            int rx = region_of(st->character.chunk_x), ry = region_of(st->character.chunk_y);
+            const RegionRecord* before = region_book_get(&st->region_book, rx, ry);
+            uint8_t had = before ? before->pieces : 0;
+            ArcStep as;
+            arc_step(st->campaign_seed, st->character.chunk_x, st->character.chunk_y, &st->world, px, py,
+                     axes[DEED_AXIS_SIGHT], &st->region_book, &as);
+            if(as.line) {
+                set_status(st, as.line);
+                st->status_rune = as.rune;
+                memcpy(st->status_icon, as.icon, sizeof(st->status_icon));
+                st->status_marks = as.marks;
+                const RegionRecord* after = region_book_get(&st->region_book, rx, ry);
+                if(after && after->pieces != had) arc_save(st);
+            }
         }
         break;
     }
@@ -3501,14 +3927,11 @@ int32_t sanctum_rpg_app(void* p) {
         case ScreenCraft:
             switch(event.key) {
             case InputKeyLeft:
-                state.craft_cursor =
-                    (int8_t)((state.craft_cursor + RECIPE_COUNT - 1) %
-                             RECIPE_COUNT);
+                craft_step(&state, -1);
                 state.status_line = NULL;
                 break;
             case InputKeyRight:
-                state.craft_cursor =
-                    (int8_t)((state.craft_cursor + 1) % RECIPE_COUNT);
+                craft_step(&state, +1);
                 state.status_line = NULL;
                 break;
             case InputKeyOk:
@@ -3610,6 +4033,59 @@ int32_t sanctum_rpg_app(void* p) {
                 state.pending_quest_template = -1;
                 state.screen = ScreenWorld;
                 break;
+            default: break;
+            }
+            break;
+
+        case ScreenSite: {
+            uint8_t acts[3];
+            int n = site_actions(&state, acts);
+            switch(event.key) {
+            case InputKeyUp:   if(state.site_cursor > 0) state.site_cursor--; break;
+            case InputKeyDown: if(state.site_cursor < n - 1) state.site_cursor++; break;
+            case InputKeyOk:   site_act(&state); break;
+            case InputKeyBack: state.screen = ScreenWorld; break;
+            default: break;
+            }
+            break;
+        }
+
+        case ScreenRite: {
+            uint8_t ways[WAY_COUNT];
+            int n = rite_ways(&state, ways);
+            switch(event.key) {
+            case InputKeyUp:   if(state.rite_cursor > 0) state.rite_cursor--; break;
+            case InputKeyDown: if(state.rite_cursor < n - 1) state.rite_cursor++; break;
+            case InputKeyOk:   rite_begin(&state); break;
+            case InputKeyBack: state.screen = ScreenSite; break;
+            default: break;
+            }
+            break;
+        }
+
+        case ScreenVigil:
+            switch(event.key) {
+            case InputKeyOk:   vigil_wait(&state); break;
+            case InputKeyBack:
+                set_status(&state, ARC_LINE_BROKEN);
+                state.screen = ScreenWorld;
+                break;
+            default: break;
+            }
+            break;
+
+        case ScreenRunes:
+            switch(event.key) {
+            case InputKeyLeft:  if(state.rune_sel > 0) state.rune_sel--; break;
+            case InputKeyRight: if(state.rune_sel < state.runes.count - 1) state.rune_sel++; break;
+            case InputKeyUp:
+            case InputKeyDown:
+                if(state.runes.kind != PUZZLE_ORDER)
+                    state.rune_turn[state.rune_sel] =
+                        (uint8_t)((state.rune_turn[state.rune_sel] + (event.key == InputKeyUp ? 1 : 3)) % 4);
+                break;
+            case InputKeyOk:   runes_touch(&state); break;
+            case InputKeyBack: state.screen = ScreenWorld; break;
             default: break;
             }
             break;
