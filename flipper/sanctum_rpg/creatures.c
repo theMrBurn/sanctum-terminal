@@ -269,6 +269,7 @@ int creatures_populate_pooled(
         out[placed].energy = 0;
         out[placed].aggro = 0;
         out[placed].alive = 1;
+        out[placed].wounds = 0;
         placed++;
     }
     return placed;

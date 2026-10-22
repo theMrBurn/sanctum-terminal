@@ -225,6 +225,7 @@ typedef struct {
     uint8_t aggro;  /* provocation accumulator (aggro slice) */
     uint8_t alive;
     uint8_t spawn_x, spawn_y; /* initial position; deterministic-key for kill persistence (slice 1b) */
+    uint8_t wounds; /* damage taken from range (spec 46 §5.1): carried into melee; RAM-only */
 } Creature;
 
 /* Populate `out` (cap `max`) for a chunk: deterministic count + placement

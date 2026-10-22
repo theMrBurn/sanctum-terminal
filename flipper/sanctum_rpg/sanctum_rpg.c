@@ -55,6 +55,7 @@
 #include "arc.h"
 #include "dead.h"
 #include "afflict.h"
+#include "cast.h"
 #include "effort.h"
 #include "ritual.h"
 #include "sky.h"
@@ -375,6 +376,7 @@ static void character_init_defaults(CharacterState* c, const char* campaign_id) 
     c->recipes_known = 0;
     c->bleed = 0;
     c->chill = 0;
+    c->casts_known = 0;   /* schema 10: earned by deep scans (spec 46 §5.1) */
     c->schema_version = SAVE_IO_SCHEMA_VERSION;
 }
 
@@ -2849,6 +2851,8 @@ static void advance_turn(AppState* st) {
                     (felt.wither ? WITHER_FUEL_EXTRA : 0);
     uint16_t fuel = (old_fuel >= burn) ? (uint16_t)(old_fuel - burn) : 0;
     st->character.torch_fuel = fuel;
+    /* MP comes back slowly: one point every MP_REGEN_TURNS (spec 46 §5.1). */
+    st->character.mp = cast_mp_regen(st->character.mp, st->character.max_mp, st->character.turn);
 
     /* Creatures act on the same clock (cohesion keystone). Deterministic per
      * (chunk_seed, turn, slot) — never perturbs the world golden-master. Light
@@ -2970,7 +2974,7 @@ static bool maybe_start_combat(AppState* st) {
         creature_compose(c->family_id, c->trait_id, &d);
         if(!creature_is_hostile(d.disposition, d.provoke, c->aggro)) continue;
         st->combat_foe = i;
-        st->combat_foe_hp = d.hp;
+        st->combat_foe_hp = d.hp > c->wounds ? (uint16_t)(d.hp - c->wounds) : 1;   /* wounds from range carry in */
         st->combat_cursor = 0;
         st->combat_round = 0;
         char nm[24];
@@ -3238,7 +3242,13 @@ static void scan_creature(AppState* st, int ci) {
                      st->character.campaign_id, st->character.turn, scan_deed);
         char nm[24];
         creature_name(&d, nm, sizeof(nm));
-        if(tier >= 3) {
+        int taught = tier >= 3 ? cast_taught_by(d.element) : -1;
+        if(taught >= 0 && !(st->character.casts_known & CAST_BIT(taught))) {
+            /* A deep read teaches the cast of its element (spec 46 §5.1):
+             * the reticle grows a trigger. */
+            st->character.casts_known |= CAST_BIT(taught);
+            set_statusf(st, CAST_LINE_LEARNED, CAST_TABLE[taught].name);
+        } else if(tier >= 3) {
             set_statusf(
                 st, "%s %s %s %s", nm, creature_disposition_name(d.disposition),
                 creature_element_name(d.element), creature_aptitude_name(d.aptitude));
@@ -3255,6 +3265,38 @@ static void scan_creature(AppState* st, int ci) {
     }
     save_io_write_character(&st->character); /* turn/fuel advanced — persist */
     maybe_start_combat(st); /* a hostile may have closed during the scan */
+}
+
+/* Fire the strongest known cast MP can pay for at the creature under the
+ * reticle (spec 46 §5.1). Its wounds carry into melee; struck, it turns on
+ * you; a kill at range drops as a melee kill does. A turn passes. */
+static void cast_fire(AppState* st, int ci) {
+    Creature* foe = &st->creatures[ci];
+    int c = cast_pick(st->character.casts_known, st->character.mp);
+    if(c < 0) {
+        set_status(st, CAST_LINE_EMPTY);
+        return;
+    }
+    st->character.mp = (uint16_t)(st->character.mp - CAST_TABLE[c].mp_cost);
+    CreatureDef d;
+    creature_compose(foe->family_id, foe->trait_id, &d);
+    uint8_t mind = deeds_effective_axis(&st->deeds, st->character.mind, DEED_AXIS_MIND);
+    int dmg = cast_damage(c, mind, d.def);
+    char nm[24];
+    creature_name(&d, nm, sizeof(nm));
+    if((int)foe->wounds + dmg >= (int)d.hp) {
+        st->combat_foe = ci;
+        combat_kill(st, foe, nm);           /* drops, tallies, says it fell */
+    } else {
+        foe->wounds = (uint8_t)(foe->wounds + dmg);
+        foe->aggro = CAST_PROVOKE;
+        set_statusf(st, CAST_LINE_LANDS, CAST_TABLE[c].name);
+        notify(st, &sequence_single_vibro);
+    }
+    advance_turn(st);
+    recompute_visibility(st);
+    save_io_write_character(&st->character);
+    if(st->screen == ScreenWorld && maybe_start_combat(st)) st->examining = false;
 }
 
 /* Map a deed axis id (DEED_AXIS_*) to the character's base score for it. */
@@ -3666,7 +3708,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
             if(creature_is_hostile(d.disposition, d.provoke, c->aggro)) {
                 /* Engage directly — same setup as maybe_start_combat. */
                 st->combat_foe = i;
-                st->combat_foe_hp = d.hp;
+                st->combat_foe_hp = d.hp > c->wounds ? (uint16_t)(d.hp - c->wounds) : 1;   /* wounds from range carry in */
                 st->combat_cursor = 0;
                 st->combat_round = 0;
                 char nm[24];
@@ -4058,7 +4100,16 @@ int32_t sanctum_rpg_app(void* p) {
                     const Creature* c =
                         creature_at(&state, state.examine_x, state.examine_y);
                     if(c && state.lit[state.examine_y][state.examine_x]) {
-                        scan_creature(&state, (int)(c - state.creatures));
+                        /* Scan while there's more to learn about its kind;
+                         * once there isn't, a known cast fires (spec 46 §5.1). */
+                        CreatureDef cd;
+                        creature_compose(c->family_id, c->trait_id, &cd);
+                        if(cast_fires(state.character.observe, cd.scan_diff,
+                                      creature_bestiary_grade(state.character.bestiary, cd.family_id),
+                                      state.character.casts_known))
+                            cast_fire(&state, (int)(c - state.creatures));
+                        else
+                            scan_creature(&state, (int)(c - state.creatures));
                     } else {
                         /* Examine on an empty lit tile = SIGHT growth (the
                          * "you looked, you saw" deed, slice 48.F5). Capped

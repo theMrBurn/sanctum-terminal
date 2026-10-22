@@ -29,7 +29,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define SAVE_IO_SCHEMA_VERSION 9
+#define SAVE_IO_SCHEMA_VERSION 10
 #define SAVE_INV_KINDS_MAX     32 /* inventory slots by kind id (schema 9: the corruption arc's kinds) */
 #define SAVE_VAULT_KINDS_MAX   SAVE_INV_KINDS_MAX /* same kind id space as inv */
 #define SAVE_EQUIP_NONE        0xFFu /* empty equip slot */
@@ -114,6 +114,9 @@ typedef struct {
     uint16_t recipes_known; /* bit per hidden recipe the player has discovered */
     uint8_t bleed;          /* turns of bleeding left: -1 HP per turn */
     uint8_t chill;          /* 1 = chilled this turn (a spectral is near) */
+    /* Schema 10 — the ranged scanner (spec 46 §5.1): casts learned (CAST_BIT),
+     * per seed. Tolerant load defaults to 0: the reticle is scan-only. */
+    uint8_t casts_known;
     uint8_t schema_version;
 } CharacterState;
 

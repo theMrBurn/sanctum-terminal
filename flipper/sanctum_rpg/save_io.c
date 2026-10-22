@@ -476,7 +476,8 @@ static int format_character_json(const CharacterState* c, char* buf, size_t buf_
         "  \"words\": %u,\n"
         "  \"recipes\": %u,\n"
         "  \"bleed\": %u,\n"
-        "  \"chill\": %u\n"
+        "  \"chill\": %u,\n"
+        "  \"casts\": %u\n"
         "}\n",
         (unsigned)c->schema_version,
         c->campaign_id,
@@ -512,7 +513,8 @@ static int format_character_json(const CharacterState* c, char* buf, size_t buf_
         (unsigned)c->words_known,
         (unsigned)c->recipes_known,
         (unsigned)c->bleed,
-        (unsigned)c->chill);
+        (unsigned)c->chill,
+        (unsigned)c->casts_known);
 }
 
 SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out) {
@@ -583,6 +585,7 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
     out->recipes_known = 0;
     out->bleed = 0;
     out->chill = 0;
+    out->casts_known = 0;   /* schema 10 */
 
     uint32_t schema = SAVE_IO_SCHEMA_VERSION;
     read_u32(buf, "schema_version", &schema); /* informational; accept any */
@@ -646,6 +649,7 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
     if(read_u32(buf, "recipes", &v32)) out->recipes_known = (uint16_t)v32;
     if(read_u32(buf, "bleed", &v32))   out->bleed         = (uint8_t)v32;
     if(read_u32(buf, "chill", &v32))   out->chill         = (uint8_t)v32;
+    if(read_u32(buf, "casts", &v32))   out->casts_known   = (uint8_t)v32;
     if(read_u32(buf, "equipped_weapon", &v32)) out->equipped_weapon = (uint8_t)v32;
     if(read_u32(buf, "equipped_light", &v32))  out->equipped_light  = (uint8_t)v32;
     if(read_u32(buf, "equipped_armor", &v32))  out->equipped_armor  = (uint8_t)v32;

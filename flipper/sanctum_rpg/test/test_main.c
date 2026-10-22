@@ -47,6 +47,7 @@
 #include "../deeds.h"
 #include "../dead.h"
 #include "../afflict.h"
+#include "../cast.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -3554,6 +3555,39 @@ static void test_clues_readable(void) {
     CHECK(fit && strlen(spoil) <= 30, "copy: every arc line fits the status bar");
 }
 
+/* The ranged scanner (spec 46 §5.1, the user's calls 2026-10-22): scan,
+ * then fire once its kind is read; casts are earned by deep scans only;
+ * MP pays and comes back slowly. */
+static void test_ranged_scanner(void) {
+    /* rat: scan_diff 15. OBSERVE 20 reads it at tier 2. */
+    CHECK(!cast_fires(20, 15, 0, 0) && !cast_fires(20, 15, 3, 0),
+          "cast: with no cast known the reticle only scans (earned only)");
+    CHECK(!cast_fires(20, 15, 0, CAST_BIT(CAST_SENDING)) && !cast_fires(20, 15, 1, CAST_BIT(CAST_SENDING)),
+          "cast: while a scan would still teach something, OK scans");
+    CHECK(cast_fires(20, 15, 2, CAST_BIT(CAST_SENDING)) && cast_fires(40, 15, 3, CAST_BIT(CAST_SENDING)),
+          "cast: once its kind is read as far as you can, OK fires");
+    CHECK(!cast_fires(40, 15, 2, CAST_BIT(CAST_SENDING)),
+          "cast: more OBSERVE means more to learn: it scans again first");
+    CHECK(cast_taught_by(ELEM_NONE) == CAST_SENDING && cast_taught_by(ELEM_FIRE) == CAST_EMBER &&
+          cast_taught_by(ELEM_ICE) == CAST_RIME, "cast: each element's deep read teaches its cast");
+    CHECK(cast_pick(0, 9) == -1 && cast_pick(CAST_BIT(CAST_SENDING), 1) == -1 &&
+          cast_pick(CAST_BIT(CAST_SENDING), 2) == CAST_SENDING &&
+          cast_pick(CAST_BIT(CAST_SENDING) | CAST_BIT(CAST_EMBER), 5) == CAST_EMBER &&
+          cast_pick(CAST_BIT(CAST_SENDING) | CAST_BIT(CAST_EMBER), 2) == CAST_SENDING,
+          "cast: the strongest known cast MP can pay for fires");
+    CHECK(cast_damage(CAST_SENDING, 10, 14) == 2 + 10 / CAST_MIND_DIV - 14 / 8 && cast_damage(CAST_SENDING, 0, 200) == 1,
+          "cast: damage = power + MIND/4 - def/8, at least 1 (spec 46 §5.1)");
+    uint16_t mp = 0;
+    for(uint32_t t = 1; t <= 60; t++) mp = cast_mp_regen(mp, 5, t);
+    CHECK(mp == 5 && cast_mp_regen(3, 5, MP_REGEN_TURNS) == 4 && cast_mp_regen(3, 5, MP_REGEN_TURNS + 1) == 3,
+          "cast: MP comes back one point every MP_REGEN_TURNS, up to its max");
+    /* A fresh character can earn one: some family's deep read is within reach. */
+    int reachable = 0;
+    for(int f = 0; f < CREATURE_FAMILY_COUNT; f++)
+        if(CREATURE_FAMILIES[f].weight && creature_scan_tier(20 + 8 + 3, CREATURE_FAMILIES[f].scan_diff) == 3) reachable++;
+    CHECK(reachable > 0, "cast: a few scans grow OBSERVE enough to read some family deeply");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -3657,6 +3691,7 @@ int main(void) {
     test_dark_tree();
     test_dead_effects();
     test_clues_readable();
+    test_ranged_scanner();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
