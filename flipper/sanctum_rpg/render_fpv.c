@@ -310,6 +310,12 @@ static void floor_mark(Canvas* canvas, int plan, int x, int y, bool near) {
         int half = near ? 5 : 3;
         for(int dx = -half; dx <= half; dx++) canvas_draw_dot(canvas, x + dx, y);
         for(int dx = -half + 2; dx <= half + 2; dx++) canvas_draw_dot(canvas, x + dx, y + 2);
+    } else if(plan == TERRAIN_PLAN_CARVING) { /* a cross cut into the ground */
+        int half = near ? 2 : 1;
+        for(int d = -half; d <= half; d++) {
+            canvas_draw_dot(canvas, x + d, y + d / 2);
+            canvas_draw_dot(canvas, x + d, y - d / 2);
+        }
     } else if(plan == TERRAIN_PLAN_SCREE) {   /* loose stones: flat pebbles */
         canvas_draw_dot(canvas, x, y);
         canvas_draw_dot(canvas, x + 1, y);

@@ -17,6 +17,7 @@
 #include <stddef.h>
 
 #include "pool.h"
+#include "trade.h"
 
 /* id, glyph, true_name, unid_name, class, weight, value, flags, biomes, fuel
  *
@@ -35,6 +36,22 @@
 /* Top-down forms (KindDef.map_icon): 8x8 XBM, row 0 first, LSB = left.
  * Rows 1..7 only, so an item never touches the tile above or below. */
 static const uint8_t MAP_TOOL[8] = {0x00, 0x04, 0x0E, 0x0E, 0x0E, 0x04, 0x04, 0x04}; /* a head on a haft */
+/* The corruption arc's objects (spec 58 §58.17), placed by WORLDGEN 9 and
+ * never rolled (weight 0, no biome). Their glyphs are machine identities;
+ * these forms are what the map shows. */
+static const uint8_t MAP_SEAL[8]    = {0x00, 0x00, 0x1C, 0x22, 0x2A, 0x22, 0x1C, 0x00}; /* a disc with a boss */
+static const uint8_t MAP_RELIQ[8]   = {0x00, 0x08, 0x1C, 0x3E, 0x22, 0x2A, 0x3E, 0x00}; /* a box under a little roof */
+static const uint8_t MAP_CENSER[8]  = {0x00, 0x08, 0x08, 0x14, 0x3E, 0x2A, 0x1C, 0x08}; /* a pierced bowl on a chain */
+static const uint8_t MAP_BOUND[8]   = {0x00, 0x00, 0x1C, 0x3E, 0x7F, 0x3E, 0x1C, 0x00}; /* a corded stone */
+static const uint8_t MAP_SCROLL[8]  = {0x00, 0x00, 0x7E, 0x42, 0x5A, 0x42, 0x7E, 0x00}; /* a leaf with a line of hand */
+static const uint8_t MAP_BOOK[8]    = {0x00, 0x00, 0x3C, 0x26, 0x26, 0x26, 0x3C, 0x00}; /* a sewn spine */
+static const uint8_t MAP_TOME[8]    = {0x00, 0x7E, 0x46, 0x56, 0x46, 0x46, 0x7E, 0x00}; /* a heavy clasped book */
+static const uint8_t MAP_CORD[8]    = {0x00, 0x00, 0x0C, 0x12, 0x2C, 0x48, 0x30, 0x00}; /* a loop of cord */
+static const uint8_t MAP_NAIL[8]    = {0x00, 0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x00}; /* a long nail */
+static const uint8_t MAP_WARD[8]    = {0x00, 0x08, 0x2A, 0x1C, 0x7F, 0x1C, 0x2A, 0x08}; /* a knotted star */
+static const uint8_t MAP_CANDLE[8]  = {0x00, 0x08, 0x00, 0x08, 0x08, 0x08, 0x1C, 0x00}; /* a flame on a stub */
+static const uint8_t MAP_SALT[8]    = {0x00, 0x00, 0x00, 0x08, 0x14, 0x22, 0x7F, 0x00}; /* a little heap */
+static const uint8_t MAP_RELIC[8]   = {0x00, 0x00, 0x06, 0x0E, 0x1C, 0x38, 0x30, 0x00}; /* a finger bone */
 
 const KindDef KIND_CATALOG[] = {
     /* id glyph true_name        unid_name             class           wt  val  flags                                          biomes  fuel heal effect       slot       atk def lt  map form */
@@ -45,6 +62,20 @@ const KindDef KIND_CATALOG[] = {
     {4, '(', "tool",          "a worn implement",   KC_ENCOUNTER,   11, 12, KF_PICKUPABLE | KF_EQUIP,                      B_BOTH,  0, 0, "+2 atk",    EQ_WEAPON, 2,  0,  0, MAP_TOOL},   /* '(' fills its cell top to bottom */
     {5, 'i', "torch",         "an unlit brand",     KC_ENCOUNTER,   15,  2, KF_PICKUPABLE,                                 B_BOTH, 50, 0, "+50 fuel",  EQ_NONE,   0,  0,  0, NULL},
     {6, 'T', "chest",         "a banded coffer",    KC_LIFE,         8, 30, KF_PICKUPABLE,                                 B_BOTH,  0, 0, ""       ,    EQ_NONE,   0,  0,  0, NULL},
+    /* spec 58 §58.17 — the corruption arc. Names are placeholders (the user's call). */
+    {7, 'e', "grave-seal",    "a lead disc",        KC_LIFE,         0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_SEAL},
+    {8, ']', "reliquary",     "a small box",        KC_LIFE,         0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_RELIQ},
+    {9, 'j', "censer",        "a pierced vessel",   KC_LIFE,         0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_CENSER},
+    {10, 'f', "bound stone",  "a corded stone",     KC_LIFE,         0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_BOUND},
+    {11, '?', "scroll",       "a rolled leaf",      KC_LIFE,         0,  4, KF_PICKUPABLE,                                 0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_SCROLL},
+    {12, '}', "book",         "a sewn book",        KC_LIFE,         0,  6, KF_PICKUPABLE,                                 0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_BOOK},
+    {13, '{', "tome",         "a heavy tome",       KC_LIFE,         0,  8, KF_PICKUPABLE,                                 0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_TOME},
+    {14, 'z', "cord",         "a hank of cord",     KC_ORGANIC,      0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_CORD},
+    {15, 'J', "iron nail",    "a long nail",        KC_ENCOUNTER,    0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_NAIL},
+    {16, 'W', "ward",         "a knotted thing",    KC_ENCOUNTER,    0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_WARD},
+    {17, 'K', "candle",       "a tallow stub",      KC_ORGANIC,      0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_CANDLE},
+    {18, 'P', "salt",         "a twist of salt",    KC_CRYSTALLINE,  0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_SALT},
+    {19, ')', "relic",        "a finger bone",      KC_LIFE,         0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_RELIC},
 };
 
 const int KIND_COUNT = (int)(sizeof(KIND_CATALOG) / sizeof(KIND_CATALOG[0]));
@@ -85,23 +116,9 @@ uint8_t loot_roll_pooled(Rng* r, Biome biome, const Pool* pool) {
         if(!(KIND_CATALOG[i].flags & KF_PICKUPABLE)) continue;
         if(!(KIND_CATALOG[i].biomes & bbit)) continue;
         uint32_t base = KIND_CATALOG[i].weight;
-        /* ⚠ PENDING — spec 43 §17.3 rule #4 (the numeraire must be EXCLUDED
-         * from Pool bias) IS NOT APPLIED HERE YET, and the omission is
-         * deliberate.
-         *
-         * The guard is one `&& !trade_kind_is_numeraire(...)` on this line.
-         * It was written, measured, and reverted: it moves two of the four
-         * world-gen golden fingerprints (CAFEBABE (0,0) 0x9A4F21E6 →
-         * 0x2B4E7E0A, and (1,0) 0x01821F0D → 0x68BEF5B4). Under §14.0 that
-         * makes it a BREAKING world-gen change requiring an explicit
-         * generator-version bump — "never a silent edit". The other four
-         * v0.6.0 guards do not touch generation and are live.
-         *
-         * The exposure this leaves open is measured by
-         * `test_pool_numeraire_exposure` in test/test_main.c: at max bias
-         * the shard is ~81% of the cavern pool, so a Craft-themed region
-         * IS a gold mine. Land the guard with the version bump. */
-        if(pool && i < POOL_LOOT_KINDS) {
+        /* Spec 43 §17.3 #4: the numeraire takes no Pool bias, so a
+         * Craft-themed cavern isn't a mint (landed with WORLDGEN 9). */
+        if(pool && i < POOL_LOOT_KINDS && !trade_kind_is_numeraire((uint8_t)i)) {
             uint32_t bias = pool->loot_kind_bias[i];
             if(bias > 56u) bias = 56u;
             base = base * (8u + bias) / 8u;

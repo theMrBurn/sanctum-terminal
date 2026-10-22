@@ -13,6 +13,7 @@
 #include "loot.h"
 #include "pool.h"
 #include "rng.h"
+#include "ritual.h"
 #include "site.h"
 #include "stamps.h"
 #include "terrain.h"
@@ -57,6 +58,7 @@ void world_clear_seams(World* w) {
     w->closed_edges = 0;
     w->site_kind = SITE_NONE;   /* and no site: hand-built worlds start bare */
     w->site_x = w->site_y = -1;
+    w->arc_count = 0;
 }
 
 const uint8_t WORLD_HAZE_XBM[8] = {0x11, 0x00, 0x44, 0x00, 0x11, 0x00, 0x44, 0x00};
@@ -610,6 +612,40 @@ static void place_site(uint32_t seed, int cx, int cy, World* out) {
     }
 }
 
+/* Salt for where in its chunk a WORLDGEN 9 object lands. */
+#define ARC_TILE_SALT 0xA2C071E5u
+
+/* Place what this chunk's region set aside for its rituals (ritual.h
+ * region_objects), after the site, consuming no RNG. Each object goes on a
+ * floor tile reachable from spawn, searched row-major from a hashed start.
+ * Objects are items or floor carvings, so none blocks anything. */
+static void place_arc_objects(uint32_t seed, int cx, int cy, World* out) {
+    int rx = region_of(cx), ry = region_of(cy);
+    ArcObject objs[ARC_OBJECTS_MAX];
+    int n = region_objects(seed, rx, ry, objs);
+    uint8_t reach[WORLD_ROWS][WORLD_COLS];
+    memset(reach, 0, sizeof(reach));
+    egress_bfs_walkable(out, out->spawn_x, out->spawn_y, reach);
+    const int iw = WORLD_COLS - 2, ih = WORLD_ROWS - 2, cells = iw * ih;
+    for(int i = 0; i < n; i++) {
+        if(objs[i].cx != cx || objs[i].cy != cy || out->arc_count >= WORLD_ARC_MAX) continue;
+        uint32_t start = region_hash(seed ^ ARC_TILE_SALT ^ (uint32_t)(i * 0x9E3779B9u), cx, cy) % (uint32_t)cells;
+        for(int k = 0; k < cells; k++) {
+            int c = (int)((start + (uint32_t)k) % (uint32_t)cells);
+            int x = 1 + c % iw, y = 1 + c / iw;
+            if(out->tiles[y][x] != TILE_FLOOR || !reach[y][x]) continue;
+            if(x == out->spawn_x && y == out->spawn_y) continue;
+            out->tiles[y][x] = arc_object_glyph(seed, rx, ry, &objs[i], i);
+            out->arc[out->arc_count].x = (int8_t)x;
+            out->arc[out->arc_count].y = (int8_t)y;
+            out->arc[out->arc_count].what = objs[i].what;
+            out->arc[out->arc_count].arg = objs[i].arg;
+            out->arc_count++;
+            break;
+        }
+    }
+}
+
 void world_generate_chunk(
     uint32_t base_seed, int chunk_x, int chunk_y, World* out) {
     Rng rng;
@@ -664,6 +700,7 @@ void world_generate_chunk(
         }
     }
     place_site(base_seed, chunk_x, chunk_y, out);
+    place_arc_objects(base_seed, chunk_x, chunk_y, out);
 }
 
 bool world_mutation_applies(char fresh_tile, char saved) {

@@ -22,6 +22,7 @@
 
 #define WORLD_COLS 16
 #define WORLD_ROWS 6
+#define WORLD_ARC_MAX 6   /* WORLDGEN 9 objects one chunk can hold */
 
 /* Tile glyphs — sanctum-engage canonical ASCII. */
 #define TILE_FLOOR  '.'
@@ -85,6 +86,12 @@ typedef struct {
      * in `tiles`, which is what the fingerprint hashes. */
     uint8_t site_kind;
     int8_t site_x, site_y;
+    /* What WORLDGEN 9 placed here for its region's rituals (ritual.h
+     * region_objects): each object's tile and meaning, so a pickup or a
+     * step onto a carving knows what it found. Derived; never saved, never
+     * hashed (the tiles are). */
+    uint8_t arc_count;
+    struct { int8_t x, y; uint8_t what, arg; } arc[WORLD_ARC_MAX];
 } World;
 
 #define WORLD_SEAM_N 0
@@ -112,7 +119,7 @@ Style world_wall_style(const World* w, int x, int y);
 
 /* World-generator version (spec 43 §14.0). Any change that moves a chunk
  * golden MUST bump this, and the golden test pins fingerprints to it. */
-#define WORLDGEN_VERSION 8   /* 2: styles; 3: cavern blockers' own glyphs; 4: interiors + glowcaps; 5: floor glyphs clear of weather overlays (2026-10-14); 6: Pool bias by style vocabulary, place names by style (2026-10-20); 7: the burial family, graves + altar stones, 8-slot Pool, a neutral waking region; 8: each region places its sites (2026-10-21) */
+#define WORLDGEN_VERSION 9   /* 9: the rituals' objects (artifacts, words, carvings, the ways' things) and the shard kept out of Pool bias (2026-10-22); 2: styles; 3: cavern blockers' own glyphs; 4: interiors + glowcaps; 5: floor glyphs clear of weather overlays (2026-10-14); 6: Pool bias by style vocabulary, place names by style (2026-10-20); 7: the burial family, graves + altar stones, 8-slot Pool, a neutral waking region; 8: each region places its sites (2026-10-21) */
 
 /* May a saved tile mutation (deltas) turn this freshly generated tile into
  * `saved`? Floor, loot and harvestable terrain (a glowcap) take any; a

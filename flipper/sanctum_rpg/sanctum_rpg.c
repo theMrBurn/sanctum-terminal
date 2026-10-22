@@ -1313,8 +1313,9 @@ static int build_sellable_list(const CharacterState* c, uint8_t* out, int max) {
         if(!k) continue;
         if(c->inv_qty[i] == 0) continue;
         if(k->value == 0) continue;
-        /* §17.3 #1 — the money is not stock. Excluded, not priced at 0. */
-        if(trade_kind_is_numeraire((uint8_t)i)) continue;
+        /* §17.3 #1 — the money is not stock; spec 58 — nor is an artifact.
+         * Excluded, not priced at 0. */
+        if(trade_kind_untradeable((uint8_t)i)) continue;
         out[n++] = (uint8_t)i;
     }
     return n;
@@ -1643,8 +1644,8 @@ static int build_buyable_list(uint8_t biome, uint8_t* out, int max) {
         if(!(k->flags & KF_PICKUPABLE)) continue;
         if(k->value == 0) continue;
         if(!(k->biomes & bbit)) continue;
-        /* §17.3 #1 — a vendor never sells you money. */
-        if(trade_kind_is_numeraire((uint8_t)i)) continue;
+        /* §17.3 #1 — a vendor never sells you money (nor an artifact, spec 58). */
+        if(trade_kind_untradeable((uint8_t)i)) continue;
         out[n++] = (uint8_t)i;
     }
     return n;

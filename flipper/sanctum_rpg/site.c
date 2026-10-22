@@ -35,15 +35,20 @@ static void site_slots(uint32_t seed, int rx, int ry, uint8_t order[BIOME_REGION
     }
 }
 
-uint8_t chunk_site_kind(uint32_t seed, int cx, int cy) {
+int chunk_site_index(uint32_t seed, int cx, int cy) {
     int rx = region_of(cx), ry = region_of(cy);
     int slot = (cx - rx * BIOME_REGION) + BIOME_REGION * (cy - ry * BIOME_REGION);
     uint8_t order[BIOME_REGION * BIOME_REGION];
     site_slots(seed, rx, ry, order);
     int count = region_site_count(seed, rx, ry);
-    int k = -1;
     for(int i = 0; i < count; i++)
-        if(order[i] == slot) k = i;
+        if(order[i] == slot) return i;
+    return -1;
+}
+
+uint8_t chunk_site_kind(uint32_t seed, int cx, int cy) {
+    int rx = region_of(cx), ry = region_of(cy);
+    int k = chunk_site_index(seed, cx, cy);
     if(k < 0) return SITE_NONE;
     uint8_t kinds = STYLE_TABLE[style_of(seed, cx, cy)].site_kinds;
     int allowed = 0;

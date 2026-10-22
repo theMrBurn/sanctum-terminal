@@ -61,10 +61,12 @@ enum { PLAN_NONE = 0, PLAN_STANDING, PLAN_CAIRN, PLAN_BOULDER, PLAN_DEADFALL,
        PLAN_GRAVE, PLAN_GRAVE_OPEN, PLAN_SARC_OPEN, PLAN_DOLMEN,  /* the dead (spec 50 Q1) */
        PLAN_MOSS = TERRAIN_PLAN_MOSS, PLAN_SCREE = TERRAIN_PLAN_SCREE,
        PLAN_FLAG = TERRAIN_PLAN_FLAG, PLAN_RAILS = TERRAIN_PLAN_RAILS,
-       PLAN_GRASS = TERRAIN_PLAN_GRASS, PLAN_PLANKS = TERRAIN_PLAN_PLANKS };
+       PLAN_GRASS = TERRAIN_PLAN_GRASS, PLAN_PLANKS = TERRAIN_PLAN_PLANKS,
+       PLAN_CARVING = TERRAIN_PLAN_CARVING };
 
 /* Top-down forms (TerrainDef.map_icon): 8x8 XBM, row 0 first, LSB = left.
  * Drawn within rows 0..7, so none spills into the tile below. */
+static const uint8_t MAP_CARVING[8] = {0x00, 0x00, 0x00, 0x00, 0x22, 0x14, 0x22, 0x00}; /* a cut cross, low on the ground */
 static const uint8_t MAP_TIMBER[8] = {0x00, 0x3F, 0x12, 0x12, 0x12, 0x12, 0x12, 0x12}; /* a mine set: cap overhanging two legs */
 static const uint8_t MAP_BRAZIER[8] = {0x00, 0x04, 0x0A, 0x1F, 0x0E, 0x04, 0x04, 0x0E}; /* a flame over a bowl on a stem */
 static const uint8_t MAP_DEADTREE[8] = {0x00, 0x15, 0x0E, 0x04, 0x15, 0x0E, 0x04, 0x04}; /* bare forked branches */
@@ -125,6 +127,7 @@ static const TerrainDef TERRAIN[] = {
     {'-',         TF_FLOOR, 0,             PLAN_RAILS,       1, "rails",          1, 0, 0, NULL, NULL, 0},
     {'`',         TF_FLOOR, 0,             PLAN_GRASS,       1, "tall grass",     1, 0, 0, NULL, MAP_GRASS, 0},   /* '`' is a speck */
     {'[',         TF_FLOOR, 0,             PLAN_PLANKS,      1, "boards",         1, 0, 0, NULL, MAP_BOARDS, 0},   /* '[' hangs into the tile below */
+    {'C',         TF_FLOOR, 0,             PLAN_CARVING,     1, "carving",        1, 0, 0, NULL, MAP_CARVING, 0},  /* WORLDGEN 9: words or a rune cut in the ground */
 };
 
 int terrain_count(void) { return (int)(sizeof(TERRAIN) / sizeof(TERRAIN[0])); }

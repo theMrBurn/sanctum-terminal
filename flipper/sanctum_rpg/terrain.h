@@ -97,6 +97,7 @@ uint16_t terrain_step_fuel(uint16_t fuel, int8_t delta, uint16_t max);
 #define TERRAIN_PLAN_RAILS 35   /* mine rails: sleepers */
 #define TERRAIN_PLAN_GRASS 36   /* tall grass: blades */
 #define TERRAIN_PLAN_PLANKS 37  /* plank floor: board seams */
+#define TERRAIN_PLAN_CARVING 38 /* a carving cut into the ground (spec 58 §58.17) */
 
 /* Every def, in table order — tests and the shot harness iterate this, so
  * a new row can't escape the identity / opacity / golden checks. */

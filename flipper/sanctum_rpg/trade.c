@@ -4,6 +4,8 @@
 
 #include "trade.h"
 
+#include "loot.h"
+
 #include "world.h"
 
 /* FNV-1a-flavored hash, same shape as weather.c / names.c. */
@@ -57,6 +59,11 @@ bool trade_kind_is_numeraire(uint8_t kind_id) {
     return kind_id == (uint8_t)TRADE_NUMERAIRE_KIND;
 }
 
+bool trade_kind_untradeable(uint8_t kind_id) {
+    const KindDef* k = kind_by_id(kind_id);
+    return trade_kind_is_numeraire(kind_id) || (k && (k->flags & KF_NOTRADE));
+}
+
 uint16_t trade_shards_earned(uint16_t value) {
     /* §17.5a rule 1 — truncate toward the player's loss. */
     return (uint16_t)((uint32_t)value / TRADE_SHARD_VALUE);
@@ -69,7 +76,7 @@ uint16_t trade_shards_owed(uint16_t value) {
 }
 
 uint16_t trade_buy_price(uint8_t kind_id, uint16_t base, int8_t delta) {
-    if(trade_kind_is_numeraire(kind_id)) return TRADE_NO_PRICE;
+    if(trade_kind_untradeable(kind_id)) return TRADE_NO_PRICE;
     /* Vendor's ask: base × (100 + delta + spread) / 100 */
     int p = (int)base * (100 + (int)delta + TRADE_SPREAD) / 100;
     if(p < 1) p = 1;
@@ -78,7 +85,7 @@ uint16_t trade_buy_price(uint8_t kind_id, uint16_t base, int8_t delta) {
 }
 
 uint16_t trade_sell_price(uint8_t kind_id, uint16_t base, int8_t delta) {
-    if(trade_kind_is_numeraire(kind_id)) return TRADE_NO_PRICE;
+    if(trade_kind_untradeable(kind_id)) return TRADE_NO_PRICE;
     /* Vendor's bid: base × (100 + delta - spread) / 100 */
     int p = (int)base * (100 + (int)delta - TRADE_SPREAD) / 100;
     if(p < 1) p = 1;
@@ -87,7 +94,7 @@ uint16_t trade_sell_price(uint8_t kind_id, uint16_t base, int8_t delta) {
 }
 
 uint16_t trade_scrap_price(uint8_t kind_id, uint16_t base) {
-    if(trade_kind_is_numeraire(kind_id)) return TRADE_NO_PRICE;
+    if(trade_kind_untradeable(kind_id)) return TRADE_NO_PRICE;
     /* Anywhere, lossy: half of base. Floor at 1. */
     return (base / 2u) > 0u ? (uint16_t)(base / 2u) : 1u;
 }

@@ -42,6 +42,7 @@
 #include "../compose.h"
 #include "../corruption.h"
 #include "../effort.h"
+#include "../ritual.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -253,7 +254,7 @@ static void test_chunk_invariants(void) {
 /* The generator version these fingerprints were recorded under. Re-record
  * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
  * this to match — the check below fails if the two drift apart. */
-#define GOLDEN_WORLDGEN_VERSION 8
+#define GOLDEN_WORLDGEN_VERSION 9
 
 static void test_chunk_golden(void) {
     CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
@@ -307,20 +308,30 @@ static void test_chunk_golden(void) {
          * WORLDGEN 8 (same day): each region places 2-3 sites (site.h),
          * one per chunk, last, consuming no RNG. Only the chunks that hold
          * a site move: the burial cavern (1,-5) and the manor (9,-9)
-         * (v7: 0x2C560D59 0xD3BD0BFB). The rest are unchanged. */
-        {0xCAFEBABE, 0, 0, 0xAA0B4171},
-        {0xCAFEBABE, 1, 0, 0x0642A257},
-        {0xDEADBEEF, 0, 0, 0x46A72DBF},             /* moor */
-        {0x00000001, -3, 5, 0xFAAC554E},            /* forest */
-        {0x12345678, 4, -2, 0xCE03D6D0},            /* crypt */
-        {0x12345678, 1, -5, 0xCA8D0873},            /* burial cavern */
-        {0x12345678, 4, 1, 0x4E738B0A},             /* keep */
-        {0x12345678, 7, -5, 0x84B02760},            /* forest */
-        {0x12345678, 7, -8, 0xFDF54A80},            /* abbey */
-        {0x12345678, -3, -4, 0x2F53AD25},           /* mausoleum */
-        {0x12345678, 3, -7, 0x093EE793},            /* burial mound */
-        {0x12345678, 0, 0, 0xA97EF655},             /* mine (the waking region) */
-        {0x12345678, 9, -9, 0x94878720},            /* manor */
+         * (v7: 0x2C560D59 0xD3BD0BFB). The rest are unchanged.
+         * WORLDGEN 9 (2026-10-22): two changes, measured apart. (1) The
+         * numeraire takes no Pool bias (spec 43 §17.3 #4): alone, it moves
+         * exactly the five cavern-biome cases (the shard is cavern-only) and
+         * none of the eight outdoor ones. (2) Each region places its
+         * rituals' objects (ritual.h region_objects), round-robin over its
+         * nine chunks; every region places at least nine, so every chunk
+         * holds one and every case moves.
+         * v8: 0xAA0B4171 0x0642A257 0x46A72DBF 0xFAAC554E 0xCE03D6D0
+         * 0xCA8D0873 0x4E738B0A 0x84B02760 0xFDF54A80 0x2F53AD25 0x093EE793
+         * 0xA97EF655 0x94878720. */
+        {0xCAFEBABE, 0, 0, 0x5B175E4C},
+        {0xCAFEBABE, 1, 0, 0xE93284EB},
+        {0xDEADBEEF, 0, 0, 0x3F2E339C},             /* moor */
+        {0x00000001, -3, 5, 0xE3AF62B0},            /* forest */
+        {0x12345678, 4, -2, 0x2CA5C20B},            /* crypt */
+        {0x12345678, 1, -5, 0xCA9B499D},            /* burial cavern */
+        {0x12345678, 4, 1, 0x5624B762},             /* keep */
+        {0x12345678, 7, -5, 0x0ECBACDA},            /* forest */
+        {0x12345678, 7, -8, 0x0E674ED9},            /* abbey */
+        {0x12345678, -3, -4, 0xD1194EBB},           /* mausoleum */
+        {0x12345678, 3, -7, 0x69EF0A2D},            /* burial mound */
+        {0x12345678, 0, 0, 0x2C7B65F6},             /* mine (the waking region) */
+        {0x12345678, 9, -9, 0x8B962E7D},            /* manor */
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     for(int i = 0; i < n; i++) {
@@ -970,15 +981,10 @@ static void test_numeraire_absent_from_shop_lists(void) {
     CHECK(listable > 0, "shop: the guard did not empty the shop");
 }
 
-/* §17.3 #4 is the one v0.6.0 guard that is NOT live — see the PENDING note
- * in loot.c's `loot_roll_pooled`. Applying it moves two world-gen goldens,
- * which §14.0 says requires an explicit generator-version bump rather than a
- * silent edit.
- *
- * So this is not an assertion that the guard works; it is a MEASUREMENT of
- * the exposure the missing guard leaves open, kept in the suite so the
- * number is re-derived on every run instead of living in a doc. When the
- * version bump lands, this becomes the equality assertion. */
+/* §17.3 #4: the numeraire takes no Pool bias. Landed with WORLDGEN 9 (it
+ * moves the cavern goldens, so it needed a generator-version bump). Before
+ * it, max bias on the shard took it from ~38% to ~81% of the cavern pool:
+ * a Craft-themed cavern was a mint. Now the share must not move at all. */
 static void test_pool_numeraire_exposure(void) {
     Pool flat, biased;
     for(int i = 0; i < POOL_LOOT_KINDS; i++) {
@@ -987,28 +993,14 @@ static void test_pool_numeraire_exposure(void) {
     }
     biased.loot_kind_bias[0] = 56;  /* max bias on the numeraire */
 
-    int flat_shards = 0, biased_shards = 0;
+    int same = 1;
     const int N = 20000;
     Rng ra, rb;
     rng_seed(&ra, 0xBEEF0001u);
     rng_seed(&rb, 0xBEEF0001u);
-    for(int i = 0; i < N; i++) {
-        if(loot_roll_pooled(&ra, BIOME_CAVERN, &flat) == 0)   flat_shards++;
-        if(loot_roll_pooled(&rb, BIOME_CAVERN, &biased) == 0) biased_shards++;
-    }
-    int flat_pct   = (flat_shards   * 100) / N;
-    int biased_pct = (biased_shards * 100) / N;
-    printf("  pool: numeraire share of cavern pool — unbiased %d%%, "
-           "max-biased %d%% (§17.3 #4 guard PENDING a gen-version bump)\n",
-           flat_pct, biased_pct);
-    /* The exposure is real and large — this is the finding, pinned. If this
-     * ever stops being true, either the guard landed (make this an equality
-     * assertion) or the catalog moved (re-measure §17.3 #4). */
-    CHECK(biased_pct > flat_pct + 20,
-          "pool: max bias on the numeraire IS a money-supply multiplier "
-          "(exposure measured, guard pending)");
-    CHECK(biased_pct >= 70,
-          "pool: a max-Craft cavern is majority-shard — it IS a gold mine");
+    for(int i = 0; i < N; i++)
+        same &= loot_roll_pooled(&ra, BIOME_CAVERN, &flat) == loot_roll_pooled(&rb, BIOME_CAVERN, &biased);
+    CHECK(same, "pool: bias on the numeraire changes no roll (spec 43 §17.3 #4)");
 
     /* Control: bias on an ordinary kind DOES move its share, so the test
      * above is proving exclusion and not a broken bias path. */
@@ -3007,6 +2999,107 @@ static void test_effort(void) {
           "effort: failure spends the body down to its floors, no further");
 }
 
+/* Solvable by construction (§58.10, §58.17): for many seeds and every
+ * region out to radius 3, everything WORLDGEN 9 set aside is really placed,
+ * inside the region; there's an artifact for every site and the words for
+ * every kind of site; and the easiest way is open to a fresh character
+ * (base axes 10, no deeds), with everything it needs placed. The waking
+ * region is checked like the rest: gates only ever open outward from it. */
+static void test_rituals_solvable(void) {
+    const uint32_t seeds[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu, 0x0BADF00Du, 0x00000001u, 0x7FFFFFFFu};
+    int placed_all = 1, inside = 1, enough_art = 1, words = 1, easy = 1, needs = 1, min_objs = 1, payable = 1;
+    int regions = 0;
+    for(size_t si = 0; si < sizeof(seeds) / sizeof(seeds[0]); si++) {
+        uint32_t seed = seeds[si];
+        for(int ry = -3; ry <= 3; ry++)
+            for(int rx = -3; rx <= 3; rx++) {
+                regions++;
+                ArcObject objs[ARC_OBJECTS_MAX];
+                int n = region_objects(seed, rx, ry, objs);
+                min_objs &= n >= BIOME_REGION * BIOME_REGION;
+                int found[ARC_KIND_COUNT] = {0}, art_by_kind[SITE_KIND_COUNT] = {0};
+                uint8_t sources = 0;
+                int got = 0;
+                for(int s = 0; s < BIOME_REGION * BIOME_REGION; s++) {
+                    int cx = rx * BIOME_REGION + s % BIOME_REGION, cy = ry * BIOME_REGION + s / BIOME_REGION;
+                    World w;
+                    world_generate_chunk(seed, cx, cy, &w);
+                    for(int a = 0; a < w.arc_count; a++) {
+                        got++;
+                        found[w.arc[a].what]++;
+                        if(w.arc[a].what == ARC_ARTIFACT) art_by_kind[w.arc[a].arg]++;
+                        if(w.arc[a].what == ARC_SOURCE) sources |= SITE_BIT(w.arc[a].arg);
+                        inside &= region_of(cx) == rx && region_of(cy) == ry;
+                        char t = w.tiles[w.arc[a].y][w.arc[a].x];
+                        placed_all &= t != TILE_FLOOR && world_walkable(&w, w.arc[a].x, w.arc[a].y);
+                    }
+                }
+                placed_all &= got == n;
+                RegionSite sites[SITES_PER_REGION_MAX];
+                int ns = region_sites(seed, rx, ry, sites);
+                int need[SITE_KIND_COUNT] = {0};
+                for(int i = 0; i < ns; i++) need[sites[i].kind]++;
+                for(int k = 0; k < SITE_KIND_COUNT; k++) {
+                    enough_art &= art_by_kind[k] >= need[k];
+                    if(need[k]) words &= (sources & SITE_BIT(k)) != 0;
+                }
+                RegionRite rite;
+                region_rite(seed, rx, ry, &rite);
+                easy &= (rite.ways & WAY_BIT(rite.easiest)) && rite.threshold[rite.easiest] <= 10;
+                int ways = 0;
+                for(int w = 0; w < WAY_COUNT; w++) ways += (rite.ways >> w) & 1;
+                easy &= ways >= 2;
+                switch(rite.easiest) {
+                case WAY_SPOKEN: needs &= found[ARC_PIECE] == rite.pieces && rite.pieces >= 2; break;
+                case WAY_MADE:   needs &= found[ARC_MADE_TOME] == 1 && found[ARC_COMPONENT] == 2; break;
+                case WAY_KEPT:   needs &= found[ARC_FOCUS] == 3; break;
+                case WAY_SEEN:   needs &= found[ARC_CLUE] == rite.runes; break;
+                }
+                EffortTask t = ritual_task(&rite, (RitualWay)rite.easiest);
+                EffortBody fresh = {TORCH_FUEL_MAX, 10, 10};
+                payable &= effort_can(&t, &fresh);
+            }
+    }
+    printf("  rituals: %d regions checked\n", regions);
+    CHECK(min_objs, "rituals: every region sets aside at least one object per chunk");
+    CHECK(placed_all, "rituals: everything a region sets aside is placed, on walkable ground");
+    CHECK(inside, "rituals: every object lies inside its own region");
+    CHECK(enough_art, "rituals: there is an artifact for every site");
+    CHECK(words, "rituals: the words for every kind of site are in the region");
+    CHECK(easy, "rituals: the easiest of 2-4 ways asks no more skill than a fresh character has");
+    CHECK(needs, "rituals: everything the easiest way needs is placed");
+    CHECK(payable, "rituals: a fresh character can pay the easiest rite's effort");
+}
+
+/* The seen puzzle: its own answer solves it, a start position isn't the
+ * answer, and no two runes (at any turn) look alike, nor does a rune look
+ * like itself turned, so the clue's turn is readable. */
+static void test_runes(void) {
+    uint8_t icons[RUNE_SHAPES][4][8];
+    for(int s = 0; s < RUNE_SHAPES; s++)
+        for(int t = 0; t < 4; t++) rune_icon((uint8_t)s, (uint8_t)t, icons[s][t]);
+    int distinct = 1;
+    for(int a = 0; a < RUNE_SHAPES * 4; a++)
+        for(int b = a + 1; b < RUNE_SHAPES * 4; b++)
+            distinct &= memcmp(icons[a / 4][a % 4], icons[b / 4][b % 4], 8) != 0;
+    CHECK(distinct, "runes: every shape at every turn looks different");
+    int solves = 1, starts_wrong = 1, kinds[3] = {0};
+    for(uint32_t seed = 1; seed < 40; seed++)
+        for(int r = -2; r <= 2; r++) {
+            RunePuzzle p;
+            rune_puzzle(seed * 0x9E3779B9u, r, -r, &p);
+            kinds[p.kind]++;
+            solves &= rune_answer(&p, p.turn, p.order);
+            if(p.kind != PUZZLE_ORDER) starts_wrong &= !rune_answer(&p, p.start, p.order);
+            uint8_t seen = 0;
+            for(int i = 0; i < p.count; i++) seen |= (uint8_t)(1u << p.order[i]);
+            solves &= seen == (uint8_t)((1u << p.count) - 1u) && p.count >= RUNES_MIN && p.count <= RUNES_MAX;
+        }
+    CHECK(solves, "runes: the answer solves the puzzle, and the order is a permutation");
+    CHECK(starts_wrong, "runes: a turning puzzle never starts solved");
+    CHECK(kinds[0] && kinds[1] && kinds[2], "runes: all three kinds of puzzle occur");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -3100,6 +3193,8 @@ int main(void) {
     test_corruption_wave();
     test_region_book();
     test_effort();
+    test_rituals_solvable();
+    test_runes();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

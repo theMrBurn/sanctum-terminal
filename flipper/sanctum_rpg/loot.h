@@ -34,6 +34,8 @@ typedef enum {
 #define KF_PICKUPABLE 0x01
 #define KF_CONSUMABLE 0x02
 #define KF_EQUIP      0x04 /* slice 2 — equippable (weapon/light/armor) */
+#define KF_NOTRADE    0x08 /* spec 58 §58.5: found, never bought or sold (artifacts, the
+                            * ritual objects). Every price helper refuses it. */
 
 /* Equip slot routing (slice 5). EQ_NONE = not equippable. KF_EQUIP gates
  * whether a kind can be equipped at all; equip_slot tells inventory_use

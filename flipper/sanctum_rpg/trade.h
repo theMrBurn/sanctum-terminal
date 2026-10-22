@@ -55,6 +55,9 @@
 #define TRADE_SHARD_VALUE 5u
 
 /* Is this kind the numeraire? */
+/* Is this kind kept off every market (the numeraire, or a KF_NOTRADE kind
+ * such as an artifact, spec 58 §58.5)? Every price helper refuses it. */
+bool trade_kind_untradeable(uint8_t kind_id);
 bool trade_kind_is_numeraire(uint8_t kind_id);
 
 /* Value → whole shards, under §17.5a rule 1: a player-facing outcome

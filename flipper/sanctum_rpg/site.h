@@ -48,3 +48,7 @@ int region_site_count(uint32_t seed, int rx, int ry);
 /* Does chunk (cx, cy) hold one of its region's sites? If so, its kind
  * (SiteKind), else SITE_NONE. */
 uint8_t chunk_site_kind(uint32_t seed, int cx, int cy);
+
+/* The site's place in its region's site order (0..count-1), or -1 if the
+ * chunk holds no site slot. The order is RegionRecord.sealed's bit order. */
+int chunk_site_index(uint32_t seed, int cx, int cy);
