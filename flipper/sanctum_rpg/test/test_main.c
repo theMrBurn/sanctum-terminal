@@ -41,6 +41,7 @@
 #include "../terrain.h"
 #include "../compose.h"
 #include "../corruption.h"
+#include "../effort.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -2941,6 +2942,71 @@ static void test_region_book(void) {
     CHECK(n < sizeof(big) - 1, "book: the widest full book fits REGION_BOOK_TEXT_MAX");
 }
 
+/* Effort (§58.7.5): one function, the same inputs give the same outcome,
+ * the odds the player is told are the outcome they get, skill lowers the
+ * drain, and effort alone never empties health. */
+static uint16_t run_effort(const EffortTask* t, EffortBody* b, EffortState* end) {
+    EffortRun r;
+    effort_begin(&r, t, b);
+    EffortState st = EFFORT_GOING;
+    int guard = 0;
+    while(st == EFFORT_GOING && guard++ < 300) st = effort_turn(&r, b);
+    *end = st;
+    return r.paid;
+}
+
+static void test_effort(void) {
+    int told_true = 1, floors = 1, same = 1, cases = 0;
+    for(int fuel = 0; fuel <= 120; fuel += 7)
+        for(int hp = 1; hp <= 20; hp += 3)
+            for(int axis = 4; axis <= 22; axis += 3)
+                for(int turns = 1; turns <= 8; turns++)
+                    for(int diff = 1; diff <= 16; diff += 3) {
+                        EffortTask t = {(uint8_t)turns, (uint8_t)diff, 0};
+                        EffortBody b = {(uint16_t)fuel, (uint16_t)hp, (uint8_t)axis};
+                        bool can = effort_can(&t, &b);
+                        EffortBody b1 = b, b2 = b;
+                        EffortState e1, e2;
+                        run_effort(&t, &b1, &e1);
+                        run_effort(&t, &b2, &e2);
+                        same &= e1 == e2 && b1.hp == b2.hp && b1.fuel == b2.fuel;
+                        told_true &= can == (e1 == EFFORT_DONE);
+                        floors &= b1.hp >= (hp < EFFORT_HP_FLOOR ? hp : EFFORT_HP_FLOOR) && b1.hp >= 1;
+                        floors &= b1.fuel >= (fuel < EFFORT_FUEL_FLOOR ? fuel : EFFORT_FUEL_FLOOR);
+                        cases++;
+                    }
+    CHECK(cases > 1000 && same, "effort: the same inputs give the same outcome");
+    CHECK(told_true, "effort: the task succeeds exactly when the odds said it would");
+    CHECK(floors, "effort: health never drops to zero, fuel never below its floor");
+    /* Skill lowers the drain: more skill, never more taken from the body,
+     * and strictly less while the body is still paying. */
+    int lowers = 1;
+    EffortTask t = {6, 8, 0};
+    int prev = 1 << 30;
+    for(int axis = EFFORT_SKILL_BASE; axis <= EFFORT_SKILL_BASE + 14; axis++) {
+        EffortBody b = {100, 20, (uint8_t)axis};
+        EffortState e;
+        run_effort(&t, &b, &e);
+        int drain = (100 - b.fuel) + (20 - b.hp);
+        if(prev > 0) lowers &= drain < prev;
+        else lowers &= drain == 0;
+        prev = drain;
+    }
+    CHECK(lowers, "effort: more skill strictly lowers what the body pays");
+    EffortTask big = {8, 16, 0};
+    EffortBody tired = {10, 3, 10}, rested = {100, 10, 20};
+    CHECK(strcmp(effort_odds_line(&big, &tired), "you are too tired for this.") == 0 &&
+          strcmp(effort_odds_line(&big, &rested), "your hands are steady.") == 0,
+          "effort: the odds are told in words");
+    /* A failed task stops where the body runs out and keeps what it spent. */
+    EffortBody b = {20, 5, 8};
+    EffortState e;
+    uint16_t paid = run_effort(&big, &b, &e);
+    CHECK(e == EFFORT_SPENT && b.fuel == EFFORT_FUEL_FLOOR && b.hp == EFFORT_HP_FLOOR &&
+          paid == (20 - EFFORT_FUEL_FLOOR) + (5 - EFFORT_HP_FLOOR),
+          "effort: failure spends the body down to its floors, no further");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -3033,6 +3099,7 @@ int main(void) {
     test_glyphs_unique_across_tables();
     test_corruption_wave();
     test_region_book();
+    test_effort();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
