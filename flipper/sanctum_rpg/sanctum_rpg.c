@@ -898,6 +898,18 @@ static void examine_move(AppState* st, int dx, int dy) {
     }
 }
 
+/* The status strip's right-hand readouts (weather glyph, facing, bearing)
+ * share a baseline with the message. They step aside rather than overlap
+ * it: a message is transient, and they return on the next step. True if a
+ * readout `w` px wide ending at `right` fits clear of the message. */
+#define HUD_GAP 3
+static bool hud_fits(Canvas* canvas, const AppState* st, int right, int w) {
+    if(!st->status_line) return true;
+    int used = canvas_string_width(canvas, st->status_line);
+    if(st->status_rune) used += 10 + st->status_marks * 3;   /* the clue's rune and marks */
+    return used + HUD_GAP <= right - w;
+}
+
 /* The foul patch, top-down: a sparse stipple unlike the haze's. */
 static const uint8_t FOUL_XBM[8] = {0x00, 0x24, 0x00, 0x81, 0x00, 0x24, 0x00, 0x81};
 
@@ -1027,8 +1039,9 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
      * weather draws nothing — absence reads as clarity. */
     {
         char wg = weather_hud_glyph(&st->current_weather);
-        if(wg != '\0') {
-            char wbuf[2] = {wg, '\0'};
+        char wbuf[2] = {wg, '\0'};
+        if(wg != '\0' && !st->examining &&
+           hud_fits(canvas, st, SCREEN_W, canvas_string_width(canvas, wbuf))) {
             canvas_draw_str_aligned(
                 canvas, SCREEN_W, WORLD_STATUS_BASELINE,
                 AlignRight, AlignBottom, wbuf);
@@ -1047,10 +1060,10 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
         bearing_to_home(
             (int)st->character.chunk_x, (int)st->character.chunk_y,
             &sx, &sy, &dist);
-        if(dist > 0) {
-            char hbuf[8];
-            snprintf(hbuf, sizeof(hbuf), "%s%u",
-                     bearing_label(sx, sy), (unsigned)dist);
+        char hbuf[8];
+        snprintf(hbuf, sizeof(hbuf), "%s%u", bearing_label(sx, sy), (unsigned)dist);
+        if(dist > 0 && !st->examining &&
+           hud_fits(canvas, st, SCREEN_W - 8, canvas_string_width(canvas, hbuf))) {
             canvas_draw_str_aligned(
                 canvas, SCREEN_W - 8, WORLD_STATUS_BASELINE,
                 AlignRight, AlignBottom, hbuf);
@@ -1619,8 +1632,8 @@ static void draw_fpv_world_screen(Canvas* canvas, const AppState* st) {
     /* Weather glyph (right edge, matches world view). */
     {
         char wg = weather_hud_glyph(&st->current_weather);
-        if(wg != '\0') {
-            char wbuf[2] = {wg, '\0'};
+        char wbuf[2] = {wg, '\0'};
+        if(wg != '\0' && hud_fits(canvas, st, SCREEN_W, canvas_string_width(canvas, wbuf))) {
             canvas_draw_str_aligned(
                 canvas, SCREEN_W, WORLD_STATUS_BASELINE,
                 AlignRight, AlignBottom, wbuf);
@@ -1643,9 +1656,10 @@ static void draw_fpv_world_screen(Canvas* canvas, const AppState* st) {
             snprintf(fbuf, sizeof(fbuf), "%s",
                      face_lbl[st->character.facing & 3u]);
         }
-        canvas_draw_str_aligned(
-            canvas, SCREEN_W - 8, WORLD_STATUS_BASELINE,
-            AlignRight, AlignBottom, fbuf);
+        if(hud_fits(canvas, st, SCREEN_W - 8, canvas_string_width(canvas, fbuf)))
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W - 8, WORLD_STATUS_BASELINE,
+                AlignRight, AlignBottom, fbuf);
     }
 }
 
