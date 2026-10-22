@@ -66,6 +66,9 @@ typedef struct {
                               * cell in place of the glyph, where the glyph
                               * alone reads as an item; NULL = draw the glyph.
                               * Display only: the world keeps the glyph. */
+    char opened;        /* a resting place (spec 50 Q1 §Q.1.2): the glyph it
+                         * becomes when its dead climb out, or 0. Saved as a
+                         * delta, which world_mutation_applies accepts. */
 } TerrainDef;
 
 #define TSF_CONSUMED 0x01u  /* stepping onto it harvests it: tile -> floor (a delta) */
@@ -99,6 +102,10 @@ uint16_t terrain_step_fuel(uint16_t fuel, int8_t delta, uint16_t max);
  * a new row can't escape the identity / opacity / golden checks. */
 int terrain_count(void);
 const TerrainDef* terrain_at(int i);
+
+/* A resting place's opened form (TerrainDef.opened), or 0 if `glyph` isn't
+ * a resting place. */
+char terrain_opened(char glyph);
 
 /* The def for a glyph, or NULL for plain floor / non-terrain tiles. */
 const TerrainDef* terrain_def(char glyph);

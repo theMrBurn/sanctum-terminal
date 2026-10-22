@@ -84,53 +84,58 @@ static const uint8_t MAP_STANDING[8] = {0x00, 0x0C, 0x0E, 0x0E, 0x0E, 0x06, 0x07
 
 static const TerrainDef TERRAIN[] = {
     /* glyph       form      material       plan              span name            scale  step: fuel, flags, message, map form */
-    {TILE_WALL,   TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1, NULL,             1, 0, 0, NULL, NULL},
-    {TILE_SECRET, TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1, NULL,             1, 0, 0, NULL, NULL},   /* a secret looks like wall */
-    {'O',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1, "great column",   1, 0, 0, NULL, NULL},   /* mega column */
-    {'|',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1, "column",         1, 0, 0, NULL, MAP_COLUMN},   /* '|' hangs into the tile below */
-    {'M',         TF_SLAB,  TM_MONOLITH,   PLAN_NONE,        1, "flowstone",      1, 0, 0, NULL, NULL},   /* chamber divider */
-    {'A',         TF_PROP,  0,             PLAN_STALAGMITE,  1, "stalagmite",     1, 0, 0, NULL, NULL},
-    {'H',         TF_PROP,  0,             PLAN_MENHIR,      2, "menhir",         2, 0, 0, NULL, NULL},   /* one stone on a 2x2 */
-    {'I',         TF_PROP,  0,             PLAN_STANDING,    1, "standing stone", 1, 0, 0, NULL, MAP_STANDING},   /* 'I' reads as a torch or vial */
-    {'Q',         TF_PROP,  0,             PLAN_CAIRN,       1, "cairn",          1, 0, 0, NULL, MAP_CAIRN},   /* 'Q' hangs into the tile below */
-    {TILE_ROCK,   TF_PROP,  0,             PLAN_BOULDER,     1, "boulder",        1, 0, 0, NULL, NULL},
-    {'~',         TF_PROP,  0,             PLAN_DEADFALL,    1, "deadfall",       1, 0, 0, NULL, NULL},
-    {';',         TF_PROP,  0,             PLAN_SCRUB,       1, "scrub",          1, 0, 0, NULL, MAP_SCRUB},   /* ';' hangs into the tile below */
-    {'q',         TF_PROP,  0,             PLAN_GLOWCAP,     1, "glowcap",        1, 2, TSF_CONSUMED, "glowcap  +2 fuel", MAP_GLOWCAP},   /* 'q' hangs into the tile below */
-    {'n',         TF_PROP,  0,             PLAN_SARCOPHAGUS, 1, "sarcophagus",    1, 0, 0, NULL, NULL},   /* crypt */
-    {'x',         TF_PROP,  0,             PLAN_BONES,       1, "bone pile",      1, 0, 0, NULL, NULL},
-    {'U',         TF_PROP,  0,             PLAN_URN,         1, "funeral urn",    1, 0, 0, NULL, NULL},
-    {'c',         TF_PROP,  0,             PLAN_CART,        1, "ore cart",       1, 0, 0, NULL, NULL},   /* mine */
-    {'^',         TF_PROP,  0,             PLAN_RUBBLE,      1, "rubble",         1, 0, 0, NULL, NULL},
-    {'l',         TF_PROP,  0,             PLAN_POST,        1, "timber prop",    1, 0, 0, NULL, MAP_TIMBER},   /* 'l' reads as a torch */
-    {'Y',         TF_PROP,  0,             PLAN_TREE,        1, "tree",           2, 0, 0, NULL, NULL},   /* forest */
-    {'y',         TF_PROP,  0,             PLAN_DEADTREE,    1, "dead tree",      2, 0, 0, NULL, MAP_DEADTREE},   /* 'y' hangs into the tile below */
-    {'t',         TF_PROP,  0,             PLAN_STUMP,       1, "stump",          1, 0, 0, NULL, NULL},
-    {'m',         TF_PROP,  0,             PLAN_TABLE,       1, "table",          1, 0, 0, NULL, NULL},   /* manor */
-    {'d',         TF_PROP,  0,             PLAN_BARREL,      1, "barrel",         1, 0, 0, NULL, NULL},
-    {'w',         TF_PROP,  0,             PLAN_HEARTH,      1, "hearth",         1, 0, 0, NULL, NULL},
-    {'k',         TF_PROP,  0,             PLAN_RACK,        1, "weapon rack",    1, 0, 0, NULL, NULL},   /* keep */
-    {'v',         TF_PROP,  0,             PLAN_BRAZIER,     1, "brazier",        1, 0, 0, NULL, MAP_BRAZIER},   /* 'v' reads as a clay pot */
-    {'a',         TF_PROP,  0,             PLAN_ALTAR,       1, "altar",          1, 0, 0, NULL, NULL},   /* abbey */
-    {'Z',         TF_PROP,  0,             PLAN_STATUE,      1, "statue",         2, 0, 0, NULL, NULL},
-    {'p',         TF_PROP,  0,             PLAN_PEW,         1, "pew",            1, 0, 0, NULL, MAP_PEW},   /* 'p' hangs into the tile below */
+    {TILE_WALL,   TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1, NULL,             1, 0, 0, NULL, NULL, 0},
+    {TILE_SECRET, TF_SLAB,  TM_STYLE_WALL, PLAN_NONE,        1, NULL,             1, 0, 0, NULL, NULL, 0},   /* a secret looks like wall */
+    {'O',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1, "great column",   1, 0, 0, NULL, NULL, 0},   /* mega column */
+    {'|',         TF_SLAB,  TM_COLUMN,     PLAN_NONE,        1, "column",         1, 0, 0, NULL, MAP_COLUMN, 0},   /* '|' hangs into the tile below */
+    {'M',         TF_SLAB,  TM_MONOLITH,   PLAN_NONE,        1, "flowstone",      1, 0, 0, NULL, NULL, 0},   /* chamber divider */
+    {'A',         TF_PROP,  0,             PLAN_STALAGMITE,  1, "stalagmite",     1, 0, 0, NULL, NULL, 0},
+    {'H',         TF_PROP,  0,             PLAN_MENHIR,      2, "menhir",         2, 0, 0, NULL, NULL, 0},   /* one stone on a 2x2 */
+    {'I',         TF_PROP,  0,             PLAN_STANDING,    1, "standing stone", 1, 0, 0, NULL, MAP_STANDING, 0},   /* 'I' reads as a torch or vial */
+    {'Q',         TF_PROP,  0,             PLAN_CAIRN,       1, "cairn",          1, 0, 0, NULL, MAP_CAIRN, 0},   /* 'Q' hangs into the tile below */
+    {TILE_ROCK,   TF_PROP,  0,             PLAN_BOULDER,     1, "boulder",        1, 0, 0, NULL, NULL, 0},
+    {'~',         TF_PROP,  0,             PLAN_DEADFALL,    1, "deadfall",       1, 0, 0, NULL, NULL, 0},
+    {';',         TF_PROP,  0,             PLAN_SCRUB,       1, "scrub",          1, 0, 0, NULL, MAP_SCRUB, 0},   /* ';' hangs into the tile below */
+    {'q',         TF_PROP,  0,             PLAN_GLOWCAP,     1, "glowcap",        1, 2, TSF_CONSUMED, "glowcap  +2 fuel", MAP_GLOWCAP, 0},   /* 'q' hangs into the tile below */
+    {'n',         TF_PROP,  0,             PLAN_SARCOPHAGUS, 1, "sarcophagus",    1, 0, 0, NULL, NULL, 'N'},   /* crypt */
+    {'x',         TF_PROP,  0,             PLAN_BONES,       1, "bone pile",      1, 0, 0, NULL, NULL, 0},
+    {'U',         TF_PROP,  0,             PLAN_URN,         1, "funeral urn",    1, 0, 0, NULL, NULL, 0},
+    {'c',         TF_PROP,  0,             PLAN_CART,        1, "ore cart",       1, 0, 0, NULL, NULL, 0},   /* mine */
+    {'^',         TF_PROP,  0,             PLAN_RUBBLE,      1, "rubble",         1, 0, 0, NULL, NULL, 0},
+    {'l',         TF_PROP,  0,             PLAN_POST,        1, "timber prop",    1, 0, 0, NULL, MAP_TIMBER, 0},   /* 'l' reads as a torch */
+    {'Y',         TF_PROP,  0,             PLAN_TREE,        1, "tree",           2, 0, 0, NULL, NULL, 0},   /* forest */
+    {'y',         TF_PROP,  0,             PLAN_DEADTREE,    1, "dead tree",      2, 0, 0, NULL, MAP_DEADTREE, 0},   /* 'y' hangs into the tile below */
+    {'t',         TF_PROP,  0,             PLAN_STUMP,       1, "stump",          1, 0, 0, NULL, NULL, 0},
+    {'m',         TF_PROP,  0,             PLAN_TABLE,       1, "table",          1, 0, 0, NULL, NULL, 0},   /* manor */
+    {'d',         TF_PROP,  0,             PLAN_BARREL,      1, "barrel",         1, 0, 0, NULL, NULL, 0},
+    {'w',         TF_PROP,  0,             PLAN_HEARTH,      1, "hearth",         1, 0, 0, NULL, NULL, 0},
+    {'k',         TF_PROP,  0,             PLAN_RACK,        1, "weapon rack",    1, 0, 0, NULL, NULL, 0},   /* keep */
+    {'v',         TF_PROP,  0,             PLAN_BRAZIER,     1, "brazier",        1, 0, 0, NULL, MAP_BRAZIER, 0},   /* 'v' reads as a clay pot */
+    {'a',         TF_PROP,  0,             PLAN_ALTAR,       1, "altar",          1, 0, 0, NULL, NULL, 0},   /* abbey */
+    {'Z',         TF_PROP,  0,             PLAN_STATUE,      1, "statue",         2, 0, 0, NULL, NULL, 0},
+    {'p',         TF_PROP,  0,             PLAN_PEW,         1, "pew",            1, 0, 0, NULL, MAP_PEW, 0},   /* 'p' hangs into the tile below */
     /* the dead (spec 50 Q1, WORLDGEN 7a): resting places and the altar stone. Icons picked by the user. */
-    {'g',         TF_PROP,  0,             PLAN_GRAVE,       1, "grave",          1, 0, 0, NULL, MAP_GRAVE},
-    {'G',         TF_PROP,  0,             PLAN_GRAVE_OPEN,  1, "open grave",     1, 0, 0, NULL, MAP_GRAVE_OPEN},
-    {'N',         TF_PROP,  0,             PLAN_SARC_OPEN,   1, "open sarcophagus", 1, 0, 0, NULL, MAP_SARC_OPEN},
-    {'h',         TF_PROP,  0,             PLAN_DOLMEN,      1, "altar stone",    1, 0, 0, NULL, NULL},
-    {',',         TF_FLOOR, 0,             PLAN_MOSS,        1, "moss",           1, 0, 0, NULL, MAP_MOSS},   /* ',' hangs into the tile below */
-    {':',         TF_FLOOR, 0,             PLAN_SCREE,       1, "scree",          1, -1, 0, "loose footing", NULL},
-    {'/',         TF_FLOOR, 0,             PLAN_FLAG,        1, "cracked flags",  1, 0, 0, NULL, MAP_FLAGS},   /* '/' hatches a whole room */
-    {'-',         TF_FLOOR, 0,             PLAN_RAILS,       1, "rails",          1, 0, 0, NULL, NULL},
-    {'`',         TF_FLOOR, 0,             PLAN_GRASS,       1, "tall grass",     1, 0, 0, NULL, MAP_GRASS},   /* '`' is a speck */
-    {'[',         TF_FLOOR, 0,             PLAN_PLANKS,      1, "boards",         1, 0, 0, NULL, MAP_BOARDS},   /* '[' hangs into the tile below */
+    {'g',         TF_PROP,  0,             PLAN_GRAVE,       1, "grave",          1, 0, 0, NULL, MAP_GRAVE, 'G'},
+    {'G',         TF_PROP,  0,             PLAN_GRAVE_OPEN,  1, "open grave",     1, 0, 0, NULL, MAP_GRAVE_OPEN, 0},
+    {'N',         TF_PROP,  0,             PLAN_SARC_OPEN,   1, "open sarcophagus", 1, 0, 0, NULL, MAP_SARC_OPEN, 0},
+    {'h',         TF_PROP,  0,             PLAN_DOLMEN,      1, "altar stone",    1, 0, 0, NULL, NULL, 0},
+    {',',         TF_FLOOR, 0,             PLAN_MOSS,        1, "moss",           1, 0, 0, NULL, MAP_MOSS, 0},   /* ',' hangs into the tile below */
+    {':',         TF_FLOOR, 0,             PLAN_SCREE,       1, "scree",          1, -1, 0, "loose footing", NULL, 0},
+    {'/',         TF_FLOOR, 0,             PLAN_FLAG,        1, "cracked flags",  1, 0, 0, NULL, MAP_FLAGS, 0},   /* '/' hatches a whole room */
+    {'-',         TF_FLOOR, 0,             PLAN_RAILS,       1, "rails",          1, 0, 0, NULL, NULL, 0},
+    {'`',         TF_FLOOR, 0,             PLAN_GRASS,       1, "tall grass",     1, 0, 0, NULL, MAP_GRASS, 0},   /* '`' is a speck */
+    {'[',         TF_FLOOR, 0,             PLAN_PLANKS,      1, "boards",         1, 0, 0, NULL, MAP_BOARDS, 0},   /* '[' hangs into the tile below */
 };
 
 int terrain_count(void) { return (int)(sizeof(TERRAIN) / sizeof(TERRAIN[0])); }
 
 const TerrainDef* terrain_at(int i) {
     return (i >= 0 && i < terrain_count()) ? &TERRAIN[i] : NULL;
+}
+
+char terrain_opened(char glyph) {
+    const TerrainDef* d = terrain_def(glyph);
+    return d ? d->opened : 0;
 }
 
 const TerrainDef* terrain_def(char glyph) {

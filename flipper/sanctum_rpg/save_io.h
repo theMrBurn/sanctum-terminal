@@ -29,8 +29,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define SAVE_IO_SCHEMA_VERSION 8
-#define SAVE_INV_KINDS_MAX     8 /* inventory slots; current KIND_COUNT=7 + headroom */
+#define SAVE_IO_SCHEMA_VERSION 9
+#define SAVE_INV_KINDS_MAX     32 /* inventory slots by kind id (schema 9: the corruption arc's kinds) */
 #define SAVE_VAULT_KINDS_MAX   SAVE_INV_KINDS_MAX /* same kind id space as inv */
 #define SAVE_EQUIP_NONE        0xFFu /* empty equip slot */
 #define SAVE_IO_CAMPAIGN_NAME_MAX 31
@@ -107,6 +107,13 @@ typedef struct {
      * player's last walked direction. Schema bump 7→8; tolerant load
      * defaults to 0 (N) for pre-8 saves. */
     uint8_t facing;
+    /* Schema 9 — the corruption arc (spec 58, spec 50 Q1). Per seed: these
+     * belong to this campaign and never carry over (spec 58 §58.11 #6).
+     * Tolerant load defaults all of them to 0. */
+    uint8_t words_known;    /* bit per SiteKind: the words that seal that kind of site */
+    uint16_t recipes_known; /* bit per hidden recipe the player has discovered */
+    uint8_t bleed;          /* turns of bleeding left: -1 HP per turn */
+    uint8_t chill;          /* 1 = chilled this turn (a spectral is near) */
     uint8_t schema_version;
 } CharacterState;
 
@@ -154,3 +161,10 @@ SaveIoResult save_io_touch_played(const char* campaign_id);
  * meta.json. Missing file is SaveIoNotFound (caller initialises). */
 SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out);
 SaveIoResult save_io_write_character(const CharacterState* state);
+
+/* A small text file in the campaign's directory (`name`, e.g.
+ * "rituals.txt"), for records whose format lives in a pure module
+ * (region.h, corruption.h). Write is atomic (tmp + rename). Read fills
+ * `buf` NUL-terminated; a missing file is SaveIoNotFound. */
+SaveIoResult save_io_write_text(const char* campaign_id, const char* name, const char* text, size_t len);
+SaveIoResult save_io_read_text(const char* campaign_id, const char* name, char* buf, size_t cap);

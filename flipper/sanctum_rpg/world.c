@@ -666,10 +666,12 @@ void world_generate_chunk(
     place_site(base_seed, chunk_x, chunk_y, out);
 }
 
-bool world_mutation_applies(char fresh_tile) {
+bool world_mutation_applies(char fresh_tile, char saved) {
     TerrainStep ts;
     bool harvestable = terrain_step(fresh_tile, &ts) && ts.consumed;   /* a glowcap */
-    return fresh_tile == TILE_FLOOR || loot_is_item_glyph(fresh_tile) || harvestable;
+    if(fresh_tile == TILE_FLOOR || loot_is_item_glyph(fresh_tile) || harvestable) return true;
+    char opened = terrain_opened(fresh_tile);
+    return opened && saved == opened;
 }
 
 TerrainMode world_terrain(const World* w) { return style_terrain(w->style); }

@@ -27,6 +27,7 @@
 #include <input/input.h>
 #include <notification/notification_messages.h>
 #include <storage/storage.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -50,6 +51,7 @@
 #include "trade.h"
 #include "region.h"
 #include "quirk.h"
+#include "corruption.h"
 #include "sky.h"
 #include "weather.h"
 #include "world.h"
@@ -173,7 +175,8 @@ typedef struct {
     /* Live creatures in the current chunk (v0.4.0b) — RAM-only, regenerated
      * on chunk entry from the chunk seed (spec 45 §4.5-4.8). */
     Creature creatures[CREATURES_MAX];
-    RegionRituals rituals;  /* regions whose ritual is done (spec 58); saved from slice 4 */
+    RegionRituals rituals;  /* regions whose ritual is done (spec 58); rituals.txt */
+    RegionBook region_book; /* what the player has done in each region (spec 58 §58.10); regions.txt */
     QuirkPending quirk;     /* an armed cave-in (spec 50 Q1); RAM-only, cleared on leaving the chunk */
     uint32_t moon_said_night; /* sky_night_id the moon was last named on (0 = never); RAM-only */
     int creature_count;
@@ -329,6 +332,10 @@ static void character_init_defaults(CharacterState* c, const char* campaign_id) 
      * 1/4 of the bonus; at 100 you get full; at 0 you get nothing (legacy
      * unloaded saves). */
     for(int i = 0; i < SAVE_INV_KINDS_MAX; i++) c->expertise[i] = 25;
+    c->words_known = 0;   /* schema 9: the corruption arc, per seed */
+    c->recipes_known = 0;
+    c->bleed = 0;
+    c->chill = 0;
     c->schema_version = SAVE_IO_SCHEMA_VERSION;
 }
 
@@ -445,6 +452,31 @@ static void reset_visibility(AppState* st) {
 /* Phase 2 of campaign entry: world gen + deltas + creatures + screen switch.
  * Caller has already populated `st->character` + `st->campaign_seed`. Shared
  * by `enter_world` (Continue/Load) and `finalize_new_character` (New Game). */
+/* The corruption arc's records (spec 58 §58.10): the rituals done and the
+ * region book, each a small text file next to character.json. A missing
+ * file is a fresh campaign; a bad one loads what it can (tolerant saves). */
+static void arc_load(AppState* st, const char* campaign_id) {
+    region_rituals_clear(&st->rituals);
+    region_book_clear(&st->region_book);
+    char* buf = malloc(REGION_BOOK_TEXT_MAX);
+    if(!buf) return;
+    if(save_io_read_text(campaign_id, "rituals.txt", buf, REGION_BOOK_TEXT_MAX) == SaveIoOk)
+        region_rituals_parse(buf, &st->rituals);
+    if(save_io_read_text(campaign_id, "regions.txt", buf, REGION_BOOK_TEXT_MAX) == SaveIoOk)
+        region_book_parse(buf, &st->region_book);
+    free(buf);
+}
+
+static void __attribute__((unused)) arc_save(AppState* st) {
+    char* buf = malloc(REGION_BOOK_TEXT_MAX);
+    if(!buf) return;
+    size_t n = region_rituals_format(&st->rituals, buf, REGION_BOOK_TEXT_MAX);
+    save_io_write_text(st->character.campaign_id, "rituals.txt", buf, n);
+    n = region_book_format(&st->region_book, buf, REGION_BOOK_TEXT_MAX);
+    save_io_write_text(st->character.campaign_id, "regions.txt", buf, n);
+    free(buf);
+}
+
 static void enter_world_phase2(
     AppState* st, const char* campaign_id, bool fresh_character) {
     world_generate_chunk(
@@ -534,6 +566,7 @@ static bool enter_world(AppState* st, const char* campaign_id) {
     }
 
     st->campaign_seed = meta.seed;
+    arc_load(st, campaign_id);
     /* Carry meta.character_name into the in-session display_name (slice 48.F2/F3).
      * The character sheet shows YOU by your name, not by class label. */
     strncpy(st->display_name, meta.character_name, sizeof(st->display_name) - 1);

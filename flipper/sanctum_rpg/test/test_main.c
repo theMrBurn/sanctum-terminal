@@ -40,6 +40,7 @@
 #include "../stamps.h"
 #include "../terrain.h"
 #include "../compose.h"
+#include "../corruption.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -342,12 +343,19 @@ static void test_chunk_golden(void) {
  * biome, and decides enclosed/open; the generator and the edge logic
  * agree on it. */
 static void test_mutation_guard(void) {
-    CHECK(world_mutation_applies(TILE_FLOOR), "deltas: a pickup applies to floor");
-    CHECK(world_mutation_applies('*'), "deltas: a pickup applies to a loot tile");
-    CHECK(!world_mutation_applies(TILE_WALL) && !world_mutation_applies(TILE_DOOR) &&
-          !world_mutation_applies(TILE_VENDOR) && !world_mutation_applies(TILE_VAULT) &&
-          !world_mutation_applies('n') && !world_mutation_applies(TILE_SECRET),
+    CHECK(world_mutation_applies(TILE_FLOOR, TILE_FLOOR), "deltas: a pickup applies to floor");
+    CHECK(world_mutation_applies('*', TILE_FLOOR), "deltas: a pickup applies to a loot tile");
+    CHECK(!world_mutation_applies(TILE_WALL, TILE_FLOOR) && !world_mutation_applies(TILE_DOOR, TILE_FLOOR) &&
+          !world_mutation_applies(TILE_VENDOR, TILE_FLOOR) && !world_mutation_applies(TILE_VAULT, TILE_FLOOR) &&
+          !world_mutation_applies('n', TILE_FLOOR) && !world_mutation_applies(TILE_SECRET, TILE_FLOOR),
           "deltas: a stale pickup never erases structure after a generator bump");
+    /* A resting place takes only its own opened form (spec 50 Q1 §Q.1.2):
+     * a grave that rose stays open, and nothing else can land on it. */
+    CHECK(world_mutation_applies('g', 'G') && world_mutation_applies('n', 'N'),
+          "deltas: a risen grave or sarcophagus stays open on reload");
+    CHECK(!world_mutation_applies('g', TILE_FLOOR) && !world_mutation_applies('g', 'N') &&
+          !world_mutation_applies('n', 'G') && !world_mutation_applies('a', 'G'),
+          "deltas: a resting place takes no other change");
 }
 
 /* Spec 50 §L: scree costs a fuel tick; a glowcap is harvested for +2. */
@@ -359,7 +367,7 @@ static void test_terrain_steps(void) {
           "step: floor, moss and walls do nothing underfoot");
     CHECK(terrain_step_fuel(0, -1, 100) == 0 && terrain_step_fuel(99, 2, 100) == 100 &&
           terrain_step_fuel(50, 2, 100) == 52, "step: fuel clamps to 0..max");
-    CHECK(world_mutation_applies('q'), "deltas: a harvested glowcap stays harvested on reload");
+    CHECK(world_mutation_applies('q', TILE_FLOOR), "deltas: a harvested glowcap stays harvested on reload");
     /* Glowcaps are actually placed now (the pocket stamp). */
     int caps = 0;
     for(int cy = -6; cy <= 6; cy++)
@@ -2839,6 +2847,100 @@ static void test_quirk_cave_in(void) {
     }
 }
 
+/* ── the corruption arc (spec 58 steps 5-7) ─────────────────────────── */
+
+/* Every glyph means one thing: a tile is read back as loot by
+ * kind_by_glyph, so a kind must never share a glyph with terrain, a
+ * primitive, a fixed tile or a creature. */
+static void test_glyphs_unique_across_tables(void) {
+    char fixed[] = {TILE_FLOOR, TILE_WALL, TILE_ROCK, TILE_DOOR, TILE_STAIRS_UP, TILE_STAIRS_DOWN,
+                    TILE_VENDOR, TILE_VAULT, TILE_SECRET, '@'};
+    int clashes = 0;
+    for(int i = 0; i < KIND_COUNT; i++) {
+        char g = KIND_CATALOG[i].glyph;
+        for(size_t f = 0; f < sizeof(fixed); f++) clashes += (g == fixed[f]);
+        for(int t = 0; t < terrain_count(); t++) clashes += (g == terrain_at(t)->glyph);
+        for(int c = 0; c < CREATURE_FAMILY_COUNT; c++) clashes += (g == CREATURE_FAMILIES[c].glyph);
+        for(int p = 0; p < PRIM_COUNT_TOTAL; p++) clashes += (g == PRIMITIVES[p].glyph);
+    }
+    CHECK(clashes == 0, "glyphs: no item shares a glyph with terrain, a tile or a creature");
+}
+
+/* The wave (§58.3.1): the origin is calm, values stay in range, and both
+ * the peaks and the valleys grow with depth. */
+static void test_corruption_wave(void) {
+    const uint32_t seeds[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu, 0x0BADF00Du};
+    int ok_origin = 1, ok_range = 1, ok_dead = 1;
+    for(size_t s = 0; s < sizeof(seeds) / sizeof(seeds[0]); s++) {
+        ok_origin &= corruption_intensity(seeds[s], 0, 0) == 0;
+        for(int ry = -6; ry <= 6; ry++)
+            for(int rx = -6; rx <= 6; rx++) {
+                int v = corruption_intensity(seeds[s], rx, ry);
+                int d = corruption_dead_count(seeds[s], rx, ry);
+                ok_range &= v >= 0 && v <= INTENSITY_MAX;
+                ok_dead &= d >= DEAD_PER_REGION_MIN && d <= DEAD_PER_REGION_MAX;
+            }
+    }
+    CHECK(ok_origin, "wave: the waking region is calm");
+    CHECK(ok_range, "wave: intensity stays in 0..INTENSITY_MAX");
+    CHECK(ok_dead, "wave: every region holds DEAD_PER_REGION_MIN..MAX dead");
+    /* Along one axis, without jitter's help: each period's valley and peak
+     * beat the previous period's. */
+    int prev_lo = -1, prev_hi = -1, grows = 1;
+    for(int p = 1; p <= 3; p++) {
+        int lo = INTENSITY_MAX, hi = 0;
+        for(int d = p * WAVE_PERIOD; d < (p + 1) * WAVE_PERIOD; d++) {
+            int v = corruption_intensity(0x12345678u, d, 0) -
+                    (int)(region_hash(0x12345678u ^ 0xC0EE7A11u, d, 0) % (WAVE_JITTER + 1));
+            if(v < lo) lo = v;
+            if(v > hi) hi = v;
+        }
+        if(prev_lo >= 0) grows &= lo > prev_lo && hi > prev_hi;
+        prev_lo = lo;
+        prev_hi = hi;
+    }
+    CHECK(grows, "wave: each period's valley and peak are higher than the last");
+}
+
+/* The region book round-trips, tolerates junk, and keeps one record per
+ * region (§58.10). */
+static void test_region_book(void) {
+    RegionBook b;
+    region_book_clear(&b);
+    CHECK(region_book_get(&b, 0, 0) == NULL, "book: an untouched region has no record");
+    RegionRecord* r = region_book_touch(&b, -2, 3);
+    r->sealed = 5;
+    r->pieces = 3;
+    r->destroyed = 7;
+    r->flags = RR_FOUND;
+    CHECK(region_book_touch(&b, -2, 3) == r && b.count == 1, "book: touching twice keeps one record");
+    region_book_touch(&b, 4, 0)->destroyed = 255;
+    char buf[REGION_BOOK_TEXT_MAX];
+    region_book_format(&b, buf, sizeof(buf));
+    RegionBook q;
+    region_book_parse(buf, &q);
+    const RegionRecord* g = region_book_get(&q, -2, 3);
+    CHECK(q.count == 2 && g && g->sealed == 5 && g->pieces == 3 && g->destroyed == 7 &&
+          g->flags == RR_FOUND && region_book_get(&q, 4, 0)->destroyed == 255,
+          "book: format then parse round-trips every field");
+    region_book_parse("v9\n0 0 1 1 1 1\n", &q);
+    CHECK(q.count == 0, "book: an unknown version loads empty");
+    region_book_parse("v1\n0 0 1 0 0 1\nnonsense\n1 1 2 0 0 0\n", &q);
+    CHECK(q.count == 2 && region_book_get(&q, 1, 1)->sealed == 2, "book: a bad line is skipped");
+    RegionBook full;
+    region_book_clear(&full);
+    for(int i = 0; i < REGION_BOOK_MAX; i++) region_book_touch(&full, i, 0);
+    CHECK(region_book_touch(&full, 99, 99) == NULL && region_book_get(&full, 5, 0) != NULL,
+          "book: a full book refuses a new region and keeps the old");
+    char big[REGION_BOOK_TEXT_MAX];
+    for(int i = 0; i < REGION_BOOK_MAX; i++) {
+        RegionRecord* w = region_book_touch(&full, i, 0);
+        w->rx = -32000; w->ry = -32000; w->sealed = w->pieces = w->destroyed = w->flags = 255;
+    }
+    size_t n = region_book_format(&full, big, sizeof(big));
+    CHECK(n < sizeof(big) - 1, "book: the widest full book fits REGION_BOOK_TEXT_MAX");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -2928,6 +3030,9 @@ int main(void) {
     test_creatures_heat_dampens_aggro();
     test_creatures_rain_pacifies_fire();
     test_recipes();
+    test_glyphs_unique_across_tables();
+    test_corruption_wave();
+    test_region_book();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

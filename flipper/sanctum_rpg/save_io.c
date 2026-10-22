@@ -28,7 +28,8 @@
 #define SAVE_ROOT      "/ext/apps_data/sanctum_rpg"
 #define SAVE_CAMPAIGNS SAVE_ROOT "/campaigns"
 
-#define META_BUF_SIZE     1024 /* slice 1c: bumped for the 8 new char fields */
+#define META_BUF_SIZE     2048 /* schema 9: three 32-slot kind arrays in character.json */
+#define INV_STR_SIZE      160  /* "255," x SAVE_INV_KINDS_MAX */
 #define LINE_BUF_SIZE     128
 #define MAX_CAMPAIGN_SLOT 999  /* "999/" — beyond this we report SaveIoFull */
 
@@ -429,14 +430,14 @@ static void parse_inv_string(const char* s, uint8_t* inv, int max) {
 }
 
 static int format_character_json(const CharacterState* c, char* buf, size_t buf_len) {
-    char invbuf[64];
+    char invbuf[INV_STR_SIZE];
     format_inv_string(c->inv_qty, SAVE_INV_KINDS_MAX, invbuf, sizeof(invbuf));
     /* Thread C — expertise serializes as comma-separated decimals, same
      * pattern as inv (schema 6). Pre-6 saves load with all-0 expertise
      * via the tolerant defaults below. */
-    char xpbuf[64];
+    char xpbuf[INV_STR_SIZE];
     format_inv_string(c->expertise, SAVE_INV_KINDS_MAX, xpbuf, sizeof(xpbuf));
-    char vlbuf[64];
+    char vlbuf[INV_STR_SIZE];
     format_inv_string(c->vault_qty, SAVE_VAULT_KINDS_MAX, vlbuf, sizeof(vlbuf));
     return snprintf(
         buf, buf_len,
@@ -471,7 +472,11 @@ static int format_character_json(const CharacterState* c, char* buf, size_t buf_
         "  \"equipped_armor\": %u,\n"
         "  \"expertise\": \"%s\",\n"
         "  \"vault\": \"%s\",\n"
-        "  \"facing\": %u\n"
+        "  \"facing\": %u,\n"
+        "  \"words\": %u,\n"
+        "  \"recipes\": %u,\n"
+        "  \"bleed\": %u,\n"
+        "  \"chill\": %u\n"
         "}\n",
         (unsigned)c->schema_version,
         c->campaign_id,
@@ -503,7 +508,11 @@ static int format_character_json(const CharacterState* c, char* buf, size_t buf_
         (unsigned)c->equipped_armor,
         xpbuf,
         vlbuf,
-        (unsigned)c->facing);
+        (unsigned)c->facing,
+        (unsigned)c->words_known,
+        (unsigned)c->recipes_known,
+        (unsigned)c->bleed,
+        (unsigned)c->chill);
 }
 
 SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out) {
@@ -570,6 +579,10 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
      * and the defaults stand. */
     for(int i = 0; i < SAVE_VAULT_KINDS_MAX; i++) out->vault_qty[i] = 0;
     out->facing = 0; /* default N — slice 2026-06-03e */
+    out->words_known = 0;   /* schema 9 */
+    out->recipes_known = 0;
+    out->bleed = 0;
+    out->chill = 0;
 
     uint32_t schema = SAVE_IO_SCHEMA_VERSION;
     read_u32(buf, "schema_version", &schema); /* informational; accept any */
@@ -612,23 +625,27 @@ SaveIoResult save_io_load_character(const char* campaign_id, CharacterState* out
     if(read_u32(buf, "heart", &v32))      out->heart      = (uint8_t)v32;
     if(read_u32(buf, "will",  &v32))      out->will       = (uint8_t)v32;
     if(read_u32(buf, "verbs_mask", &v32)) out->verbs_mask = (uint8_t)v32;
-    char inv_str[64];
+    char inv_str[INV_STR_SIZE];
     if(read_str(buf, "inv", inv_str, sizeof(inv_str))) {
         parse_inv_string(inv_str, out->inv_qty, SAVE_INV_KINDS_MAX);
     }
     /* Thread C — expertise (post-schema-6). Tolerant: pre-existing saves
      * don't carry this key; defaults stay at the pre-init zeros above. */
-    char xp_str[64];
+    char xp_str[INV_STR_SIZE];
     if(read_str(buf, "expertise", xp_str, sizeof(xp_str))) {
         parse_inv_string(xp_str, out->expertise, SAVE_INV_KINDS_MAX);
     }
     /* Schema-7 vault (slice 2026-06-03d/C). Pre-7 saves don't have it;
      * the field stays all-zero, the vault loads empty. */
-    char vl_str[64];
+    char vl_str[INV_STR_SIZE];
     if(read_str(buf, "vault", vl_str, sizeof(vl_str))) {
         parse_inv_string(vl_str, out->vault_qty, SAVE_VAULT_KINDS_MAX);
     }
     if(read_u32(buf, "facing", &v32)) out->facing = (uint8_t)(v32 & 3u);
+    if(read_u32(buf, "words", &v32))   out->words_known   = (uint8_t)v32;
+    if(read_u32(buf, "recipes", &v32)) out->recipes_known = (uint16_t)v32;
+    if(read_u32(buf, "bleed", &v32))   out->bleed         = (uint8_t)v32;
+    if(read_u32(buf, "chill", &v32))   out->chill         = (uint8_t)v32;
     if(read_u32(buf, "equipped_weapon", &v32)) out->equipped_weapon = (uint8_t)v32;
     if(read_u32(buf, "equipped_light", &v32))  out->equipped_light  = (uint8_t)v32;
     if(read_u32(buf, "equipped_armor", &v32))  out->equipped_armor  = (uint8_t)v32;
@@ -682,6 +699,63 @@ SaveIoResult save_io_write_character(const CharacterState* state) {
     if(rerr != FSE_OK) r = SaveIoFsError;
 
 out:
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+    return r;
+}
+
+/* ─── small campaign text files (rituals.txt, regions.txt) ─────────── */
+
+static void campaign_file_path(const char* campaign_id, const char* name, char* out, size_t out_len) {
+    snprintf(out, out_len, SAVE_CAMPAIGNS "/%s/%s", campaign_id, name);
+}
+
+SaveIoResult save_io_write_text(const char* campaign_id, const char* name, const char* text, size_t len) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* file = storage_file_alloc(storage);
+
+    char tmp_path[104], real_path[96];
+    campaign_file_path(campaign_id, name, real_path, sizeof(real_path));
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", real_path);
+
+    SaveIoResult r = SaveIoOk;
+    if(!storage_file_open(file, tmp_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        r = SaveIoFsError;
+        goto out;
+    }
+    if(storage_file_write(file, text, len) != len) {
+        storage_file_close(file);
+        r = SaveIoFsError;
+        goto out;
+    }
+    storage_file_close(file);
+
+    storage_common_remove(storage, real_path);  /* ignore "not found" */
+    if(storage_common_rename(storage, tmp_path, real_path) != FSE_OK) r = SaveIoFsError;
+
+out:
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+    return r;
+}
+
+SaveIoResult save_io_read_text(const char* campaign_id, const char* name, char* buf, size_t cap) {
+    if(cap == 0) return SaveIoParseError;
+    buf[0] = '\0';
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* file = storage_file_alloc(storage);
+
+    char path[96];
+    campaign_file_path(campaign_id, name, path, sizeof(path));
+
+    SaveIoResult r = SaveIoOk;
+    if(!storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        r = SaveIoNotFound;
+    } else {
+        size_t n = storage_file_read(file, buf, cap - 1);
+        buf[n] = '\0';
+        storage_file_close(file);
+    }
     storage_file_free(file);
     furi_record_close(RECORD_STORAGE);
     return r;

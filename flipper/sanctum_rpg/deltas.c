@@ -59,7 +59,7 @@ void deltas_apply_to_world(const ChunkDeltas* d, World* w) {
         int x = d->items[i].x;
         int y = d->items[i].y;
         if(x < 0 || x >= WORLD_COLS || y < 0 || y >= WORLD_ROWS) continue;
-        if(!world_mutation_applies(w->tiles[y][x])) continue;   /* geometry changed under it */
+        if(!world_mutation_applies(w->tiles[y][x], d->items[i].tile)) continue;   /* geometry changed under it */
         w->tiles[y][x] = d->items[i].tile;
     }
 }
