@@ -13,6 +13,7 @@
 #include "loot.h"
 #include "pool.h"
 #include "rng.h"
+#include "site.h"
 #include "stamps.h"
 #include "terrain.h"
 #include "trade.h"
@@ -54,6 +55,8 @@ static const char* const STARTER_ROOM[WORLD_ROWS] = {
 void world_clear_seams(World* w) {
     for(int i = 0; i < 4; i++) w->seam_style[i] = WORLD_SEAM_NONE;
     w->closed_edges = 0;
+    w->site_kind = SITE_NONE;   /* and no site: hand-built worlds start bare */
+    w->site_x = w->site_y = -1;
 }
 
 const uint8_t WORLD_HAZE_XBM[8] = {0x11, 0x00, 0x44, 0x00, 0x11, 0x00, 0x44, 0x00};
@@ -236,6 +239,17 @@ static void egress_bfs_walkable(
             qx[tail] = nx; qy[tail] = ny; tail++;
         }
     }
+}
+
+/* Walkable cells reachable from (sx, sy). */
+static int egress_reach_count(const World* w, int sx, int sy) {
+    uint8_t reach[WORLD_ROWS][WORLD_COLS];
+    memset(reach, 0, sizeof(reach));
+    egress_bfs_walkable(w, sx, sy, reach);
+    int n = 0;
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) n += reach[y][x];
+    return n;
 }
 
 bool world_doors_reachable_from(const World* w, int sx, int sy) {
@@ -564,6 +578,38 @@ static void gen_outdoor_stamped(
     if(doored) carve_egress(out);
 }
 
+/* Salt for where in its chunk a site lands. */
+#define SITE_TILE_SALT 0x517E7113u
+
+/* Place this chunk's site, if its region put one here (site.h). Runs last,
+ * after egress and the vault, and consumes no RNG. The site goes on an
+ * interior floor tile beside open ground, and only where it takes exactly
+ * that one tile out of the walkable ground: no door, pocket or item is cut
+ * off. The search starts at a hashed tile and walks row-major, so the
+ * choice is deterministic. If no tile qualifies the chunk has no site
+ * (the region test catches that). */
+static void place_site(uint32_t seed, int cx, int cy, World* out) {
+    uint8_t kind = chunk_site_kind(seed, cx, cy);
+    if(kind == SITE_NONE) return;
+    const int iw = WORLD_COLS - 2, ih = WORLD_ROWS - 2, cells = iw * ih;
+    int sx = out->spawn_x, sy = out->spawn_y;
+    int before = egress_reach_count(out, sx, sy);
+    uint32_t start = region_hash(seed ^ SITE_TILE_SALT, cx, cy) % (uint32_t)cells;
+    for(int i = 0; i < cells; i++) {
+        int c = (int)((start + (uint32_t)i) % (uint32_t)cells);
+        int x = 1 + c % iw, y = 1 + c / iw;
+        if(out->tiles[y][x] != TILE_FLOOR || (x == sx && y == sy)) continue;
+        out->tiles[y][x] = SITE_TABLE[kind].glyph;
+        if(egress_reach_count(out, sx, sy) == before - 1 && world_doors_reachable_from(out, sx, sy)) {
+            out->site_kind = kind;
+            out->site_x = (int8_t)x;
+            out->site_y = (int8_t)y;
+            return;
+        }
+        out->tiles[y][x] = TILE_FLOOR;
+    }
+}
+
 void world_generate_chunk(
     uint32_t base_seed, int chunk_x, int chunk_y, World* out) {
     Rng rng;
@@ -617,6 +663,7 @@ void world_generate_chunk(
             }
         }
     }
+    place_site(base_seed, chunk_x, chunk_y, out);
 }
 
 bool world_mutation_applies(char fresh_tile) {

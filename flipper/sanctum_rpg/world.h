@@ -79,6 +79,12 @@ typedef struct {
      * from the rituals done (region_mark_world_edges), never by generation,
      * never hashed. Drawn as a haze on that edge in both views. */
     uint8_t closed_edges;
+    /* This chunk's site (site.h, spec 58 §58.5), if its region put one
+     * here: its kind and tile. site_kind == SITE_NONE when there is none.
+     * Derived by generation from the seed; never saved. The tile itself is
+     * in `tiles`, which is what the fingerprint hashes. */
+    uint8_t site_kind;
+    int8_t site_x, site_y;
 } World;
 
 #define WORLD_SEAM_N 0
@@ -106,7 +112,7 @@ Style world_wall_style(const World* w, int x, int y);
 
 /* World-generator version (spec 43 §14.0). Any change that moves a chunk
  * golden MUST bump this, and the golden test pins fingerprints to it. */
-#define WORLDGEN_VERSION 7   /* 2: styles; 3: cavern blockers' own glyphs; 4: interiors + glowcaps; 5: floor glyphs clear of weather overlays (2026-10-14); 6: Pool bias by style vocabulary, place names by style (2026-10-20); 7: the burial family, graves + altar stones, 8-slot Pool, a neutral waking region (2026-10-21) */
+#define WORLDGEN_VERSION 8   /* 2: styles; 3: cavern blockers' own glyphs; 4: interiors + glowcaps; 5: floor glyphs clear of weather overlays (2026-10-14); 6: Pool bias by style vocabulary, place names by style (2026-10-20); 7: the burial family, graves + altar stones, 8-slot Pool, a neutral waking region; 8: each region places its sites (2026-10-21) */
 
 /* May a saved tile mutation (deltas) land on this freshly generated tile?
  * Only floor, loot and harvestable terrain (a glowcap) take one. After a WORLDGEN_VERSION bump a saved

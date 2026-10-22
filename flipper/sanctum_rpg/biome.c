@@ -6,9 +6,6 @@
 
 #include "rng.h"
 
-/* Chunks per biome region edge. Bigger = larger contiguous biome zones. */
-#define BIOME_REGION 3
-
 const BiomeDef BIOME_TABLE[BIOME_COUNT] = {
     [BIOME_CAVERN]  = {"cavern",  TERRAIN_WALLED, 0u},
     [BIOME_OUTDOOR] = {"outdoor", TERRAIN_OPEN,   1u},

@@ -48,6 +48,10 @@ TerrainMode biome_terrain(Biome b);
  * draws the above-ground Pool. */
 uint8_t biome_pool(Biome b);
 
+/* Chunks per region edge: a region is BIOME_REGION x BIOME_REGION chunks.
+ * Bigger = larger contiguous biome zones. */
+#define BIOME_REGION 3
+
 /* Region coordinate of a chunk coordinate (floor division by the region
  * edge, so regions tile cleanly through negative coords). */
 int region_of(int chunk_coord);

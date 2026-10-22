@@ -35,6 +35,7 @@
 #include "../world.h"
 #include "../region.h"
 #include "../quirk.h"
+#include "../site.h"
 #include "../stamps.h"
 #include "../terrain.h"
 #include "../compose.h"
@@ -249,7 +250,7 @@ static void test_chunk_invariants(void) {
 /* The generator version these fingerprints were recorded under. Re-record
  * the fingerprints and bump WORLDGEN_VERSION (world.h) TOGETHER, then set
  * this to match — the check below fails if the two drift apart. */
-#define GOLDEN_WORLDGEN_VERSION 7
+#define GOLDEN_WORLDGEN_VERSION 8
 
 static void test_chunk_golden(void) {
     CHECK(WORLDGEN_VERSION == GOLDEN_WORLDGEN_VERSION,
@@ -299,20 +300,24 @@ static void test_chunk_golden(void) {
          * several changed style, so the labels below are new; four cases
          * were added so mausoleum, mound, mine and manor stay covered.
          * v6: 0xF0190C9A 0xD76992DE 0x9284A31F 0xC42D099E 0x8907914B
-         * 0xF884806D 0xAFCF19E9. */
+         * 0xF884806D 0xAFCF19E9.
+         * WORLDGEN 8 (same day): each region places 2-3 sites (site.h),
+         * one per chunk, last, consuming no RNG. Only the chunks that hold
+         * a site move: the burial cavern (1,-5) and the manor (9,-9)
+         * (v7: 0x2C560D59 0xD3BD0BFB). The rest are unchanged. */
         {0xCAFEBABE, 0, 0, 0xAA0B4171},
         {0xCAFEBABE, 1, 0, 0x0642A257},
         {0xDEADBEEF, 0, 0, 0x46A72DBF},             /* moor */
         {0x00000001, -3, 5, 0xFAAC554E},            /* forest */
         {0x12345678, 4, -2, 0xCE03D6D0},            /* crypt */
-        {0x12345678, 1, -5, 0x2C560D59},            /* burial cavern */
+        {0x12345678, 1, -5, 0xCA8D0873},            /* burial cavern */
         {0x12345678, 4, 1, 0x4E738B0A},             /* keep */
         {0x12345678, 7, -5, 0x84B02760},            /* forest */
         {0x12345678, 7, -8, 0xFDF54A80},            /* abbey */
         {0x12345678, -3, -4, 0x2F53AD25},           /* mausoleum */
         {0x12345678, 3, -7, 0x093EE793},            /* burial mound */
         {0x12345678, 0, 0, 0xA97EF655},             /* mine (the waking region) */
-        {0x12345678, 9, -9, 0xD3BD0BFB},            /* manor */
+        {0x12345678, 9, -9, 0x94878720},            /* manor */
     };
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     for(int i = 0; i < n; i++) {
@@ -470,6 +475,70 @@ static void test_styles(void) {
         if(STYLE_TABLE[st].may_wake && STYLE_TABLE[st].weight) wake_ok[STYLE_TABLE[st].biome]++;
     for(int b = 0; b < BIOME_COUNT; b++)
         CHECK(wake_ok[b] > 0, "style: each realm has a style the player may wake in");
+}
+
+/* ── sites (spec 58 §58.5, WORLDGEN 8) ──────────────────────────────
+ * Every style allows a site; every region places exactly its count of
+ * sites, one per chunk, each of a kind its style allows, standing where it
+ * cuts off no door and no ground, with open ground beside it. */
+static bool site_has_open_side(const World* w) {
+    static const int DX[4] = {1, -1, 0, 0}, DY[4] = {0, 0, 1, -1};
+    for(int d = 0; d < 4; d++) {
+        int x = w->site_x + DX[d], y = w->site_y + DY[d];
+        if(x >= 0 && y >= 0 && x < WORLD_COLS && y < WORLD_ROWS && world_walkable(w, x, y)) return true;
+    }
+    return false;
+}
+
+static void test_sites(void) {
+    int no_kind = 0, bad_glyph = 0;
+    for(int st = 0; st < STYLE_COUNT; st++) no_kind += STYLE_TABLE[st].site_kinds == 0;
+    for(int k = 0; k < SITE_KIND_COUNT; k++) {
+        char g = SITE_TABLE[k].glyph;
+        if(!terrain_def(g) || !world_is_blocking(g)) bad_glyph++;
+    }
+    CHECK(no_kind == 0, "sites: every style allows at least one site kind");
+    CHECK(bad_glyph == 0, "sites: every site kind is a drawn, blocking terrain");
+
+    static const uint32_t SEEDS[] = {0xCAFEBABEu, 0xDEADBEEFu, 0x00000001u, 0x12345678u,
+                                     0x0BADF00Du, 0x7E57AB1Eu, 0xFEEDFACEu, 0x00C0FFEEu};
+    int wrong_count = 0, wrong_kind = 0, wrong_tile = 0, cut_off = 0, no_side = 0, disagree = 0, regions = 0;
+    for(unsigned s = 0; s < sizeof(SEEDS) / sizeof(SEEDS[0]); s++)
+        for(int ry = -4; ry <= 4; ry++)
+            for(int rx = -4; rx <= 4; rx++) {
+                uint32_t seed = SEEDS[s];
+                int placed = 0;
+                for(int dy = 0; dy < 3; dy++)
+                    for(int dx = 0; dx < 3; dx++) {
+                        int cx = rx * 3 + dx, cy = ry * 3 + dy;
+                        World w;
+                        world_generate_chunk(seed, cx, cy, &w);
+                        if(w.site_kind != chunk_site_kind(seed, cx, cy)) disagree++;
+                        if(w.site_kind == SITE_NONE) continue;
+                        placed++;
+                        if(!(STYLE_TABLE[w.style].site_kinds & SITE_BIT(w.site_kind))) wrong_kind++;
+                        if(w.tiles[w.site_y][w.site_x] != SITE_TABLE[w.site_kind].glyph) wrong_tile++;
+                        if(!world_doors_reachable_from(&w, w.spawn_x, w.spawn_y)) cut_off++;
+                        if(!site_has_open_side(&w)) no_side++;
+                    }
+                if(placed != region_site_count(seed, rx, ry)) wrong_count++;
+                regions++;
+            }
+    printf("  sites: %d regions checked\n", regions);
+    CHECK(disagree == 0, "sites: a chunk holds a site exactly when its region put one there");
+    CHECK(wrong_count == 0, "sites: every region places exactly its count of sites");
+    CHECK(wrong_kind == 0, "sites: every site is a kind its style allows");
+    CHECK(wrong_tile == 0, "sites: the site's tile holds its glyph");
+    CHECK(cut_off == 0, "sites: no site cuts a door off");
+    CHECK(no_side == 0, "sites: every site has open ground beside it");
+    int lo = 99, hi = 0;
+    for(int ry = -20; ry <= 20; ry++)
+        for(int rx = -20; rx <= 20; rx++) {
+            int n = region_site_count(0xCAFEBABEu, rx, ry);
+            if(n < lo) lo = n;
+            if(n > hi) hi = n;
+        }
+    CHECK(lo == SITES_PER_REGION_MIN && hi == SITES_PER_REGION_MAX, "sites: counts span MIN..MAX");
 }
 
 /* ── names (procedural place names, slice 2026-06-03c) ──────────────
@@ -2717,6 +2786,7 @@ int main(void) {
     test_chunk_invariants();
     test_chunk_golden();
     test_styles();
+    test_sites();
     test_mutation_guard();
     test_terrain_steps();
     test_style_catalog();

@@ -77,6 +77,8 @@ typedef struct {
     uint8_t name_scope;   /* NAME_SCOPE_*: a built place has one name per region */
     uint8_t may_wake;     /* 1 = the waking region may be this style. The player
                            * wakes somewhere neutral: no burial place (spec 58) */
+    uint8_t site_kinds;   /* SITE_BIT(SiteKind) set: the sites a region of this
+                           * style may hold (site.h, spec 58 §58.5) */
 } StyleDef;
 
 extern const StyleDef STYLE_TABLE[STYLE_COUNT];

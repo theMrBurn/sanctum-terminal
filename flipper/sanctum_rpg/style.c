@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 #include "rng.h"
+#include "site.h"
 #include "stamps.h"
 #include "terrain.h"
 
@@ -36,29 +37,29 @@ _Static_assert(STYLE_CRYPT == STAMP_STYLE_CRYPT && STYLE_MINE == STAMP_STYLE_MIN
 
 const StyleDef STYLE_TABLE[STYLE_COUNT] = {
     /*               name      biome          terrain         family           wall       wall name      weight
-     *               vocabulary (bag-slot order), count, name scope, may wake */
+     *               vocabulary (bag-slot order), count, name scope, may wake, site kinds */
     [STYLE_CAVERN] = {"cavern", BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_CAVERNS,  TM_STONE,  "rock wall",   STYLE_W_CAVERN,
-                     {PRIM_ST, PRIM_C, PRIM_MC, PRIM_LST, PRIM_MW, PRIM_GC, PRIM_DL}, 7, NAME_SCOPE_CHUNK, 1},
+                     {PRIM_ST, PRIM_C, PRIM_MC, PRIM_LST, PRIM_MW, PRIM_GC, PRIM_DL}, 7, NAME_SCOPE_CHUNK, 1, SITE_BIT(SITE_STONE)},
     [STYLE_MOOR]   = {"moor",   BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_MOOR,     TM_STONE,  "rock wall",   STYLE_W_MOOR,
-                     {PRIM_SS, PRIM_CA, PRIM_MH, PRIM_DF, PRIM_SC, PRIM_SR, PRIM_GR, PRIM_DL}, 8, NAME_SCOPE_CHUNK, 1},
+                     {PRIM_SS, PRIM_CA, PRIM_MH, PRIM_DF, PRIM_SC, PRIM_SR, PRIM_GR, PRIM_DL}, 8, NAME_SCOPE_CHUNK, 1, SITE_BIT(SITE_GRAVE) | SITE_BIT(SITE_STONE)},
     [STYLE_CRYPT]  = {"crypt",  BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_DUNGEONS, TM_BRICK,  "brick wall",  STYLE_W_CRYPT,
-                     {PRIM_SA, PRIM_BP, PRIM_UR, PRIM_FS, PRIM_MC, PRIM_AL}, 6, NAME_SCOPE_REGION, 1},
+                     {PRIM_SA, PRIM_BP, PRIM_UR, PRIM_FS, PRIM_MC, PRIM_AL}, 6, NAME_SCOPE_REGION, 1, SITE_BIT(SITE_TOMB) | SITE_BIT(SITE_ALTAR)},
     [STYLE_MINE]   = {"mine",   BIOME_CAVERN,  TERRAIN_WALLED, FAMILY_MINES,    TM_TIMBER, "shored rock", STYLE_W_MINE,
-                     {PRIM_OC, PRIM_RB, PRIM_PO, PRIM_RL, PRIM_DL}, 5, NAME_SCOPE_REGION, 1},
+                     {PRIM_OC, PRIM_RB, PRIM_PO, PRIM_RL, PRIM_DL}, 5, NAME_SCOPE_REGION, 1, SITE_BIT(SITE_STONE)},
     [STYLE_FOREST] = {"forest", BIOME_OUTDOOR, TERRAIN_OPEN,   FAMILY_FOREST,   TM_STONE,  "rock wall",   STYLE_W_FOREST,
-                     {PRIM_TR, PRIM_DT, PRIM_SP, PRIM_TG, PRIM_DF, PRIM_SC, PRIM_DL}, 7, NAME_SCOPE_CHUNK, 1},
+                     {PRIM_TR, PRIM_DT, PRIM_SP, PRIM_TG, PRIM_DF, PRIM_SC, PRIM_DL}, 7, NAME_SCOPE_CHUNK, 1, SITE_BIT(SITE_GRAVE) | SITE_BIT(SITE_STONE)},
     [STYLE_MANOR]  = {"manor",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_DWELLINGS, TM_FRAME, "plaster wall", STYLE_W_MANOR,
-                     {PRIM_TB, PRIM_BA, PRIM_HE, PRIM_PL, PRIM_GR}, 5, NAME_SCOPE_REGION, 1},
+                     {PRIM_TB, PRIM_BA, PRIM_HE, PRIM_PL, PRIM_GR}, 5, NAME_SCOPE_REGION, 1, SITE_BIT(SITE_GRAVE) | SITE_BIT(SITE_ALTAR)},
     [STYLE_KEEP]   = {"keep",   BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_FORTIFICATIONS, TM_ASHLAR, "curtain wall", STYLE_W_KEEP,
-                     {PRIM_RK, PRIM_BZ, PRIM_BA, PRIM_FS, PRIM_GR}, 5, NAME_SCOPE_REGION, 1},
+                     {PRIM_RK, PRIM_BZ, PRIM_BA, PRIM_FS, PRIM_GR}, 5, NAME_SCOPE_REGION, 1, SITE_BIT(SITE_GRAVE) | SITE_BIT(SITE_ALTAR)},
     [STYLE_ABBEY]  = {"abbey",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_HOLY,     TM_CARVED, "carved wall", STYLE_W_ABBEY,
-                     {PRIM_AL, PRIM_SU, PRIM_PW, PRIM_BZ, PRIM_UR, PRIM_FS, PRIM_GR}, 7, NAME_SCOPE_REGION, 1},
+                     {PRIM_AL, PRIM_SU, PRIM_PW, PRIM_BZ, PRIM_UR, PRIM_FS, PRIM_GR}, 7, NAME_SCOPE_REGION, 1, SITE_BIT(SITE_ALTAR) | SITE_BIT(SITE_GRAVE)},
     [STYLE_MAUSOLEUM] = {"mausoleum", BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_BURIAL, TM_CARVED, "tomb wall", STYLE_W_MAUSOLEUM,
-                     {PRIM_SA, PRIM_UR, PRIM_SU, PRIM_FS, PRIM_AL}, 5, NAME_SCOPE_REGION, 0},
+                     {PRIM_SA, PRIM_UR, PRIM_SU, PRIM_FS, PRIM_AL}, 5, NAME_SCOPE_REGION, 0, SITE_BIT(SITE_TOMB) | SITE_BIT(SITE_ALTAR)},
     [STYLE_MOUND]  = {"mound",  BIOME_OUTDOOR, TERRAIN_WALLED, FAMILY_BURIAL,   TM_EARTH,  "earthen wall", STYLE_W_MOUND,
-                     {PRIM_GR, PRIM_SS, PRIM_BP, PRIM_UR}, 4, NAME_SCOPE_REGION, 0},
+                     {PRIM_GR, PRIM_SS, PRIM_BP, PRIM_UR}, 4, NAME_SCOPE_REGION, 0, SITE_BIT(SITE_GRAVE)},
     [STYLE_BURIAL_CAVE] = {"burial cavern", BIOME_CAVERN, TERRAIN_WALLED, FAMILY_BURIAL, TM_STONE, "rock wall", STYLE_W_BURIAL_CAVE,
-                     {PRIM_BP, PRIM_ST, PRIM_UR, PRIM_MW, PRIM_DL}, 5, NAME_SCOPE_REGION, 0},
+                     {PRIM_BP, PRIM_ST, PRIM_UR, PRIM_MW, PRIM_DL}, 5, NAME_SCOPE_REGION, 0, SITE_BIT(SITE_STONE)},
 };
 
 /* Distinct salt so a region's style doesn't correlate with its biome. */
