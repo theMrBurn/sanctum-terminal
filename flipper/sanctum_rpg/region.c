@@ -72,6 +72,11 @@ bool region_edge_closed(uint32_t seed, const RegionRituals* r, int cx, int cy, M
     }
     int rx = region_of(nx), ry = region_of(ny);
     if(rx == region_of(cx) && ry == region_of(cy)) return false;
+    /* Only the tree's border refuses. A player standing in a region that is
+     * itself closed (a save from before the gates, spec 58 §58.4) may walk
+     * anywhere until back inside it: leaving is always allowed, and no one
+     * is walled in where they woke up. */
+    if(!region_open(seed, r, region_of(cx), region_of(cy))) return false;
     return !region_open(seed, r, rx, ry);
 }
 

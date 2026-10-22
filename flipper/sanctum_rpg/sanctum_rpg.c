@@ -193,6 +193,7 @@ typedef struct {
     FoulField foul;              /* the bloated's patches, with expiry; cleared per chunk */
     uint8_t coating;             /* hits left on a sour-draught edge */
     uint8_t combat_foe_poison;   /* rounds of poison left on the foe */
+    bool fell;                   /* set by player_fall: a rite in progress stops */
     /* A rising armed by chance: it lands next turn (the tell's one turn). */
     bool rise_pending;
     int8_t rise_x, rise_y;
@@ -2213,14 +2214,19 @@ static void draw_inventory_screen(Canvas* canvas, const AppState* st) {
         canvas, SCREEN_W, TITLE_BASELINE_Y, AlignRight, AlignBottom, hdr);
     canvas_draw_line(canvas, 0, DIVIDER_Y, SCREEN_W - 1, DIVIDER_Y);
 
-    /* Grid: KIND_COUNT (7) slots in a single row, 16px col pitch — slot i is
-     * kind id i. Equipped slot = inverted cell; cursor = frame. */
-    const int CELL_W = 16, CELL_H = 12;
+    /* Grid: one row of BAG_COLS slots, 16px pitch — slot i is kind id i, and
+     * the row shown is the cursor's (schema 9 holds more kinds than fit one
+     * row: < > mark the other rows). Equipped slot = inverted cell; cursor =
+     * frame. A kind with a top-down form is drawn by it, else by its glyph. */
+    const int CELL_W = 16, CELL_H = 12, BAG_COLS = 8;
     const int GRID_Y = 18;
-    for(int i = 0; i < KIND_COUNT; i++) {
+    int first = (st->inv_cursor / BAG_COLS) * BAG_COLS;
+    if(first > 0) canvas_draw_str(canvas, 0, GRID_Y + 20, "<");
+    if(first + BAG_COLS < KIND_COUNT) canvas_draw_str_aligned(canvas, SCREEN_W, GRID_Y + 20, AlignRight, AlignBottom, ">");
+    for(int i = first; i < KIND_COUNT && i < first + BAG_COLS; i++) {
         const KindDef* k = kind_by_id((uint8_t)i);
         if(!k) continue;
-        int x = i * CELL_W;
+        int x = (i - first) * CELL_W;
         int y = GRID_Y;
         bool selected = (st->inv_cursor == i);
         bool eq = is_equipped(&st->character, (uint8_t)i);
@@ -2229,11 +2235,10 @@ static void draw_inventory_screen(Canvas* canvas, const AppState* st) {
             if(eq) {
                 canvas_draw_box(canvas, x, y, CELL_W, CELL_H);
                 canvas_invert_color(canvas);
-                canvas_draw_str(canvas, x + 5, y + 9, gbuf);
-                canvas_invert_color(canvas);
-            } else {
-                canvas_draw_str(canvas, x + 5, y + 9, gbuf);
             }
+            if(k->map_icon) canvas_draw_xbm(canvas, x + 4, y + 2, 8, 8, k->map_icon);
+            else canvas_draw_str(canvas, x + 5, y + 9, gbuf);
+            if(eq) canvas_invert_color(canvas);
         } else {
             /* empty slot indicator */
             canvas_draw_str(canvas, x + 6, y + 9, ".");
@@ -2475,6 +2480,10 @@ static void draw_rite_screen(Canvas* canvas, const AppState* st) {
             region_rite(st->campaign_seed, rx, ry, &rite);
             EffortTask t = ritual_task(&rite, w);
             EffortBody b = rite_body(st, w);
+            /* Each rite turn is also a world turn, which burns the light too:
+             * tell the odds against what will be left. */
+            uint16_t burn = (uint16_t)(t.turns * (FUEL_PER_TURN + st->current_weather.fuel_burn_extra));
+            b.fuel = b.fuel > burn ? (uint16_t)(b.fuel - burn) : 0;
             line = effort_odds_line(&t, &b);
         }
         canvas_draw_str(canvas, 0, 55, line);
@@ -2899,6 +2908,7 @@ static int player_def(const CharacterState* c, const DeedsState* d) {
 /* No permadeath: you fall, then wake dimmer and elsewhere — a real consequence,
  * not a game-over. Placeholder until the DeathType table (spec 45 §6 / v0.4.3). */
 static void player_fall(AppState* st) {
+    st->fell = true;
     st->character.hp = (uint16_t)(st->character.max_hp / 2);
     if(st->character.hp < 1) st->character.hp = 1;
     st->character.torch_fuel = (uint16_t)(st->character.torch_fuel / 2);
@@ -3313,21 +3323,25 @@ static void ritual_take_hold(AppState* st) {
     st->screen = ScreenWorld;
 }
 
-/* A failed rite: what it spent stays spent; what was found is kept (§58.7.4). */
+/* A failed rite: what it spent stays spent; what was found is kept (§58.7.4).
+ * If you fell during it, the fall already said so and moved you. */
 static void rite_failed(AppState* st) {
     save_io_write_character(&st->character);
+    if(st->fell) return;
     set_status(st, ARC_LINE_FAILED);
     st->screen = ScreenWorld;
 }
 
-/* Pay one rite turn: the effort from the body, and the world's turn. */
+/* Pay one rite turn: the effort from the body, and the world's turn. A
+ * bleed or a foul patch can make you fall in that turn: the rite stops. */
 static EffortState rite_turn(AppState* st) {
     EffortBody b = rite_body(st, (RitualWay)st->rite_way);
     EffortState e = effort_turn(&st->rite_run, &b);
     st->character.torch_fuel = b.fuel;
     st->character.hp = b.hp;
+    st->fell = false;
     advance_turn(st);
-    return e;
+    return st->fell ? EFFORT_SPENT : e;
 }
 
 /* Walking into a site opens it, and finds its region's rot (§58.3.1). */

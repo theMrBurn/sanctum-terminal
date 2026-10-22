@@ -547,6 +547,18 @@ static void test_closed_edges_show_the_haze(void) {
     CHECK(memcmp(a.tiles, b.tiles, sizeof(a.tiles)) == 0, "haze: display only, the tiles never change");
 }
 
+/* Everything that can lie on the ground has a first-person form: no item
+ * is invisible in the view the player walks in. */
+static void test_items_visible_in_fpv(void) {
+    int missing = 0;
+    for(int i = 0; i < KIND_COUNT; i++)
+        if(!fpv_sprite_for_tile(KIND_CATALOG[i].glyph)) {
+            missing++;
+            printf("    '%c' (%s) has no first-person form\n", KIND_CATALOG[i].glyph, KIND_CATALOG[i].true_name);
+        }
+    CHECK(missing == 0, "fpv: every item kind has a first-person form");
+}
+
 int main(void) {
     props_init();
     printf("Sanctum RPG — render rule tests\n");
@@ -563,6 +575,7 @@ int main(void) {
     test_map_legibility();
     test_seam_walls_are_the_neighbours();
     test_closed_edges_show_the_haze();
+    test_items_visible_in_fpv();
     printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

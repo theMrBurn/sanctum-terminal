@@ -62,8 +62,10 @@ bool region_mark_ritual(RegionRituals* r, int rx, int ry);
 /* May the player be in (enter) this region? */
 bool region_open(uint32_t seed, const RegionRituals* r, int rx, int ry);
 
-/* Does crossing chunk (cx, cy)'s edge in `dir` lead into a closed region?
- * Crossings inside one region are never closed. */
+/* Does crossing chunk (cx, cy)'s edge in `dir` lead into a closed region
+ * from an open one? Crossings inside one region are never closed, and
+ * neither is any crossing out of a closed region (an old save stranded
+ * outside the tree walks home freely). */
 bool region_edge_closed(uint32_t seed, const RegionRituals* r, int cx, int cy, MoveDir dir);
 
 /* Mark which of chunk (cx, cy)'s edges lead into a closed region

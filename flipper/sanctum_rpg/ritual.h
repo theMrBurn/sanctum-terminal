@@ -45,7 +45,6 @@ typedef enum {
 #define RUNES_MIN             3
 #define RUNES_MAX             4
 #define RUNE_SHAPES           6    /* distinct rune glyphs */
-#define SIGHT_READ_RUNE       12   /* SIGHT needed to read a clue's rune */
 
 typedef enum { PUZZLE_TURN = 0, PUZZLE_ORDER, PUZZLE_BOTH } PuzzleKind;
 

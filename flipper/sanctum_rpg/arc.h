@@ -67,7 +67,8 @@ typedef struct {
 } ArcStep;
 
 /* Steps onto a carving. A spoken piece is learned (the region's record);
- * a seen clue shows its rune if `sight` reaches SIGHT_READ_RUNE. */
+ * a seen clue shows its rune if `sight` reaches the seen way's threshold
+ * (whoever may take the way can read its clues). */
 void arc_step(uint32_t seed, int cx, int cy, const World* w, int x, int y, uint8_t sight,
               RegionBook* book, ArcStep* out);
 

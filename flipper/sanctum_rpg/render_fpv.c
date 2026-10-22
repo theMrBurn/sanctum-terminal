@@ -481,6 +481,15 @@ const uint8_t* fpv_sprite_for_tile(char glyph) {
     case 'i':         return torch_xbm;     /* torch */
     case 'T':         return chest_xbm;     /* chest */
     case 'u':         return chest_xbm;     /* clay pot — chest fallback */
+    /* The corruption arc's objects (spec 58 §58.17): stand-ins until they
+     * have their own forms, so nothing placed is invisible in first person. */
+    case 'e': case 'f': case 'P':         return crystal_xbm;   /* grave-seal, bound stone, salt */
+    case ']': case 'j': case ')':         return chest_xbm;     /* reliquary, censer, relic */
+    case '?': case '}': case '{':         return chest_xbm;     /* scroll, book, tome */
+    case 'z': case 'J': case 'W':         return tool_xbm;      /* cord, iron nail, ward */
+    case 'K':                             return torch_xbm;     /* candle */
+    case 'R':                             return fungus_xbm;    /* rotted cap */
+    case 'E': case 'F': case 'X': case 'L': return vial_xbm;    /* soured vial, the dark flasks */
     default:          return NULL;
     }
 }

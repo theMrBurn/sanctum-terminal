@@ -54,7 +54,11 @@ void arc_step(uint32_t seed, int cx, int cy, const World* w, int x, int y, uint8
         return;
     }
     if(what != ARC_CLUE) return;
-    if(sight < SIGHT_READ_RUNE) {
+    /* Whoever may take the seen way can read its clues: the way's own
+     * threshold decides both (spec 58 §58.7.2). */
+    RegionRite rite;
+    region_rite(seed, rx, ry, &rite);
+    if(sight < rite.threshold[WAY_SEEN]) {
         out->line = ARC_LINE_WORN;
         return;
     }

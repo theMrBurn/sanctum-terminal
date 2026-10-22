@@ -2746,6 +2746,22 @@ static void test_region_gates(void) {
     int ok = 1;
     for(int i = 0; i < REGION_DONE_MAX; i++) ok &= region_mark_ritual(&full, i, 100);
     CHECK(ok && !region_mark_ritual(&full, -1, -1), "region save: the set refuses past REGION_DONE_MAX");
+    /* A save from before the gates, standing deep in a closed region:
+     * every crossing is allowed until it's back inside the tree. From an
+     * open region, the border still refuses. */
+    {
+        RegionRituals none;
+        region_rituals_clear(&none);
+        uint32_t seed = 0x12345678u;
+        int deep_cx = 3 * BIOME_REGION + 1, deep_cy = 1;   /* region (3, 0): depth 3 */
+        int stuck = 0;
+        MoveDir dirs[4] = {MoveNorth, MoveSouth, MoveWest, MoveEast};
+        for(int d = 0; d < 4; d++) stuck += region_edge_closed(seed, &none, deep_cx, deep_cy, dirs[d]);
+        CHECK(!region_open(seed, &none, 3, 0) && stuck == 0,
+              "gates: a player stranded in a closed region may walk anywhere (old saves)");
+        CHECK(region_edge_closed(seed, &none, BIOME_REGION - 1, 0, MoveEast),
+              "gates: from the open waking region, the border still refuses");
+    }
 }
 
 /* ── quirks: the cave-in (spec 50 Q1 §Q.1.1) ─────────────────────── */
@@ -3498,6 +3514,46 @@ static void test_dead_effects(void) {
     CHECK(!on_door, "effects: nothing phases onto a door");
 }
 
+/* Whoever may take the seen way can read its clues (spec 58 §58.7.2): at
+ * the way's threshold a clue shows its rune; below, a worn mark. */
+static void test_clues_readable(void) {
+    int checked = 0, ok = 1;
+    const uint32_t seed = 0xCAFEBABEu;
+    for(int ry = -2; ry <= 2; ry++)
+        for(int rx = -2; rx <= 2; rx++) {
+            RegionRite rite;
+            region_rite(seed, rx, ry, &rite);
+            if(!(rite.ways & WAY_BIT(WAY_SEEN))) continue;
+            for(int s = 0; s < BIOME_REGION * BIOME_REGION; s++) {
+                int cx = rx * BIOME_REGION + s % BIOME_REGION, cy = ry * BIOME_REGION + s / BIOME_REGION;
+                World w;
+                world_generate_chunk(seed, cx, cy, &w);
+                for(int a = 0; a < w.arc_count; a++) {
+                    if(w.arc[a].what != ARC_CLUE) continue;
+                    RegionBook b;
+                    region_book_clear(&b);
+                    ArcStep at, below;
+                    arc_step(seed, cx, cy, &w, w.arc[a].x, w.arc[a].y, rite.threshold[WAY_SEEN], &b, &at);
+                    arc_step(seed, cx, cy, &w, w.arc[a].x, w.arc[a].y, (uint8_t)(rite.threshold[WAY_SEEN] - 1), &b, &below);
+                    ok &= at.rune && !below.rune && strcmp(below.line, ARC_LINE_WORN) == 0;
+                    checked++;
+                }
+            }
+        }
+    CHECK(checked > 0 && ok, "rituals: the seen way's clues are readable exactly at its threshold");
+    /* The arc's status lines fit the status bar (about 30 characters). */
+    const char* lines[] = {ARC_LINE_READ, ARC_LINE_SEAL, ARC_LINE_RITE, ARC_LINE_CORRUPT, ARC_LINE_SEALED,
+                           ARC_LINE_ENTER, ARC_LINE_REFUSED, ARC_LINE_NO_WORDS, ARC_LINE_NO_ARTIFACT,
+                           ARC_LINE_CARVED, ARC_LINE_WORN, ARC_LINE_RUNE, ARC_LINE_MISSING, ARC_LINE_FAILED,
+                           ARC_LINE_VIGIL, ARC_LINE_BROKEN, DEAD_LINE_GRAVE, DEAD_LINE_TOMB, AF_LINE_NOTHING,
+                           AF_LINE_DARK, AF_LINE_COATED};
+    int fit = 1;
+    for(size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) fit &= strlen(lines[i]) <= 30;
+    char spoil[48];
+    snprintf(spoil, sizeof(spoil), AF_LINE_SPOIL, "soured vial");
+    CHECK(fit && strlen(spoil) <= 30, "copy: every arc line fits the status bar");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -3600,6 +3656,7 @@ int main(void) {
     test_dead_chance();
     test_dark_tree();
     test_dead_effects();
+    test_clues_readable();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
