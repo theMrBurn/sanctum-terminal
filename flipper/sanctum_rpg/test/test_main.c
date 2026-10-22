@@ -1436,14 +1436,17 @@ static void test_creatures_catalog_integrity(void) {
 
     int glyphs_ok = 1, fw_ok = 1, fb_ok = 1;
     for(int i = 0; i < CREATURE_FAMILY_COUNT; i++) {
-        if(CREATURE_FAMILIES[i].weight == 0) fw_ok = 0;
+        /* the dead never spawn by the roll: they only rise (spec 50 Q1 §Q.3) */
+        if(CREATURE_FAMILIES[i].weight == 0 && i != FAMILY_DEAD) fw_ok = 0;
         if(CREATURE_FAMILIES[i].biomes == 0) fb_ok = 0;
         for(int j = i + 1; j < CREATURE_FAMILY_COUNT; j++) {
             if(CREATURE_FAMILIES[i].glyph == CREATURE_FAMILIES[j].glyph) glyphs_ok = 0;
         }
     }
     CHECK(glyphs_ok, "creatures: family glyphs distinct");
-    CHECK(fw_ok, "creatures: family weights nonzero");
+    CHECK(fw_ok, "creatures: family weights nonzero (but the dead's)");
+    CHECK(CREATURE_FAMILIES[FAMILY_DEAD].weight == 0 && CREATURE_FAMILIES[FAMILY_DEAD].glyph == 'D',
+          "creatures: the dead (D) never come from the spawn roll");
     CHECK(fb_ok, "creatures: family biome masks nonzero");
 
     int tw_ok = 1, tb_ok = 1;
@@ -3205,6 +3208,46 @@ static void test_arc_seal_rules(void) {
           "arc: a kept vigil spends its focus objects");
 }
 
+/* The dead's kinds belong to the dead (spec 50 Q1 §Q.3): an ordinary roll
+ * never returns one, and adding them changed no ordinary roll; a roll for
+ * the dead returns only theirs, all seven reachable. */
+static void test_dead_traits(void) {
+    /* The ordinary roll, replayed against the pre-dead table: the eight
+     * original traits are rows 0..7 and their weights are unchanged, so
+     * the same stream must land on the same rows. */
+    static const uint8_t W_CAVE[8] = {50, 10, 9, 8, 0, 0, 0, 4}, W_OUT[8] = {50, 0, 0, 0, 10, 9, 8, 4};
+    int same = 1, never = 1;
+    for(int b = 0; b < 2; b++) {
+        const uint8_t* w = b ? W_OUT : W_CAVE;
+        Rng r1, r2;
+        rng_seed(&r1, 0x5EED0000u + (uint32_t)b);
+        rng_seed(&r2, 0x5EED0000u + (uint32_t)b);
+        uint32_t total = 0;
+        for(int i = 0; i < 8; i++) total += w[i];
+        for(int n = 0; n < 4000; n++) {
+            uint8_t got = creature_trait_roll(&r1, b ? BIOME_OUTDOOR : BIOME_CAVERN);
+            uint32_t pick = rng_range(&r2, 0, total), acc = 0;
+            int want = 0;
+            for(int i = 0; i < 8; i++) { acc += w[i]; if(w[i] && pick < acc) { want = i; break; } }
+            same &= got == want;
+            never &= CREATURE_TRAITS[got].family_mask == 0;
+        }
+    }
+    CHECK(same, "dead: adding the seven kinds changed no ordinary trait roll");
+    CHECK(never, "dead: an ordinary creature never takes a dead kind");
+    int seen = 0, only = 1;
+    Rng r;
+    rng_seed(&r, 0xDEAD0001u);
+    for(int n = 0; n < 4000; n++) {
+        uint8_t t = creature_trait_roll_family(&r, n & 1 ? BIOME_OUTDOOR : BIOME_CAVERN, FAMILY_DEAD);
+        only &= (CREATURE_TRAITS[t].family_mask & FAMILY_BIT(FAMILY_DEAD)) != 0;
+        seen |= 1 << t;
+    }
+    int kinds = 0;
+    for(int i = 0; i < CREATURE_TRAIT_COUNT; i++) kinds += (seen >> i) & 1;
+    CHECK(only && kinds == 7, "dead: a rising picks among exactly the dead's seven kinds");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -3302,6 +3345,7 @@ int main(void) {
     test_runes();
     test_arc_route1();
     test_arc_seal_rules();
+    test_dead_traits();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

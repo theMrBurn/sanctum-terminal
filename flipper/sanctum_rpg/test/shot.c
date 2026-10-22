@@ -122,9 +122,10 @@ static void put_figure(int ox, int oy, int size, const uint8_t* ink, const uint8
 static int lineup(int family_id, const char* path) {
     static uint8_t ink[FIGURE_PLANE_BYTES], mask[FIGURE_PLANE_BYTES];
     memset(lu, 0, sizeof(lu));
-    int rows = CREATURE_TRAIT_COUNT;
-    for(int t = 0; t < rows; t++) {
-        int oy = t * LU_CELL + 1, ox = 1;
+    int rows = 0;
+    for(int t = 0; t < CREATURE_TRAIT_COUNT; t++) {
+        if(!creature_trait_fits((uint8_t)family_id, (uint8_t)t)) continue;   /* only pairs that exist */
+        int oy = rows++ * LU_CELL + 1, ox = 1;
         for(int p = 0; p < POSE_COUNT; p++, ox += LU_CELL) {
             if(!figure_compose(&RENDER_BUDGET_FLIPPER_1BIT, (uint8_t)family_id, (uint8_t)t,
                                (FigurePose)p, 0, ink, mask)) return 3;

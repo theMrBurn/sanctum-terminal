@@ -131,26 +131,33 @@ static void test_figure_rules(void) {
  * (the mask) at the near size, and still distinct (ink+mask) at 12 px —
  * three tiles out, where the hide has gone solid. */
 static int identity_at(int px, bool silhouette_only) {
-    static uint8_t ink[40][FIGURE_PLANE_BYTES], mask[40][FIGURE_PLANE_BYTES];
+    static uint8_t ink[64][FIGURE_PLANE_BYTES], mask[64][FIGURE_PLANE_BYTES];
+    static int fam_of[64], tr_of[64];
     RenderBudget b = budget_at(px);
     int n = 0, same = 0;
     for(int f = 0; f < CREATURE_FAMILY_COUNT; f++)
-        for(int t = 0; t < CREATURE_TRAIT_COUNT; t++, n++)
+        for(int t = 0; t < CREATURE_TRAIT_COUNT; t++) {
+            if(!creature_trait_fits((uint8_t)f, (uint8_t)t)) continue;   /* only pairs that exist */
+            fam_of[n] = f; tr_of[n] = t;
             figure_compose(&b, (uint8_t)f, (uint8_t)t, POSE_IDLE, 0, ink[n], mask[n]);
+            n++;
+        }
     for(int a = 0; a < n; a++)
         for(int c = a + 1; c < n; c++)
             if(!memcmp(mask[a], mask[c], FIGURE_PLANE_BYTES) &&
                (silhouette_only || !memcmp(ink[a], ink[c], FIGURE_PLANE_BYTES))) {
                 same++;
-                printf("    %dpx: #%d (fam %d trait %d) == #%d (fam %d trait %d)\n", px, a,
-                       a / CREATURE_TRAIT_COUNT, a % CREATURE_TRAIT_COUNT, c,
-                       c / CREATURE_TRAIT_COUNT, c % CREATURE_TRAIT_COUNT);
+                printf("    %dpx: fam %d trait %d == fam %d trait %d\n", px, fam_of[a], tr_of[a],
+                       fam_of[c], tr_of[c]);
             }
     return same;
 }
 
 static void test_figure_identity(void) {
-    CHECK(CREATURE_FAMILY_COUNT * CREATURE_TRAIT_COUNT == 40, "figure: 5 families x 8 traits");
+    int pairs = 0;
+    for(int f = 0; f < CREATURE_FAMILY_COUNT; f++)
+        for(int t = 0; t < CREATURE_TRAIT_COUNT; t++) pairs += creature_trait_fits((uint8_t)f, (uint8_t)t);
+    CHECK(pairs == 5 * 8 + 7, "figure: 5 families x 8 traits, and the dead x their 7 kinds");
     CHECK(identity_at(32, true) == 0, "figure: every family x trait has its own silhouette (32px)");
     CHECK(identity_at(12, false) == 0, "figure: every family x trait still distinct at 12px");
 }
@@ -158,12 +165,17 @@ static void test_figure_identity(void) {
 /* GOLDEN: one FNV-1a 64 over every combination at the device size —
  * ink then mask bytes, order family > trait > pose > frame. A port
  * (Python, ...) reproduces this number or it isn't drawing the same game. */
-#define FIGURE_GOLDEN 0x412D3813F79780F0ULL
-static void test_figure_golden(void) {
+/* v1 (2026-10-14): the five families x eight traits. Adding the dead
+ * (spec 50 Q1 §Q.3) must not move a pixel of them, so v1 is still checked
+ * over exactly those 40; the current golden covers every pair that exists. */
+#define FIGURE_GOLDEN_V1 0x412D3813F79780F0ULL
+#define FIGURE_GOLDEN    0x585041A51300DE48ULL   /* + the dead x their 7 kinds (2026-10-22) */
+static uint64_t figure_hash(int families, int traits, bool only_fitting) {
     static uint8_t ink[FIGURE_PLANE_BYTES], mask[FIGURE_PLANE_BYTES];
     uint64_t h = 0xCBF29CE484222325ULL;
-    for(int f = 0; f < CREATURE_FAMILY_COUNT; f++)
-        for(int t = 0; t < CREATURE_TRAIT_COUNT; t++)
+    for(int f = 0; f < families; f++)
+        for(int t = 0; t < traits; t++) {
+            if(only_fitting && !creature_trait_fits((uint8_t)f, (uint8_t)t)) continue;
             for(int p = 0; p < POSE_COUNT; p++)
                 for(int fr = 0; fr < 2; fr++) {
                     figure_compose(&RENDER_BUDGET_FLIPPER_1BIT, (uint8_t)f, (uint8_t)t,
@@ -171,6 +183,14 @@ static void test_figure_golden(void) {
                     for(int k = 0; k < FIGURE_PLANE_BYTES; k++) h = (h ^ ink[k]) * 0x100000001B3ULL;
                     for(int k = 0; k < FIGURE_PLANE_BYTES; k++) h = (h ^ mask[k]) * 0x100000001B3ULL;
                 }
+        }
+    return h;
+}
+
+static void test_figure_golden(void) {
+    CHECK(figure_hash(5, 8, false) == FIGURE_GOLDEN_V1,
+          "figure: the original 5 x 8 creatures are drawn exactly as before");
+    uint64_t h = figure_hash(CREATURE_FAMILY_COUNT, CREATURE_TRAIT_COUNT, true);
     printf("  figure golden (flipper_1bit): 0x%016llX\n", (unsigned long long)h);
     CHECK(h == FIGURE_GOLDEN, "figure: flipper_1bit golden fingerprint unchanged");
 }

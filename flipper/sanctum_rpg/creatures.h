@@ -61,7 +61,18 @@ enum {
     CF_PACK        = 1u << 1, /* spawns + reacts in groups */
     CF_PHOTOPHOBIC = 1u << 2, /* will not stand in your light; bolder as it dims (§5.5) */
     CF_PHOTOPHILIC = 1u << 3, /* drawn to your light, and waits at the edge (§5.5) */
+    CF_PHASE       = 1u << 4, /* moves through walls (spec 50 Q1 §Q.4: the spectral dead) */
 };
+
+/* A trait's look, for the figure composer (data, never `if kind ==`). The
+ * dead's seven kinds share one body; this is what tells them apart. */
+typedef enum {
+    MARK_NONE = 0,
+    MARK_GAUNT,    /* thinner build */
+    MARK_MAW,      /* an open jaw */
+    MARK_DRIP,     /* drops falling from it */
+    MARK_SPOTS,    /* clear blotches on the hide */
+} TraitMark;
 
 /* Overworld FSM state — 2 bits (spec 45 §4.2). Lives on the live creature,
  * not the def; declared here so the (later) tick + render agree. */
@@ -112,6 +123,10 @@ typedef struct {
     uint8_t     aptitude_mod;
     uint8_t     biome_mask; /* which biomes allow this trait — the biome-lock */
     uint8_t     weight;     /* trait-roll weight (plain dominates) */
+    uint8_t     family_mask;/* families this trait belongs to (bit per family id);
+                             * 0 = any family except those that only take their own
+                             * (spec 50 Q1 §Q.3: the dead's seven kinds) */
+    uint8_t     mark;       /* TraitMark: how the composer shows it */
 } Trait;
 
 /* A composed creature: family × trait resolved to flat stats. Cheap value
@@ -140,6 +155,11 @@ extern const int    CREATURE_TRAIT_COUNT;
 const Family* creature_family(uint8_t id);
 const Trait*  creature_trait(uint8_t id);
 
+/* May this trait shade this family? A trait with a family_mask belongs to
+ * those families only; one without fits every family that takes no
+ * family-only traits (the dead take only their own). */
+int creature_trait_fits(uint8_t family_id, uint8_t trait_id);
+
 /* Resolve {family,trait} → flat CreatureDef (bad ids fall back safely). */
 void creature_compose(uint8_t family_id, uint8_t trait_id, CreatureDef* out);
 
@@ -147,6 +167,15 @@ void creature_compose(uint8_t family_id, uint8_t trait_id, CreatureDef* out);
  * trait whose biome_mask includes `biome` — the biome-lock. */
 uint8_t creature_family_roll(Rng* r, Biome biome);
 uint8_t creature_trait_roll(Rng* r, Biome biome);
+
+/* A trait for family `family_id`: only traits whose family_mask names it.
+ * (creature_trait_roll never returns those; they belong to their family.) */
+uint8_t creature_trait_roll_family(Rng* r, Biome biome, uint8_t family_id);
+
+/* The dead (spec 50 Q1 §Q.3): one family, never rolled by the ordinary
+ * spawn (weight 0). They exist only by rising (dead.h). */
+#define FAMILY_DEAD 5
+#define FAMILY_BIT(f) ((uint8_t)(1u << (f)))
 
 /* Slice 50.F2 — Pool-biased variant. Multiplies each eligible family's
  * biome weight by `pool->family_bias[family_id]` per spec 50 §4.2 +

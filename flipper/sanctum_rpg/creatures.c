@@ -28,6 +28,9 @@ const Family CREATURE_FAMILIES[] = {
     { 's', "spider", 4, 6, 12, 12, 0,                                    DISP_TERRITORIAL,  4,  2,  3, 30, APT_PATIENCE,   B_CAVE, 16 },
     { 'B', "bat",    2, 3, 14, 20, CF_FLIGHT | CF_PACK | CF_PHOTOPHILIC, DISP_TERRITORIAL,  6,  0,  8, 25, APT_PERCEPTION, B_BOTH, 18 },
     { 'S', "slime",  6, 4,  8,  6, 0,                                    DISP_PASSIVE,      2,  0, 12, 18, APT_RESILIENCE, B_CAVE, 14 },
+    /* spec 50 Q1 §Q.3 — the dead: born hostile, never from the spawn roll
+     * (weight 0); they rise from resting places (dead.h). */
+    { 'D', "dead",   6, 4, 10,  8, 0,                                    DISP_HOSTILE,      5,  0,  0, 20, APT_NONE,       B_BOTH,  0 },
 };
 const int CREATURE_FAMILY_COUNT =
     (int)(sizeof(CREATURE_FAMILIES) / sizeof(CREATURE_FAMILIES[0]));
@@ -36,14 +39,25 @@ const int CREATURE_FAMILY_COUNT =
  * to dominate so most creatures spawn unmodified.
  * affix      hp atk def spd  element    add_flags         dflee apt_mod        biome   wt */
 const Trait CREATURE_TRAITS[] = {
-    { "",        0, 0,  0,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_BOTH, 50 },
-    { "frost-",  1, 0,  2, -1, ELEM_ICE,  CF_PHOTOPHOBIC,      0, APT_FROST,     B_CAVE, 10 },
-    { "pallid-", 0, 0, -1,  0, ELEM_NONE, CF_PHOTOPHOBIC,      1, APT_NONE,      B_CAVE,  9 },
-    { "cave-",   1, 0,  1,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_CAVE,  8 },
-    { "ember-",  0, 2,  0,  1, ELEM_FIRE, 0,                   0, APT_EMBER,     B_OUT,  10 },
-    { "swift-",  0, 0,  0,  4, ELEM_NONE, 0,                  -1, APT_NONE,      B_OUT,   9 },
-    { "hardy-",  2, 0,  2, -1, ELEM_NONE, 0,                   0, APT_FORTITUDE, B_OUT,   8 },
-    { "dire-",   3, 3,  1,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_BOTH,  4 },
+    { "",        0, 0,  0,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_BOTH, 50, 0, MARK_NONE },
+    { "frost-",  1, 0,  2, -1, ELEM_ICE,  CF_PHOTOPHOBIC,      0, APT_FROST,     B_CAVE, 10, 0, MARK_NONE },
+    { "pallid-", 0, 0, -1,  0, ELEM_NONE, CF_PHOTOPHOBIC,      1, APT_NONE,      B_CAVE,  9, 0, MARK_NONE },
+    { "cave-",   1, 0,  1,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_CAVE,  8, 0, MARK_NONE },
+    { "ember-",  0, 2,  0,  1, ELEM_FIRE, 0,                   0, APT_EMBER,     B_OUT,  10, 0, MARK_NONE },
+    { "swift-",  0, 0,  0,  4, ELEM_NONE, 0,                  -1, APT_NONE,      B_OUT,   9, 0, MARK_NONE },
+    { "hardy-",  2, 0,  2, -1, ELEM_NONE, 0,                   0, APT_FORTITUDE, B_OUT,   8, 0, MARK_NONE },
+    { "dire-",   3, 3,  1,  0, ELEM_NONE, 0,                   0, APT_NONE,      B_BOTH,  4, 0, MARK_NONE },
+    /* spec 50 Q1 §Q.3 — the dead's seven kinds (the user's words). One
+     * body; the kind shows in a mark and its effect (dead.h). */
+#define FD FAMILY_BIT(FAMILY_DEAD)
+    { "withered ", -1, 0, -1, -2, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_GAUNT },
+    { "ghoulish ",  0, 1,  0,  4, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_NONE },
+    { "bloated ",   3, 0,  2, -3, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 12, FD, MARK_NONE },
+    { "spectral ", -1, 0,  2,  0, ELEM_NONE, CF_PHASE,        0, APT_NONE,      B_BOTH, 10, FD, MARK_NONE },
+    { "feeding ",   0, 1,  0,  0, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_MAW },
+    { "bleeding ",  0, 0,  0,  0, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 14, FD, MARK_DRIP },
+    { "rotting ",   1, 0,  0, -1, ELEM_NONE, 0,               0, APT_NONE,      B_BOTH, 12, FD, MARK_SPOTS },
+#undef FD
 };
 const int CREATURE_TRAIT_COUNT =
     (int)(sizeof(CREATURE_TRAITS) / sizeof(CREATURE_TRAITS[0]));
@@ -141,21 +155,47 @@ void creature_roll_pooled(
     if(out_trait)  *out_trait  = tr;
 }
 
-uint8_t creature_trait_roll(Rng* r, Biome biome) {
+/* Eligible for an ordinary roll (`family_bit` 0) or for one family's. A
+ * trait that names its families is never in the ordinary roll, so adding
+ * the dead's kinds leaves every other creature's roll byte-identical. */
+static int trait_eligible(int i, uint8_t bbit, uint8_t family_bit) {
+    const Trait* t = &CREATURE_TRAITS[i];
+    if(!(t->biome_mask & bbit)) return 0;
+    return family_bit ? (t->family_mask & family_bit) != 0 : t->family_mask == 0;
+}
+
+static uint8_t trait_roll(Rng* r, Biome biome, uint8_t family_bit) {
     uint8_t bbit = BIOME_BIT(biome);
     uint32_t total = 0;
     for(int i = 0; i < CREATURE_TRAIT_COUNT; i++) {
-        if(CREATURE_TRAITS[i].biome_mask & bbit) total += CREATURE_TRAITS[i].weight;
+        if(trait_eligible(i, bbit, family_bit)) total += CREATURE_TRAITS[i].weight;
     }
     if(total == 0) return 0;
     uint32_t pick = rng_range(r, 0, total);
     uint32_t acc = 0;
     for(int i = 0; i < CREATURE_TRAIT_COUNT; i++) {
-        if(!(CREATURE_TRAITS[i].biome_mask & bbit)) continue;
+        if(!trait_eligible(i, bbit, family_bit)) continue;
         acc += CREATURE_TRAITS[i].weight;
         if(pick < acc) return (uint8_t)i;
     }
     return 0;
+}
+
+int creature_trait_fits(uint8_t family_id, uint8_t trait_id) {
+    const Trait* t = creature_trait(trait_id);
+    if(!t || family_id >= (uint8_t)CREATURE_FAMILY_COUNT) return 0;
+    if(t->family_mask) return (t->family_mask & FAMILY_BIT(family_id)) != 0;
+    for(int i = 0; i < CREATURE_TRAIT_COUNT; i++)
+        if(CREATURE_TRAITS[i].family_mask & FAMILY_BIT(family_id)) return 0;
+    return 1;
+}
+
+uint8_t creature_trait_roll(Rng* r, Biome biome) {
+    return trait_roll(r, biome, 0);
+}
+
+uint8_t creature_trait_roll_family(Rng* r, Biome biome, uint8_t family_id) {
+    return trait_roll(r, biome, FAMILY_BIT(family_id));
 }
 
 void creature_roll(Rng* r, Biome biome, uint8_t* out_family, uint8_t* out_trait) {

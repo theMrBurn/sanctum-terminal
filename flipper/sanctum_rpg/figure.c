@@ -104,7 +104,7 @@ static void eye(Plane* ink, Plane* mask, const Xf* t, int x, int y) {
 /* ── family body plans ─────────────────────────────────────────────────
  * Each plan has a body() into the mask and a detail() for limbs + eyes.
  * `st` = 1 when striking (the tell), `fr` = animation frame (0/1). */
-typedef enum { HIDE_FUR, HIDE_SHELL, HIDE_DARK, HIDE_MEMBRANE, HIDE_GEL } Hide;
+typedef enum { HIDE_FUR, HIDE_SHELL, HIDE_DARK, HIDE_MEMBRANE, HIDE_GEL, HIDE_GRAVE } Hide;
 
 typedef struct {
     char glyph;
@@ -215,12 +215,32 @@ static void slime_detail(Plane* ink, Plane* m, const Xf* t, int st, int fr) {
     eye(ink, m, t, 11, ey - 2);                               /* the shine */
 }
 
+/* the dead (spec 50 Q1 §Q.3) — a figure that stands like you do, facing
+ * you: a bowed head, narrow shoulders, arms that hang and reach to strike. */
+static void dead_body(Plane* m, const Xf* t, int st, int fr) {
+    (void)fr;
+    ellipse(m, t, 16, 9 + st, 4, 4, 1);                       /* head (bows to strike) */
+    ellipse(m, t, 16, 18, 5, 6, 1);                           /* chest and shroud */
+    ellipse(m, t, 16, 24, 4, 3, 1);                           /* hips */
+}
+static void dead_detail(Plane* ink, Plane* m, const Xf* t, int st, int fr) {
+    int f = fr ? 1 : 0;
+    int hand_y = st ? 13 : 24;                                /* the tell: arms up */
+    limb(ink, m, t, 11, 15, 8, hand_y);                       /* arms */
+    limb(ink, m, t, 21, 15, 24, hand_y);
+    limb(ink, m, t, 14, 26, 13 - f, 31);                      /* legs, a dragging step */
+    limb(ink, m, t, 18, 26, 19 + f, 31);
+    eye(ink, m, t, 14, 9 + st);                               /* hollow eyes */
+    eye(ink, m, t, 18, 9 + st);
+}
+
 static const BodyPlan PLANS[] = {
     {'r', HIDE_FUR,      false, rat_body,    rat_detail},
     {'b', HIDE_SHELL,    false, beetle_body, beetle_detail},
     {'s', HIDE_DARK,     true,  spider_body, spider_detail},
     {'B', HIDE_MEMBRANE, true,  bat_body,    bat_detail},
     {'S', HIDE_GEL,      true,  slime_body,  slime_detail},
+    {'D', HIDE_GRAVE,    true,  dead_body,   dead_detail},
 };
 
 static const BodyPlan* plan_for(char glyph) {
@@ -243,6 +263,7 @@ static const struct { int8_t term; } MATERIAL[] = {
     [HIDE_DARK]     = {TERM_SOLID},  /* spider: solid */
     [HIDE_MEMBRANE] = {5},           /* bat: light crown, dark wings */
     [HIDE_GEL]      = {9},           /* slime: clear dome, dark base */
+    [HIDE_GRAVE]    = {6},           /* the dead: pale head and shoulders, dark shroud */
 };
 #define GLOSS_V        5   /* shell: a clear highlight line at this depth */
 #define SHINE_V        3   /* slime: a clear shine dot row */
@@ -316,21 +337,21 @@ bool figure_compose(
     Plane m = {mask_b, budget->width, budget->height, (budget->width + 7) / 8};
 
     bool big = tr->d_hp >= BIG_HP_MIN && tr->d_atk >= BIG_ATK_MIN;
-    bool flyer = (fam->move_flags & CF_FLIGHT) != 0;
+    bool flyer = (fam->move_flags & CF_FLIGHT) != 0 || (tr->add_flags & CF_PHASE) != 0;   /* the spectral hover */
     int fr = budget->anim_frames ? frame % budget->anim_frames : 0;
     int st = pose == POSE_STRIKE;
 
     Xf t = {budget->width, budget->height,
             big ? DIRE_SCALE : BASE_SCALE, big ? DIRE_SCALE : BASE_SCALE,
             flyer && pose != POSE_DEAD ? HOVER_LIFT : 0};
-    bool pale = (tr->add_flags & CF_PHOTOPHOBIC) != 0 && tr->element == ELEM_NONE;
+    bool pale = (tr->add_flags & (CF_PHOTOPHOBIC | CF_PHASE)) != 0 && tr->element == ELEM_NONE;
     bool heavy_build = tr->d_def >= HEAVY_DEF_MIN;
     bool banded = tr->d_hp >= 1 && tr->d_def == 1 && tr->element == ELEM_NONE && !big;
     if(heavy_build && tr->element == ELEM_NONE) {
         t.sx = (t.sx * BUILD_STOCKY_X) / 16; t.sy = (t.sy * BUILD_STOCKY_Y) / 16;
-    } else if(pale) {
+    } else if(pale || tr->mark == MARK_GAUNT) {
         t.sx = (t.sx * BUILD_GAUNT_X) / 16;  t.sy = (t.sy * BUILD_GAUNT_Y) / 16;
-    } else if(banded) {
+    } else if(banded || tr->mark == MARK_SPOTS) {
         t.sx = (t.sx * BUILD_HUNCH_X) / 16;  t.sy = (t.sy * BUILD_HUNCH_Y) / 16;
     }
     if(pose == POSE_FLEE) t.sy = (t.sy * CROUCH_Y) / 16;
@@ -388,6 +409,24 @@ bool figure_compose(
 
     /* 3. DETAIL — limbs + eyes over the hide */
     plan->detail(&ink, &m, &t, st, fr);
+    /* 4d. TRAIT marks (data: Trait.mark), drawn before the front mirror so
+     * they come out symmetric on figures that face you. */
+    switch(tr->mark) {
+    case MARK_MAW:                                     /* an open jaw */
+        limb(&ink, &m, &t, 14, 13 + st, 13, 16 + st);
+        limb(&ink, &m, &t, 18, 13 + st, 19, 16 + st);
+        break;
+    case MARK_DRIP:                                    /* drops falling, one frame apart */
+        limb(&ink, &m, &t, 9, 26 + fr, 9, 27 + fr);
+        limb(&ink, &m, &t, 23, 28 - fr, 23, 29 - fr);
+        break;
+    case MARK_SPOTS:                                   /* clear blotches on the hide */
+        eye(&ink, &m, &t, 14, 17);
+        eye(&ink, &m, &t, 18, 20);
+        eye(&ink, &m, &t, 15, 23);
+        break;
+    default: break;
+    }
     if(plan->front) mirror_half(&ink, &m);
 
     /* 4c. TRAIT overlays (asymmetric on purpose: streaks trail) */
