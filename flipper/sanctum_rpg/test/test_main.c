@@ -45,6 +45,7 @@
 #include "../ritual.h"
 #include "../arc.h"
 #include "../deeds.h"
+#include "../dead.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -3248,6 +3249,109 @@ static void test_dead_traits(void) {
     CHECK(only && kinds == 7, "dead: a rising picks among exactly the dead's seven kinds");
 }
 
+/* Route 2 closes (§58.6, §58.10): disturbing a region's sites over and
+ * over raises exactly its dead count in all, destroying them all cleanses
+ * it, and calmed dead return to the pool and still count. Route 1 holds:
+ * with every site sealed nothing is restless. */
+static void test_dead_routes(void) {
+    const uint32_t seeds[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu};
+    int closes = 1, cleansed = 1, calm = 1, route1 = 1, rite = 1, regions = 0;
+    for(size_t si = 0; si < 3; si++)
+        for(int ry = -1; ry <= 1; ry++)
+            for(int rx = -1; rx <= 1; rx++) {
+                uint32_t seed = seeds[si];
+                regions++;
+                RegionBook book;
+                RisenBook rb;
+                RegionRituals rit;
+                region_book_clear(&book);
+                risen_book_clear(&rb);
+                region_rituals_clear(&rit);
+                int want = corruption_dead_count(seed, rx, ry);
+                RegionSite sites[SITES_PER_REGION_MAX];
+                int ns = region_sites(seed, rx, ry, sites);
+                int raised = 0, destroyed = 0, guard = 0;
+                /* calm: raise once, leave the region, the pool is whole again */
+                {
+                    World w;
+                    world_generate_chunk(seed, sites[0].cx, sites[0].cy, &w);
+                    Creature cs[CREATURES_MAX];
+                    int n = 0;
+                    int up = dead_raise(seed, sites[0].cx, sites[0].cy, &w, -1, -1, w.site_x, w.site_y, &book, &rb, cs, &n, CREATURES_MAX);
+                    calm &= up > 0 && dead_dormant(seed, rx, ry, &book, &rb) == want - up;
+                    calm &= dead_calm_outside(&rb, rx + 5, ry) && dead_dormant(seed, rx, ry, &book, &rb) == want;
+                }
+                while(dead_restless(seed, rx, ry, &book, &rit) && guard++ < 64) {
+                    const RegionSite* s = &sites[guard % ns];
+                    World w;
+                    world_generate_chunk(seed, s->cx, s->cy, &w);
+                    Creature cs[CREATURES_MAX];
+                    int n = 0;
+                    int up = dead_raise(seed, s->cx, s->cy, &w, -1, -1, w.site_x, w.site_y, &book, &rb, cs, &n, CREATURES_MAX);
+                    raised += up;
+                    for(int i = 0; i < n; i++) {
+                        dead_destroyed(seed, s->cx, s->cy, cs[i].trait_id, &rb, &book);
+                        destroyed++;
+                    }
+                }
+                closes &= raised == want && destroyed == want && dead_dormant(seed, rx, ry, &book, &rb) == 0;
+                cleansed &= arc_region_cleansed(seed, rx, ry, &book) && !dead_restless(seed, rx, ry, &book, &rit);
+                /* route 1 on a fresh book */
+                RegionBook b1;
+                region_book_clear(&b1);
+                route1 &= dead_restless(seed, rx, ry, &b1, &rit);
+                region_book_touch(&b1, rx, ry)->sealed = (uint8_t)((1u << ns) - 1u);
+                route1 &= !dead_restless(seed, rx, ry, &b1, &rit);
+                RegionBook b2;
+                region_book_clear(&b2);
+                RegionRituals r2;
+                region_rituals_clear(&r2);
+                region_mark_ritual(&r2, rx, ry);
+                rite &= !dead_restless(seed, rx, ry, &b2, &r2);
+            }
+    CHECK(regions == 27, "dead: 3 seeds x 9 regions");
+    CHECK(calm, "dead: calmed dead return to the pool and still count");
+    CHECK(closes, "dead: disturbing the sites raises exactly the region's dead, no more");
+    CHECK(cleansed, "dead: destroying them all cleanses the region (route 2), and it goes quiet");
+    CHECK(route1, "dead: with every site sealed, nothing is restless (route 1 holds)");
+    CHECK(rite, "dead: once the rite takes hold, nothing is restless");
+}
+
+/* The moon's odds (spec 50 Q1 §Q.1.2): none without a moon, about
+ * strength / (DEAD_RISE_ODDS * MOON_STRENGTH_MAX) with one; the reach of a
+ * disturbance grows with the moon; hordes and loners as the kinds say. */
+static void test_dead_chance(void) {
+    int none = 0, full = 0;
+    const int N = 200000;
+    for(int i = 0; i < N; i++) {
+        none += dead_chance(0x12345678u, 3, -2, i % 16, i % 6, (uint32_t)i, 0);
+        full += dead_chance(0x12345678u, 3, -2, i % 16, i % 6, (uint32_t)i, MOON_STRENGTH_MAX);
+    }
+    int expect = N / DEAD_RISE_ODDS;
+    CHECK(none == 0, "dead: no moon, no chance rising");
+    CHECK(full > expect * 3 / 4 && full < expect * 5 / 4, "dead: about 1 in 64 at the full moon");
+    CHECK(dead_disturb_radius(0) == DISTURB_RADIUS_MIN && dead_disturb_radius(MOON_STRENGTH_MAX) == DISTURB_RADIUS_MAX &&
+          dead_disturb_radius(8) > DISTURB_RADIUS_MIN && dead_disturb_radius(8) < DISTURB_RADIUS_MAX,
+          "dead: the stronger the moon, the wider the disturbance");
+    int hordes = 0, alone = 0;
+    for(int t = 0; t < CREATURE_TRAIT_COUNT; t++)
+        if(creature_trait_fits(FAMILY_DEAD, (uint8_t)t)) { if(dead_is_horde((uint8_t)t)) hordes++; else alone++; }
+    CHECK(hordes == 3 && alone == 4, "dead: ghoulish, feeding, bleeding are hordes; the other four come alone");
+    CHECK(dead_resting_place('g') && dead_resting_place('n') && !dead_resting_place('G') && !dead_resting_place('a'),
+          "dead: graves and sarcophagi are resting places; opened ones aren't");
+    RisenBook rb, q;
+    risen_book_clear(&rb);
+    RisenRecord r = {-4, 7, 3, 2, 10, 3};
+    rb.rec[rb.count++] = r;
+    char buf[RISEN_TEXT_MAX];
+    risen_book_format(&rb, buf, sizeof(buf));
+    risen_book_parse(buf, &q);
+    CHECK(q.count == 1 && q.rec[0].cx == -4 && q.rec[0].cy == 7 && q.rec[0].x == 3 && q.rec[0].trait == 10 &&
+          q.rec[0].count == 3, "dead: the risen records round-trip");
+    risen_book_parse("v1\n0 0 3 2 0 2\n", &q);
+    CHECK(q.count == 0, "dead: a record of a kind that isn't the dead's is dropped");
+}
+
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
@@ -3346,6 +3450,8 @@ int main(void) {
     test_arc_route1();
     test_arc_seal_rules();
     test_dead_traits();
+    test_dead_routes();
+    test_dead_chance();
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

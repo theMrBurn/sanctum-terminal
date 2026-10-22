@@ -53,6 +53,7 @@
 #include "quirk.h"
 #include "corruption.h"
 #include "arc.h"
+#include "dead.h"
 #include "effort.h"
 #include "ritual.h"
 #include "sky.h"
@@ -185,8 +186,16 @@ typedef struct {
     RegionRituals rituals;  /* regions whose ritual is done (spec 58); rituals.txt */
     RegionBook region_book; /* what the player has done in each region (spec 58 §58.10); regions.txt */
 
+    /* The risen dead (spec 58 §58.6): saved in risen.txt. */
+    RisenBook risen;
+    /* A rising armed by chance: it lands next turn (the tell's one turn). */
+    bool rise_pending;
+    int8_t rise_x, rise_y;
+    uint32_t rise_due;
+
     /* The corruption arc's screens (spec 58 §58.17). RAM-only. */
-    int8_t site_k;           /* the bumped site's index in its region (ScreenSite) */
+    int8_t site_k;           /* the bumped site's index in its region (ScreenSite); -1 = a plain grave */
+    int8_t site_x, site_y;   /* the bumped tile */
     uint8_t site_kind;
     int8_t site_cursor;
     int8_t rite_cursor;      /* ScreenRite: row among the open ways */
@@ -433,6 +442,10 @@ static void populate_creatures(AppState* st) {
             st->current_deltas.kills[k].spawn_x,
             st->current_deltas.kills[k].spawn_y);
     }
+    /* The risen are still up where they rose (spec 50 Q1 §Q.1.2). */
+    dead_restore(&st->risen, st->character.chunk_x, st->character.chunk_y, &st->world,
+                 st->character.player_x, st->character.player_y, st->creatures,
+                 &st->creature_count, CREATURES_MAX);
 }
 
 /* Recompute the lit set from the player's position + torch radius, and
@@ -482,8 +495,12 @@ static void reset_visibility(AppState* st) {
 static void arc_load(AppState* st, const char* campaign_id) {
     region_rituals_clear(&st->rituals);
     region_book_clear(&st->region_book);
+    risen_book_clear(&st->risen);
+    st->rise_pending = false;
     char* buf = malloc(REGION_BOOK_TEXT_MAX);
     if(!buf) return;
+    if(save_io_read_text(campaign_id, "risen.txt", buf, REGION_BOOK_TEXT_MAX) == SaveIoOk)
+        risen_book_parse(buf, &st->risen);
     if(save_io_read_text(campaign_id, "rituals.txt", buf, REGION_BOOK_TEXT_MAX) == SaveIoOk)
         region_rituals_parse(buf, &st->rituals);
     if(save_io_read_text(campaign_id, "regions.txt", buf, REGION_BOOK_TEXT_MAX) == SaveIoOk)
@@ -498,6 +515,8 @@ static void arc_save(AppState* st) {
     save_io_write_text(st->character.campaign_id, "rituals.txt", buf, n);
     n = region_book_format(&st->region_book, buf, REGION_BOOK_TEXT_MAX);
     save_io_write_text(st->character.campaign_id, "regions.txt", buf, n);
+    n = risen_book_format(&st->risen, buf, REGION_BOOK_TEXT_MAX);
+    save_io_write_text(st->character.campaign_id, "risen.txt", buf, n);
     free(buf);
 }
 
@@ -2304,8 +2323,8 @@ static void draw_char_sheet_screen(Canvas* canvas, const AppState* st) {
 
 static uint8_t character_base_axis(const CharacterState* c, uint8_t axis_id);
 
-typedef enum { SITE_ACT_SEAL = 0, SITE_ACT_RITE, SITE_ACT_LEAVE } SiteAct;
-static const char* const SITE_ACT_LABEL[] = {"set a seal", "the rite", "leave"};
+typedef enum { SITE_ACT_SEAL = 0, SITE_ACT_DISTURB, SITE_ACT_RITE, SITE_ACT_LEAVE } SiteAct;
+static const char* const SITE_ACT_LABEL[] = {"set a seal", "disturb it", "the rite", "leave"};
 
 static void arc_region_here(const AppState* st, int* rx, int* ry) {
     *rx = region_of(st->character.chunk_x);
@@ -2318,15 +2337,27 @@ static void effective_axes(const AppState* st, uint8_t* axes) {
         axes[a] = deeds_effective_axis(&st->deeds, character_base_axis(&st->character, a), a);
 }
 
-/* What the bumped site offers: seal while unsealed; the rite once the
- * region is cleansed and this site sealed; always leave. */
+/* May the dead be called out here? While the region is restless and its
+ * pool holds dead, never in the home chunk (spec 58 §58.6). */
+static bool can_disturb(const AppState* st) {
+    int rx, ry;
+    arc_region_here(st, &rx, &ry);
+    if(st->character.chunk_x == 0 && st->character.chunk_y == 0) return false;
+    return dead_restless(st->campaign_seed, rx, ry, &st->region_book, &st->rituals) &&
+           dead_dormant(st->campaign_seed, rx, ry, &st->region_book, &st->risen) > 0;
+}
+
+/* What the bumped place offers. A site: seal while unsealed, disturb while
+ * unsealed and restless, the rite once the region is cleansed and this site
+ * sealed. A plain grave: disturb. Always leave. */
 static int site_actions(const AppState* st, uint8_t* acts) {
     int rx, ry, n = 0;
     arc_region_here(st, &rx, &ry);
-    if(!arc_site_sealed(&st->region_book, rx, ry, st->site_k))
-        acts[n++] = SITE_ACT_SEAL;
-    else if(arc_region_cleansed(st->campaign_seed, rx, ry, &st->region_book) &&
-            !region_ritual_done(&st->rituals, rx, ry))
+    bool sealed = st->site_k >= 0 && arc_site_sealed(&st->region_book, rx, ry, st->site_k);
+    if(st->site_k >= 0 && !sealed) acts[n++] = SITE_ACT_SEAL;
+    if(!sealed && can_disturb(st)) acts[n++] = SITE_ACT_DISTURB;
+    if(sealed && arc_region_cleansed(st->campaign_seed, rx, ry, &st->region_book) &&
+       !region_ritual_done(&st->rituals, rx, ry))
         acts[n++] = SITE_ACT_RITE;
     acts[n++] = SITE_ACT_LEAVE;
     return n;
@@ -2376,10 +2407,15 @@ static void draw_footer(Canvas* canvas, const char* footer) {
 static void draw_site_screen(Canvas* canvas, const AppState* st) {
     int rx, ry;
     arc_region_here(st, &rx, &ry);
-    draw_title(canvas, SITE_TABLE[st->site_kind % SITE_KIND_COUNT].name);
-    bool sealed = arc_site_sealed(&st->region_book, rx, ry, st->site_k);
-    canvas_draw_str(canvas, 0, 23, sealed ? ARC_LINE_SEALED : ARC_LINE_CORRUPT);
-    uint8_t acts[3];
+    if(st->site_k >= 0) {
+        draw_title(canvas, SITE_TABLE[st->site_kind % SITE_KIND_COUNT].name);
+        bool sealed = arc_site_sealed(&st->region_book, rx, ry, st->site_k);
+        canvas_draw_str(canvas, 0, 23, sealed ? ARC_LINE_SEALED : ARC_LINE_CORRUPT);
+    } else {
+        const char* nm = terrain_name(st->world.tiles[st->site_y][st->site_x], NULL);
+        draw_title(canvas, nm ? nm : "grave");
+    }
+    uint8_t acts[4];
     int n = site_actions(st, acts);
     for(int i = 0; i < n; i++)
         draw_row(canvas, 35 + i * 9, SITE_ACT_LABEL[acts[i]], i == st->site_cursor);
@@ -2611,6 +2647,8 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     st->character.chunk_x = (int16_t)cx;
     st->character.chunk_y = (int16_t)cy;
     st->quirk.active = false;   /* an armed quirk belongs to the chunk you left */
+    st->rise_pending = false;   /* so does an armed rising */
+    if(dead_calm_outside(&st->risen, region_of(cx), region_of(cy))) arc_save(st);   /* left their region: they calm */
     world_generate_chunk(st->campaign_seed, cx, cy, &st->world);
     arc_mark_edges(st);
 
@@ -2888,11 +2926,19 @@ static void combat_strike(AppState* st) {
     }
     if((int)st->combat_foe_hp <= dmg) {
         foe->alive = 0;
-        /* Persist the kill (slice 1b): defeated creatures stay defeated across
-         * chunk re-entry — the finite-world rule. Keyed by spawn position. */
-        deltas_record_kill(
-            st->character.campaign_id, &st->current_deltas,
-            foe->spawn_x, foe->spawn_y);
+        if(foe->family_id == FAMILY_DEAD) {
+            /* One of the region's dead is destroyed: route 2's tally (spec 58
+             * §58.6). The last one falls in silence. */
+            dead_destroyed(st->campaign_seed, st->character.chunk_x, st->character.chunk_y,
+                           foe->trait_id, &st->risen, &st->region_book);
+            arc_save(st);
+        } else {
+            /* Persist the kill (slice 1b): defeated creatures stay defeated across
+             * chunk re-entry — the finite-world rule. Keyed by spawn position. */
+            deltas_record_kill(
+                st->character.campaign_id, &st->current_deltas,
+                foe->spawn_x, foe->spawn_y);
+        }
 
         /* Roll a material drop (slice 3) — deterministic from
          * (chunk_seed × spawn) so it's reproducible across runs but unique per
@@ -3159,10 +3205,12 @@ static EffortState rite_turn(AppState* st) {
 }
 
 /* Walking into a site opens it, and finds its region's rot (§58.3.1). */
-static void site_open(AppState* st, int k) {
+static void site_open(AppState* st, int k, int x, int y) {
     int rx, ry;
     arc_region_here(st, &rx, &ry);
     st->site_k = (int8_t)k;
+    st->site_x = (int8_t)x;
+    st->site_y = (int8_t)y;
     st->site_kind = st->world.site_kind;
     st->site_cursor = 0;
     st->screen = ScreenSite;
@@ -3174,8 +3222,10 @@ static void site_open(AppState* st, int k) {
     }
 }
 
+static void disturb(AppState* st);
+
 static void site_act(AppState* st) {
-    uint8_t acts[3];
+    uint8_t acts[4];
     int n = site_actions(st, acts);
     if(st->site_cursor >= n) st->site_cursor = (int8_t)(n - 1);
     int rx, ry;
@@ -3192,6 +3242,9 @@ static void site_act(AppState* st) {
         st->screen = ScreenWorld;
         break;
     }
+    case SITE_ACT_DISTURB:
+        disturb(st);
+        break;
     case SITE_ACT_RITE:
         st->rite_cursor = 0;
         st->screen = ScreenRite;
@@ -3241,6 +3294,103 @@ static void rite_begin(AppState* st) {
     recompute_visibility(st);
     if(e == EFFORT_DONE) ritual_take_hold(st);
     else rite_failed(st);
+}
+
+/* The moon now (the clock is an input, read here; spec 53 §3 amended). */
+static uint8_t moon_now(bool* night) {
+    DateTime now;
+    furi_hal_rtc_get_datetime(&now);
+    Sky sky;
+    sky_at(datetime_datetime_to_timestamp(&now), &sky);
+    *night = sky.night;
+    return sky.moon_strength;
+}
+
+/* Raise the dead at (x, y) from the region's pool. An ordinary resting
+ * place opens for good (a delta); a site stays as it is. */
+static int rise_at(AppState* st, int x, int y) {
+    int cx = st->character.chunk_x, cy = st->character.chunk_y;
+    int up = dead_raise(st->campaign_seed, cx, cy, &st->world, st->character.player_x,
+                        st->character.player_y, x, y, &st->region_book, &st->risen, st->creatures,
+                        &st->creature_count, CREATURES_MAX);
+    char opened = terrain_opened(st->world.tiles[y][x]);
+    bool site = arc_site_at(st->campaign_seed, cx, cy, &st->world, x, y) >= 0;
+    if(up > 0 && opened && !site) {
+        st->world.tiles[y][x] = opened;
+        deltas_record(st->character.campaign_id, &st->current_deltas, x, y, opened);
+    }
+    return up;
+}
+
+/* Disturbing a resting place calls its dead out at once, whatever the moon
+ * or the realm; the moon widens it to the unsealed resting places nearby
+ * (spec 58 §58.6). A turn passes. */
+static void disturb(AppState* st) {
+    bool night;
+    uint8_t strength = moon_now(&night);
+    int radius = dead_disturb_radius(strength);
+    int x0 = st->site_x, y0 = st->site_y;
+    char g = st->world.tiles[y0][x0];
+    int up = rise_at(st, x0, y0);
+    int rx, ry;
+    arc_region_here(st, &rx, &ry);
+    for(int y = y0 - radius; y <= y0 + radius && radius > 0; y++)
+        for(int x = x0 - radius; x <= x0 + radius; x++) {
+            if((x == x0 && y == y0) || x < 0 || y < 0 || x >= WORLD_COLS || y >= WORLD_ROWS) continue;
+            if(!dead_resting_place(st->world.tiles[y][x])) continue;
+            int k = arc_site_at(st->campaign_seed, st->character.chunk_x, st->character.chunk_y, &st->world, x, y);
+            if(k >= 0 && arc_site_sealed(&st->region_book, rx, ry, k)) continue;
+            up += rise_at(st, x, y);
+        }
+    advance_turn(st);
+    recompute_visibility(st);
+    arc_save(st);
+    save_io_write_character(&st->character);
+    set_status(st, g == 'n' || g == 'N' ? DEAD_LINE_TOMB : DEAD_LINE_GRAVE);
+    st->screen = ScreenWorld;
+    if(up > 0) notify(st, &sequence_single_vibro);
+}
+
+/* A turn ended above ground at night under a full or new moon: the
+ * resting places within reach may stir (the tell now; the dead next turn,
+ * spec 50 Q1 §Q.1.2). The reach grows with the moon. */
+static void dead_tick(AppState* st) {
+    int cx = st->character.chunk_x, cy = st->character.chunk_y;
+    int rx = region_of(cx), ry = region_of(cy);
+    if(st->rise_pending) {
+        if(st->character.turn < st->rise_due) return;
+        st->rise_pending = false;
+        if(dead_restless(st->campaign_seed, rx, ry, &st->region_book, &st->rituals) &&
+           rise_at(st, st->rise_x, st->rise_y) > 0) {
+            arc_save(st);
+            notify(st, &sequence_single_vibro);
+        }
+        return;
+    }
+    if(st->world.biome != BIOME_OUTDOOR || (cx == 0 && cy == 0)) return;
+    if(!dead_restless(st->campaign_seed, rx, ry, &st->region_book, &st->rituals) ||
+       dead_dormant(st->campaign_seed, rx, ry, &st->region_book, &st->risen) == 0)
+        return;
+    bool night;
+    uint8_t strength = moon_now(&night);
+    if(!night || strength == 0) return;
+    int reach = 1 + dead_disturb_radius(strength);
+    int px = st->character.player_x, py = st->character.player_y;
+    for(int y = py - reach; y <= py + reach; y++)
+        for(int x = px - reach; x <= px + reach; x++) {
+            if(x < 0 || y < 0 || x >= WORLD_COLS || y >= WORLD_ROWS) continue;
+            char g = st->world.tiles[y][x];
+            if(!dead_resting_place(g)) continue;
+            int k = arc_site_at(st->campaign_seed, cx, cy, &st->world, x, y);
+            if(k >= 0 && arc_site_sealed(&st->region_book, rx, ry, k)) continue;
+            if(!dead_chance(st->campaign_seed, cx, cy, x, y, st->character.turn, strength)) continue;
+            st->rise_pending = true;
+            st->rise_x = (int8_t)x;
+            st->rise_y = (int8_t)y;
+            st->rise_due = st->character.turn + 1;
+            set_status(st, g == 'n' ? DEAD_LINE_TOMB : DEAD_LINE_GRAVE);
+            return;
+        }
 }
 
 /* The vigil: one turn kept (OK). Anything that comes for you breaks it,
@@ -3438,7 +3588,17 @@ static void on_world_move(AppState* st, MoveDir dir) {
                                   &st->world, nx, ny)
                     : -1;
         if(k >= 0) {
-            site_open(st, k);
+            site_open(st, k, nx, ny);
+            break;
+        }
+        /* A plain grave or sarcophagus: you may disturb it (spec 58 §58.6). */
+        if(r == MoveBlockedByWall && nx >= 0 && ny >= 0 && nx < WORLD_COLS && ny < WORLD_ROWS &&
+           dead_resting_place(st->world.tiles[ny][nx]) && can_disturb(st)) {
+            st->site_k = -1;
+            st->site_x = (int8_t)nx;
+            st->site_y = (int8_t)ny;
+            st->site_cursor = 0;
+            st->screen = ScreenSite;
             break;
         }
         /* Slice 2026-06-04 — give collision a voice. In FPV especially,
@@ -3519,6 +3679,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
      * have shrunk/grown the lit radius). */
     if(took_turn && r != MoveSteppedOnDoor && r != MoveWalkedOffEdge && st->screen == ScreenWorld) {
         sky_tick(st);
+        dead_tick(st);
         quirk_tick(st);
     }
     if(r != MoveSteppedOnDoor && r != MoveWalkedOffEdge) {
@@ -4038,7 +4199,7 @@ int32_t sanctum_rpg_app(void* p) {
             break;
 
         case ScreenSite: {
-            uint8_t acts[3];
+            uint8_t acts[4];
             int n = site_actions(&state, acts);
             switch(event.key) {
             case InputKeyUp:   if(state.site_cursor > 0) state.site_cursor--; break;
