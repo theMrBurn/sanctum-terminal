@@ -27,19 +27,19 @@
 #define CAST_MIND_DIV   4    /* MIND's share of a cast's damage */
 #define CAST_PROVOKE    255  /* a creature struck from range turns on you */
 
-/* Copy (DRAFT: not in any spec's catalog; voice law §C.5; the user's call). */
-#define CAST_LINE_LEARNED "the %s stays with you."
-#define CAST_LINE_LANDS   "the %s finds it."
+/* Copy and names: chosen by the user 2026-10-23 (voice law §C.5). */
+#define CAST_LINE_LEARNED "the %s is yours."
+#define CAST_LINE_LANDS   "it flinches."
 #define CAST_LINE_EMPTY   "nothing left in you."
 
 typedef struct {
-    const char* name;     /* what the player learns ("sending") */
+    const char* name;     /* what the player learns ("reach") */
     uint8_t element;      /* Element: whose deep scan teaches it */
     uint8_t power;
     uint8_t mp_cost;
 } CastDef;
 
-typedef enum { CAST_SENDING = 0, CAST_EMBER, CAST_RIME, CAST_COUNT } CastId;
+typedef enum { CAST_REACH = 0, CAST_SPARK, CAST_CHILL, CAST_COUNT } CastId;
 
 extern const CastDef CAST_TABLE[CAST_COUNT];
 

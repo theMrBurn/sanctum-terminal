@@ -8,8 +8,8 @@
  * Pure: reads and changes the CharacterState (save_io.h, a plain struct)
  * and the RegionBook, nothing else. Host-tested.
  *
- * Copy follows spec 58 §58.9 (option A). Lines §58.9 doesn't draft are
- * marked DRAFT: the user's call.
+ * Copy follows spec 58 §58.9 (option A). Lines §58.9 doesn't draft were
+ * chosen by the user, 2026-10-23.
  */
 #pragma once
 
@@ -29,17 +29,17 @@
 #define ARC_LINE_SEALED      "cold stone. nothing in it."
 #define ARC_LINE_ENTER       "no birds. the wells smell."
 #define ARC_LINE_REFUSED     "the fog does not thin."
-/* DRAFT lines (not in §58.9; voice law §C.5; the user's call). */
+/* Lines beyond §58.9: chosen by the user 2026-10-23 (voice law §C.5). */
 #define ARC_LINE_NO_WORDS    "the words won't come."
 #define ARC_LINE_NO_ARTIFACT "you have nothing to set."
 #define ARC_LINE_CARVED      "cut words. you mouth them."
 #define ARC_LINE_WORN        "a worn mark."
-#define ARC_LINE_RUNE        "a mark, cut deep."
-#define ARC_LINE_MISSING     "something is still missing."
+#define ARC_LINE_RUNE        "the mark is clear now."
+#define ARC_LINE_MISSING     "it is not whole yet."
 #define ARC_LINE_FAILED      "it does not take."
-#define ARC_LINE_VIGIL       "you keep still."
-#define ARC_LINE_BROKEN      "the vigil breaks."
-#define ARC_LINE_NOT_YET     "not while it is unclean."
+#define ARC_LINE_VIGIL       "you keep the vigil."
+#define ARC_LINE_BROKEN      "the quiet is gone."
+#define ARC_LINE_NOT_YET     "not here. not yet."
 
 /* The ward recipe's id (recipes.c) and the kinds the ways use (loot.c). */
 #define ARC_RECIPE_WARD   3

@@ -3,9 +3,9 @@
 
 /* name        element    power mp */
 const CastDef CAST_TABLE[CAST_COUNT] = {
-    [CAST_SENDING] = {"sending", ELEM_NONE, 2, 2},   /* taught by any plain creature's deep read */
-    [CAST_EMBER]   = {"ember",   ELEM_FIRE, 3, 3},
-    [CAST_RIME]    = {"rime",    ELEM_ICE,  3, 3},
+    [CAST_REACH] = {"reach", ELEM_NONE, 2, 2},   /* taught by any plain creature's deep read */
+    [CAST_SPARK] = {"spark", ELEM_FIRE, 3, 3},
+    [CAST_CHILL] = {"chill", ELEM_ICE,  3, 3},
 };
 
 bool cast_fires(uint8_t observe, uint8_t scan_diff, int bestiary_grade, uint8_t casts_known) {

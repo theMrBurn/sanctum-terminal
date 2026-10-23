@@ -50,11 +50,11 @@
 #define AF_RECIPE_DRAUGHT  5
 #define AF_RECIPE_BLIGHT   6
 
-/* Copy (spec 58 §58.9 option A; DRAFT where it has none). */
+/* Copy (spec 58 §58.9 option A; the rest chosen by the user 2026-10-23). */
 #define AF_LINE_SPOIL      "your %s has turned."
-#define AF_LINE_NOTHING    "nothing comes of it."        /* DRAFT */
+#define AF_LINE_NOTHING    "nothing comes of it."        /* the user's, 2026-10-23 */
 #define AF_LINE_DARK       "a dark mixture?"              /* the forge's hint, §Q.10.2 */
-#define AF_LINE_COATED     "the edge darkens."            /* DRAFT */
+#define AF_LINE_COATED     "the edge darkens."            /* the user's, 2026-10-23 */
 
 /* The area effects the player stands in this turn. */
 typedef struct {

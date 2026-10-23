@@ -3562,20 +3562,20 @@ static void test_ranged_scanner(void) {
     /* rat: scan_diff 15. OBSERVE 20 reads it at tier 2. */
     CHECK(!cast_fires(20, 15, 0, 0) && !cast_fires(20, 15, 3, 0),
           "cast: with no cast known the reticle only scans (earned only)");
-    CHECK(!cast_fires(20, 15, 0, CAST_BIT(CAST_SENDING)) && !cast_fires(20, 15, 1, CAST_BIT(CAST_SENDING)),
+    CHECK(!cast_fires(20, 15, 0, CAST_BIT(CAST_REACH)) && !cast_fires(20, 15, 1, CAST_BIT(CAST_REACH)),
           "cast: while a scan would still teach something, OK scans");
-    CHECK(cast_fires(20, 15, 2, CAST_BIT(CAST_SENDING)) && cast_fires(40, 15, 3, CAST_BIT(CAST_SENDING)),
+    CHECK(cast_fires(20, 15, 2, CAST_BIT(CAST_REACH)) && cast_fires(40, 15, 3, CAST_BIT(CAST_REACH)),
           "cast: once its kind is read as far as you can, OK fires");
-    CHECK(!cast_fires(40, 15, 2, CAST_BIT(CAST_SENDING)),
+    CHECK(!cast_fires(40, 15, 2, CAST_BIT(CAST_REACH)),
           "cast: more OBSERVE means more to learn: it scans again first");
-    CHECK(cast_taught_by(ELEM_NONE) == CAST_SENDING && cast_taught_by(ELEM_FIRE) == CAST_EMBER &&
-          cast_taught_by(ELEM_ICE) == CAST_RIME, "cast: each element's deep read teaches its cast");
-    CHECK(cast_pick(0, 9) == -1 && cast_pick(CAST_BIT(CAST_SENDING), 1) == -1 &&
-          cast_pick(CAST_BIT(CAST_SENDING), 2) == CAST_SENDING &&
-          cast_pick(CAST_BIT(CAST_SENDING) | CAST_BIT(CAST_EMBER), 5) == CAST_EMBER &&
-          cast_pick(CAST_BIT(CAST_SENDING) | CAST_BIT(CAST_EMBER), 2) == CAST_SENDING,
+    CHECK(cast_taught_by(ELEM_NONE) == CAST_REACH && cast_taught_by(ELEM_FIRE) == CAST_SPARK &&
+          cast_taught_by(ELEM_ICE) == CAST_CHILL, "cast: each element's deep read teaches its cast");
+    CHECK(cast_pick(0, 9) == -1 && cast_pick(CAST_BIT(CAST_REACH), 1) == -1 &&
+          cast_pick(CAST_BIT(CAST_REACH), 2) == CAST_REACH &&
+          cast_pick(CAST_BIT(CAST_REACH) | CAST_BIT(CAST_SPARK), 5) == CAST_SPARK &&
+          cast_pick(CAST_BIT(CAST_REACH) | CAST_BIT(CAST_SPARK), 2) == CAST_REACH,
           "cast: the strongest known cast MP can pay for fires");
-    CHECK(cast_damage(CAST_SENDING, 10, 14) == 2 + 10 / CAST_MIND_DIV - 14 / 8 && cast_damage(CAST_SENDING, 0, 200) == 1,
+    CHECK(cast_damage(CAST_REACH, 10, 14) == 2 + 10 / CAST_MIND_DIV - 14 / 8 && cast_damage(CAST_REACH, 0, 200) == 1,
           "cast: damage = power + MIND/4 - def/8, at least 1 (spec 46 §5.1)");
     uint16_t mp = 0;
     for(uint32_t t = 1; t <= 60; t++) mp = cast_mp_regen(mp, 5, t);

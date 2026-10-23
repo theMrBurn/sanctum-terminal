@@ -3290,7 +3290,7 @@ static void cast_fire(AppState* st, int ci) {
     } else {
         foe->wounds = (uint8_t)(foe->wounds + dmg);
         foe->aggro = CAST_PROVOKE;
-        set_statusf(st, CAST_LINE_LANDS, CAST_TABLE[c].name);
+        set_status(st, CAST_LINE_LANDS);
         notify(st, &sequence_single_vibro);
     }
     advance_turn(st);
