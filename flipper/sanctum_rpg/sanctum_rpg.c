@@ -3018,6 +3018,7 @@ static bool maybe_start_combat(AppState* st) {
         if(!creature_is_hostile(d.disposition, d.provoke, c->aggro)) continue;
         st->combat_foe = i;
         st->combat_foe_hp = d.hp > c->wounds ? (uint16_t)(d.hp - c->wounds) : 1;   /* wounds from range carry in */
+        st->combat_foe_poison = c->poison;   /* and a thrown tincture; never the last fight's */
         st->combat_cursor = 0;
         st->combat_round = 0;
         char nm[24];
@@ -3335,6 +3336,45 @@ static void cast_fire(AppState* st, int ci) {
         foe->aggro = CAST_PROVOKE;
         set_status(st, CAST_LINE_LANDS);
         notify(st, &sequence_single_vibro);
+    }
+    advance_turn(st);
+    recompute_visibility(st);
+    save_io_write_character(&st->character);
+    if(st->screen == ScreenWorld && maybe_start_combat(st)) st->examining = false;
+}
+
+/* THROW from range (the dark tree's flasks outside combat): long OK on the
+ * reticle, at a lit creature. As a cast does, it always lands, provokes,
+ * and its wounds carry into melee. A blight hits and fouls the ground under
+ * the foe; a tincture's poison waits for the fight (it bites only in melee,
+ * so nothing dies of it out of sight). Nothing here touches a grave or the
+ * dormant dead: they are not creatures. A turn passes. */
+static void throw_at(AppState* st, int ci) {
+    uint8_t k = afflict_throwable(&st->character);
+    if(k == 0xFFu) return;
+    Creature* foe = &st->creatures[ci];
+    CreatureDef d;
+    creature_compose(foe->family_id, foe->trait_id, &d);
+    char nm[24];
+    creature_name(&d, nm, sizeof(nm));
+    st->character.inv_qty[k]--;
+    if(k == AF_KIND_TINCTURE) {
+        int p = foe->poison + POISON_TURNS;
+        foe->poison = (uint8_t)(p > 255 ? 255 : p);
+        foe->aggro = CAST_PROVOKE;
+        set_status(st, AF_LINE_GETS_IN);
+        notify(st, &sequence_single_vibro);
+    } else {
+        foul_add(&st->foul, foe->x, foe->y, st->character.turn);
+        if((int)foe->wounds + BLIGHT_DAMAGE >= (int)d.hp) {
+            st->combat_foe = ci;
+            combat_kill(st, foe, nm);           /* drops, tallies, says it fell */
+        } else {
+            foe->wounds = (uint8_t)(foe->wounds + BLIGHT_DAMAGE);
+            foe->aggro = CAST_PROVOKE;
+            set_status(st, AF_LINE_BURSTS);
+            notify(st, &sequence_single_vibro);
+        }
     }
     advance_turn(st);
     recompute_visibility(st);
@@ -3753,6 +3793,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
                 /* Engage directly — same setup as maybe_start_combat. */
                 st->combat_foe = i;
                 st->combat_foe_hp = d.hp > c->wounds ? (uint16_t)(d.hp - c->wounds) : 1;   /* wounds from range carry in */
+                st->combat_foe_poison = c->poison;   /* and a thrown tincture; never the last fight's */
                 st->combat_cursor = 0;
                 st->combat_round = 0;
                 char nm[24];
@@ -4133,6 +4174,7 @@ int32_t sanctum_rpg_app(void* p) {
                 case InputKeyLeft:  examine_move(&state, -1, 0); break;
                 case InputKeyRight: examine_move(&state, +1, 0); break;
                 case InputKeyOk: {
+                    if(event.type == InputTypeRepeat) break;   /* a held OK acts once */
                     /* Examine @ → open the read-only character sheet (slice 1c). */
                     if(state.examine_x == state.character.player_x &&
                        state.examine_y == state.character.player_y) {
@@ -4142,7 +4184,11 @@ int32_t sanctum_rpg_app(void* p) {
                     }
                     const Creature* c =
                         creature_at(&state, state.examine_x, state.examine_y);
-                    if(c && state.lit[state.examine_y][state.examine_x]) {
+                    if(c && state.lit[state.examine_y][state.examine_x] &&
+                       event.type == InputTypeLong && afflict_throwable(&state.character) != 0xFFu) {
+                        /* A long OK throws a flask, if you carry one. */
+                        throw_at(&state, (int)(c - state.creatures));
+                    } else if(c && state.lit[state.examine_y][state.examine_x]) {
                         /* Scan while there's more to learn about its kind;
                          * once there isn't, a known cast fires (spec 46 §5.1). */
                         CreatureDef cd;

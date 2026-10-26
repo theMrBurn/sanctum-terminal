@@ -55,6 +55,8 @@
 #define AF_LINE_NOTHING    "nothing comes of it."        /* the user's, 2026-10-23 */
 #define AF_LINE_DARK       "a dark mixture?"              /* the forge's hint, §Q.10.2 */
 #define AF_LINE_COATED     "the edge darkens."            /* the user's, 2026-10-23 */
+#define AF_LINE_BURSTS     "the flask bursts. it fumes."  /* DRAFT: a blight thrown from range */
+#define AF_LINE_GETS_IN    "the dark gets into it."       /* DRAFT: a tincture thrown from range */
 
 /* The area effects the player stands in this turn. */
 typedef struct {
