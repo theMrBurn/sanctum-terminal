@@ -36,6 +36,7 @@
 #include "../region.h"
 #include "../quirk.h"
 #include "../site.h"
+#include "../hollow.h"
 #include "../sky.h"
 #include "../stamps.h"
 #include "../terrain.h"
@@ -3199,6 +3200,73 @@ static void test_arc_route1(void) {
 /* RULE (spec 58 §58.8): the ledger lists only regions the player has found,
  * in the order found; counts sealed of the region's sites and the dead
  * destroyed as a tally (never what is left); every line fits the screen. */
+/* RULE (spec 58 §58.15): hollows are dealt by region style, cut into a
+ * prop that says their kind, off the border, beside floor reachable from
+ * spawn, never on a site or a ritual object, and their place reads the
+ * generator only (deltas don't move them). Most regions get their count. */
+static void test_hollow_placement(void) {
+    const uint32_t seeds[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu, 0x0BADF00Du, 1u, 77u};
+    int regions = 0, full = 0, none = 0, bad = 0, styles_seen = 0, mirror_same = 0, mirror_n = 0;
+    int per_style_full[STYLE_COUNT] = {0}, per_style_n[STYLE_COUNT] = {0};
+    for(size_t si = 0; si < sizeof(seeds) / sizeof(seeds[0]); si++)
+        for(int ry = -6; ry <= 6; ry++)
+            for(int rx = -6; rx <= 6; rx++) {
+                int want = region_hollow_count(seeds[si], rx, ry), got = 0;
+                int dealt = 0;
+                for(int s = 0; s < BIOME_REGION * BIOME_REGION; s++) {
+                    int cx = rx * BIOME_REGION + s % BIOME_REGION, cy = ry * BIOME_REGION + s / BIOME_REGION;
+                    dealt += chunk_hollow_index(seeds[si], cx, cy) >= 0;
+                    World w;
+                    world_generate_chunk(seeds[si], cx, cy, &w);
+                    if(!hollow_mark(seeds[si], cx, cy, &w)) continue;
+                    got++;
+                    int x = w.hollow_x, y = w.hollow_y;
+                    bad += x < 1 || y < 1 || x > WORLD_COLS - 2 || y > WORLD_ROWS - 2;
+                    bad += hollow_kind_of(w.tiles[y][x]) != w.hollow_kind;
+                    bad += x == w.site_x && y == w.site_y;
+                    uint8_t reach[WORLD_ROWS][WORLD_COLS];
+                    memset(reach, 0, sizeof(reach));
+                    world_reach(&w, w.spawn_x, w.spawn_y, reach);
+                    bad += !(reach[y][x - 1] || reach[y][x + 1] || reach[y - 1][x] || reach[y + 1][x]);
+                    /* deterministic: a fresh generation marks the same mouth */
+                    World g;
+                    world_generate_chunk(seeds[si], cx, cy, &g);
+                    hollow_mark(seeds[si], cx, cy, &g);
+                    bad += g.hollow_x != x || g.hollow_y != y;
+                    /* mirror twins: (cx,cy) and (-cx,-cy) must not share a mouth by construction */
+                    if(cx || cy) {
+                        World m;
+                        world_generate_chunk(seeds[si], -cx, -cy, &m);
+                        if(hollow_mark(seeds[si], -cx, -cy, &m)) {
+                            mirror_n++;
+                            mirror_same += m.hollow_x == x && m.hollow_y == y && m.hollow_kind == w.hollow_kind;
+                        }
+                    }
+                }
+                bad += dealt != want;
+                Style st = style_of(seeds[si], rx * BIOME_REGION, ry * BIOME_REGION);
+                per_style_n[st]++;
+                per_style_full[st] += got == want;
+                regions++;
+                full += got == want;
+                none += got == 0;
+            }
+    for(int s = 0; s < STYLE_COUNT; s++) {
+        if(!per_style_n[s]) continue;
+        styles_seen++;
+        printf("  hollows: %-13s %3d%% of %d regions get their %d\n", STYLE_TABLE[s].name,
+               100 * per_style_full[s] / per_style_n[s], per_style_n[s], STYLE_TABLE[s].hollows);
+    }
+    printf("  hollows: %d regions, %d%% full, %d with none; mirror pairs alike %d/%d\n",
+           regions, 100 * full / regions, none, mirror_same, mirror_n);
+    CHECK(bad == 0, "hollow: dealt by style, off the border, its prop's kind, not a site, beside reachable floor, deterministic");
+    CHECK(styles_seen == STYLE_COUNT, "hollow: every style was sampled");
+    CHECK(full * 100 >= regions * 90, "hollow: at least 90% of regions get their full count");
+    CHECK(mirror_same * 4 <= mirror_n, "hollow: mirror-twin chunks don't share mouths");
+    CHECK(hollow_kind_of('#') == HOLLOW_NONE && hollow_kind_of('g') == HOLLOW_NONE,
+          "hollow: no mouth in a wall or a grave");
+}
+
 static void test_arc_ledger(void) {
     const uint32_t seed = 0x12345678u;
     RegionBook book;
@@ -3749,6 +3817,7 @@ int main(void) {
     test_arc_route1();
     test_arc_seal_rules();
     test_arc_ledger();
+    test_hollow_placement();
     test_dead_traits();
     test_dead_routes();
     test_dead_chance();

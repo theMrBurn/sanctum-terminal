@@ -79,6 +79,8 @@ typedef struct {
                            * wakes somewhere neutral: no burial place (spec 58) */
     uint8_t site_kinds;   /* SITE_BIT(SiteKind) set: the sites a region of this
                            * style may hold (site.h, spec 58 §58.5) */
+    uint8_t hollows;      /* hollows per region (hollow.h, spec 58 §58.15): a
+                           * built place holds more than the wild */
 } StyleDef;
 
 extern const StyleDef STYLE_TABLE[STYLE_COUNT];

@@ -89,6 +89,12 @@ typedef struct {
     /* How the site shows (SITE_SHOWS_*). Display only — set by the app from
      * the region record, like closed_edges; never generated, never hashed. */
     uint8_t site_state;
+    /* This chunk's hollow mouth (hollow.h, spec 58 §58.15), if its region
+     * dealt it one: kind (HOLLOW_NONE when none), tile, and which of the
+     * region's hollows. Marked at play time from the generated tiles, never
+     * from deltas; never saved, never hashed. */
+    uint8_t hollow_kind;
+    int8_t hollow_x, hollow_y, hollow_index;
     /* What WORLDGEN 9 placed here for its region's rituals (ritual.h
      * region_objects): each object's tile and meaning, so a pickup or a
      * step onto a carving knows what it found. Derived; never saved, never
@@ -188,6 +194,10 @@ bool world_walkable(const World* w, int x, int y);
  * tiles)? The egress guarantee, as a check: a player-caused change (a
  * cave-in's rubble, spec 50 Q1) must never make it false. */
 bool world_doors_reachable_from(const World* w, int sx, int sy);
+
+/* Mark reach[y][x] = 1 for every walkable cell 4-connected to (sx, sy).
+ * The caller zeroes `reach`. */
+void world_reach(const World* w, int sx, int sy, uint8_t reach[WORLD_ROWS][WORLD_COLS]);
 
 /* Apply `dir` to (px, py); returns new position via in-out params and a
  * status code. May mutate the world (e.g. clears a picked-up item tile),

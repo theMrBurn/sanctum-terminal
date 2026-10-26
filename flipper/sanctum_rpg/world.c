@@ -59,6 +59,8 @@ void world_clear_seams(World* w) {
     w->site_kind = SITE_NONE;   /* and no site: hand-built worlds start bare */
     w->site_x = w->site_y = -1;
     w->site_state = SITE_SHOWS_PLAIN;
+    w->hollow_kind = 0xFFu;      /* HOLLOW_NONE (hollow.h) */
+    w->hollow_x = w->hollow_y = w->hollow_index = -1;
     w->arc_count = 0;
 }
 
@@ -242,6 +244,10 @@ static void egress_bfs_walkable(
             qx[tail] = nx; qy[tail] = ny; tail++;
         }
     }
+}
+
+void world_reach(const World* w, int sx, int sy, uint8_t reach[WORLD_ROWS][WORLD_COLS]) {
+    egress_bfs_walkable(w, sx, sy, reach);
 }
 
 /* Walkable cells reachable from (sx, sy). */
