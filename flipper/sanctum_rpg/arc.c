@@ -7,6 +7,7 @@
 
 #include "biome.h"
 #include "recipes.h"
+#include "region.h"
 #include "site.h"
 
 /* loot.c ids of the artifacts, by SiteKind. */
@@ -171,13 +172,15 @@ const char* arc_way_name(RitualWay way) {
 #define LEDGER_HEAD_ROWS   2   /* the heading, the incantations */
 #define LEDGER_REGION_ROWS 4   /* heading, sealed, destroyed, standing */
 
-static bool ledger_listed(const RegionRecord* r) {
-    return (r->flags & RR_FOUND) || r->sealed || r->destroyed;
+/* Found the way the site forms count it (sanctum_rpg.c arc_region_found):
+ * any region past the waking one, or the waking one once its rot is found. */
+static bool ledger_listed(uint32_t seed, const RegionRecord* r) {
+    return region_depth(seed, r->rx, r->ry) > 0 || (r->flags & RR_FOUND) || r->sealed || r->destroyed;
 }
 
-int arc_ledger_rows(const RegionBook* book) {
+int arc_ledger_rows(uint32_t seed, const RegionBook* book) {
     int n = 0;
-    for(int i = 0; i < book->count; i++) n += ledger_listed(&book->rec[i]);
+    for(int i = 0; i < book->count; i++) n += ledger_listed(seed, &book->rec[i]);
     return LEDGER_HEAD_ROWS + n * LEDGER_REGION_ROWS;
 }
 
@@ -189,14 +192,14 @@ static int bits8(uint8_t v) {
 
 bool arc_ledger_line(uint32_t seed, const RegionBook* book, uint8_t words_known, int row,
                      char* out, size_t cap) {
-    if(row < 0 || row >= arc_ledger_rows(book) || cap < 2) return false;
+    if(row < 0 || row >= arc_ledger_rows(seed, book) || cap < 2) return false;
     if(row == 0) { snprintf(out, cap, "-- ledger --"); return true; }                 /* DRAFT */
     if(row == 1) { snprintf(out, cap, "incantations  %d", bits8(words_known)); return true; }
     int j = (row - LEDGER_HEAD_ROWS) / LEDGER_REGION_ROWS;
     int line = (row - LEDGER_HEAD_ROWS) % LEDGER_REGION_ROWS;
     const RegionRecord* r = NULL;
     for(int i = 0, seen = 0; i < book->count; i++)
-        if(ledger_listed(&book->rec[i]) && seen++ == j) { r = &book->rec[i]; break; }
+        if(ledger_listed(seed, &book->rec[i]) && seen++ == j) { r = &book->rec[i]; break; }
     if(!r) return false;
     switch(line) {
     case 0: snprintf(out, cap, "ground %d", j + 1); break;                              /* DRAFT */

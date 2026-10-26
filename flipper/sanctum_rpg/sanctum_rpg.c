@@ -1107,7 +1107,7 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
 /* ─── render: codex (logbook) ─────────────────────────────────────── */
 
 static int codex_rows(const AppState* st) {
-    return KIND_COUNT + CREATURE_FAMILY_COUNT + arc_ledger_rows(&st->region_book);
+    return KIND_COUNT + CREATURE_FAMILY_COUNT + arc_ledger_rows(st->codex_seed, &st->region_book);
 }
 
 static void draw_codex_screen(Canvas* canvas, const AppState* st) {
@@ -3042,6 +3042,7 @@ static void combat_kill(AppState* st, Creature* foe, const char* nm) {
         dead_destroyed(st->campaign_seed, st->character.chunk_x, st->character.chunk_y,
                        foe->trait_id, &st->risen, &st->region_book);
         arc_save(st);
+        arc_mark_site(st);   /* the last of them: the site here goes quiet at once */
     } else {
         /* Persist the kill (slice 1b): defeated creatures stay defeated across
          * chunk re-entry — the finite-world rule. Keyed by spawn position. */

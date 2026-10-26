@@ -3204,24 +3204,27 @@ static void test_arc_ledger(void) {
     RegionBook book;
     region_book_clear(&book);
     char line[ARC_LEDGER_LINE_MAX];
-    CHECK(arc_ledger_rows(&book) == 2, "ledger: empty book is heading + incantations");
+    CHECK(arc_ledger_rows(seed, &book) == 2, "ledger: empty book is heading + incantations");
     CHECK(arc_ledger_line(seed, &book, 0x05, 1, line, sizeof(line)) &&
           strcmp(line, "incantations  2") == 0, "ledger: incantations count the words known");
     CHECK(!arc_ledger_line(seed, &book, 0, 2, line, sizeof(line)), "ledger: nothing past the end");
 
-    region_book_touch(&book, 9, 9);                         /* touched, never found: unlisted */
-    RegionRecord* a = region_book_touch(&book, 1, 0);
-    a->flags |= RR_FOUND;
-    RegionRecord* b = region_book_touch(&book, 0, 1);
+    int ox, oy;
+    region_origin(seed, &ox, &oy);
+    region_book_touch(&book, ox, oy);                       /* the waking region, rot not found: unlisted */
+    CHECK(arc_ledger_rows(seed, &book) == 2, "ledger: the waking region waits until its rot is found");
+    RegionRecord* a = region_book_touch(&book, ox + 1, oy); /* entered, nothing done: listed */
+    CHECK(region_depth(seed, ox + 1, oy) > 0, "ledger: test region is past the waking one");
+    RegionRecord* b = region_book_touch(&book, ox, oy + 1);
     b->sealed = 0x01; b->destroyed = 3;
-    CHECK(arc_ledger_rows(&book) == 2 + 2 * 4, "ledger: only found regions are listed");
-
+    (void)a;
+    CHECK(arc_ledger_rows(seed, &book) == 2 + 2 * 4, "ledger: found regions are listed, as the site forms count them");
     arc_ledger_line(seed, &book, 0, 2, line, sizeof(line));
     CHECK(strcmp(line, "ground 1") == 0, "ledger: regions in the order found");
     arc_ledger_line(seed, &book, 0, 5, line, sizeof(line));
     CHECK(strcmp(line, "corruption  rising") == 0, "ledger: untouched rot is rising");
     char want[ARC_LEDGER_LINE_MAX];
-    snprintf(want, sizeof(want), "sites sealed  1/%d", region_site_count(seed, 0, 1));
+    snprintf(want, sizeof(want), "sites sealed  1/%d", region_site_count(seed, ox, oy + 1));
     arc_ledger_line(seed, &book, 0, 7, line, sizeof(line));
     CHECK(strcmp(line, want) == 0, "ledger: sealed of the region's sites");
     arc_ledger_line(seed, &book, 0, 8, line, sizeof(line));
@@ -3229,7 +3232,7 @@ static void test_arc_ledger(void) {
     arc_ledger_line(seed, &book, 0, 9, line, sizeof(line));
     CHECK(strcmp(line, "corruption  held") == 0, "ledger: begun is held");
 
-    b->sealed = (uint8_t)((1u << region_site_count(seed, 0, 1)) - 1u);
+    b->sealed = (uint8_t)((1u << region_site_count(seed, ox, oy + 1)) - 1u);
     arc_ledger_line(seed, &book, 0, 9, line, sizeof(line));
     CHECK(strcmp(line, "corruption  cleansed") == 0, "ledger: all sealed is cleansed");
 
