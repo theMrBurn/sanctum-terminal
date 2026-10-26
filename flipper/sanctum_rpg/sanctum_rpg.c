@@ -1175,6 +1175,21 @@ static void draw_codex_screen(Canvas* canvas, const AppState* st) {
         canvas, SCREEN_W / 2, FOOTER_BASELINE_Y, AlignCenter, AlignBottom, "Back done");
 }
 
+/* The fight's verbs, in a fixed order so a learned one never moves the
+ * others: STRIKE and FLEE always; SKILL once a cast is learned (spec 46
+ * §5.1); THROW once a flask's recipe is learned and one is carried. */
+typedef enum { CV_STRIKE = 0, CV_FLEE, CV_SKILL, CV_THROW, CV_COUNT } CombatVerb;
+static const char* const CV_LABEL[CV_COUNT] = {"STRIKE", "FLEE", "SKILL", "THROW"};
+
+static int combat_verbs(const AppState* st, uint8_t* out) {
+    int n = 0;
+    out[n++] = CV_STRIKE;
+    out[n++] = CV_FLEE;
+    if(st->character.casts_known) out[n++] = CV_SKILL;
+    if(afflict_throwable(&st->character) != 0xFFu) out[n++] = CV_THROW;
+    return n;
+}
+
 /* Combat encounter (v0.4.1) — foe name + HP bar + STRIKE/FLEE menu + log. */
 static void draw_combat_screen(Canvas* canvas, const AppState* st) {
     if(st->combat_foe < 0 || st->combat_foe >= st->creature_count) return;
@@ -1214,18 +1229,18 @@ static void draw_combat_screen(Canvas* canvas, const AppState* st) {
         }
     }
 
-    static const char* const VERBS[3] = {"STRIKE", "FLEE", "THROW"};
-    int nverbs = afflict_throwable(&st->character) != 0xFFu ? 3 : 2;   /* THROW only with a flask */
+    uint8_t verbs[CV_COUNT];
+    int nverbs = combat_verbs(st, verbs);
     for(int i = 0; i < nverbs; i++) {
         int y = 34 + i * MENU_LINE_HEIGHT;
         if(i == st->combat_cursor) {
             canvas_draw_box(
                 canvas, MENU_HIGHLIGHT_INSET, y - (MENU_LINE_HEIGHT - 2), 50, MENU_LINE_HEIGHT);
             canvas_invert_color(canvas);
-            canvas_draw_str(canvas, MENU_TEXT_X, y, VERBS[i]);
+            canvas_draw_str(canvas, MENU_TEXT_X, y, CV_LABEL[verbs[i]]);
             canvas_invert_color(canvas);
         } else {
-            canvas_draw_str(canvas, MENU_TEXT_X, y, VERBS[i]);
+            canvas_draw_str(canvas, MENU_TEXT_X, y, CV_LABEL[verbs[i]]);
         }
     }
 
@@ -3018,7 +3033,7 @@ static bool maybe_start_combat(AppState* st) {
         if(!creature_is_hostile(d.disposition, d.provoke, c->aggro)) continue;
         st->combat_foe = i;
         st->combat_foe_hp = d.hp > c->wounds ? (uint16_t)(d.hp - c->wounds) : 1;   /* wounds from range carry in */
-        st->combat_foe_poison = c->poison;   /* and a thrown tincture; never the last fight's */
+        st->combat_foe_poison = 0;   /* never the last fight's (fled or fallen from) */
         st->combat_cursor = 0;
         st->combat_round = 0;
         char nm[24];
@@ -3201,6 +3216,36 @@ static void combat_throw(AppState* st) {
     save_io_write_character(&st->character);
 }
 
+/* SKILL: the strongest learned cast MP can pay for, at the foe (spec 46
+ * §5.1's casts, now a fight action too). MIND sets its damage, as at range.
+ * With nothing payable, nothing happens and no round passes. Then the
+ * foe's turn. */
+static void combat_skill(AppState* st) {
+    if(st->combat_foe < 0 || st->combat_foe >= st->creature_count) return;
+    int c = cast_pick(st->character.casts_known, st->character.mp);
+    if(c < 0) {
+        set_status(st, CAST_LINE_EMPTY);
+        return;
+    }
+    Creature* foe = &st->creatures[st->combat_foe];
+    CreatureDef d;
+    creature_compose(foe->family_id, foe->trait_id, &d);
+    char nm[24];
+    creature_name(&d, nm, sizeof(nm));
+    st->combat_round++;
+    if(combat_poison(st, foe, nm)) return;
+    st->character.mp = (uint16_t)(st->character.mp - CAST_TABLE[c].mp_cost);
+    uint8_t mind = deeds_effective_axis(&st->deeds, st->character.mind, DEED_AXIS_MIND);
+    int dmg = cast_damage(c, mind, d.def);
+    if((int)st->combat_foe_hp <= dmg) {
+        combat_kill(st, foe, nm);
+        return;
+    }
+    st->combat_foe_hp = (uint16_t)(st->combat_foe_hp - dmg);
+    if(!combat_foe_turn(st, foe, &d, dmg)) return;
+    save_io_write_character(&st->character);
+}
+
 static void combat_flee(AppState* st) {
     if(st->combat_foe < 0 || st->combat_foe >= st->creature_count) return;
     Creature* foe = &st->creatures[st->combat_foe];
@@ -3337,45 +3382,6 @@ static void cast_fire(AppState* st, int ci) {
         foe->aggro = CAST_PROVOKE;
         set_status(st, CAST_LINE_LANDS);
         notify(st, &sequence_single_vibro);
-    }
-    advance_turn(st);
-    recompute_visibility(st);
-    save_io_write_character(&st->character);
-    if(st->screen == ScreenWorld && maybe_start_combat(st)) st->examining = false;
-}
-
-/* THROW from range (the dark tree's flasks outside combat): long OK on the
- * reticle, at a lit creature. As a cast does, it always lands, provokes,
- * and its wounds carry into melee. A blight hits and fouls the ground under
- * the foe; a tincture's poison waits for the fight (it bites only in melee,
- * so nothing dies of it out of sight). Nothing here touches a grave or the
- * dormant dead: they are not creatures. A turn passes. */
-static void throw_at(AppState* st, int ci) {
-    uint8_t k = afflict_throwable(&st->character);
-    if(k == 0xFFu) return;
-    Creature* foe = &st->creatures[ci];
-    CreatureDef d;
-    creature_compose(foe->family_id, foe->trait_id, &d);
-    char nm[24];
-    creature_name(&d, nm, sizeof(nm));
-    st->character.inv_qty[k]--;
-    if(k == AF_KIND_TINCTURE) {
-        int p = foe->poison + POISON_TURNS;
-        foe->poison = (uint8_t)(p > 255 ? 255 : p);
-        foe->aggro = CAST_PROVOKE;
-        set_status(st, AF_LINE_GETS_IN);
-        notify(st, &sequence_single_vibro);
-    } else {
-        foul_add(&st->foul, foe->x, foe->y, st->character.turn);
-        if((int)foe->wounds + BLIGHT_DAMAGE >= (int)d.hp) {
-            st->combat_foe = ci;
-            combat_kill(st, foe, nm);           /* drops, tallies, says it fell */
-        } else {
-            foe->wounds = (uint8_t)(foe->wounds + BLIGHT_DAMAGE);
-            foe->aggro = CAST_PROVOKE;
-            set_status(st, AF_LINE_BURSTS);
-            notify(st, &sequence_single_vibro);
-        }
     }
     advance_turn(st);
     recompute_visibility(st);
@@ -3794,7 +3800,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
                 /* Engage directly — same setup as maybe_start_combat. */
                 st->combat_foe = i;
                 st->combat_foe_hp = d.hp > c->wounds ? (uint16_t)(d.hp - c->wounds) : 1;   /* wounds from range carry in */
-                st->combat_foe_poison = c->poison;   /* and a thrown tincture; never the last fight's */
+                st->combat_foe_poison = 0;   /* never the last fight's (fled or fallen from) */
                 st->combat_cursor = 0;
                 st->combat_round = 0;
                 char nm[24];
@@ -4185,11 +4191,7 @@ int32_t sanctum_rpg_app(void* p) {
                     }
                     const Creature* c =
                         creature_at(&state, state.examine_x, state.examine_y);
-                    if(c && state.lit[state.examine_y][state.examine_x] &&
-                       event.type == InputTypeLong && afflict_throwable(&state.character) != 0xFFu) {
-                        /* A long OK throws a flask, if you carry one. */
-                        throw_at(&state, (int)(c - state.creatures));
-                    } else if(c && state.lit[state.examine_y][state.examine_x]) {
+                    if(c && state.lit[state.examine_y][state.examine_x]) {
                         /* Scan while there's more to learn about its kind;
                          * once there isn't, a known cast fires (spec 46 §5.1). */
                         CreatureDef cd;
@@ -4326,17 +4328,25 @@ int32_t sanctum_rpg_app(void* p) {
             switch(event.key) {
             case InputKeyUp:
             case InputKeyDown: {
-                int nverbs = afflict_throwable(&state.character) != 0xFFu ? 3 : 2;
+                uint8_t verbs[CV_COUNT];
+                int nverbs = combat_verbs(&state, verbs);
                 state.combat_cursor =
                     (state.combat_cursor + (event.key == InputKeyUp ? nverbs - 1 : 1)) % nverbs;
                 break;
             }
-            case InputKeyOk:
-                if(state.combat_cursor == 0) combat_strike(&state);
-                else if(state.combat_cursor == 1) combat_flee(&state);
-                else if(afflict_throwable(&state.character) != 0xFFu) combat_throw(&state);
-                else state.combat_cursor = 0;
+            case InputKeyOk: {
+                uint8_t verbs[CV_COUNT];
+                int nverbs = combat_verbs(&state, verbs);
+                if(state.combat_cursor >= nverbs) { state.combat_cursor = 0; break; }   /* a flask ran out */
+                switch(verbs[state.combat_cursor]) {
+                case CV_STRIKE: combat_strike(&state); break;
+                case CV_FLEE:   combat_flee(&state); break;
+                case CV_SKILL:  combat_skill(&state); break;
+                case CV_THROW:  combat_throw(&state); break;
+                default: break;
+                }
                 break;
+            }
             case InputKeyBack:
                 combat_flee(&state); /* Back = quick-flee */
                 break;

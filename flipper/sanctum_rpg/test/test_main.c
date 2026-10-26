@@ -3469,6 +3469,20 @@ static void test_dark_tree(void) {
     int root = afflict_read('}', 0x12345678u, 2, 3, 4, 1, &d);
     CHECK((root == AF_RECIPE_TINCTURE || root == AF_RECIPE_DRAUGHT) && afflict_read('{', 0, 0, 0, 1, 1, &d) == AF_RECIPE_BLIGHT &&
           afflict_read('?', 0, 0, 0, 1, 1, &d) == -1, "dark: a book teaches a root, a tome the branch, a scroll neither");
+
+    /* THROW is learned with the flask's recipe: carried but unknown, no throw. */
+    CharacterState t;
+    memset(&t, 0, sizeof(t));
+    t.inv_qty[AF_KIND_TINCTURE] = 1;
+    t.inv_qty[AF_KIND_BLIGHT] = 1;
+    CHECK(afflict_throwable(&t) == 0xFFu, "dark: a flask you never learned can't be thrown");
+    t.recipes_known |= RECIPE_BIT(AF_RECIPE_BLIGHT);
+    CHECK(afflict_throwable(&t) == AF_KIND_BLIGHT, "dark: learning the blight teaches its throw");
+    t.recipes_known |= RECIPE_BIT(AF_RECIPE_TINCTURE);
+    CHECK(afflict_throwable(&t) == AF_KIND_TINCTURE, "dark: the tincture is thrown first once known");
+    t.inv_qty[AF_KIND_TINCTURE] = 0;
+    t.inv_qty[AF_KIND_BLIGHT] = 0;
+    CHECK(afflict_throwable(&t) == 0xFFu, "dark: known but none carried, no throw");
 }
 
 /* The seven kinds' effects (spec 50 Q1 §Q.3, §Q.4). */

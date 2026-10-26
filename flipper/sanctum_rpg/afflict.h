@@ -55,8 +55,6 @@
 #define AF_LINE_NOTHING    "nothing comes of it."        /* the user's, 2026-10-23 */
 #define AF_LINE_DARK       "a dark mixture?"              /* the forge's hint, §Q.10.2 */
 #define AF_LINE_COATED     "the edge darkens."            /* the user's, 2026-10-23 */
-#define AF_LINE_BURSTS     "the flask bursts. it fumes."  /* DRAFT: a blight thrown from range */
-#define AF_LINE_GETS_IN    "the dark gets into it."       /* DRAFT: a tincture thrown from range */
 
 /* The area effects the player stands in this turn. */
 typedef struct {
@@ -115,5 +113,7 @@ int afflict_experiment(CharacterState* c);
 int afflict_read(char glyph, uint32_t seed, int cx, int cy, int x, int y, CharacterState* c);
 
 /* What a combat throw does: the kind thrown (tincture first, then blight),
- * or 0xFF if nothing throwable is carried. */
+ * or 0xFF if none. A throw is learned with its flask's recipe (the book or
+ * tome that teaches it): a flask whose recipe you don't know can't be
+ * thrown. Throwing is a fight action only. */
 uint8_t afflict_throwable(const CharacterState* c);

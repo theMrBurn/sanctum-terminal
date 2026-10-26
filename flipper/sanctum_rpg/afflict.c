@@ -148,7 +148,9 @@ int afflict_read(char glyph, uint32_t seed, int cx, int cy, int x, int y, Charac
 }
 
 uint8_t afflict_throwable(const CharacterState* c) {
-    if(c->inv_qty[AF_KIND_TINCTURE]) return AF_KIND_TINCTURE;
-    if(c->inv_qty[AF_KIND_BLIGHT]) return AF_KIND_BLIGHT;
+    if(c->inv_qty[AF_KIND_TINCTURE] && recipe_known(AF_RECIPE_TINCTURE, c->recipes_known))
+        return AF_KIND_TINCTURE;
+    if(c->inv_qty[AF_KIND_BLIGHT] && recipe_known(AF_RECIPE_BLIGHT, c->recipes_known))
+        return AF_KIND_BLIGHT;
     return 0xFFu;
 }
