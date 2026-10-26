@@ -20,6 +20,7 @@
 #include "../terrain.h"
 #include "../world.h"
 #include "../region.h"
+#include "../site.h"
 #include "font_secondary.h"
 
 extern int fpv_test_wall_top[];
@@ -315,6 +316,58 @@ static void test_prop_identity(void) {
     CHECK(!terrain_compose_prop('#', 0, 32, a, b), "terrain: a wall is not a prop");
 }
 
+/* RULE (spec 58 §58.8): a site shows its state. Each of the four site props
+ * reads three ways at the device size (plain, corrupted, sealed), plain is
+ * the prop itself, the mask still holds the ink, distant sizes and other
+ * glyphs are untouched, and the first-person view actually draws it. */
+static void test_site_forms(void) {
+    static const char KINDS[] = {'g', 'n', 'a', 'h'};
+    static uint8_t ink[3][PIXKIT_PLANE_BYTES], mask[3][PIXKIT_PLANE_BYTES];
+    static uint8_t pi[PIXKIT_PLANE_BYTES], pm[PIXKIT_PLANE_BYTES];
+    int distinct = 0, plain_same = 0, bad_mask = 0, far_same = 0;
+    for(unsigned i = 0; i < sizeof(KINDS); i++) {
+        for(int s = 0; s < 3; s++) {
+            terrain_compose_site(KINDS[i], 1, (uint8_t)s, 32, ink[s], mask[s]);
+            for(int k = 0; k < PIXKIT_PLANE_BYTES; k++) bad_mask += (ink[s][k] & ~mask[s][k]) != 0;
+        }
+        terrain_compose_prop(KINDS[i], 1, 32, pi, pm);
+        plain_same += !memcmp(ink[0], pi, sizeof(pi)) && !memcmp(mask[0], pm, sizeof(pm));
+        distinct += memcmp(ink[0], ink[1], sizeof(pi)) && memcmp(ink[0], ink[2], sizeof(pi)) &&
+                    memcmp(ink[1], ink[2], sizeof(pi));
+        terrain_compose_site(KINDS[i], 1, SITE_SHOWS_SEALED, 12, ink[2], mask[2]);
+        terrain_compose_prop(KINDS[i], 1, 12, pi, pm);
+        far_same += !memcmp(ink[2], pi, sizeof(pi)) && !memcmp(mask[2], pm, sizeof(pm));
+    }
+    CHECK(plain_same == 4, "site: plain is the prop itself");
+    CHECK(distinct == 4, "site: plain, corrupted and sealed differ for all four kinds (32px)");
+    CHECK(bad_mask == 0, "site: mask contains the marks' ink");
+    CHECK(far_same == 4, "site: below the accent size, a site is its silhouette");
+    terrain_compose_site('G', 1, SITE_SHOWS_SEALED, 32, ink[0], mask[0]);
+    terrain_compose_prop('G', 1, 32, pi, pm);
+    CHECK(!memcmp(ink[0], pi, sizeof(pi)), "site: an opened grave carries no mark");
+
+    /* liveness: the renderer draws the state on the site tile, only there */
+    int lit = 0, elsewhere = 0;
+    for(unsigned i = 0; i < sizeof(KINDS); i++) {
+        World w;
+        flat_chunk(&w, BIOME_CAVERN);
+        w.tiles[3][3] = KINDS[i];   /* two tiles ahead: past arm's length */
+        static Canvas c[3];
+        for(int s = 0; s < 3; s++) {
+            w.site_kind = SITE_GRAVE; w.site_x = 3; w.site_y = 3; w.site_state = (uint8_t)s;
+            canvas_clear(&c[s]);
+            render_fpv_world(&c[s], &w, 1, 3, 1, NULL, 0);
+        }
+        lit += memcmp(c[0].px, c[1].px, sizeof(c[0].px)) && memcmp(c[0].px, c[2].px, sizeof(c[0].px));
+        w.site_x = 5; w.site_state = SITE_SHOWS_SEALED;   /* the site is elsewhere */
+        canvas_clear(&c[1]);
+        render_fpv_world(&c[1], &w, 1, 3, 1, NULL, 0);
+        elsewhere += !memcmp(c[0].px, c[1].px, sizeof(c[0].px));
+    }
+    CHECK(lit == 4, "site: first person draws corrupted and sealed");
+    CHECK(elsewhere == 4, "site: a prop that is not the site stays plain");
+}
+
 /* Re-recorded for WORLDGEN 7a: four burial props added (art only, no world
  * change — nothing places them yet). */
 #define TERRAIN_GOLDEN 0xC8E84D4F270890D7ULL
@@ -570,6 +623,7 @@ int main(void) {
     test_props_do_not_stop_rays();
     test_prop_identity();
     test_terrain_golden();
+    test_site_forms();
     test_menhir_is_one_stone();
     test_props_are_opaque();
     test_map_legibility();

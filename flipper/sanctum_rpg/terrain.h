@@ -131,3 +131,8 @@ SlabMaterial terrain_material(char glyph);
 /* Compose a PROP glyph into `size`-px square planes (8..PIXKIT_MAX_PX),
  * bottom-anchored. Returns false (planes cleared) if not a prop. */
 bool terrain_compose_prop(char glyph, uint8_t variant, int size, uint8_t* ink, uint8_t* mask);
+
+/* The same, for a site's tile (spec 58 §58.8): `shows` (SITE_SHOWS_*) adds
+ * a corrupted seep or the seal over a grave, sarcophagus, altar or altar
+ * stone. Plain, any other glyph, or below the accent size: the prop as is. */
+bool terrain_compose_site(char glyph, uint8_t variant, uint8_t shows, int size, uint8_t* ink, uint8_t* mask);

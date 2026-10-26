@@ -29,6 +29,15 @@ typedef enum {
 
 #define SITE_NONE 0xFFu
 
+/* How a site shows (spec 58 §58.8; World.site_state). Display only: set by
+ * the app from the region record, never generated, saved or hashed. The
+ * seal is the player's own mark and shows in both views; corruption is a
+ * faint seep, in first person and up close only, so a site still looks
+ * like any other grave or altar from afar and on the map. */
+#define SITE_SHOWS_PLAIN   0   /* none here, an open grave, a cleansed region */
+#define SITE_SHOWS_CORRUPT 1   /* unsealed, in a region whose rot is found */
+#define SITE_SHOWS_SEALED  2
+
 /* StyleDef.site_kinds bits. */
 #define SITE_BIT(k) ((uint8_t)(1u << (k)))
 

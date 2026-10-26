@@ -86,6 +86,9 @@ typedef struct {
      * in `tiles`, which is what the fingerprint hashes. */
     uint8_t site_kind;
     int8_t site_x, site_y;
+    /* How the site shows (SITE_SHOWS_*). Display only — set by the app from
+     * the region record, like closed_edges; never generated, never hashed. */
+    uint8_t site_state;
     /* What WORLDGEN 9 placed here for its region's rituals (ritual.h
      * region_objects): each object's tile and meaning, so a pickup or a
      * step onto a carving knows what it found. Derived; never saved, never

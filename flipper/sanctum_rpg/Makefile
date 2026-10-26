@@ -71,6 +71,8 @@ shots:
 	./$(SHOT_BIN) gatefpv DEADBEEF 2 2 2 6 2 test/shots/gate_fpv_c.pbm
 	python3 test/pbm2png.py test/shots/gate_map.png --cols 2 test/shots/gate_map_*.pbm
 	python3 test/pbm2png.py test/shots/gate_fpv.png --cols 1 test/shots/gate_fpv_*.pbm
+	./$(SHOT_BIN) sites test/shots/sites.pbm
+	python3 test/pbm2png.py test/shots/sites.png --scale 6 --cols 1 test/shots/sites.pbm
 	@for f in 0 1 2 3 4; do \
 	  ./$(SHOT_BIN) lineup $$f test/shots/lineup_$$f.pbm || exit 1; \
 	  python3 test/pbm2png.py test/shots/lineup_$$f.png --scale 3 --cols 1 test/shots/lineup_$$f.pbm; \

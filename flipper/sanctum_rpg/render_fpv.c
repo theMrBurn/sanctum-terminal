@@ -40,6 +40,7 @@
 #include "biome.h"
 #include "figure.h"
 #include "sprites.h"
+#include "site.h"
 #include "terrain.h"
 
 #define FPV_VIEW_W      128
@@ -580,25 +581,27 @@ static void draw_billboard(
 #define PROP_CACHE_SLOTS 8
 static struct {
     char glyph;
-    uint8_t variant, size;
+    uint8_t variant, size, shows;
     uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
 } prop_cache[PROP_CACHE_SLOTS];
 static int prop_cache_next;
 
-static int prop_planes(char glyph, uint8_t variant, int size, const uint8_t** ink, const uint8_t** mask) {
+/* `shows`: SITE_SHOWS_* when the tile is the chunk's site, else plain. */
+static int prop_planes(char glyph, uint8_t variant, uint8_t shows, int size, const uint8_t** ink, const uint8_t** mask) {
     for(int i = 0; i < PROP_CACHE_SLOTS; i++)
         if(prop_cache[i].size == size && prop_cache[i].glyph == glyph &&
-           prop_cache[i].variant == variant) {
+           prop_cache[i].variant == variant && prop_cache[i].shows == shows) {
             *ink = prop_cache[i].ink; *mask = prop_cache[i].mask;
             return 1;
         }
     int i = prop_cache_next;
     prop_cache_next = (prop_cache_next + 1) % PROP_CACHE_SLOTS;
-    if(!terrain_compose_prop(glyph, variant, size, prop_cache[i].ink, prop_cache[i].mask)) {
+    if(!terrain_compose_site(glyph, variant, shows, size, prop_cache[i].ink, prop_cache[i].mask)) {
         prop_cache[i].size = 0;
         return 0;
     }
     prop_cache[i].glyph = glyph; prop_cache[i].variant = variant; prop_cache[i].size = (uint8_t)size;
+    prop_cache[i].shows = shows;
     *ink = prop_cache[i].ink; *mask = prop_cache[i].mask;
     return 1;
 }
@@ -650,7 +653,7 @@ static void draw_span_prop(
     int box = size > PIXKIT_MAX_PX ? PIXKIT_MAX_PX : size;
     if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
     const uint8_t *pi, *pm;
-    if(prop_planes(td->glyph, (uint8_t)(tile_hash(ax, ay) >> 8), box, &pi, &pm))
+    if(prop_planes(td->glyph, (uint8_t)(tile_hash(ax, ay) >> 8), SITE_SHOWS_PLAIN, box, &pi, &pm))
         draw_billboard_max(canvas, pi, pm, box, center_col, floor_y, size,
                            BILLBOARD_MAX_PX * td->scale, fwd_fp, wall_dist);
 }
@@ -720,7 +723,9 @@ static void render_sprite_pass(
                 int box = sprite_size > PIXKIT_MAX_PX ? PIXKIT_MAX_PX : sprite_size;
                 if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
                 const uint8_t *pi, *pm;
-                if(prop_planes(tile, (uint8_t)(tile_hash(tx, ty) >> 8), box, &pi, &pm))
+                uint8_t shows = (tx == world->site_x && ty == world->site_y) ? world->site_state
+                                                                              : SITE_SHOWS_PLAIN;
+                if(prop_planes(tile, (uint8_t)(tile_hash(tx, ty) >> 8), shows, box, &pi, &pm))
                     draw_billboard(canvas, pi, pm, box, center_col, center_y, sprite_size,
                                    sprite_dist_fp, wall_dist);
                 continue;

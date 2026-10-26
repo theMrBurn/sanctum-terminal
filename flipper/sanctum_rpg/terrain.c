@@ -12,6 +12,7 @@
 
 #include <string.h>
 
+#include "site.h"
 #include "world.h"
 
 /* ── tunables (AGENTS.md: no hardcoded tunables) ───────────────────── */
@@ -632,6 +633,75 @@ static void detail(int plan, Plane* ink, Plane* m, int size, uint8_t var) {
         break;
     default: break;
     }
+}
+
+/* A site's marks (spec 58 §58.8). Corrupted is dark, wet and running down;
+ * sealed is a set stone, flat and still ("you set the stone. it sits."). */
+static void dark(Plane* ink, Plane* m, int size, int x0, int y0, int x1, int y1) {
+    rect(m, size, x0, y0, x1, y1, 1);
+    rect(ink, size, x0, y0, x1, y1, 1);
+}
+
+/* A pale stone set in: opaque, outlined, plain inside. */
+static void set_stone(Plane* ink, Plane* m, int size, int x0, int y0, int x1, int y1) {
+    rect(m, size, x0, y0, x1, y1, 1);
+    rect(ink, size, x0, y0, x1, y1, 0);
+    seg(ink, size, x0, y0, x1, y0, 1);
+    seg(ink, size, x0, y1, x1, y1, 1);
+    seg(ink, size, x0, y0, x0, y1, 1);
+    seg(ink, size, x1, y0, x1, y1, 1);
+}
+
+static void site_marks(int plan, uint8_t shows, Plane* ink, Plane* m, int size) {
+    bool sealed = shows == SITE_SHOWS_SEALED;
+    switch(plan) {
+    case PLAN_GRAVE:
+        if(sealed) {                         /* a stone laid flat on the grave, grass back at its ends */
+            set_stone(ink, m, size, 8, 23, 24, 29);
+            thick_seg(m, size, 2, 30, 1, 26, 1);  thick_seg(ink, size, 2, 30, 1, 26, 1);
+            thick_seg(m, size, 29, 30, 30, 26, 1); thick_seg(ink, size, 29, 30, 30, 26, 1);
+        } else {                             /* it runs down the stone and pools at its foot */
+            dark(ink, m, size, 12, 24, 20, 27);
+            seg(ink, size, 14, GRAVE_STONE_TOP + 11, 14, 24, 1);
+            seg(ink, size, 18, GRAVE_STONE_TOP + 12, 18, 24, 1);
+        }
+        break;
+    case PLAN_SARCOPHAGUS:                   /* the face is in shadow: marks there are pale */
+        if(sealed) {                         /* the box bound with a pale cord, crossed */
+            thick_seg(ink, size, 6, 22, 24, 30, 0);
+            thick_seg(ink, size, 6, 30, 24, 22, 0);
+        } else {                             /* the lid split, a black gap through it */
+            dark(ink, m, size, 4, 18, 27, 19);
+        }
+        break;
+    case PLAN_ALTAR:
+        if(sealed) {                         /* a small stone set on the top */
+            set_stone(ink, m, size, 12, 8, 19, 13);
+        } else {                             /* a dark pool on the top, a streak down the cloth */
+            dark(ink, m, size, 11, 14, 20, 15);
+            for(int y = 18; y <= 26; y += 2) rect(ink, size, 15, y, 16, y, 1);
+        }
+        break;
+    case PLAN_DOLMEN:
+        if(sealed) {                         /* a stone wedged into the gap */
+            set_stone(ink, m, size, 12, DOLMEN_CAP_Y + 6, 19, 31);
+        } else {                             /* the gap under the capstone black; it seeps at the feet */
+            dark(ink, m, size, 11, DOLMEN_CAP_Y + 7, 20, 31);
+            dark(ink, m, size, 4, 30, 5, 31);
+            dark(ink, m, size, 26, 30, 27, 31);
+        }
+        break;
+    default: break;
+    }
+}
+
+bool terrain_compose_site(char glyph, uint8_t variant, uint8_t shows, int size, uint8_t* ink_b, uint8_t* mask_b) {
+    if(!terrain_compose_prop(glyph, variant, size, ink_b, mask_b)) return false;
+    if(shows == SITE_SHOWS_PLAIN || size < PROP_LOD_SMALL_PX) return true;
+    Plane ink = {ink_b, size, size, (size + 7) / 8};
+    Plane m = {mask_b, size, size, (size + 7) / 8};
+    site_marks(terrain_def(glyph)->plan, shows, &ink, &m, size);
+    return true;
 }
 
 bool terrain_compose_prop(char glyph, uint8_t variant, int size, uint8_t* ink_b, uint8_t* mask_b) {

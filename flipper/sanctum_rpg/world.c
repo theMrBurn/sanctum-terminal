@@ -58,6 +58,7 @@ void world_clear_seams(World* w) {
     w->closed_edges = 0;
     w->site_kind = SITE_NONE;   /* and no site: hand-built worlds start bare */
     w->site_x = w->site_y = -1;
+    w->site_state = SITE_SHOWS_PLAIN;
     w->arc_count = 0;
 }
 

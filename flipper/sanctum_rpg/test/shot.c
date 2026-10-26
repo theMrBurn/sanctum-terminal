@@ -66,6 +66,7 @@
 #include "../render_fpv.h"
 #include "../world.h"
 #include "../region.h"
+#include "../site.h"
 #include "../quirk.h"
 #include "font_secondary.h"
 
@@ -144,6 +145,34 @@ static int lineup(int family_id, const char* path) {
     fprintf(f, "P1\n%d %d\n", LU_W, rows * LU_CELL);
     for(int y = 0; y < rows * LU_CELL; y++) {
         for(int x = 0; x < LU_W; x++) fputc(lu[y][x] ? '1' : '0', f);
+        fputc('\n', f);
+    }
+    fclose(f);
+    return 0;
+}
+
+/* sites: the four site props, plain / corrupted / sealed, at 32 and 24 px. */
+static int sites_shot(const char* path) {
+    static const char KINDS[] = {'g', 'n', 'a', 'h'};
+    static uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
+    static const int SZ[] = {32, 24};
+    memset(lu, 0, sizeof(lu));
+    int w = 0;
+    for(unsigned i = 0; i < sizeof(KINDS); i++) {
+        int ox = 1, oy = (int)i * LU_CELL + 1;
+        for(int z = 0; z < 2; z++)
+            for(int s = 0; s < 3; s++) {
+                terrain_compose_site(KINDS[i], 1, (uint8_t)s, SZ[z], ink, mask);
+                put_figure(ox, oy + 32 - SZ[z], SZ[z], ink, mask);
+                ox += SZ[z] + 2;
+            }
+        w = ox;
+    }
+    FILE* f = fopen(path, "w");
+    if(!f) return 1;
+    fprintf(f, "P1\n%d %d\n", w, 4 * LU_CELL);
+    for(int y = 0; y < 4 * LU_CELL; y++) {
+        for(int x = 0; x < w; x++) fputc(lu[y][x] ? '1' : '0', f);
         fputc('\n', f);
     }
     fclose(f);
@@ -454,6 +483,7 @@ int main(int argc, char** argv) {
         return creature_scene((uint32_t)strtoul(argv[2], NULL, 16), atoi(argv[3]), atoi(argv[4]),
                               atoi(argv[5]), atoi(argv[6]), argv[7]);
     if(argc == 4 && strcmp(argv[1], "lineup") == 0) return lineup(atoi(argv[2]), argv[3]);
+    if(argc == 3 && strcmp(argv[1], "sites") == 0) return sites_shot(argv[2]);
     if(argc != 7 || strcmp(argv[1], "fpv") != 0) {
         fprintf(stderr, "usage: shot fpv <seed-hex> <cx> <cy> <facing> <out.pbm>\n");
         return 2;

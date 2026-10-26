@@ -536,7 +536,24 @@ static bool arc_region_found(const AppState* st, int rx, int ry) {
     return region_depth(st->campaign_seed, rx, ry) > 0 || (r && (r->flags & RR_FOUND));
 }
 
+/* How this chunk's site shows (spec 58 §58.8): sealed is the player's own
+ * mark; unsealed shows corrupted once the region's rot is found, until the
+ * region is cleansed (route 2 leaves sites unsealed but quiet). */
+static void arc_mark_site(AppState* st) {
+    World* w = &st->world;
+    int cx = st->character.chunk_x, cy = st->character.chunk_y;
+    int rx = region_of(cx), ry = region_of(cy);
+    int k = arc_site_at(st->campaign_seed, cx, cy, w, w->site_x, w->site_y);
+    w->site_state = SITE_SHOWS_PLAIN;
+    if(k < 0) return;
+    if(arc_site_sealed(&st->region_book, rx, ry, k)) w->site_state = SITE_SHOWS_SEALED;
+    else if(arc_region_found(st, rx, ry) &&
+            !arc_region_cleansed(st->campaign_seed, rx, ry, &st->region_book))
+        w->site_state = SITE_SHOWS_CORRUPT;
+}
+
 static void arc_mark_edges(AppState* st) {
+    arc_mark_site(st);
     if(!REGION_GATES_LIVE) return;
     int cx = st->character.chunk_x, cy = st->character.chunk_y;
     region_mark_world_edges(st->campaign_seed, &st->rituals, cx, cy, &st->world);
@@ -956,6 +973,11 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
             /* A bloated one's foul patch, while it lasts (spec 50 Q1 §Q.3). */
             if(st->lit[y][x] && foul_at(&st->foul, x, y, st->character.turn))
                 canvas_draw_xbm(canvas, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX, FOUL_XBM);
+            /* A sealed site: a bar under it, the seal you set (spec 58 §58.8). */
+            if(x == st->world.site_x && y == st->world.site_y &&
+               st->world.site_state == SITE_SHOWS_SEALED)
+                canvas_draw_line(canvas, x * TILE_PX, y * TILE_PX + TILE_PX - 1,
+                                 x * TILE_PX + TILE_PX - 1, y * TILE_PX + TILE_PX - 1);
             /* A terrain row or item kind may carry its own top-down form
              * (map_icon) where the glyph alone would mislead or spill. */
             const uint8_t* icon = terrain_map_icon(glyph);
@@ -3431,6 +3453,7 @@ static void site_act(AppState* st) {
         ArcSealResult r = arc_seal(rx, ry, st->site_k, st->site_kind, &st->character, &st->region_book);
         if(r == ARC_SEALED) {
             arc_save(st);
+            arc_mark_site(st);
             save_io_write_character(&st->character);
             notify(st, &sequence_success);
         }
