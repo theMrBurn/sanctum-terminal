@@ -104,9 +104,10 @@
  * rite is reachable with what the region itself places (test_rituals_solvable,
  * test_arc_route1). */
 #define REGION_GATES_LIVE 1
-/* Hollows (spec 58 §58.15). Off until the save round-trips and a region's
- * hollows are shown reachable (AGENTS.md rule 4). */
-#define HOLLOWS_LIVE 0
+/* Hollows (spec 58 §58.15). Live (2026-10-26) on rule 4's proof: the
+ * taken bit round-trips regions.txt, and with skill alone every tool lies
+ * within 3 regions of the origin (test_hollow_pocket). */
+#define HOLLOWS_LIVE 1
 #define WORLD_VIEW_W          (WORLD_COLS * TILE_PX)  /* 128 px */
 #define WORLD_VIEW_H          (WORLD_ROWS * TILE_PX)  /*  48 px */
 #define WORLD_TILE_BASELINE_Y_OFFSET 7                /* FontSecondary baseline within 8px cell */
