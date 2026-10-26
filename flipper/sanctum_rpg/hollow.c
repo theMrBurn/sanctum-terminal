@@ -181,8 +181,12 @@ bool hollow_take(RegionBook* b, int rx, int ry, int index) {
 
 void hollow_pocket(uint32_t seed, int rx, int ry, int index, uint8_t kind, bool taken, World* w) {
     memset(w, 0, sizeof(*w));
+    /* enclosed whatever the region above: an open style (moor, forest:
+     * rock walls) is walled as a cavern, the same rock, so no sky, no far
+     * ridge and the weather muffled, as indoors */
     w->style = style_of(seed, rx * BIOME_REGION, ry * BIOME_REGION);
-    w->biome = BIOME_CAVERN;   /* enclosed: no sky, no weather, whatever the region above */
+    if(style_terrain(w->style) == TERRAIN_OPEN) w->style = STYLE_CAVERN;
+    w->biome = BIOME_CAVERN;
     world_clear_seams(w);
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) w->tiles[y][x] = TILE_WALL;

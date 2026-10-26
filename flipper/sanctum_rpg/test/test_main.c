@@ -3310,6 +3310,7 @@ static void test_hollow_pocket(void) {
                     pockets++;
                     bad += w.tiles[w.spawn_y][0] != TILE_DOOR || !world_walkable(&w, w.spawn_x, w.spawn_y);
                     bad += w.site_kind != SITE_NONE || w.arc_count || w.closed_edges || w.hollow_kind != HOLLOW_NONE;
+                    bad += world_terrain(&w) != TERRAIN_WALLED;   /* enclosed, even under a moor */
                     uint8_t reach[WORLD_ROWS][WORLD_COLS];
                     memset(reach, 0, sizeof(reach));
                     world_reach(&w, w.spawn_x, w.spawn_y, reach);

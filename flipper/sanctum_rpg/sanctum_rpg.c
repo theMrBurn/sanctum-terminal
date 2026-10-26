@@ -694,6 +694,7 @@ static bool enter_world(AppState* st, const char* campaign_id) {
  * holds the picked class + stats; here we allocate the campaign id, bind it,
  * persist, and enter the world. Cancelling earlier leaves no disk artifact. */
 static void finalize_new_character(AppState* st) {
+    st->in_hollow = 0;   /* a pocket left by going to the title belongs to the old campaign */
     char id[SAVE_IO_CAMPAIGN_ID_MAX + 1];
     /* The user's real-self name is the character name (slice 48.F2 — You-only).
      * Stays hardcoded until the profile.json read-side lands (slice 48.F8 /
@@ -3800,6 +3801,12 @@ static void craft_experiment(AppState* st) {
  * kept, and saved, so a reload wakes you outside. */
 static void hollow_enter(AppState* st) {
     int rx = region_of(st->character.chunk_x), ry = region_of(st->character.chunk_y);
+    /* the region's record first, so taking the find can't fail inside
+     * (a full book would bring the find back on every entry) */
+    if(!region_book_touch(&st->region_book, rx, ry)) {
+        set_status(st, hollow_refusal(st->world.hollow_kind));
+        return;
+    }
     int index = st->world.hollow_index;
     uint8_t kind = st->world.hollow_kind;
     st->hollow_ret_x = (int8_t)st->character.player_x;
@@ -3857,17 +3864,23 @@ static void hollow_bump(AppState* st) {
         hollow_enter(st);
         break;
     case HOLLOW_BY_SKILL: {
+        /* paid a turn at a time, as the rite is: the world's turn between
+         * (fuel, weather, a bleed), and a fall stops it where it is */
         EffortTask t = {HOLLOW_EFFORT_TURNS, HOLLOW_EFFORT_DIFF, axis};
         EffortBody b = {st->character.torch_fuel, st->character.hp, axes[axis]};
         EffortRun run;
         effort_begin(&run, &t, &b);
         EffortState e;
         do {
+            b.fuel = st->character.torch_fuel;
+            b.hp = st->character.hp;
             e = effort_turn(&run, &b);
+            st->character.torch_fuel = b.fuel;
+            st->character.hp = b.hp;
+            st->fell = false;
             advance_turn(st);
+            if(st->fell) return;              /* the fall said so and moved you */
         } while(e == EFFORT_GOING);
-        st->character.torch_fuel = b.fuel;
-        st->character.hp = b.hp;
         if(e == EFFORT_DONE) hollow_enter(st);
         else set_status(st, hollow_refusal(kind));
         break;
