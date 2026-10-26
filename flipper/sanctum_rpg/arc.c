@@ -2,6 +2,7 @@
 #include "arc.h"
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "biome.h"
@@ -163,4 +164,52 @@ const char* arc_way_name(RitualWay way) {
     case WAY_SEEN:   return "turn the runes";
     default:         return "?";
     }
+}
+
+/* ── the ledger (§58.8) ───────────────────────────────────────────── */
+
+#define LEDGER_HEAD_ROWS   2   /* the heading, the incantations */
+#define LEDGER_REGION_ROWS 4   /* heading, sealed, destroyed, standing */
+
+static bool ledger_listed(const RegionRecord* r) {
+    return (r->flags & RR_FOUND) || r->sealed || r->destroyed;
+}
+
+int arc_ledger_rows(const RegionBook* book) {
+    int n = 0;
+    for(int i = 0; i < book->count; i++) n += ledger_listed(&book->rec[i]);
+    return LEDGER_HEAD_ROWS + n * LEDGER_REGION_ROWS;
+}
+
+static int bits8(uint8_t v) {
+    int n = 0;
+    for(; v; v &= (uint8_t)(v - 1)) n++;
+    return n;
+}
+
+bool arc_ledger_line(uint32_t seed, const RegionBook* book, uint8_t words_known, int row,
+                     char* out, size_t cap) {
+    if(row < 0 || row >= arc_ledger_rows(book) || cap < 2) return false;
+    if(row == 0) { snprintf(out, cap, "-- ledger --"); return true; }                 /* DRAFT */
+    if(row == 1) { snprintf(out, cap, "incantations  %d", bits8(words_known)); return true; }
+    int j = (row - LEDGER_HEAD_ROWS) / LEDGER_REGION_ROWS;
+    int line = (row - LEDGER_HEAD_ROWS) % LEDGER_REGION_ROWS;
+    const RegionRecord* r = NULL;
+    for(int i = 0, seen = 0; i < book->count; i++)
+        if(ledger_listed(&book->rec[i]) && seen++ == j) { r = &book->rec[i]; break; }
+    if(!r) return false;
+    switch(line) {
+    case 0: snprintf(out, cap, "ground %d", j + 1); break;                              /* DRAFT */
+    case 1: snprintf(out, cap, "sites sealed  %d/%d", bits8(r->sealed),
+                     region_site_count(seed, r->rx, r->ry)); break;
+    case 2: snprintf(out, cap, "dead destroyed %d", r->destroyed); break;
+    default: {
+        const char* st = arc_region_cleansed(seed, r->rx, r->ry, book) ? "cleansed"
+                       : (r->sealed || r->destroyed)                  ? "held"
+                                                                       : "rising";
+        snprintf(out, cap, "corruption  %s", st);
+        break;
+    }
+    }
+    return true;
 }

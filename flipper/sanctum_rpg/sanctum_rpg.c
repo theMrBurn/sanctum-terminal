@@ -233,6 +233,10 @@ typedef struct {
     uint64_t codex_identified;
     uint16_t codex_bestiary;
     int codex_scroll;
+    /* The ledger section (spec 58 §58.8) reads the same campaign: its seed,
+     * its words known, and region_book (arc_load). */
+    uint32_t codex_seed;
+    uint8_t codex_words;
 
     /* Combat (v0.4.1, spec 46 §5.2) — a modal melee encounter vs one adjacent
      * hostile. Transient (RAM); the foe's live HP lives here, not on Creature. */
@@ -1102,6 +1106,10 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
 
 /* ─── render: codex (logbook) ─────────────────────────────────────── */
 
+static int codex_rows(const AppState* st) {
+    return KIND_COUNT + CREATURE_FAMILY_COUNT + arc_ledger_rows(&st->region_book);
+}
+
 static void draw_codex_screen(Canvas* canvas, const AppState* st) {
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(
@@ -1123,8 +1131,8 @@ static void draw_codex_screen(Canvas* canvas, const AppState* st) {
     canvas_draw_str_aligned(canvas, SCREEN_W, TITLE_BASELINE_Y, AlignRight, AlignBottom, hdr);
     canvas_draw_line(canvas, 0, DIVIDER_Y, SCREEN_W - 1, DIVIDER_Y);
 
-    /* One scrolling list: loot kinds first, then the creature bestiary. */
-    int total = KIND_COUNT + CREATURE_FAMILY_COUNT;
+    /* One scrolling list: loot kinds, the creature bestiary, then the ledger. */
+    int total = codex_rows(st);
     int end = st->codex_scroll + PICKER_VISIBLE_ROWS;
     if(end > total) end = total;
     for(int row = st->codex_scroll, i = 0; row < end; row++, i++) {
@@ -1138,6 +1146,10 @@ static void draw_codex_screen(Canvas* canvas, const AppState* st) {
             } else {
                 snprintf(line, sizeof(line), "?  ???");
             }
+        } else if(row >= KIND_COUNT + CREATURE_FAMILY_COUNT) {
+            if(!arc_ledger_line(st->codex_seed, &st->region_book, st->codex_words,
+                                row - KIND_COUNT - CREATURE_FAMILY_COUNT, line, sizeof(line)))
+                line[0] = '\0';
         } else {
             int fam = row - KIND_COUNT;
             const Family* f = creature_family((uint8_t)fam);
@@ -2658,12 +2670,21 @@ static void on_picker_select(AppState* st) {
 static void on_codex(AppState* st) {
     st->codex_identified = 0;
     st->codex_bestiary = 0;
+    st->codex_seed = 0;
+    st->codex_words = 0;
+    region_book_clear(&st->region_book);
     char id[SAVE_IO_CAMPAIGN_ID_MAX + 1];
     if(save_io_most_recent_campaign(id, sizeof(id)) == SaveIoOk) {
         CharacterState c;
         if(save_io_load_character(id, &c) == SaveIoOk) {
             st->codex_identified = c.identified;
             st->codex_bestiary = c.bestiary;
+            st->codex_words = c.words_known;
+        }
+        CampaignMeta meta;
+        if(save_io_load_meta(id, &meta) == SaveIoOk) {
+            st->codex_seed = meta.seed;
+            arc_load(st, id);   /* the region book, for the ledger; entering the world reloads it */
         }
     }
     st->codex_scroll = 0;
@@ -4090,8 +4111,7 @@ int32_t sanctum_rpg_app(void* p) {
                 if(state.codex_scroll > 0) state.codex_scroll--;
                 break;
             case InputKeyDown:
-                if(state.codex_scroll <
-                   (KIND_COUNT + CREATURE_FAMILY_COUNT) - PICKER_VISIBLE_ROWS)
+                if(state.codex_scroll < codex_rows(&state) - PICKER_VISIBLE_ROWS)
                     state.codex_scroll++;
                 break;
             case InputKeyOk:

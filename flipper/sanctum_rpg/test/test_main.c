@@ -3196,6 +3196,52 @@ static void test_arc_route1(void) {
 }
 
 /* Sealing's refusals, and what it spends. */
+/* RULE (spec 58 §58.8): the ledger lists only regions the player has found,
+ * in the order found; counts sealed of the region's sites and the dead
+ * destroyed as a tally (never what is left); every line fits the screen. */
+static void test_arc_ledger(void) {
+    const uint32_t seed = 0x12345678u;
+    RegionBook book;
+    region_book_clear(&book);
+    char line[ARC_LEDGER_LINE_MAX];
+    CHECK(arc_ledger_rows(&book) == 2, "ledger: empty book is heading + incantations");
+    CHECK(arc_ledger_line(seed, &book, 0x05, 1, line, sizeof(line)) &&
+          strcmp(line, "incantations  2") == 0, "ledger: incantations count the words known");
+    CHECK(!arc_ledger_line(seed, &book, 0, 2, line, sizeof(line)), "ledger: nothing past the end");
+
+    region_book_touch(&book, 9, 9);                         /* touched, never found: unlisted */
+    RegionRecord* a = region_book_touch(&book, 1, 0);
+    a->flags |= RR_FOUND;
+    RegionRecord* b = region_book_touch(&book, 0, 1);
+    b->sealed = 0x01; b->destroyed = 3;
+    CHECK(arc_ledger_rows(&book) == 2 + 2 * 4, "ledger: only found regions are listed");
+
+    arc_ledger_line(seed, &book, 0, 2, line, sizeof(line));
+    CHECK(strcmp(line, "ground 1") == 0, "ledger: regions in the order found");
+    arc_ledger_line(seed, &book, 0, 5, line, sizeof(line));
+    CHECK(strcmp(line, "corruption  rising") == 0, "ledger: untouched rot is rising");
+    char want[ARC_LEDGER_LINE_MAX];
+    snprintf(want, sizeof(want), "sites sealed  1/%d", region_site_count(seed, 0, 1));
+    arc_ledger_line(seed, &book, 0, 7, line, sizeof(line));
+    CHECK(strcmp(line, want) == 0, "ledger: sealed of the region's sites");
+    arc_ledger_line(seed, &book, 0, 8, line, sizeof(line));
+    CHECK(strcmp(line, "dead destroyed 3") == 0, "ledger: the dead are a tally");
+    arc_ledger_line(seed, &book, 0, 9, line, sizeof(line));
+    CHECK(strcmp(line, "corruption  held") == 0, "ledger: begun is held");
+
+    b->sealed = (uint8_t)((1u << region_site_count(seed, 0, 1)) - 1u);
+    arc_ledger_line(seed, &book, 0, 9, line, sizeof(line));
+    CHECK(strcmp(line, "corruption  cleansed") == 0, "ledger: all sealed is cleansed");
+
+    int too_long = 0, counts_down = 0;
+    for(int r = 0; arc_ledger_line(seed, &book, 0xFF, r, line, sizeof(line)); r++) {
+        too_long += strlen(line) > 20;
+        counts_down += strstr(line, "left") != NULL;
+    }
+    CHECK(too_long == 0, "ledger: every line fits the screen");
+    CHECK(counts_down == 0, "ledger: route 2 never counts down");
+}
+
 static void test_arc_seal_rules(void) {
     CharacterState c;
     memset(&c, 0, sizeof(c));
@@ -3685,6 +3731,7 @@ int main(void) {
     test_runes();
     test_arc_route1();
     test_arc_seal_rules();
+    test_arc_ledger();
     test_dead_traits();
     test_dead_routes();
     test_dead_chance();

@@ -109,3 +109,15 @@ void arc_way_spend(RitualWay way, CharacterState* c);
 
 /* In-game names of the ways (no user terms on the status bar, §58.9). */
 const char* arc_way_name(RitualWay way);
+
+/* The ledger (spec 58 §58.8), a section of the Codex: the one place counts
+ * and the user's terms appear. A heading, the incantations known, then for
+ * each region the player has found (in the order found): its heading, its
+ * sites sealed of its sites, its dead destroyed, and where its corruption
+ * stands (rising, held, cleansed). Route 2 never counts down: the dead are
+ * a tally, never "n left". DRAFT copy (arc.c). */
+#define ARC_LEDGER_LINE_MAX 24
+int arc_ledger_rows(const RegionBook* book);
+/* Row `row` into `out`; false past the last row. */
+bool arc_ledger_line(uint32_t seed, const RegionBook* book, uint8_t words_known, int row,
+                     char* out, size_t cap);
