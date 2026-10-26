@@ -3284,6 +3284,101 @@ static void test_hollow_finds(void) {
     CHECK(KIND_COUNT <= SAVE_INV_KINDS_MAX, "hollow: the finds fit the bag's slots (no save change)");
 }
 
+/* RULE (§58.15): a pocket is a dead end you can always leave, its find
+ * reachable from the door, never your own kind's tool; taken stays taken
+ * through regions.txt (rule 3); the gate: shut before the rite, the tool
+ * opens it, skill at 22 opens it, else refused; and (rule 4) with skill
+ * alone, every tool is found within a few regions of the origin. */
+static void test_hollow_pocket(void) {
+    const uint32_t seed = 0x12345678u;
+    int bad = 0, pockets = 0;
+    for(int ry = -4; ry <= 4; ry++)
+        for(int rx = -4; rx <= 4; rx++)
+            for(int i = 0; i < HOLLOWS_PER_REGION_MAX; i++)
+                for(uint8_t kind = 0; kind < HOLLOW_KIND_COUNT; kind++) {
+                    World w;
+                    hollow_pocket(seed, rx, ry, i, kind, false, &w);
+                    pockets++;
+                    bad += w.tiles[w.spawn_y][0] != TILE_DOOR || !world_walkable(&w, w.spawn_x, w.spawn_y);
+                    bad += w.site_kind != SITE_NONE || w.arc_count || w.closed_edges || w.hollow_kind != HOLLOW_NONE;
+                    uint8_t reach[WORLD_ROWS][WORLD_COLS];
+                    memset(reach, 0, sizeof(reach));
+                    world_reach(&w, w.spawn_x, w.spawn_y, reach);
+                    int finds = 0, doors = 0;
+                    for(int y = 0; y < WORLD_ROWS; y++)
+                        for(int x = 0; x < WORLD_COLS; x++) {
+                            const KindDef* k = kind_by_glyph(w.tiles[y][x]);
+                            if(k && k->id >= HOLLOW_TOOL_KIND) { finds++; bad += !reach[y][x]; }
+                            doors += w.tiles[y][x] == TILE_DOOR;
+                            if(x == 0 || y == 0 || x == WORLD_COLS - 1 || y == WORLD_ROWS - 1)
+                                bad += w.tiles[y][x] != TILE_WALL && w.tiles[y][x] != TILE_DOOR;
+                        }
+                    bad += finds != 1 || doors != 1;
+                    bad += hollow_find(seed, rx, ry, i, kind) == hollow_tool(kind);
+                    hollow_pocket(seed, rx, ry, i, kind, true, &w);
+                    for(int y = 0; y < WORLD_ROWS; y++)
+                        for(int x = 0; x < WORLD_COLS; x++) {
+                            const KindDef* k = kind_by_glyph(w.tiles[y][x]);
+                            bad += k && k->id >= HOLLOW_TOOL_KIND;
+                        }
+                }
+    CHECK(bad == 0, "hollow: a dead end with one door out, its find reachable, never its own tool; taken is empty");
+    CHECK(pockets > 0, "hollow: pockets built");
+
+    RegionBook book, back;
+    region_book_clear(&book);
+    CHECK(!hollow_taken(&book, 2, -1, 1), "hollow: not taken at first");
+    CHECK(hollow_take(&book, 2, -1, 1) && hollow_taken(&book, 2, -1, 1) && !hollow_taken(&book, 2, -1, 0),
+          "hollow: taking one marks only it");
+    static char buf[REGION_BOOK_TEXT_MAX];
+    region_book_format(&book, buf, sizeof(buf));
+    region_book_clear(&back);
+    region_book_parse(buf, &back);
+    CHECK(hollow_taken(&back, 2, -1, 1) && !hollow_taken(&back, 2, -1, 0), "hollow: taken survives regions.txt");
+
+    CharacterState c;
+    memset(&c, 0, sizeof(c));
+    CHECK(hollow_way(HOLLOW_CLIMB, false, &c, 99) == HOLLOW_SHUT, "hollow: shut before the region's rite");
+    CHECK(hollow_way(HOLLOW_CLIMB, true, &c, REACH_AXIS_THRESHOLD - 1) == HOLLOW_REFUSED, "hollow: below the threshold, refused");
+    CHECK(hollow_way(HOLLOW_CLIMB, true, &c, REACH_AXIS_THRESHOLD) == HOLLOW_BY_SKILL, "hollow: at the threshold, the skill way");
+    c.inv_qty[hollow_tool(HOLLOW_DARK)] = 1;
+    CHECK(hollow_way(HOLLOW_DARK, true, &c, 0) == HOLLOW_BY_TOOL &&
+          hollow_way(HOLLOW_SHIFT, true, &c, 0) == HOLLOW_REFUSED, "hollow: a tool opens only its kind");
+    CHECK(hollow_axis(HOLLOW_CLIMB) == DEED_AXIS_BODY && hollow_axis(HOLLOW_DARK) == DEED_AXIS_SIGHT &&
+          hollow_axis(HOLLOW_SHIFT) == DEED_AXIS_CRAFT, "hollow: BODY climbs, SIGHT sees, CRAFT shifts");
+
+    /* rule 4: with skill alone, how far out must you go to find each tool? */
+    const uint32_t seeds[] = {0x12345678u, 0xCAFEBABEu, 0xDEADBEEFu, 0x0BADF00Du};
+    int worst = 0;
+    for(size_t si = 0; si < sizeof(seeds) / sizeof(seeds[0]); si++) {
+        int depth_of[HOLLOW_KIND_COUNT] = {-1, -1, -1};
+        int ox, oy;
+        region_origin(seeds[si], &ox, &oy);
+        for(int d = 0; d <= 6; d++)
+            for(int ry = oy - d; ry <= oy + d; ry++)
+                for(int rx = ox - d; rx <= ox + d; rx++) {
+                    if(region_depth(seeds[si], rx, ry) != d) continue;
+                    for(int s = 0; s < BIOME_REGION * BIOME_REGION; s++) {
+                        int cx = rx * BIOME_REGION + s % BIOME_REGION, cy = ry * BIOME_REGION + s / BIOME_REGION;
+                        World w;
+                        world_generate_chunk(seeds[si], cx, cy, &w);
+                        if(!hollow_mark(seeds[si], cx, cy, &w)) continue;
+                        uint8_t f = hollow_find(seeds[si], rx, ry, w.hollow_index, w.hollow_kind);
+                        if(f >= HOLLOW_TOOL_KIND && f < HOLLOW_TOOL_KIND + HOLLOW_KIND_COUNT &&
+                           depth_of[f - HOLLOW_TOOL_KIND] < 0)
+                            depth_of[f - HOLLOW_TOOL_KIND] = d;
+                    }
+                }
+        for(int k = 0; k < HOLLOW_KIND_COUNT; k++) {
+            int d = depth_of[k] < 0 ? 99 : depth_of[k];
+            if(d > worst) worst = d;
+        }
+        printf("  hollows: seed %08X finds rope/lantern/pry-iron by depth %d/%d/%d\n",
+               (unsigned)seeds[si], depth_of[0], depth_of[1], depth_of[2]);
+    }
+    CHECK(worst <= 3, "hollow: with skill alone, every tool lies within 3 regions of the origin");
+}
+
 static void test_arc_ledger(void) {
     const uint32_t seed = 0x12345678u;
     RegionBook book;
@@ -3836,6 +3931,7 @@ int main(void) {
     test_arc_ledger();
     test_hollow_placement();
     test_hollow_finds();
+    test_hollow_pocket();
     test_dead_traits();
     test_dead_routes();
     test_dead_chance();

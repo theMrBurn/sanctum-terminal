@@ -47,6 +47,45 @@ int region_hollow_count(uint32_t seed, int rx, int ry);
 /* Which of its region's hollows chunk (cx, cy) is dealt (0..count-1), or -1. */
 int chunk_hollow_index(uint32_t seed, int cx, int cy);
 
+#include "corruption.h"
+#include "save_io.h"
+
+#define REACH_AXIS_THRESHOLD 22   /* the skill way in (the user's, 2026-10-26; secrets ask 16) */
+#define HOLLOW_EFFORT_TURNS   2
+#define HOLLOW_EFFORT_DIFF    4
+
+/* The axis the skill way leans on: BODY to climb, SIGHT for the dark,
+ * CRAFT to shift (DEED_AXIS_*). */
+uint8_t hollow_axis(uint8_t kind);
+
+/* The tool (a kind id) that opens a hollow of `kind`. */
+uint8_t hollow_tool(uint8_t kind);
+
+typedef enum {
+    HOLLOW_SHUT = 0,    /* the region's rite isn't done: no hollow shows */
+    HOLLOW_BY_TOOL,     /* you carry its tool: you pass, unannounced */
+    HOLLOW_BY_SKILL,    /* skill at the threshold: an effort task */
+    HOLLOW_REFUSED,     /* neither: the refusal line */
+} HollowWay;
+
+HollowWay hollow_way(uint8_t kind, bool rite_done, const CharacterState* c, uint8_t axis_eff);
+
+/* What hollow `index` of region (rx, ry), of kind `kind`, holds (a kind
+ * id): half the time the tool for one of the OTHER kinds (one hollow opens
+ * the next), else a carved token or a vellum scrap. */
+uint8_t hollow_find(uint32_t seed, int rx, int ry, int index, uint8_t kind);
+
+/* Its find is taken (RegionRecord flags; saved in regions.txt). */
+bool hollow_taken(const RegionBook* b, int rx, int ry, int index);
+/* Mark it taken. False only if the book is full. */
+bool hollow_take(RegionBook* b, int rx, int ry, int index);
+
+/* Build hollow `index`'s pocket into w: a short dead-end passage in the
+ * region's style, the way out a door on its west edge (w->spawn is just
+ * inside it), the find at the far end unless taken. No site, no ritual
+ * objects, no hollow, no closed edges: rot never reaches a pocket. */
+void hollow_pocket(uint32_t seed, int rx, int ry, int index, uint8_t kind, bool taken, World* w);
+
 /* Mark the chunk's mouth into w (hollow_kind, hollow_x, hollow_y,
  * hollow_index), from the generated tiles. Call right after generation,
  * before deltas. Returns true if the chunk has one. */

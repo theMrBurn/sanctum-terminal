@@ -45,6 +45,7 @@
 #define REGION_BOOK_TEXT_MAX (4 + REGION_BOOK_MAX * 32)
 
 #define RR_FOUND 0x01u   /* the player has seen this region's rot (§58.3.1) */
+#define RR_HOLLOW_TAKEN(i) (0x02u << (i))   /* hollow i's find is taken (§58.15; i < 2) */
 
 typedef struct {
     int16_t rx, ry;

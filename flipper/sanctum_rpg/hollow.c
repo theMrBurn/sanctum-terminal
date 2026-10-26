@@ -4,10 +4,14 @@
 #include <string.h>
 
 #include "biome.h"
+#include "deeds.h"
+#include "loot.h"
 #include "style.h"
 
 #define HOLLOW_SLOT_SALT  0x4011A0E5u
 #define HOLLOW_TILE_SALT  0x7EA11D0Bu
+#define HOLLOW_FIND_SALT  0x0F1D0F1Du
+#define HOLLOW_ROOM_SALT  0x2C0FFEE5u
 
 /* What each prop can hide (spec 58 §58.15 as built: walls stand only on a
  * chunk's border, so the dark is under or up a prop, not in a wall). */
@@ -89,4 +93,68 @@ bool hollow_mark(uint32_t seed, int cx, int cy, World* w) {
         return true;
     }
     return false;
+}
+
+uint8_t hollow_axis(uint8_t kind) {
+    return kind == HOLLOW_CLIMB ? DEED_AXIS_BODY : kind == HOLLOW_DARK ? DEED_AXIS_SIGHT : DEED_AXIS_CRAFT;
+}
+
+uint8_t hollow_tool(uint8_t kind) { return (uint8_t)(HOLLOW_TOOL_KIND + kind); }
+
+HollowWay hollow_way(uint8_t kind, bool rite_done, const CharacterState* c, uint8_t axis_eff) {
+    if(!rite_done || kind >= HOLLOW_KIND_COUNT) return HOLLOW_SHUT;
+    if(c->inv_qty[hollow_tool(kind)]) return HOLLOW_BY_TOOL;
+    if(axis_eff >= REACH_AXIS_THRESHOLD) return HOLLOW_BY_SKILL;
+    return HOLLOW_REFUSED;
+}
+
+uint8_t hollow_find(uint32_t seed, int rx, int ry, int index, uint8_t kind) {
+    uint32_t h = mix(region_hash(seed ^ HOLLOW_FIND_SALT ^ (uint32_t)(index * 0x9E3779B9u), rx, ry));
+    switch(h & 3u) {
+    case 0: case 1: {                                    /* a tool for another kind */
+        uint8_t other = (uint8_t)((kind + 1 + ((h >> 2) & 1u)) % HOLLOW_KIND_COUNT);
+        return hollow_tool(other);
+    }
+    case 2:  return HOLLOW_KIND_TOKEN;
+    default: return HOLLOW_KIND_LORE;
+    }
+}
+
+bool hollow_taken(const RegionBook* b, int rx, int ry, int index) {
+    const RegionRecord* r = region_book_get(b, rx, ry);
+    return r && index >= 0 && index < HOLLOWS_PER_REGION_MAX && (r->flags & RR_HOLLOW_TAKEN(index));
+}
+
+bool hollow_take(RegionBook* b, int rx, int ry, int index) {
+    if(index < 0 || index >= HOLLOWS_PER_REGION_MAX) return false;
+    RegionRecord* r = region_book_touch(b, rx, ry);
+    if(!r) return false;
+    r->flags |= (uint8_t)RR_HOLLOW_TAKEN(index);
+    return true;
+}
+
+void hollow_pocket(uint32_t seed, int rx, int ry, int index, uint8_t kind, bool taken, World* w) {
+    memset(w, 0, sizeof(*w));
+    w->style = style_of(seed, rx * BIOME_REGION, ry * BIOME_REGION);
+    w->biome = STYLE_TABLE[w->style].biome;
+    world_clear_seams(w);
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) w->tiles[y][x] = TILE_WALL;
+    uint32_t h = mix(region_hash(seed ^ HOLLOW_ROOM_SALT ^ (uint32_t)(index * 0x85EBCA6Bu), rx, ry));
+    int len = 4 + (int)(h % 6u);                        /* 4..9 cells in */
+    int y0 = 1 + (int)((h >> 4) % 3u);                  /* a two-row passage: rows y0, y0+1 (1..4) */
+    for(int x = 1; x <= len; x++) {
+        w->tiles[y0][x] = TILE_FLOOR;
+        w->tiles[y0 + 1][x] = TILE_FLOOR;
+    }
+    int nook = 2 + (int)((h >> 8) % (uint32_t)(len - 1));   /* a nook up or down off the passage */
+    int ny = y0 == 1 ? y0 + 2 : y0 - 1;
+    if(ny >= 1 && ny <= WORLD_ROWS - 2) w->tiles[ny][nook] = TILE_FLOOR;
+    w->tiles[y0][0] = TILE_DOOR;                        /* the way out */
+    w->spawn_x = 1;
+    w->spawn_y = y0;
+    if(!taken) {
+        const KindDef* f = kind_by_id(hollow_find(seed, rx, ry, index, kind));
+        if(f) w->tiles[y0 + 1][len] = f->glyph;
+    }
 }
