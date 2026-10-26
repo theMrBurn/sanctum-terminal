@@ -57,6 +57,7 @@
 #include "afflict.h"
 #include "cast.h"
 #include "effort.h"
+#include "hollow.h"
 #include "ritual.h"
 #include "sky.h"
 #include "weather.h"
@@ -103,6 +104,9 @@
  * rite is reachable with what the region itself places (test_rituals_solvable,
  * test_arc_route1). */
 #define REGION_GATES_LIVE 1
+/* Hollows (spec 58 §58.15). Off until the save round-trips and a region's
+ * hollows are shown reachable (AGENTS.md rule 4). */
+#define HOLLOWS_LIVE 0
 #define WORLD_VIEW_W          (WORLD_COLS * TILE_PX)  /* 128 px */
 #define WORLD_VIEW_H          (WORLD_ROWS * TILE_PX)  /*  48 px */
 #define WORLD_TILE_BASELINE_Y_OFFSET 7                /* FontSecondary baseline within 8px cell */
@@ -311,9 +315,29 @@ typedef struct {
     int8_t quest_choice; /* 0 = branch A, 1 = branch B */
     uint32_t resolved_mask;
 
+    /* Inside a hollow (spec 58 §58.15): which (index + 1; 0 = outside), its
+     * kind, and the tile to come back out on. The pocket is built into
+     * `world`; leaving rebuilds the chunk. Saves write the return tile. */
+    uint8_t in_hollow;
+    uint8_t hollow_kind_in;
+    int8_t hollow_ret_x, hollow_ret_y;
+
     const char* status_line;
     char status_buf[STATUS_BUF_SIZE];
 } AppState;
+
+/* Save the character. Inside a hollow, the saved place is the tile you
+ * came in from, so a reload wakes you outside it (the pocket is RAM). */
+static void save_character(const AppState* st) {
+    if(!st->in_hollow) {
+        save_io_write_character(&st->character);
+        return;
+    }
+    CharacterState c = st->character;
+    c.player_x = st->hollow_ret_x;
+    c.player_y = st->hollow_ret_y;
+    save_io_write_character(&c);
+}
 
 /* ─── status helpers ──────────────────────────────────────────────── */
 
@@ -558,6 +582,9 @@ static void arc_mark_site(AppState* st) {
 
 static void arc_mark_edges(AppState* st) {
     arc_mark_site(st);
+    st->world.hollow_open = HOLLOWS_LIVE && !st->in_hollow && st->world.hollow_kind != HOLLOW_NONE &&
+                            region_ritual_done(&st->rituals, region_of(st->character.chunk_x),
+                                               region_of(st->character.chunk_y));
     if(!REGION_GATES_LIVE) return;
     int cx = st->character.chunk_x, cy = st->character.chunk_y;
     region_mark_world_edges(st->campaign_seed, &st->rituals, cx, cy, &st->world);
@@ -566,10 +593,12 @@ static void arc_mark_edges(AppState* st) {
 
 static void enter_world_phase2(
     AppState* st, const char* campaign_id, bool fresh_character) {
+    st->in_hollow = 0;   /* a pocket is RAM: every load starts outside */
     world_generate_chunk(
         st->campaign_seed,
         st->character.chunk_x, st->character.chunk_y,
         &st->world);
+    hollow_mark(st->campaign_seed, st->character.chunk_x, st->character.chunk_y, &st->world);   /* before deltas */
     arc_mark_edges(st);
 
     deltas_load(
@@ -582,7 +611,7 @@ static void enter_world_phase2(
                                           st->character.player_y)) {
         st->character.player_x = (int16_t)st->world.spawn_x;
         st->character.player_y = (int16_t)st->world.spawn_y;
-        save_io_write_character(&st->character);
+        save_character(st);
     }
     /* Atmosphere — refresh weather BEFORE FOV recompute so the cap takes
      * effect on the first frame in the new chunk. */
@@ -685,7 +714,7 @@ static void finalize_new_character(AppState* st) {
     strncpy(st->display_name, real_self_name, sizeof(st->display_name) - 1);
     st->display_name[sizeof(st->display_name) - 1] = '\0';
     st->campaign_seed = st->pending_seed;
-    save_io_write_character(&st->character);
+    save_character(st);
     enter_world_phase2(st, id, true);
 }
 
@@ -915,7 +944,7 @@ static void examine_move(AppState* st, int dx, int dy) {
         const KindDef* k = kind_by_glyph(st->world.tiles[ny][nx]);
         if(k && ((st->character.identified >> k->id) & 1ull) == 0) {
             st->character.identified |= (1ull << k->id);
-            save_io_write_character(&st->character);
+            save_character(st);
             notify(st, &sequence_success); /* scan logged a new Codex entry */
         }
     }
@@ -977,6 +1006,10 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
             /* A bloated one's foul patch, while it lasts (spec 50 Q1 §Q.3). */
             if(st->lit[y][x] && foul_at(&st->foul, x, y, st->character.turn))
                 canvas_draw_xbm(canvas, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX, FOUL_XBM);
+            /* A hollow's mouth: a broken line under it (spec 58 §58.15). */
+            if(st->world.hollow_open && x == st->world.hollow_x && y == st->world.hollow_y)
+                for(int k = 0; k < TILE_PX; k += 2)
+                    canvas_draw_dot(canvas, x * TILE_PX + k, y * TILE_PX + TILE_PX - 1);
             /* A sealed site: a bar under it, the seal you set (spec 58 §58.8). */
             if(x == st->world.site_x && y == st->world.site_y &&
                st->world.site_state == SITE_SHOWS_SEALED)
@@ -1414,7 +1447,7 @@ static void inventory_use(AppState* st) {
     } else {
         set_status(st, "no use here");
     }
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* ── The purse (spec 43 §17.1) ────────────────────────────────────────
@@ -1608,7 +1641,7 @@ static void craft_pull(AppState* st) {
         break;
     }
     }
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* ─── Stash (home-chunk vault) helpers ──────────────────────────────────
@@ -1633,7 +1666,7 @@ static void stash_deposit(AppState* st) {
     const KindDef* k = kind_by_id(id);
     set_statusf(st, "stashed %s", k ? k->true_name : "?");
     notify(st, &sequence_success);
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 static void stash_withdraw(AppState* st) {
@@ -1652,7 +1685,7 @@ static void stash_withdraw(AppState* st) {
     const KindDef* k = kind_by_id(id);
     set_statusf(st, "took %s", k ? k->true_name : "?");
     notify(st, &sequence_success);
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* Stash screen: two columns showing inv_qty vs vault_qty per kind.
@@ -1855,7 +1888,7 @@ static void shop_sell(AppState* st) {
     purse_add(st, paid);
     set_statusf(st, "sold %s", k->true_name);
     notify(st, &sequence_success);
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* Buy one of the cursor's item at the vendor's ask price. Vendor only —
@@ -1891,7 +1924,7 @@ static void shop_buy(AppState* st) {
     st->character.identified |= (1ull << id); /* you bought it — you know it */
     set_statusf(st, "bought %s", k->true_name);
     notify(st, &sequence_success);
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* Forge (slice 4 + Thread B animation) — single-recipe card view; during a
@@ -2769,6 +2802,7 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     foul_clear(&st->foul);      /* and the foul patches (RAM, per chunk) */
     if(dead_calm_outside(&st->risen, region_of(cx), region_of(cy))) arc_save(st);   /* left their region: they calm */
     world_generate_chunk(st->campaign_seed, cx, cy, &st->world);
+    hollow_mark(st->campaign_seed, cx, cy, &st->world);   /* before deltas */
     arc_mark_edges(st);
 
     /* Load + overlay persisted deltas for the entered chunk. */
@@ -3003,7 +3037,7 @@ static void player_fall(AppState* st) {
     recompute_visibility(st);
     set_status(st, "you fall, wake elsewhere"); /* concise — fits 128px */
     notify(st, &sequence_error);
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* If a hostile is adjacent at the end of a turn, open the encounter (replaces
@@ -3100,7 +3134,7 @@ static void combat_kill(AppState* st, Creature* foe, const char* nm) {
         set_statusf(st, "you fell the %s", nm);
     }
     notify(st, &sequence_success);
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* The foe strikes back after your action: its attack, plus what its kind
@@ -3181,7 +3215,7 @@ static void combat_strike(AppState* st) {
     }
 
     if(!combat_foe_turn(st, foe, &d, dmg)) return;
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* FLEE: ~60% escape; failure costs a foe hit. Per-round seed so retries vary. */
@@ -3213,7 +3247,7 @@ static void combat_throw(AppState* st) {
         st->combat_foe_hp = (uint16_t)(st->combat_foe_hp - dmg);
     }
     if(!combat_foe_turn(st, foe, &d, dmg)) return;
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 /* SKILL: the strongest learned cast MP can pay for, at the foe (spec 46
@@ -3243,7 +3277,7 @@ static void combat_skill(AppState* st) {
     }
     st->combat_foe_hp = (uint16_t)(st->combat_foe_hp - dmg);
     if(!combat_foe_turn(st, foe, &d, dmg)) return;
-    save_io_write_character(&st->character);
+    save_character(st);
 }
 
 static void combat_flee(AppState* st) {
@@ -3261,7 +3295,7 @@ static void combat_flee(AppState* st) {
         st->combat_foe = -1;
         st->screen = ScreenWorld;
         set_status(st, "you slip away");
-        save_io_write_character(&st->character);
+        save_character(st);
     } else {
         int fdmg = (int)d.atk - player_def(&st->character, &st->deeds) / 8;
         if(fdmg < 1) fdmg = 1;
@@ -3353,7 +3387,7 @@ static void scan_creature(AppState* st, int ci) {
     } else {
         set_status(st, "it slipped into the dark");
     }
-    save_io_write_character(&st->character); /* turn/fuel advanced — persist */
+    save_character(st); /* turn/fuel advanced — persist */
     maybe_start_combat(st); /* a hostile may have closed during the scan */
 }
 
@@ -3385,7 +3419,7 @@ static void cast_fire(AppState* st, int ci) {
     }
     advance_turn(st);
     recompute_visibility(st);
-    save_io_write_character(&st->character);
+    save_character(st);
     if(st->screen == ScreenWorld && maybe_start_combat(st)) st->examining = false;
 }
 
@@ -3462,7 +3496,7 @@ static void ritual_take_hold(AppState* st) {
     region_mark_ritual(&st->rituals, rx, ry);
     arc_way_spend((RitualWay)st->rite_way, &st->character);
     arc_save(st);
-    save_io_write_character(&st->character);
+    save_character(st);
     arc_mark_edges(st);
     notify(st, &sequence_success);
     set_status(st, ARC_LINE_RITE);
@@ -3472,7 +3506,7 @@ static void ritual_take_hold(AppState* st) {
 /* A failed rite: what it spent stays spent; what was found is kept (§58.7.4).
  * If you fell during it, the fall already said so and moved you. */
 static void rite_failed(AppState* st) {
-    save_io_write_character(&st->character);
+    save_character(st);
     if(st->fell) return;
     set_status(st, ARC_LINE_FAILED);
     st->screen = ScreenWorld;
@@ -3522,7 +3556,7 @@ static void site_act(AppState* st) {
         if(r == ARC_SEALED) {
             arc_save(st);
             arc_mark_site(st);
-            save_io_write_character(&st->character);
+            save_character(st);
             notify(st, &sequence_success);
         }
         set_status(st, arc_seal_line(r));
@@ -3632,7 +3666,7 @@ static void disturb(AppState* st) {
     advance_turn(st);
     recompute_visibility(st);
     arc_save(st);
-    save_io_write_character(&st->character);
+    save_character(st);
     set_status(st, g == 'n' || g == 'N' ? DEAD_LINE_TOMB : DEAD_LINE_GRAVE);
     st->screen = ScreenWorld;
     if(up > 0) notify(st, &sequence_single_vibro);
@@ -3755,8 +3789,93 @@ static void craft_experiment(AppState* st) {
         return;
     }
     st->craft_cursor = (int8_t)id;
-    save_io_write_character(&st->character);
+    save_character(st);
     craft_pull(st);
+}
+
+/* ─── hollows (spec 58 §58.15) ─────────────────────────────────────── */
+
+/* Into the pocket: built into `world` in place of the chunk (one World in
+ * RAM); no creatures, no foul, nothing armed. The tile you came from is
+ * kept, and saved, so a reload wakes you outside. */
+static void hollow_enter(AppState* st) {
+    int rx = region_of(st->character.chunk_x), ry = region_of(st->character.chunk_y);
+    int index = st->world.hollow_index;
+    uint8_t kind = st->world.hollow_kind;
+    st->hollow_ret_x = (int8_t)st->character.player_x;
+    st->hollow_ret_y = (int8_t)st->character.player_y;
+    st->hollow_kind_in = kind;
+    st->in_hollow = (uint8_t)(index + 1);
+    hollow_pocket(st->campaign_seed, rx, ry, index, kind, hollow_taken(&st->region_book, rx, ry, index),
+                  &st->world);
+    st->creature_count = 0;
+    st->quirk.active = false;
+    st->rise_pending = false;
+    foul_clear(&st->foul);
+    st->character.player_x = (int16_t)st->world.spawn_x;
+    st->character.player_y = (int16_t)st->world.spawn_y;
+    st->status_line = NULL;
+    refresh_weather(st);   /* enclosed: the weather above is muffled, as indoors */
+    reset_visibility(st);
+    save_character(st);
+}
+
+/* Out by the door: the chunk is built again as on entering it (generation,
+ * the mouth, the edges, then deltas), and you stand where you went in. */
+static void hollow_leave(AppState* st) {
+    int cx = st->character.chunk_x, cy = st->character.chunk_y;
+    st->in_hollow = 0;
+    world_generate_chunk(st->campaign_seed, cx, cy, &st->world);
+    hollow_mark(st->campaign_seed, cx, cy, &st->world);   /* before deltas */
+    arc_mark_edges(st);
+    deltas_load(st->character.campaign_id, cx, cy, &st->current_deltas);
+    deltas_apply_to_world(&st->current_deltas, &st->world);
+    st->character.player_x = st->hollow_ret_x;
+    st->character.player_y = st->hollow_ret_y;
+    if(!world_walkable(&st->world, st->character.player_x, st->character.player_y)) {
+        st->character.player_x = (int16_t)st->world.spawn_x;
+        st->character.player_y = (int16_t)st->world.spawn_y;
+    }
+    refresh_weather(st);
+    populate_creatures(st);
+    reset_visibility(st);
+    st->status_line = NULL;
+    save_character(st);
+}
+
+/* Walking into an open mouth: the tool takes you in unannounced; skill at
+ * the threshold is an effort task, paid now (effort never kills); else the
+ * refusal, which only confirms what you see. */
+static void hollow_bump(AppState* st) {
+    uint8_t kind = st->world.hollow_kind;
+    uint8_t axes[DEED_AXIS_COUNT];
+    effective_axes(st, axes);
+    uint8_t axis = hollow_axis(kind);
+    int rx = region_of(st->character.chunk_x), ry = region_of(st->character.chunk_y);
+    switch(hollow_way(kind, region_ritual_done(&st->rituals, rx, ry), &st->character, axes[axis])) {
+    case HOLLOW_BY_TOOL:
+        hollow_enter(st);
+        break;
+    case HOLLOW_BY_SKILL: {
+        EffortTask t = {HOLLOW_EFFORT_TURNS, HOLLOW_EFFORT_DIFF, axis};
+        EffortBody b = {st->character.torch_fuel, st->character.hp, axes[axis]};
+        EffortRun run;
+        effort_begin(&run, &t, &b);
+        EffortState e;
+        do {
+            e = effort_turn(&run, &b);
+            advance_turn(st);
+        } while(e == EFFORT_GOING);
+        st->character.torch_fuel = b.fuel;
+        st->character.hp = b.hp;
+        if(e == EFFORT_DONE) hollow_enter(st);
+        else set_status(st, hollow_refusal(kind));
+        break;
+    }
+    default:
+        set_status(st, hollow_refusal(kind));
+        break;
+    }
 }
 
 static void on_world_move(AppState* st, MoveDir dir) {
@@ -3861,13 +3980,22 @@ static void on_world_move(AppState* st, MoveDir dir) {
             set_status(st, "found item");
         }
         notify(st, &sequence_success); /* pickup confirm: beep + green blink */
-        deltas_record(
-            st->character.campaign_id, &st->current_deltas,
-            px, py, TILE_FLOOR);
+        if(st->in_hollow) {
+            /* never a chunk delta: deltas are keyed by the outer chunk */
+            hollow_take(&st->region_book, region_of(st->character.chunk_x),
+                        region_of(st->character.chunk_y), st->in_hollow - 1);
+            arc_save(st);
+            if(k && k->id == HOLLOW_KIND_LORE) set_status(st, HOLLOW_LINE_LORE);
+        } else {
+            deltas_record(
+                st->character.campaign_id, &st->current_deltas,
+                px, py, TILE_FLOOR);
+        }
         break;
     }
     case MoveSteppedOnDoor:
-        door_transition(st);
+        if(st->in_hollow) hollow_leave(st);
+        else door_transition(st);
         break;
     case MoveSteppedOnVendor:
         /* Open the shop in vendor flavor (full chunk prices + buy/sell
@@ -3896,6 +4024,12 @@ static void on_world_move(AppState* st, MoveDir dir) {
         break;
     case MoveBlockedByWall:
     case MoveBlockedByEdge: {
+        /* Walking into a hollow's mouth (spec 58 §58.15). */
+        if(r == MoveBlockedByWall && st->world.hollow_open && nx == st->world.hollow_x &&
+           ny == st->world.hollow_y) {
+            hollow_bump(st);
+            break;
+        }
         /* Walking into a site opens it (spec 58 §58.17). */
         int k = r == MoveBlockedByWall
                     ? arc_site_at(st->campaign_seed, st->character.chunk_x, st->character.chunk_y,
@@ -3991,7 +4125,8 @@ static void on_world_move(AppState* st, MoveDir dir) {
     /* Transitions recompute visibility for the new chunk inside
      * do_transition; same-chunk actions refresh here (fuel change may
      * have shrunk/grown the lit radius). */
-    if(took_turn && r != MoveSteppedOnDoor && r != MoveWalkedOffEdge && st->screen == ScreenWorld) {
+    if(took_turn && r != MoveSteppedOnDoor && r != MoveWalkedOffEdge && st->screen == ScreenWorld &&
+       !st->in_hollow) {                                   /* rot never reaches a pocket: no moon, no rising */
         sky_tick(st);
         dead_tick(st);
         quirk_tick(st);
@@ -4004,7 +4139,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
         recompute_visibility(st);
     }
 
-    save_io_write_character(&st->character);
+    save_character(st);
     maybe_start_combat(st); /* a hostile adjacent after this turn → engage */
 }
 
@@ -4266,11 +4401,11 @@ int32_t sanctum_rpg_app(void* p) {
                     }
                     case InputKeyLeft:
                         state.character.facing = fpv_turn_left(state.character.facing);
-                        save_io_write_character(&state.character);
+                        save_character(&state);
                         break;
                     case InputKeyRight:
                         state.character.facing = fpv_turn_right(state.character.facing);
-                        save_io_write_character(&state.character);
+                        save_character(&state);
                         break;
                     case InputKeyOk:
                         /* Examine ahead — target the tile one step in

@@ -16,9 +16,11 @@
 /* What each prop can hide (spec 58 §58.15 as built: walls stand only on a
  * chunk's border, so the dark is under or up a prop, not in a wall). */
 static const struct { char glyph; uint8_t kind; } MOUTHS[] = {
-    {'Y', HOLLOW_CLIMB}, {'y', HOLLOW_CLIMB}, {'|', HOLLOW_CLIMB},   /* tree, dead tree, column */
-    {'O', HOLLOW_CLIMB}, {'Z', HOLLOW_CLIMB}, {'l', HOLLOW_CLIMB},   /* great column, statue, timber prop */
-    {'M', HOLLOW_DARK},  {'A', HOLLOW_DARK},  {'I', HOLLOW_DARK},    /* flowstone, stalagmite, standing stone */
+    /* props only: a slab (a column, flowstone) is drawn as a wall and could
+     * never show its mouth */
+    {'Y', HOLLOW_CLIMB}, {'y', HOLLOW_CLIMB},                        /* tree, dead tree */
+    {'Z', HOLLOW_CLIMB}, {'l', HOLLOW_CLIMB},                        /* statue, timber prop */
+    {'A', HOLLOW_DARK},  {'I', HOLLOW_DARK},                         /* stalagmite, standing stone */
     {'w', HOLLOW_DARK},                                              /* a hearth's flue */
     {'^', HOLLOW_SHIFT}, {'~', HOLLOW_SHIFT}, {'Q', HOLLOW_SHIFT},   /* rubble, deadfall, cairn */
     {'c', HOLLOW_SHIFT}, {'d', HOLLOW_SHIFT}, {'U', HOLLOW_SHIFT},   /* ore cart, barrel, funeral urn */
@@ -43,22 +45,28 @@ static uint32_t mix(uint32_t h) {
     return h;
 }
 
-int chunk_hollow_index(uint32_t seed, int cx, int cy) {
-    int rx = region_of(cx), ry = region_of(cy);
+/* The region's chunk slots in a dealt order (Fisher-Yates, as site.c). */
+static void hollow_order(uint32_t seed, int rx, int ry, uint8_t order[BIOME_REGION * BIOME_REGION]) {
     const int n = BIOME_REGION * BIOME_REGION;
-    uint8_t order[BIOME_REGION * BIOME_REGION];
     for(int i = 0; i < n; i++) order[i] = (uint8_t)i;
     uint32_t h = region_hash(seed ^ HOLLOW_SLOT_SALT, rx, ry);
-    for(int i = n - 1; i > 0; i--) {                     /* Fisher-Yates, as site.c deals sites */
+    for(int i = n - 1; i > 0; i--) {
         h = mix(h);
         int j = (int)(h % (uint32_t)(i + 1));
         uint8_t t = order[i]; order[i] = order[j]; order[j] = t;
     }
-    int slot = (cx - rx * BIOME_REGION) + BIOME_REGION * (cy - ry * BIOME_REGION);
-    int count = region_hollow_count(seed, rx, ry);
-    for(int k = 0; k < count; k++)
-        if(order[k] == slot) return k;
-    return -1;
+}
+
+/* Hollow k's chain: order[k], then order[count + k], order[2*count + k]...
+ * (HOLLOW_CHAIN long). The first chunk on it with a fit prop holds it. */
+static int chain_slot(const uint8_t* order, int count, int k, int j) {
+    int pos = j * count + k;
+    return pos < BIOME_REGION * BIOME_REGION ? order[pos] : -1;
+}
+
+static void chunk_of_slot(int rx, int ry, int slot, int* cx, int* cy) {
+    *cx = rx * BIOME_REGION + slot % BIOME_REGION;
+    *cy = ry * BIOME_REGION + slot / BIOME_REGION;
 }
 
 static bool is_arc_object(const World* w, int x, int y) {
@@ -67,12 +75,8 @@ static bool is_arc_object(const World* w, int x, int y) {
     return false;
 }
 
-bool hollow_mark(uint32_t seed, int cx, int cy, World* w) {
-    w->hollow_kind = HOLLOW_NONE;
-    w->hollow_x = w->hollow_y = -1;
-    w->hollow_index = -1;
-    int k = chunk_hollow_index(seed, cx, cy);
-    if(k < 0) return false;
+/* The mouth tile in a generated chunk, or false if it has no fit prop. */
+static bool find_mouth(uint32_t seed, int cx, int cy, const World* w, int* mx, int* my) {
     uint8_t reach[WORLD_ROWS][WORLD_COLS];
     memset(reach, 0, sizeof(reach));
     world_reach(w, w->spawn_x, w->spawn_y, reach);
@@ -81,17 +85,59 @@ bool hollow_mark(uint32_t seed, int cx, int cy, World* w) {
     for(int i = 0; i < cells; i++) {
         int c = (start + i) % cells;
         int x = 1 + c % iw, y = 1 + c / iw;              /* off the border ring */
-        uint8_t kind = hollow_kind_of(w->tiles[y][x]);
-        if(kind == HOLLOW_NONE) continue;
+        if(hollow_kind_of(w->tiles[y][x]) == HOLLOW_NONE) continue;
         if(x == w->site_x && y == w->site_y) continue;
         if(is_arc_object(w, x, y)) continue;
         if(!(reach[y][x - 1] || reach[y][x + 1] || reach[y - 1][x] || reach[y + 1][x])) continue;
-        w->hollow_kind = kind;
-        w->hollow_x = (int8_t)x;
-        w->hollow_y = (int8_t)y;
-        w->hollow_index = (int8_t)k;
+        *mx = x; *my = y;
         return true;
     }
+    return false;
+}
+
+int chunk_hollow_index(uint32_t seed, int cx, int cy) {
+    int rx = region_of(cx), ry = region_of(cy);
+    uint8_t order[BIOME_REGION * BIOME_REGION];
+    hollow_order(seed, rx, ry, order);
+    int slot = (cx - rx * BIOME_REGION) + BIOME_REGION * (cy - ry * BIOME_REGION);
+    int count = region_hollow_count(seed, rx, ry);
+    for(int j = 0; j < HOLLOW_CHAIN; j++)
+        for(int k = 0; k < count; k++)
+            if(chain_slot(order, count, k, j) == slot) return k;
+    return -1;
+}
+
+bool hollow_mark(uint32_t seed, int cx, int cy, World* w) {
+    w->hollow_kind = HOLLOW_NONE;
+    w->hollow_x = w->hollow_y = -1;
+    w->hollow_index = -1;
+    int rx = region_of(cx), ry = region_of(cy);
+    uint8_t order[BIOME_REGION * BIOME_REGION];
+    hollow_order(seed, rx, ry, order);
+    int slot = (cx - rx * BIOME_REGION) + BIOME_REGION * (cy - ry * BIOME_REGION);
+    int count = region_hollow_count(seed, rx, ry);
+    for(int k = 0; k < count; k++)
+        for(int j = 0; j < HOLLOW_CHAIN; j++) {
+            int s = chain_slot(order, count, k, j);
+            if(s < 0) break;
+            if(s != slot) continue;
+            /* this chunk is j-th on hollow k's chain: it holds it if every
+             * earlier one has no fit prop (their generated tiles, never deltas) */
+            for(int e = 0; e < j; e++) {
+                int ex, ey, mx, my;
+                chunk_of_slot(rx, ry, chain_slot(order, count, k, e), &ex, &ey);
+                World other;
+                world_generate_chunk(seed, ex, ey, &other);
+                if(find_mouth(seed, ex, ey, &other, &mx, &my)) return false;
+            }
+            int mx, my;
+            if(!find_mouth(seed, cx, cy, w, &mx, &my)) return false;
+            w->hollow_kind = hollow_kind_of(w->tiles[my][mx]);
+            w->hollow_x = (int8_t)mx;
+            w->hollow_y = (int8_t)my;
+            w->hollow_index = (int8_t)k;
+            return true;
+        }
     return false;
 }
 
@@ -136,7 +182,7 @@ bool hollow_take(RegionBook* b, int rx, int ry, int index) {
 void hollow_pocket(uint32_t seed, int rx, int ry, int index, uint8_t kind, bool taken, World* w) {
     memset(w, 0, sizeof(*w));
     w->style = style_of(seed, rx * BIOME_REGION, ry * BIOME_REGION);
-    w->biome = STYLE_TABLE[w->style].biome;
+    w->biome = BIOME_CAVERN;   /* enclosed: no sky, no weather, whatever the region above */
     world_clear_seams(w);
     for(int y = 0; y < WORLD_ROWS; y++)
         for(int x = 0; x < WORLD_COLS; x++) w->tiles[y][x] = TILE_WALL;
@@ -157,4 +203,8 @@ void hollow_pocket(uint32_t seed, int rx, int ry, int index, uint8_t kind, bool 
         const KindDef* f = kind_by_id(hollow_find(seed, rx, ry, index, kind));
         if(f) w->tiles[y0 + 1][len] = f->glyph;
     }
+}
+
+const char* hollow_refusal(uint8_t kind) {
+    return kind == HOLLOW_CLIMB ? HOLLOW_LINE_CLIMB : kind == HOLLOW_DARK ? HOLLOW_LINE_DARK : HOLLOW_LINE_SHIFT;
 }

@@ -136,3 +136,7 @@ bool terrain_compose_prop(char glyph, uint8_t variant, int size, uint8_t* ink, u
  * a corrupted seep or the seal over a grave, sarcophagus, altar or altar
  * stone. Plain, any other glyph, or below the accent size: the prop as is. */
 bool terrain_compose_site(char glyph, uint8_t variant, uint8_t shows, int size, uint8_t* ink, uint8_t* mask);
+
+/* `shows` for a hollow's mouth (hollow.h, spec 58 §58.15): any prop, a dark
+ * opening at its foot. Past the SITE_SHOWS_* values. */
+#define PROP_MARK_MOUTH 3

@@ -700,6 +700,12 @@ bool terrain_compose_site(char glyph, uint8_t variant, uint8_t shows, int size, 
     if(shows == SITE_SHOWS_PLAIN || size < PROP_LOD_SMALL_PX) return true;
     Plane ink = {ink_b, size, size, (size + 7) / 8};
     Plane m = {mask_b, size, size, (size + 7) / 8};
+    if(shows == PROP_MARK_MOUTH) {          /* a hollow's mouth: a dark way in, low at its foot */
+        dark(&ink, &m, size, 13, 25, 19, 31);
+        ell(&m, size, 16, 25, 3, 2, 1);
+        ell(&ink, size, 16, 25, 3, 2, 1);
+        return true;
+    }
     site_marks(terrain_def(glyph)->plan, shows, &ink, &m, size);
     return true;
 }

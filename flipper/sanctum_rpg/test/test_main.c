@@ -3212,14 +3212,16 @@ static void test_hollow_placement(void) {
         for(int ry = -6; ry <= 6; ry++)
             for(int rx = -6; rx <= 6; rx++) {
                 int want = region_hollow_count(seeds[si], rx, ry), got = 0;
-                int dealt = 0;
+                int held[HOLLOWS_PER_REGION_MAX] = {0};
                 for(int s = 0; s < BIOME_REGION * BIOME_REGION; s++) {
                     int cx = rx * BIOME_REGION + s % BIOME_REGION, cy = ry * BIOME_REGION + s / BIOME_REGION;
-                    dealt += chunk_hollow_index(seeds[si], cx, cy) >= 0;
                     World w;
                     world_generate_chunk(seeds[si], cx, cy, &w);
                     if(!hollow_mark(seeds[si], cx, cy, &w)) continue;
                     got++;
+                    bad += w.hollow_index < 0 || w.hollow_index >= want ||
+                           chunk_hollow_index(seeds[si], cx, cy) != w.hollow_index;
+                    if(w.hollow_index >= 0 && w.hollow_index < HOLLOWS_PER_REGION_MAX) held[w.hollow_index]++;
                     int x = w.hollow_x, y = w.hollow_y;
                     bad += x < 1 || y < 1 || x > WORLD_COLS - 2 || y > WORLD_ROWS - 2;
                     bad += hollow_kind_of(w.tiles[y][x]) != w.hollow_kind;
@@ -3243,7 +3245,7 @@ static void test_hollow_placement(void) {
                         }
                     }
                 }
-                bad += dealt != want;
+                for(int k = 0; k < HOLLOWS_PER_REGION_MAX; k++) bad += held[k] > 1;   /* each held once at most */
                 Style st = style_of(seeds[si], rx * BIOME_REGION, ry * BIOME_REGION);
                 per_style_n[st]++;
                 per_style_full[st] += got == want;
@@ -3259,12 +3261,19 @@ static void test_hollow_placement(void) {
     }
     printf("  hollows: %d regions, %d%% full, %d with none; mirror pairs alike %d/%d\n",
            regions, 100 * full / regions, none, mirror_same, mirror_n);
-    CHECK(bad == 0, "hollow: dealt by style, off the border, its prop's kind, not a site, beside reachable floor, deterministic");
+    CHECK(bad == 0, "hollow: dealt by style, each held once, off the border, its prop's kind, not a site, beside reachable floor, deterministic");
     CHECK(styles_seen == STYLE_COUNT, "hollow: every style was sampled");
-    CHECK(full * 100 >= regions * 90, "hollow: at least 90% of regions get their full count");
+    CHECK(full * 100 >= regions * 95, "hollow: at least 95% of regions get their full count");
     CHECK(mirror_same * 4 <= mirror_n, "hollow: mirror-twin chunks don't share mouths");
     CHECK(hollow_kind_of('#') == HOLLOW_NONE && hollow_kind_of('g') == HOLLOW_NONE,
           "hollow: no mouth in a wall or a grave");
+    int slabs = 0;
+    for(int c = 1; c < 128; c++)
+        if(hollow_kind_of((char)c) != HOLLOW_NONE) {
+            const TerrainDef* d = terrain_def((char)c);
+            slabs += !d || d->form != TF_PROP;
+        }
+    CHECK(slabs == 0, "hollow: every mouth is a prop (a slab could never show it)");
 }
 
 /* RULE (§58.15): what the hollows hold is found, never bought, forged,

@@ -73,6 +73,11 @@ shots:
 	python3 test/pbm2png.py test/shots/gate_fpv.png --cols 1 test/shots/gate_fpv_*.pbm
 	./$(SHOT_BIN) sites test/shots/sites.pbm
 	python3 test/pbm2png.py test/shots/sites.png --scale 6 --cols 1 test/shots/sites.pbm
+	./$(SHOT_BIN) mouths test/shots/mouths.pbm
+	python3 test/pbm2png.py test/shots/mouths.png --scale 4 --cols 1 test/shots/mouths.pbm
+	@set -e; for v in 0:0:0:0 1:-1:1:1 2:2:0:2; do set -- $$(echo $$v | tr ':' ' '); \
+	  ./$(SHOT_BIN) pocket 12345678 $$1 $$2 0 $$4 test/shots/pocket_$$1_$$2_$$4.pbm; done
+	python3 test/pbm2png.py test/shots/pockets.png --scale 3 --cols 1 test/shots/pocket_*.pbm
 	@for f in 0 1 2 3 4; do \
 	  ./$(SHOT_BIN) lineup $$f test/shots/lineup_$$f.pbm || exit 1; \
 	  python3 test/pbm2png.py test/shots/lineup_$$f.png --scale 3 --cols 1 test/shots/lineup_$$f.pbm; \

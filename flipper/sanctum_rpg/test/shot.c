@@ -67,6 +67,7 @@
 #include "../world.h"
 #include "../region.h"
 #include "../site.h"
+#include "../hollow.h"
 #include "../quirk.h"
 #include "font_secondary.h"
 
@@ -177,6 +178,44 @@ static int sites_shot(const char* path) {
     }
     fclose(f);
     return 0;
+}
+
+/* mouths: props that can hold a hollow, plain and with the mouth, 32 and 24 px. */
+static int mouths_shot(const char* path) {
+    static const char G[] = {'Y', 'Z', 'U', 'd', 'A', 'I', 'w', 'k'};
+    static uint8_t ink[PIXKIT_PLANE_BYTES], mask[PIXKIT_PLANE_BYTES];
+    static const int SZ[] = {32, 24};
+    memset(lu, 0, sizeof(lu));
+    int rows = (int)sizeof(G), w = 0;
+    for(int i = 0; i < rows; i++) {
+        int ox = 1, oy = i * LU_CELL + 1;
+        for(int z = 0; z < 2; z++)
+            for(int s = 0; s < 2; s++) {
+                terrain_compose_site(G[i], 1, s ? PROP_MARK_MOUTH : SITE_SHOWS_PLAIN, SZ[z], ink, mask);
+                put_figure(ox, oy + 32 - SZ[z], SZ[z], ink, mask);
+                ox += SZ[z] + 2;
+            }
+        w = ox;
+    }
+    FILE* f = fopen(path, "w");
+    if(!f) return 1;
+    fprintf(f, "P1\n%d %d\n", w, rows * LU_CELL);
+    for(int y = 0; y < rows * LU_CELL; y++) {
+        for(int x = 0; x < w; x++) fputc(lu[y][x] ? '1' : '0', f);
+        fputc('\n', f);
+    }
+    fclose(f);
+    return 0;
+}
+
+/* pocket: hollow `index` of region (rx, ry) seen from its door, facing in. */
+static int pocket_shot(uint32_t seed, int rx, int ry, int index, int kind, const char* path) {
+    World w;
+    hollow_pocket(seed, rx, ry, index, (uint8_t)kind, false, &w);
+    Canvas cv;
+    canvas_clear(&cv);
+    render_fpv_world(&cv, &w, w.spawn_x, w.spawn_y, FPV_FACE_E, NULL, 0);
+    return write_pbm(&cv, path);
 }
 
 /* scene: one composed creature `dist` tiles ahead down the most open
@@ -484,6 +523,10 @@ int main(int argc, char** argv) {
                               atoi(argv[5]), atoi(argv[6]), argv[7]);
     if(argc == 4 && strcmp(argv[1], "lineup") == 0) return lineup(atoi(argv[2]), argv[3]);
     if(argc == 3 && strcmp(argv[1], "sites") == 0) return sites_shot(argv[2]);
+    if(argc == 3 && strcmp(argv[1], "mouths") == 0) return mouths_shot(argv[2]);
+    if(argc == 8 && strcmp(argv[1], "pocket") == 0)
+        return pocket_shot((uint32_t)strtoul(argv[2], NULL, 16), atoi(argv[3]), atoi(argv[4]), atoi(argv[5]),
+                           atoi(argv[6]), argv[7]);
     if(argc != 7 || strcmp(argv[1], "fpv") != 0) {
         fprintf(stderr, "usage: shot fpv <seed-hex> <cx> <cy> <facing> <out.pbm>\n");
         return 2;

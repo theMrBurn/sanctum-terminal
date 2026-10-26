@@ -655,7 +655,11 @@ static void draw_span_prop(
     int box = size > PIXKIT_MAX_PX ? PIXKIT_MAX_PX : size;
     if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
     const uint8_t *pi, *pm;
-    if(prop_planes(td->glyph, (uint8_t)(tile_hash(ax, ay) >> 8), SITE_SHOWS_PLAIN, box, &pi, &pm))
+    /* a hollow's mouth in any tile of the block marks the whole of it */
+    bool mouth = world->hollow_open && world->hollow_x >= ax && world->hollow_x < ax + w &&
+                 world->hollow_y >= ay && world->hollow_y < ay + h;
+    uint8_t shows = mouth ? PROP_MARK_MOUTH : SITE_SHOWS_PLAIN;
+    if(prop_planes(td->glyph, (uint8_t)(tile_hash(ax, ay) >> 8), shows, box, &pi, &pm))
         draw_billboard_max(canvas, pi, pm, box, center_col, floor_y, size,
                            BILLBOARD_MAX_PX * td->scale, fwd_fp, wall_dist);
 }
@@ -726,7 +730,9 @@ static void render_sprite_pass(
                 if(box < FIGURE_MIN_COMPOSE) box = FIGURE_MIN_COMPOSE;
                 const uint8_t *pi, *pm;
                 uint8_t shows = (tx == world->site_x && ty == world->site_y) ? world->site_state
-                                                                              : SITE_SHOWS_PLAIN;
+                              : (world->hollow_open && tx == world->hollow_x && ty == world->hollow_y)
+                                  ? PROP_MARK_MOUTH
+                                  : SITE_SHOWS_PLAIN;
                 if(prop_planes(tile, (uint8_t)(tile_hash(tx, ty) >> 8), shows, box, &pi, &pm))
                     draw_billboard(canvas, pi, pm, box, center_col, center_y, sprite_size,
                                    sprite_dist_fp, wall_dist);

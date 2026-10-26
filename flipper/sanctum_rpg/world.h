@@ -95,6 +95,7 @@ typedef struct {
      * from deltas; never saved, never hashed. */
     uint8_t hollow_kind;
     int8_t hollow_x, hollow_y, hollow_index;
+    uint8_t hollow_open;   /* display only, set by the app: the mouth shows (the rite is done) */
     /* What WORLDGEN 9 placed here for its region's rituals (ritual.h
      * region_objects): each object's tile and meaning, so a pickup or a
      * step onto a carving knows what it found. Derived; never saved, never
