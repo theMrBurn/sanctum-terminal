@@ -30,6 +30,12 @@ typedef enum {
 } HollowKind;
 
 #define HOLLOW_NONE 0xFFu
+
+/* The kinds (loot.c) the hollows hold. The tools: one per HollowKind, in
+ * that order, so HOLLOW_TOOL_KIND + kind is the tool that opens it. */
+#define HOLLOW_TOOL_KIND  25   /* knotted rope, horn lantern, pry-iron */
+#define HOLLOW_KIND_TOKEN 28   /* a rare thing, self-describing (barter-ready, §58.16) */
+#define HOLLOW_KIND_LORE  29   /* a fragment: read, never explains (§58.14) */
 #define HOLLOWS_PER_REGION_MAX 2
 
 /* The kind of mouth a glyph can hold, or HOLLOW_NONE. */

@@ -3267,6 +3267,23 @@ static void test_hollow_placement(void) {
           "hollow: no mouth in a wall or a grave");
 }
 
+/* RULE (§58.15): what the hollows hold is found, never bought, forged,
+ * traded, spoiled or rolled as loot; each tool opens one kind. */
+static void test_hollow_finds(void) {
+    int bad = 0;
+    for(int k = HOLLOW_TOOL_KIND; k <= HOLLOW_KIND_LORE; k++) {
+        const KindDef* d = kind_by_id((uint8_t)k);
+        bad += !d || d->weight != 0 || d->biomes != 0 || !(d->flags & KF_NOTRADE) ||
+               !(d->flags & KF_PICKUPABLE) || !d->map_icon;
+        bad += afflict_spoils_into((uint8_t)k) != 0xFFu;
+        for(int r = 0; r < RECIPE_COUNT; r++) bad += RECIPE_CATALOG[r].output_kind == k;
+        bad += kind_by_glyph(d ? d->glyph : 0) != d;
+    }
+    CHECK(bad == 0, "hollow: its finds are never loot, trade, forge or rot");
+    CHECK(HOLLOW_TOOL_KIND + HOLLOW_KIND_COUNT == HOLLOW_KIND_TOKEN, "hollow: one tool per kind, in order");
+    CHECK(KIND_COUNT <= SAVE_INV_KINDS_MAX, "hollow: the finds fit the bag's slots (no save change)");
+}
+
 static void test_arc_ledger(void) {
     const uint32_t seed = 0x12345678u;
     RegionBook book;
@@ -3818,6 +3835,7 @@ int main(void) {
     test_arc_seal_rules();
     test_arc_ledger();
     test_hollow_placement();
+    test_hollow_finds();
     test_dead_traits();
     test_dead_routes();
     test_dead_chance();

@@ -489,6 +489,8 @@ const uint8_t* fpv_sprite_for_tile(char glyph) {
     case '?': case '}': case '{':         return chest_xbm;     /* scroll, book, tome */
     case 'z': case 'J': case 'W':         return tool_xbm;      /* cord, iron nail, ward */
     case 'K':                             return torch_xbm;     /* candle */
+    case '1': case '2': case '3':         return tool_xbm;      /* rope, horn lantern, pry-iron */
+    case '4': case '5':                   return chest_xbm;     /* token, vellum */
     case 'R':                             return fungus_xbm;    /* rotted cap */
     case 'E': case 'F': case 'X': case 'L': return vial_xbm;    /* soured vial, the dark flasks */
     default:          return NULL;

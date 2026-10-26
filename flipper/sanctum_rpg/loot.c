@@ -58,6 +58,12 @@ static const uint8_t MAP_SOUR[8]    = {0x00, 0x08, 0x08, 0x14, 0x2A, 0x22, 0x1C,
 static const uint8_t MAP_TINCTURE[8]= {0x00, 0x1C, 0x08, 0x14, 0x3E, 0x3E, 0x1C, 0x00}; /* a full stoppered flask */
 static const uint8_t MAP_DRAUGHT[8] = {0x00, 0x00, 0x3E, 0x22, 0x3E, 0x3E, 0x1C, 0x00}; /* a dark cup */
 static const uint8_t MAP_BLIGHT[8]  = {0x00, 0x2A, 0x1C, 0x3E, 0x7F, 0x7F, 0x3E, 0x00}; /* a round flask, fuming */
+/* spec 58 §58.15 — what the hollows hold: the tools that open them, and finds. */
+static const uint8_t MAP_ROPE[8]    = {0x00, 0x1C, 0x22, 0x5D, 0x41, 0x22, 0x5C, 0x00}; /* a coil, its end trailing */
+static const uint8_t MAP_LANTERN[8] = {0x00, 0x08, 0x3E, 0x2A, 0x36, 0x2A, 0x3E, 0x00}; /* a ring, a horn-paned box */
+static const uint8_t MAP_PRY[8]     = {0x00, 0x60, 0x30, 0x18, 0x0C, 0x06, 0x0B, 0x00}; /* a bar, its claw bent */
+static const uint8_t MAP_TOKEN[8]   = {0x00, 0x00, 0x1C, 0x22, 0x2A, 0x22, 0x1C, 0x00}; /* a pierced disc */
+static const uint8_t MAP_VELLUM[8]  = {0x00, 0x00, 0x3E, 0x22, 0x2E, 0x22, 0x3C, 0x00}; /* a leaf, one corner curled */
 
 const KindDef KIND_CATALOG[] = {
     /* id glyph true_name        unid_name             class           wt  val  flags                                          biomes  fuel heal effect       slot       atk def lt  map form */
@@ -89,6 +95,14 @@ const KindDef KIND_CATALOG[] = {
     {22, 'F', "rot tincture", "a dark flask",       KC_ENCOUNTER,    0,  4, KF_PICKUPABLE,                                 0,       0, 0, "thrown" ,    EQ_NONE,   0,  0,  0, MAP_TINCTURE},
     {23, 'X', "sour draught", "a dark cup",         KC_ENCOUNTER,    0,  4, KF_PICKUPABLE,                                 0,       0, 0, "coating",    EQ_NONE,   0,  0,  0, MAP_DRAUGHT},
     {24, 'L', "blight",       "a fuming flask",     KC_ENCOUNTER,    0,  6, KF_PICKUPABLE,                                 0,       0, 0, "thrown" ,    EQ_NONE,   0,  0,  0, MAP_BLIGHT},
+    /* spec 58 §58.15 — found in hollows only (weight 0, no biome: never loot),
+     * never traded, never forged, never spoiled. The three tools each open a
+     * kind of hollow. Names are placeholders (DRAFT). */
+    {25, '1', "knotted rope", "a coil of rope",     KC_ORGANIC,      0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_ROPE},
+    {26, '2', "horn lantern", "a horn-paned lamp",  KC_ENCOUNTER,    0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_LANTERN},
+    {27, '3', "pry-iron",     "a bent iron bar",    KC_ENCOUNTER,    0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_PRY},
+    {28, '4', "carved token", "a pierced disc",     KC_CRYSTALLINE,  0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_TOKEN},
+    {29, '5', "vellum scrap", "a curled leaf",      KC_ORGANIC,      0,  0, KF_PICKUPABLE | KF_NOTRADE,                    0,       0, 0, ""       ,    EQ_NONE,   0,  0,  0, MAP_VELLUM},
 };
 
 const int KIND_COUNT = (int)(sizeof(KIND_CATALOG) / sizeof(KIND_CATALOG[0]));
