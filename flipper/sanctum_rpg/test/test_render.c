@@ -169,7 +169,7 @@ static void test_figure_identity(void) {
  * (spec 50 Q1 §Q.3) must not move a pixel of them, so v1 is still checked
  * over exactly those 40; the current golden covers every pair that exists. */
 #define FIGURE_GOLDEN_V1 0x412D3813F79780F0ULL
-#define FIGURE_GOLDEN    0x585041A51300DE48ULL   /* + the dead x their 7 kinds (2026-10-22) */
+#define FIGURE_GOLDEN    0x5E47877D539E1128ULL   /* + the dead x their 7 kinds (2026-10-22); marks legible (2026-10-23) */
 static uint64_t figure_hash(int families, int traits, bool only_fitting) {
     static uint8_t ink[FIGURE_PLANE_BYTES], mask[FIGURE_PLANE_BYTES];
     uint64_t h = 0xCBF29CE484222325ULL;

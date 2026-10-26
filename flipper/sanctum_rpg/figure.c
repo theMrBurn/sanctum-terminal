@@ -101,6 +101,13 @@ static void eye(Plane* ink, Plane* mask, const Xf* t, int x, int y) {
     pset(ink, a, b, 0);
 }
 
+/* A dark dot: ink and mask on (a socket, a mouth, a drop). */
+static void dot(Plane* ink, Plane* mask, const Xf* t, int x, int y) {
+    int a = tx(t, x), b = ty(t, y);
+    pset(mask, a, b, 1);
+    pset(ink, a, b, 1);
+}
+
 /* ── family body plans ─────────────────────────────────────────────────
  * Each plan has a body() into the mask and a detail() for limbs + eyes.
  * `st` = 1 when striking (the tell), `fr` = animation frame (0/1). */
@@ -230,8 +237,8 @@ static void dead_detail(Plane* ink, Plane* m, const Xf* t, int st, int fr) {
     limb(ink, m, t, 21, 15, 24, hand_y);
     limb(ink, m, t, 14, 26, 13 - f, 31);                      /* legs, a dragging step */
     limb(ink, m, t, 18, 26, 19 + f, 31);
-    eye(ink, m, t, 14, 9 + st);                               /* hollow eyes */
-    eye(ink, m, t, 18, 9 + st);
+    dot(ink, m, t, 14, 9 + st);                               /* hollow eyes: dark */
+    dot(ink, m, t, 18, 9 + st);                               /* sockets in the pale head */
 }
 
 static const BodyPlan PLANS[] = {
@@ -412,13 +419,19 @@ bool figure_compose(
     /* 4d. TRAIT marks (data: Trait.mark), drawn before the front mirror so
      * they come out symmetric on figures that face you. */
     switch(tr->mark) {
-    case MARK_MAW:                                     /* an open jaw */
-        limb(&ink, &m, &t, 14, 13 + st, 13, 16 + st);
-        limb(&ink, &m, &t, 18, 13 + st, 19, 16 + st);
+    case MARK_MAW:                                     /* a dark mouth in the pale face, wider to strike */
+        for(int x = 15; x <= 17; x++) dot(&ink, &m, &t, x, 11 + st);
+        dot(&ink, &m, &t, 16, 12 + st);
+        if(st) for(int x = 15; x <= 17; x++) dot(&ink, &m, &t, x, 13 + st);
         break;
-    case MARK_DRIP:                                    /* drops falling, one frame apart */
-        limb(&ink, &m, &t, 9, 26 + fr, 9, 27 + fr);
-        limb(&ink, &m, &t, 23, 28 - fr, 23, 29 - fr);
+    case MARK_DRIP:                                    /* it weeps dark down the pale face, and drips */
+        limb(&ink, &m, &t, 18, 10 + st, 18, 12 + st);   /* right half: mirrored to both eyes */
+        dot(&ink, &m, &t, 18, 14 + fr);
+        limb(&ink, &m, &t, 16, 31, 21, 31);              /* and stands in what it has lost */
+        break;
+    case MARK_GAUNT:                                   /* ribs through the shroud */
+        for(int y = 15; y <= 19; y += 2)
+            for(int x = 14; x <= 18; x++) eye(&ink, &m, &t, x, y);
         break;
     case MARK_SPOTS:                                   /* clear blotches on the hide */
         eye(&ink, &m, &t, 14, 17);
