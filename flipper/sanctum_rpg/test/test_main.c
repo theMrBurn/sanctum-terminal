@@ -572,6 +572,21 @@ static void test_sites(void) {
  * Real moons land at their phase with full strength; a quarter moon has
  * none; strength waxes and wanes monotonically through each window; night
  * splits at the configured hours. */
+/* Night darkening (sky_light_delta): nothing by day; at night 1 less,
+ * none near a full moon, 2 less near a new moon. */
+static void test_sky_light(void) {
+    Sky s;
+    memset(&s, 0, sizeof(s));
+    s.night = false; s.phase = MOON_NEW; s.moon_strength = MOON_STRENGTH_MAX;
+    CHECK(sky_light_delta(&s) == 0, "sky light: by day, no change, whatever the moon");
+    s.night = true; s.phase = MOON_WAXING; s.moon_strength = 0;
+    CHECK(sky_light_delta(&s) == -1, "sky light: an ordinary night takes 1");
+    s.phase = MOON_FULL; s.moon_strength = 5;
+    CHECK(sky_light_delta(&s) == 0, "sky light: near a full moon the night is lit");
+    s.phase = MOON_NEW; s.moon_strength = 5;
+    CHECK(sky_light_delta(&s) == -2, "sky light: near a new moon the night takes 2");
+}
+
 static void test_sky(void) {
     static const struct { uint64_t t; MoonPhase p; } MOONS[] = {
         {1706205240ull, MOON_FULL},   /* 2024-01-25 17:54 UTC */
@@ -3886,6 +3901,7 @@ int main(void) {
     test_styles();
     test_sites();
     test_sky();
+    test_sky_light();
     test_mutation_guard();
     test_terrain_steps();
     test_style_catalog();

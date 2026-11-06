@@ -96,6 +96,8 @@ typedef struct {
     uint8_t hollow_kind;
     int8_t hollow_x, hollow_y, hollow_index;
     uint8_t hollow_open;   /* display only, set by the app: the mouth shows (the rite is done) */
+    uint8_t night_dim;     /* display only, set by the app: 0 by day, 1-2 at night (sky_light_delta) */
+    uint8_t night_sky;     /* display only: 0 day, 1 night, 2 near a full moon, 3 near a new moon */
     /* What WORLDGEN 9 placed here for its region's rituals (ritual.h
      * region_objects): each object's tile and meaning, so a pickup or a
      * step onto a carving knows what it found. Derived; never saved, never

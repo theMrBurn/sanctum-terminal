@@ -492,6 +492,23 @@ static void recompute_visibility(AppState* st) {
     /* Atmosphere: fog/storm caps the FOV. weather_apply_fov clamps to
      * a minimum of 1 so the player is never blinded outright. */
     radius = weather_apply_fov(&st->current_weather, radius);
+    /* Night, above ground: the dark comes in (sky_light_delta; the clock is
+     * an input). Underground and in a pocket it's dark either way. */
+    st->world.night_dim = 0;
+    st->world.night_sky = 0;
+    if(st->world.biome == BIOME_OUTDOOR && !st->in_hollow) {
+        DateTime now;
+        furi_hal_rtc_get_datetime(&now);
+        Sky sky;
+        sky_at(datetime_datetime_to_timestamp(&now), &sky);
+        int d = sky_light_delta(&sky);
+        st->world.night_dim = (uint8_t)(-d);
+        st->world.night_sky = !sky.night ? 0
+                            : (sky.moon_strength && sky.phase == MOON_FULL) ? 2
+                            : (sky.moon_strength && sky.phase == MOON_NEW) ? 3 : 1;
+        radius += d;
+        if(radius < 1) radius = 1;
+    }
     int px = st->character.player_x;
     int py = st->character.player_y;
     for(int y = 0; y < WORLD_ROWS; y++) {

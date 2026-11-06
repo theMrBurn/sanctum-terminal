@@ -39,6 +39,12 @@ void sky_at(uint64_t local_unix, Sky* out);
  * §58.9). The caller says it once per night (sky_night_id), above ground. */
 const char* sky_line(const Sky* s);
 
+/* How night changes the light above ground (2026-11-06, to be tuned in
+ * play): 0 by day; at night 1 less, or none near a full moon ("the
+ * graves are lit"), or 2 less near a new moon. Returns 0, -1 or -2; the
+ * caller keeps the radius at least 1. */
+int sky_light_delta(const Sky* s);
+
 /* Which night a moment belongs to: the day number of the evening that
  * night began on. The small hours after midnight belong to the evening
  * before. Used to say something once per night. */

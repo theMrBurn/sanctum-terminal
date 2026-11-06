@@ -805,6 +805,13 @@ static const int WALL_DARK_INK[WALL_DARK_STEPS] = {1, 3, 5, 8, 11, 14};
 #define RIDGE_KNOT_PX          8    /* outdoor ridge: knot spacing */
 #define RIDGE_MAX_H            6    /* outdoor ridge: tallest peak, px */
 #define RIDGE_FILL_INK         2    /* outdoor ridge: fill density (of 16) */
+#define NIGHT_SKY_INK         12    /* open sky at night: ink density (of 16) */
+#define NIGHT_SKY_INK_FULL     8    /* ...near a full moon: lighter */
+#define NIGHT_SKY_INK_NEW     16    /* ...near a new moon: black, no stars */
+#define NIGHT_STAR_ONE_IN     23    /* a star: one sky pixel in this many left light */
+#define MOON_COL              64    /* the full moon: south, high in the view */
+#define MOON_ROW               7
+#define MOON_R                 4
 #define COLUMN_FLUTES          4    /* carved column: flutes per tile face */
 #define COLUMN_CAPITAL_V      28    /* carved column: capital band depth (of 256) */
 #define MONOLITH_DARKER        2    /* raw monolith sits darker than coursed stone */
@@ -851,9 +858,13 @@ static const uint8_t BAYER4[4][4] = {
  * DARKNESS, not fog: the torch lights near stone (light fill, seams in ink),
  * and the dark takes it back with distance (denser ink). Y-faces sit one
  * step darker — the old side-shade, kept. */
+static int fpv_night_dim;           /* the world's night_dim, for this frame */
+
 static int wall_density(int perp, int side) {
     int step = 0;
     while(step < WALL_DARK_STEPS - 1 && perp >= WALL_DARK_AT[step]) step++;
+    step += fpv_night_dim;              /* at night the dark comes closer */
+    if(step > WALL_DARK_STEPS - 1) step = WALL_DARK_STEPS - 1;
     int d = WALL_DARK_INK[step] + (side == 1 ? WALL_SIDE_DARKER : 0);
     return d > 16 ? 16 : d;
 }
@@ -1061,6 +1072,7 @@ void render_fpv_world(
     const Creature* creatures, int creature_count) {
     canvas_clear(canvas);
     if(!world) return;
+    fpv_night_dim = world->night_dim;
 #ifdef SANCTUM_RPG_HOST_TEST
     for(int c = 0; c < FPV_VIEW_W; c++) fpv_test_wall_top[c] = -1, fpv_test_wall_bot[c] = -2, fpv_test_wall_mat[c] = -1;
     if(fpv_test_underpaint)
@@ -1096,6 +1108,19 @@ void render_fpv_world(
         if(open_biome) {
             /* Far ridge: outline + sparse fill down to the horizon. */
             int rh = ridge_height(facing, c);
+            /* At night the open sky above the ridge goes dark: stars where
+             * it isn't moonless, a moon to the south when it's full. */
+            if(world->night_sky) {
+                int ink = world->night_sky == 2 ? NIGHT_SKY_INK_FULL
+                        : world->night_sky == 3 ? NIGHT_SKY_INK_NEW : NIGHT_SKY_INK;
+                for(int y = 0; y < FPV_HORIZON_Y - rh; y++) {
+                    bool moon = world->night_sky == 2 && facing == FPV_FACE_S &&
+                                (c - MOON_COL) * (c - MOON_COL) + (y - MOON_ROW) * (y - MOON_ROW) <= MOON_R * MOON_R;
+                    bool star = world->night_sky != 3 &&
+                                tile_hash(c + (int)facing * FPV_VIEW_W, y ^ 0x5A7) % NIGHT_STAR_ONE_IN == 0;
+                    if(!moon && !star && BAYER4[y & 3][c & 3] < ink) canvas_draw_dot(canvas, c, y);
+                }
+            }
             canvas_draw_dot(canvas, c, FPV_HORIZON_Y - rh);
             for(int y = FPV_HORIZON_Y - rh + 1; y < FPV_HORIZON_Y; y++)
                 if(BAYER4[y & 3][c & 3] < RIDGE_FILL_INK) canvas_draw_dot(canvas, c, y);

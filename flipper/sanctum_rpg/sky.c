@@ -49,3 +49,10 @@ uint32_t sky_night_id(uint64_t local_unix) {
     if(hour < SKY_NIGHT_END_HOUR && day > 0) day--;
     return (uint32_t)day;
 }
+
+int sky_light_delta(const Sky* s) {
+    if(!s->night) return 0;
+    if(s->moon_strength && s->phase == MOON_FULL) return 0;
+    if(s->moon_strength && s->phase == MOON_NEW) return -2;
+    return -1;
+}

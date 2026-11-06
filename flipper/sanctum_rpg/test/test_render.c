@@ -368,6 +368,29 @@ static void test_site_forms(void) {
     CHECK(elsewhere == 4, "site: a prop that is not the site stays plain");
 }
 
+/* RULE: at night the dark comes closer in first person (World.night_dim
+ * moves the distance shading): a night frame has more ink than the same
+ * frame by day, and darker nights more still. */
+static int ink_count(const Canvas* c) {
+    int n = 0;
+    for(int y = 0; y < SHIM_H; y++)
+        for(int x = 0; x < SHIM_W; x++) n += c->px[y][x] != 0;
+    return n;
+}
+
+static void test_night_dims_fpv(void) {
+    World w;
+    flat_chunk(&w, BIOME_OUTDOOR);
+    static Canvas c[3];
+    for(int d = 0; d < 3; d++) {
+        w.night_dim = (uint8_t)d;
+        canvas_clear(&c[d]);
+        render_fpv_world(&c[d], &w, 1, 3, 1, NULL, 0);
+    }
+    CHECK(ink_count(&c[1]) > ink_count(&c[0]) && ink_count(&c[2]) > ink_count(&c[1]),
+          "night: first person darkens with the night (day < night < moonless night)");
+}
+
 /* Re-recorded for WORLDGEN 7a: four burial props added (art only, no world
  * change — nothing places them yet). */
 #define TERRAIN_GOLDEN 0xC8E84D4F270890D7ULL
@@ -624,6 +647,7 @@ int main(void) {
     test_prop_identity();
     test_terrain_golden();
     test_site_forms();
+    test_night_dims_fpv();
     test_menhir_is_one_stone();
     test_props_are_opaque();
     test_map_legibility();

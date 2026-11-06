@@ -537,6 +537,11 @@ int main(int argc, char** argv) {
     World w;
     world_generate_chunk(seed, cx, cy, &w);
     maybe_gate(seed, cx, cy, &w);
+    if(getenv("SHOT_NIGHT")) {             /* 0 day, 1 night, 2 full moon, 3 new moon */
+        int n = atoi(getenv("SHOT_NIGHT"));
+        w.night_sky = (uint8_t)n;
+        w.night_dim = (uint8_t)(n == 1 ? 1 : n == 3 ? 2 : 0);
+    }
     Creature cr[CREATURES_MAX];
     /* Same spawn path as sanctum_rpg.c populate_creatures(), so a scene shows
      * what the device would show at this seed/chunk. */

@@ -62,6 +62,8 @@ void world_clear_seams(World* w) {
     w->hollow_kind = 0xFFu;      /* HOLLOW_NONE (hollow.h) */
     w->hollow_x = w->hollow_y = w->hollow_index = -1;
     w->hollow_open = 0;
+    w->night_dim = 0;
+    w->night_sky = 0;
     w->arc_count = 0;
 }
 
