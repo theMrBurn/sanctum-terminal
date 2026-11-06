@@ -29,6 +29,10 @@
  * Per spec 43 / project_sanctum_rpg_flipper: items are FINITE.
  * Picked-up items stay gone forever (no daily refresh).
  *
+ * "S <hex>": the remembered map, the chunk's seen cells as a bitmap
+ * (fov_seen_pack); written when the player leaves the chunk. Older readers
+ * skip it (it parses as neither a mutation nor a kill).
+ *
  * "g0_" prefix is "galaxy 0" — placeholder namespace; spec 43 §6
  * contemplates multiple galaxies later. Single galaxy for now.
  */
@@ -41,6 +45,7 @@
 #define DELTAS_MAX_PER_CHUNK 256   /* hard cap; far more than playtest reaches */
 #define DELTAS_MAX_KILLS_PER_CHUNK 16 /* per-chunk creature death cap (CREATURES_MAX=8 today) */
 #define DELTAS_SCHEMA_VERSION 1
+#define DELTAS_SEEN_BYTES ((WORLD_ROWS * WORLD_COLS + 7) / 8)
 
 typedef struct {
     int8_t x;
@@ -63,6 +68,8 @@ typedef struct {
     TileMutation items[DELTAS_MAX_PER_CHUNK];
     int kill_count;
     CreatureKill kills[DELTAS_MAX_KILLS_PER_CHUNK];
+    bool has_seen;                       /* the remembered map, if any */
+    uint8_t seen[DELTAS_SEEN_BYTES];
 } ChunkDeltas;
 
 /* Clear in-memory deltas, set the chunk coords (used when entering a
@@ -92,3 +99,7 @@ SaveIoResult deltas_record(
  * old readers silently skip them (tolerant). */
 SaveIoResult deltas_record_kill(
     const char* campaign_id, ChunkDeltas* d, uint8_t spawn_x, uint8_t spawn_y);
+
+/* Remember the chunk's seen cells (one byte each, WORLD_ROWS x WORLD_COLS)
+ * + atomic file rewrite, only if they changed since the last record. */
+SaveIoResult deltas_record_seen(const char* campaign_id, ChunkDeltas* d, const uint8_t* seen);

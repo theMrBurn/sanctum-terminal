@@ -1403,6 +1403,33 @@ static void test_biome(void) {
     CHECK(!saw_crystal, "biome: outdoor never rolls cavern-only crystal");
 }
 
+/* The remembered map (fov_seen_*): a chunk's seen cells round-trip through
+ * the bitmap and its hex exactly, for any pattern; bad hex is refused. */
+static void test_fov_seen(void) {
+    enum { CELLS = WORLD_ROWS * WORLD_COLS, BYTES = (CELLS + 7) / 8 };
+    uint8_t seen[CELLS], back[CELLS], bits[BYTES], bits2[BYTES];
+    char hex[2 * BYTES + 1];
+    int bad = 0;
+    uint32_t h = 0x12345678u;
+    for(int t = 0; t < 200; t++) {
+        for(int i = 0; i < CELLS; i++) {
+            h ^= h << 13; h ^= h >> 17; h ^= h << 5;
+            seen[i] = (uint8_t)((t == 0) ? 0 : (t == 1) ? 1 : (h & 1u));
+        }
+        fov_seen_pack(seen, CELLS, bits);
+        fov_seen_to_hex(bits, BYTES, hex);
+        bad += (int)strlen(hex) != 2 * BYTES;
+        bad += !fov_seen_from_hex(hex, BYTES, bits2);
+        bad += memcmp(bits, bits2, BYTES) != 0;
+        fov_seen_unpack(bits2, CELLS, back);
+        bad += memcmp(seen, back, CELLS) != 0;
+    }
+    CHECK(bad == 0, "fov: the remembered map round-trips through bits and hex");
+    CHECK(BYTES == 12, "fov: a 16x6 chunk's map is 12 bytes (24 hex digits in the delta file)");
+    CHECK(!fov_seen_from_hex("zz", 1, bits), "fov: bad hex is refused");
+    CHECK(!fov_seen_from_hex("0", 1, bits), "fov: short hex is refused");
+}
+
 static void test_fov(void) {
     /* fuel → radius bands */
     CHECK(fov_radius_for_fuel(TORCH_FUEL_MAX) == 4, "fov: full fuel -> radius 4");
@@ -3844,6 +3871,7 @@ static void test_ranged_scanner(void) {
 int main(void) {
     printf("Sanctum RPG — deterministic core tests\n");
     test_fov();
+    test_fov_seen();
     test_rng_determinism();
     test_rng_range_bounds();
     test_chunk_seed_spread();

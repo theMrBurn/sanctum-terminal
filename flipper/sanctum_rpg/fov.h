@@ -32,3 +32,11 @@ int fov_radius_for_fuel(uint16_t fuel);
 /* Is (tx,ty) lit from (px,py) at this radius? Chebyshev distance ≤ r.
  * Symmetric: fov_is_lit(a,b,c,d,r) == fov_is_lit(c,d,a,b,r). */
 bool fov_is_lit(int px, int py, int tx, int ty, int radius);
+
+/* The remembered map: a chunk's seen cells (one byte each, row-major) as a
+ * bitmap of (cells+7)/8 bytes (bit i = cell i, LSB first), and that bitmap
+ * as lowercase hex for the chunk's delta file ("S <hex>"). */
+void fov_seen_pack(const uint8_t* seen, int cells, uint8_t* bits);
+void fov_seen_unpack(const uint8_t* bits, int cells, uint8_t* seen);
+void fov_seen_to_hex(const uint8_t* bits, int nbytes, char* out);       /* out: 2*nbytes+1 */
+bool fov_seen_from_hex(const char* hex, int nbytes, uint8_t* bits);     /* false on bad text */

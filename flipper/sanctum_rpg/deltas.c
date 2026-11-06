@@ -3,6 +3,7 @@
  */
 
 #include "deltas.h"
+#include "fov.h"
 
 #include <furi.h>
 #include <storage/storage.h>
@@ -52,6 +53,7 @@ void deltas_reset(ChunkDeltas* d, int chunk_x, int chunk_y) {
     d->chunk_y = chunk_y;
     d->count = 0;
     d->kill_count = 0;
+    d->has_seen = false;
 }
 
 void deltas_apply_to_world(const ChunkDeltas* d, World* w) {
@@ -147,7 +149,9 @@ SaveIoResult deltas_load(
         } else if(line[0] != '\0' && line[0] != '#') {
             /* Creature-kill line ("K x y") OR tile-mutation line ("x y c").
              * Old format (no prefix) is parsed as a mutation — back-compat. */
-            if(line[0] == 'K' && line[1] == ' ') {
+            if(line[0] == 'S' && line[1] == ' ') {
+                out->has_seen = fov_seen_from_hex(line + 2, DELTAS_SEEN_BYTES, out->seen);
+            } else if(line[0] == 'K' && line[1] == ' ') {
                 if(out->kill_count < DELTAS_MAX_KILLS_PER_CHUNK) {
                     CreatureKill k;
                     if(parse_kill_line(line, &k)) {
@@ -209,6 +213,13 @@ static SaveIoResult write_deltas_atomic(
         if(len <= 0 || (size_t)len >= sizeof(buf)) { r = SaveIoFsError; break; }
         if(storage_file_write(file, buf, len) != (size_t)len) { r = SaveIoFsError; break; }
     }
+    if(d->has_seen && r == SaveIoOk) {
+        char hex[2 * DELTAS_SEEN_BYTES + 1];
+        fov_seen_to_hex(d->seen, DELTAS_SEEN_BYTES, hex);
+        len = snprintf(buf, sizeof(buf), "S %s\n", hex);
+        if(len <= 0 || (size_t)len >= sizeof(buf)) r = SaveIoFsError;
+        else if(storage_file_write(file, buf, len) != (size_t)len) r = SaveIoFsError;
+    }
     for(int i = 0; i < d->kill_count && r == SaveIoOk; i++) {
         len = snprintf(buf, sizeof(buf), "K %u %u\n",
                        (unsigned)d->kills[i].spawn_x, (unsigned)d->kills[i].spawn_y);
@@ -251,5 +262,14 @@ SaveIoResult deltas_record_kill(
     d->kills[d->kill_count].spawn_x = spawn_x;
     d->kills[d->kill_count].spawn_y = spawn_y;
     d->kill_count++;
+    return write_deltas_atomic(campaign_id, d);
+}
+
+SaveIoResult deltas_record_seen(const char* campaign_id, ChunkDeltas* d, const uint8_t* seen) {
+    uint8_t bits[DELTAS_SEEN_BYTES];
+    fov_seen_pack(seen, WORLD_ROWS * WORLD_COLS, bits);
+    if(d->has_seen && !memcmp(bits, d->seen, sizeof(bits))) return SaveIoOk;   /* nothing new */
+    memcpy(d->seen, bits, sizeof(bits));
+    d->has_seen = true;
     return write_deltas_atomic(campaign_id, d);
 }

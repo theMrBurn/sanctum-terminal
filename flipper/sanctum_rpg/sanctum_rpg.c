@@ -503,16 +503,26 @@ static void recompute_visibility(AppState* st) {
     }
 }
 
-/* Entering a chunk: forget the previous chunk's exploration, then light
- * the area around the spawn. (Persistent per-chunk memory is a later
- * refinement; for now each visit re-explores.) */
+/* Entering a chunk: the map remembers what you saw here before (the
+ * chunk's delta file, "S"; loaded with the deltas), then the area around
+ * you lights. A pocket starts unseen: it isn't the chunk. */
 static void reset_visibility(AppState* st) {
     for(int y = 0; y < WORLD_ROWS; y++) {
         for(int x = 0; x < WORLD_COLS; x++) {
             st->seen[y][x] = 0u;
         }
     }
+    if(!st->in_hollow && st->current_deltas.has_seen &&
+       st->current_deltas.chunk_x == st->character.chunk_x && st->current_deltas.chunk_y == st->character.chunk_y)
+        fov_seen_unpack(st->current_deltas.seen, WORLD_ROWS * WORLD_COLS, &st->seen[0][0]);
     recompute_visibility(st);
+}
+
+/* Remember what's been seen of the chunk you're in (written only if it
+ * grew): when you leave it, step into a hollow, or go back to the title. */
+static void seen_save(AppState* st) {
+    if(!st->campaign_loaded || st->in_hollow) return;
+    deltas_record_seen(st->character.campaign_id, &st->current_deltas, &st->seen[0][0]);
 }
 
 /* Enter the world for `campaign_id`. Loads meta (for seed), loads or
@@ -2797,6 +2807,7 @@ static void do_transition(AppState* st, MoveDir dir, int perp) {
     default: return;
     }
 
+    seen_save(st);              /* the map of the chunk you're leaving */
     st->character.chunk_x = (int16_t)cx;
     st->character.chunk_y = (int16_t)cy;
     st->quirk.active = false;   /* an armed quirk belongs to the chunk you left */
@@ -3810,6 +3821,7 @@ static void hollow_enter(AppState* st) {
     }
     int index = st->world.hollow_index;
     uint8_t kind = st->world.hollow_kind;
+    seen_save(st);              /* the chunk's map, before the pocket replaces it */
     st->hollow_ret_x = (int8_t)st->character.player_x;
     st->hollow_ret_y = (int8_t)st->character.player_y;
     st->hollow_kind_in = kind;
@@ -4270,6 +4282,7 @@ int32_t sanctum_rpg_app(void* p) {
         if(event.type == InputTypeRepeat &&
            (event.key == InputKeyOk || event.key == InputKeyBack))
             continue;
+        Screen screen_before = state.screen;
 
         /* Each input is a fresh frame — transient status cleared on title/picker,
          * preserved on world only when the move sets it. */
@@ -4782,6 +4795,8 @@ int32_t sanctum_rpg_app(void* p) {
         }
         }
 
+        if(screen_before == ScreenWorld && state.screen == ScreenTitle)
+            seen_save(&state);  /* back to the title: keep this chunk's map */
         view_port_update(view_port);
     }
 
