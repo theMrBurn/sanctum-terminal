@@ -14,11 +14,11 @@ CFLAGS = -std=c11 -Wall -Wextra -Werror -O0 -g -I. -DSANCTUM_RPG_HOST_TEST
 # deeds.c is host-testable via the SANCTUM_RPG_HOST_TEST macro — its
 # Flipper-side I/O paths are #ifdef'd out under the host build, leaving
 # the pure event-table + axis-rollup logic exposed for assertions.
-PURE_SRC = afflict.c hollow.c cast.c arc.c dead.c corruption.c effort.c ritual.c figure.c pixkit.c terrain.c style.c region.c quirk.c site.c sky.c rng.c world.c loot.c biome.c fov.c creatures.c classes.c recipes.c deeds.c narrative.c pool.c stamps.c compose.c weather.c names.c trade.c bearing.c
+PURE_SRC = facing.c afflict.c hollow.c cast.c arc.c dead.c corruption.c effort.c ritual.c figure.c pixkit.c terrain.c style.c region.c quirk.c site.c sky.c rng.c world.c loot.c biome.c fov.c creatures.c classes.c recipes.c deeds.c narrative.c pool.c stamps.c compose.c weather.c names.c trade.c bearing.c
 TEST_SRC = test/test_main.c $(PURE_SRC)
 TEST_BIN = test/run_tests
 
-.PHONY: test clean shots host host-ref host-fixtures
+.PHONY: test clean shots host host-ref host-fixtures game-pure
 
 # Host screenshots: the real renderers against test/shim (a RAM canvas).
 # Writes test/shots/*.pbm + test/shots/sheet.png. Not part of `make test`.
@@ -92,8 +92,9 @@ test:
 	$(CC) $(CFLAGS) -Itest/shim test/test_render.c render_fpv.c $(PURE_SRC) -o $(RENDER_TEST_BIN)
 	./$(RENDER_TEST_BIN)
 
-# The host reference run: today's whole app (sanctum_rpg.c, save_io.c,
-# deltas.c, unchanged) built against test/host/shim (a stand-in Flipper SDK:
+# The host reference run: the whole app as the device builds it (the shell
+# sanctum_rpg.c, the rules game.c, the screens screens.c, save_io.c,
+# deltas.c) built against test/host/shim (a stand-in Flipper SDK:
 # an SD card in a folder, a scripted clock, random source and buttons), driven
 # by test/host/scripts. Each script writes a trace (every key, every screen,
 # a hash of every frame, the player, the world, the files) to build/host/out.
@@ -106,11 +107,18 @@ HOST_BIN = build/host/sanctum_host
 host:
 	mkdir -p build/host
 	rm -f build/host/sums.txt
-	$(CC) $(HOST_CFLAGS) test/host/host_main.c save_io.c deltas.c render_fpv.c $(PURE_SRC) -o $(HOST_BIN)
+	$(MAKE) game-pure
+	$(CC) $(HOST_CFLAGS) test/host/host_main.c game.c screens.c save_io.c deltas.c render_fpv.c $(PURE_SRC) -o $(HOST_BIN)
 	rm -rf build/host/out
 	sh test/host/run.sh $(HOST_BIN) build/host/out
 	cd build/host/out && shasum -a 256 *.trace > ../sums.txt
 	diff test/host/ref.sha256 build/host/sums.txt && echo "host: every trace matches the reference"
+# The rules call no Flipper SDK: game.c compiles with the plain host flags
+# and no shim on the include path, so any SDK header it reaches fails here.
+game-pure:
+	mkdir -p build/host
+	$(CC) -std=c11 -Wall -Wextra -Werror -I. -c game.c -o build/host/game_pure.o
+	@echo "game-pure: game.c compiles without the Flipper SDK"
 host-ref:
 	$(MAKE) host || true
 	cp build/host/sums.txt test/host/ref.sha256

@@ -1,5 +1,6 @@
-/* The app on the host: sanctum_rpg.c, save_io.c and deltas.c as the device
- * builds them, unchanged, against test/host/shim, driven by a script.
+/* The app on the host: the shell (sanctum_rpg.c), the rules (game.c), the
+ * screens (screens.c), save_io.c and deltas.c as the device builds them,
+ * against test/host/shim, driven by a script.
  *
  *   build/host/sanctum_host SCRIPT ROOT TRACE
  *
