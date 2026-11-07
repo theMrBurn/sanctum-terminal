@@ -354,6 +354,14 @@ typedef struct {
     char status_buf[STATUS_BUF_SIZE];
 } AppState;
 
+/* ─── input, as the game sees it ─────────────────────────────────── */
+
+typedef enum { GameKeyUp, GameKeyDown, GameKeyRight, GameKeyLeft, GameKeyOk, GameKeyBack, GameKeyNone } GameKey;
+/* Short, long and repeat are the presses the game reads; Other is a raw
+ * press or release, which it ignores. */
+typedef enum { GamePressShort, GamePressLong, GamePressRepeat, GamePressOther } GamePress;
+typedef enum { GameIgnored, GameHandled, GameQuit } GameStep;
+
 /* Save the character. Inside a hollow, the saved place is the tile you
  * came in from, so a reload wakes you outside it (the pocket is RAM). */
 static void save_character(const AppState* st) {
@@ -2773,12 +2781,12 @@ static void on_select_title(AppState* st) {
 
 /* ─── world actions ───────────────────────────────────────────────── */
 
-static MoveDir key_to_dir(InputKey k) {
+static MoveDir key_to_dir(GameKey k) {
     switch(k) {
-    case InputKeyUp:    return MoveNorth;
-    case InputKeyDown:  return MoveSouth;
-    case InputKeyLeft:  return MoveWest;
-    case InputKeyRight: return MoveEast;
+    case GameKeyUp:    return MoveNorth;
+    case GameKeyDown:  return MoveSouth;
+    case GameKeyLeft:  return MoveWest;
+    case GameKeyRight: return MoveEast;
     default:            return MoveNone;
     }
 }
@@ -4169,37 +4177,39 @@ static void on_world_move(AppState* st, MoveDir dir) {
 
 /* ─── main loop ────────────────────────────────────────────────────── */
 
-int32_t sanctum_rpg_app(void* p) {
-    UNUSED(p);
-
-    AppState state = {
-        .screen = ScreenTitle,
-        .cursor = MenuNewGame,
-        .status_line = NULL,
-        .campaign_loaded = false,
-        .muted = true, /* dev default — quiet device; toggle on in Settings */
-        .combat_foe = -1,
-        .pending_quest_entry = -1,    /* slice 49.F5 — no quest open */
-        .pending_quest_template = -1,
-        .quest_choice = 0,
-        .resolved_mask = 0u,
-        .craft_anim_frame = 0,
-        .craft_pending_tier = PULL_FLOOR,
-    };
+/* Open the app: the state a fresh launch starts from, the save card, the
+ * lifetime ledger and the day streak. */
+void game_open(AppState* st) {
+    /* Everything else starts at zero, as the old designated initializer had
+     * it. Field by field, not a compound literal: no second AppState on the
+     * 16 KB device stack. */
+    memset(st, 0, sizeof(*st));
+    st->screen = ScreenTitle;
+    st->cursor = MenuNewGame;
+    st->status_line = NULL;
+    st->campaign_loaded = false;
+    st->muted = true; /* dev default — quiet device; toggle on in Settings */
+    st->combat_foe = -1;
+    st->pending_quest_entry = -1; /* slice 49.F5 — no quest open */
+    st->pending_quest_template = -1;
+    st->quest_choice = 0;
+    st->resolved_mask = 0u;
+    st->craft_anim_frame = 0;
+    st->craft_pending_tier = PULL_FLOOR;
 
     SaveIoResult io_init = save_io_init();
     if(io_init != SaveIoOk) {
-        set_status(&state, "SD init failed");
+        set_status(st, "SD init failed");
     } else if(save_io_count_campaigns() > 0) {
-        state.cursor = MenuContinue;
+        st->cursor = MenuContinue;
     }
 
     /* Tensura ledger — load the lifetime axis-growth rollup on app open
      * (slice 48.F4). The real_self_id is the same hardcoded "themrburn"
      * used in finalize_new_character; when the profile.json path lands
      * (slice 48.F8 / dock), it sources from there. */
-    deeds_init(&state.deeds);
-    deeds_load(&state.deeds, "themrburn");
+    deeds_init(&st->deeds);
+    deeds_load(&st->deeds, "themrburn");
 
     /* Slice 48.F8 stub — check for a dock-supplied profile_<real_self>.json
      * packet. The consumer side is wired (status line surfaces "profile
@@ -4208,7 +4218,7 @@ int32_t sanctum_rpg_app(void* p) {
      * axis-override happens in a later slice once the packet schema is
      * exercised; this stub just acknowledges arrival. */
     if(save_io_app_file_nonempty("profile_themrburn.json"))
-        set_status(&state, "profile packet available");
+        set_status(st, "profile packet available");
 
     /* Day-streak detection (slice 48.F7 — "world remembers your days").
      * Read the most-recent campaign's last_played_at_unix and compare to
@@ -4228,12 +4238,575 @@ int32_t sanctum_rpg_app(void* p) {
                 uint32_t last_day =
                     (uint32_t)(prev_meta.last_played_at_unix / 86400u);
                 if(today_day == last_day + 1) {
-                    deeds_record(&state.deeds, "themrburn", prev_id,
+                    deeds_record(&st->deeds, "themrburn", prev_id,
                                  0u, DEED_DAY_STREAK);
                 }
             }
         }
     }
+}
+
+/* One key press: the rules' whole response to it. GameIgnored means the
+ * press is not one the game acts on (and nothing redraws). */
+GameStep game_input(AppState* st, GameKey key, GamePress type) {
+    bool quit = false;
+    if(type != GamePressShort && type != GamePressRepeat &&
+       type != GamePressLong)
+        return GameIgnored;
+    /* Repeat is for the d-pad only (hold to keep walking / scrolling).
+     * OK and Back mean one deliberate act each. Holding OK past the
+     * long-press (the FPV toggle) streams Repeats, and each one used to
+     * land as an OK press: FPV's "examine ahead" flipped on and off
+     * (spending turns, logging SIGHT deeds), and release often left the
+     * player in an examine mode FPV doesn't draw — so Up/Down moved an
+     * invisible cursor and the view seemed to ignore movement. */
+    if(type == GamePressRepeat &&
+       (key == GameKeyOk || key == GameKeyBack))
+        return GameIgnored;
+    Screen screen_before = st->screen;
+
+    /* Each input is a fresh frame — transient status cleared on title/picker,
+     * preserved on world only when the move sets it. */
+    if(st->screen != ScreenWorld && st->screen != ScreenCombat) {
+        st->status_line = NULL;
+    }
+
+    switch(st->screen) {
+    case ScreenTitle:
+        switch(key) {
+        case GameKeyUp:
+            st->cursor = (st->cursor + MenuCount - 1) % MenuCount;
+            break;
+        case GameKeyDown:
+            st->cursor = (st->cursor + 1) % MenuCount;
+            break;
+        case GameKeyOk:   on_select_title(st); break;
+        case GameKeyBack: quit = true; break;
+        default: break;
+        }
+        break;
+
+    case ScreenLoadPicker:
+        switch(key) {
+        case GameKeyUp:    picker_move(&st->picker, -1); break;
+        case GameKeyDown:  picker_move(&st->picker, +1); break;
+        case GameKeyOk:    on_picker_select(st); break;
+        case GameKeyBack:  st->screen = ScreenTitle; break;
+        default: break;
+        }
+        break;
+
+    case ScreenCodex:
+        switch(key) {
+        case GameKeyUp:
+            if(st->codex_scroll > 0) st->codex_scroll--;
+            break;
+        case GameKeyDown:
+            if(st->codex_scroll < codex_rows(st) - PICKER_VISIBLE_ROWS)
+                st->codex_scroll++;
+            break;
+        case GameKeyOk:
+        case GameKeyBack:
+            st->screen = ScreenTitle;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenWorld:
+        if(st->examining) {
+            /* Examine mode: d-pad moves the cursor (free — looking isn't
+             * acting); OK scans a creature under the cursor (deliberate,
+             * costs turns, spec §4.7) else exits; Back exits. */
+            switch(key) {
+            case GameKeyUp:    examine_move(st, 0, -1); break;
+            case GameKeyDown:  examine_move(st, 0, +1); break;
+            case GameKeyLeft:  examine_move(st, -1, 0); break;
+            case GameKeyRight: examine_move(st, +1, 0); break;
+            case GameKeyOk: {
+                if(type == GamePressRepeat) break;   /* a held OK acts once */
+                /* Examine @ → open the read-only character sheet (slice 1c). */
+                if(st->examine_x == st->character.player_x &&
+                   st->examine_y == st->character.player_y) {
+                    st->examining = false;
+                    st->screen = ScreenCharSheet;
+                    break;
+                }
+                const Creature* c =
+                    creature_at(st, st->examine_x, st->examine_y);
+                if(c && st->lit[st->examine_y][st->examine_x]) {
+                    /* Scan while there's more to learn about its kind;
+                     * once there isn't, a known cast fires (spec 46 §5.1). */
+                    CreatureDef cd;
+                    creature_compose(c->family_id, c->trait_id, &cd);
+                    if(cast_fires(st->character.observe, cd.scan_diff,
+                                  creature_bestiary_grade(st->character.bestiary, cd.family_id),
+                                  st->character.casts_known))
+                        cast_fire(st, (int)(c - st->creatures));
+                    else
+                        scan_creature(st, (int)(c - st->creatures));
+                } else {
+                    /* Examine on an empty lit tile = SIGHT growth (the
+                     * "you looked, you saw" deed, slice 48.F5). Capped
+                     * 4/session — keeps the act meaningful, not farmable. */
+                    if(st->lit[st->examine_y][st->examine_x]) {
+                        deeds_record(&st->deeds, "themrburn",
+                                     st->character.campaign_id,
+                                     st->character.turn, DEED_EXAMINE);
+                    }
+                    st->examining = false;
+                    st->status_line = NULL;
+                }
+                break;
+            }
+            case GameKeyBack:
+                st->examining = false;
+                st->status_line = NULL;
+                break;
+            default: break;
+            }
+        } else {
+            /* Long-press OK toggles between top-down and FPV view
+             * modes (slice 2026-06-03e). Both modes stay available
+             * indefinitely; long-press flips back and forth. The
+             * long-press latency (~500-700ms) is the firmware's
+             * threshold — not render lag. We announce the switch on
+             * the status strip so the player gets confirmation. */
+            if(type == GamePressLong && key == GameKeyOk) {
+                st->view_mode ^= 1u;
+                set_status(st,
+                           st->view_mode == 1 ? "view: FPV"
+                                                : "view: top-down");
+                break;
+            }
+            if(type == GamePressLong) break;
+
+            if(st->view_mode == 1) {
+                /* FPV input model: Up/Down walk forward/back,
+                 * L/R turn 90°, OK examine ahead. */
+                switch(key) {
+                case GameKeyUp: {
+                    /* Walk forward in current facing. */
+                    MoveDir d = (st->character.facing == FPV_FACE_N) ? MoveNorth
+                              : (st->character.facing == FPV_FACE_E) ? MoveEast
+                              : (st->character.facing == FPV_FACE_S) ? MoveSouth
+                              : MoveWest;
+                    on_world_move(st, d);
+                    break;
+                }
+                case GameKeyDown: {
+                    /* Walk backward — opposite of facing, but DON'T
+                     * change facing (you're stepping back, not
+                     * turning around). */
+                    uint8_t saved = st->character.facing;
+                    MoveDir d = (saved == FPV_FACE_N) ? MoveSouth
+                              : (saved == FPV_FACE_E) ? MoveWest
+                              : (saved == FPV_FACE_S) ? MoveNorth
+                              : MoveEast;
+                    on_world_move(st, d);
+                    st->character.facing = saved;
+                    break;
+                }
+                case GameKeyLeft:
+                    st->character.facing = fpv_turn_left(st->character.facing);
+                    save_character(st);
+                    break;
+                case GameKeyRight:
+                    st->character.facing = fpv_turn_right(st->character.facing);
+                    save_character(st);
+                    break;
+                case GameKeyOk:
+                    /* Examine ahead — target the tile one step in
+                     * facing direction. */
+                    st->examining = true;
+                    st->examine_x = (int8_t)(
+                        st->character.player_x + fpv_facing_dx(st->character.facing));
+                    st->examine_y = (int8_t)(
+                        st->character.player_y + fpv_facing_dy(st->character.facing));
+                    /* Clamp into chunk bounds. */
+                    if(st->examine_x < 0) st->examine_x = 0;
+                    if(st->examine_x >= WORLD_COLS) st->examine_x = WORLD_COLS - 1;
+                    if(st->examine_y < 0) st->examine_y = 0;
+                    if(st->examine_y >= WORLD_ROWS) st->examine_y = WORLD_ROWS - 1;
+                    /* FPV draws no examine cursor, so say the mode out
+                     * loud — otherwise Up/Down silently stop walking. */
+                    set_status(st, "looking ahead. Back: done");
+                    break;
+                case GameKeyBack:
+                    st->screen = ScreenTitle;
+                    st->campaign_loaded = false;
+                    st->status_line = NULL;
+                    break;
+                default: break;
+                }
+                break;
+            }
+
+            /* Top-down input model (unchanged). */
+            switch(key) {
+            case GameKeyUp:
+            case GameKeyDown:
+            case GameKeyLeft:
+            case GameKeyRight:
+                on_world_move(st, key_to_dir(key));
+                break;
+            case GameKeyOk:
+                /* Enter examine at the player's tile — the teaching look. */
+                st->examining = true;
+                st->examine_x = st->character.player_x;
+                st->examine_y = st->character.player_y;
+                break;
+            case GameKeyBack:
+                /* Last move's autosave is on disk — safe to leave. */
+                st->screen = ScreenTitle;
+                st->campaign_loaded = false;
+                st->status_line = NULL;
+                break;
+            default: break;
+            }
+        }
+        break;
+
+    case ScreenCombat:
+        switch(key) {
+        case GameKeyUp:
+        case GameKeyDown: {
+            uint8_t verbs[CV_COUNT];
+            int nverbs = combat_verbs(st, verbs);
+            st->combat_cursor =
+                (st->combat_cursor + (key == GameKeyUp ? nverbs - 1 : 1)) % nverbs;
+            break;
+        }
+        case GameKeyOk: {
+            uint8_t verbs[CV_COUNT];
+            int nverbs = combat_verbs(st, verbs);
+            if(st->combat_cursor >= nverbs) { st->combat_cursor = 0; break; }   /* a flask ran out */
+            switch(verbs[st->combat_cursor]) {
+            case CV_STRIKE: combat_strike(st); break;
+            case CV_FLEE:   combat_flee(st); break;
+            case CV_SKILL:  combat_skill(st); break;
+            case CV_THROW:  combat_throw(st); break;
+            default: break;
+            }
+            break;
+        }
+        case GameKeyBack:
+            combat_flee(st); /* Back = quick-flee */
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenClassPick:
+        switch(key) {
+        case GameKeyLeft:
+            st->pending_class_id =
+                (uint8_t)((st->pending_class_id + CLASS_COUNT - 1) % CLASS_COUNT);
+            character_apply_class(&st->character, st->pending_class_id);
+            break;
+        case GameKeyRight:
+            st->pending_class_id =
+                (uint8_t)((st->pending_class_id + 1) % CLASS_COUNT);
+            character_apply_class(&st->character, st->pending_class_id);
+            break;
+        case GameKeyOk:
+            if(st->pending_class_id == CLASS_WANDERER) {
+                st->stat_buy_cursor = 0;
+                st->screen = ScreenStatBuy;
+            } else {
+                finalize_new_character(st);
+            }
+            break;
+        case GameKeyBack:
+            st->screen = ScreenTitle;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenCharSheet:
+        switch(key) {
+        case GameKeyOk:
+            /* Slice 2: OK opens the inventory. */
+            st->inv_cursor = 0;
+            st->screen = ScreenInventory;
+            break;
+        case GameKeyBack:
+            st->screen = ScreenWorld;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenInventory:
+        switch(key) {
+        case GameKeyLeft:
+            if(st->inv_cursor > 0) st->inv_cursor--;
+            break;
+        case GameKeyRight:
+            if(st->inv_cursor < KIND_COUNT - 1) st->inv_cursor++;
+            break;
+        case GameKeyUp:
+            /* Slice 4: Up = Forge (craft). */
+            st->craft_cursor = 0;
+            st->screen = ScreenCraft;
+            st->status_line = NULL;
+            break;
+        case GameKeyDown:
+            /* Slice 4: Down = Shop (sell). */
+            st->shop_cursor = 0;
+            st->screen = ScreenShop;
+            st->status_line = NULL;
+            break;
+        case GameKeyOk:
+            inventory_use(st);
+            break;
+        case GameKeyBack:
+            st->screen = ScreenWorld;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenCraft:
+        switch(key) {
+        case GameKeyLeft:
+            craft_step(st, -1);
+            st->status_line = NULL;
+            break;
+        case GameKeyRight:
+            craft_step(st, +1);
+            st->status_line = NULL;
+            break;
+        case GameKeyOk:
+            if(st->craft_cursor == CRAFT_EXPERIMENT) craft_experiment(st);
+            else craft_pull(st);
+            break;
+        case GameKeyBack:
+            st->screen = ScreenInventory;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenShop:
+        switch(key) {
+        case GameKeyUp:
+            if(st->shop_cursor > 0) st->shop_cursor--;
+            break;
+        case GameKeyDown: {
+            uint8_t list[KIND_COUNT];
+            int n;
+            if(st->shop_is_vendor && st->shop_mode == 1) {
+                n = build_buyable_list(
+                    (uint8_t)st->world.biome, list, KIND_COUNT);
+            } else {
+                n = build_sellable_list(&st->character, list, KIND_COUNT);
+            }
+            if(st->shop_cursor < n - 1) st->shop_cursor++;
+            break;
+        }
+        case GameKeyLeft:
+        case GameKeyRight:
+            /* Toggle BUY/SELL only at a real vendor — the scrap dealer
+             * has no BUY surface. */
+            if(st->shop_is_vendor) {
+                st->shop_mode = (uint8_t)(st->shop_mode ^ 1u);
+                st->shop_cursor = 0;
+            }
+            break;
+        case GameKeyOk:
+            if(st->shop_is_vendor && st->shop_mode == 1) {
+                shop_buy(st);
+            } else {
+                shop_sell(st);
+            }
+            break;
+        case GameKeyBack:
+            /* Vendor shop opened FROM world → return to world.
+             * Scrap shop opened FROM inventory → return to inventory. */
+            st->screen =
+                st->shop_is_vendor ? ScreenWorld : ScreenInventory;
+            st->shop_is_vendor = false;
+            st->shop_mode = 0;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenFpvDemo:
+        /* Deprecated. FPV is now a view-mode of ScreenWorld; this
+         * case is unreachable but kept for enum compat. Any input
+         * routes back to ScreenWorld. */
+        st->screen = ScreenWorld;
+        st->status_line = NULL;
+        break;
+
+    case ScreenStash:
+        switch(key) {
+        case GameKeyUp:
+            if(st->stash_cursor > 0) st->stash_cursor--;
+            break;
+        case GameKeyDown:
+            if(st->stash_cursor < KIND_COUNT - 1) st->stash_cursor++;
+            break;
+        case GameKeyLeft:
+        case GameKeyRight:
+            st->stash_focus = (uint8_t)(st->stash_focus ^ 1u);
+            break;
+        case GameKeyOk:
+            if(st->stash_focus == 0) stash_deposit(st);
+            else                       stash_withdraw(st);
+            break;
+        case GameKeyBack:
+            st->screen = ScreenWorld;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenQuest:
+        /* Slice 49.F5 — L/R cycles A/B branch; OK resolves; Back
+         * dismisses without resolving (the quest can re-surface on
+         * next visit since resolved_mask isn't set on dismiss). */
+        switch(key) {
+        case GameKeyLeft:  st->quest_choice = 0; break;
+        case GameKeyRight: st->quest_choice = 1; break;
+        case GameKeyOk:    quest_resolve(st); break;
+        case GameKeyBack:
+            st->pending_quest_entry = -1;
+            st->pending_quest_template = -1;
+            st->screen = ScreenWorld;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenSite: {
+        uint8_t acts[4];
+        int n = site_actions(st, acts);
+        switch(key) {
+        case GameKeyUp:   if(st->site_cursor > 0) st->site_cursor--; break;
+        case GameKeyDown: if(st->site_cursor < n - 1) st->site_cursor++; break;
+        case GameKeyOk:   site_act(st); break;
+        case GameKeyBack: st->screen = ScreenWorld; break;
+        default: break;
+        }
+        break;
+    }
+
+    case ScreenRite: {
+        uint8_t ways[WAY_COUNT];
+        int n = rite_ways(st, ways);
+        switch(key) {
+        case GameKeyUp:   if(st->rite_cursor > 0) st->rite_cursor--; break;
+        case GameKeyDown: if(st->rite_cursor < n - 1) st->rite_cursor++; break;
+        case GameKeyOk:   rite_begin(st); break;
+        case GameKeyBack: st->screen = ScreenSite; break;
+        default: break;
+        }
+        break;
+    }
+
+    case ScreenVigil:
+        switch(key) {
+        case GameKeyOk:   vigil_wait(st); break;
+        case GameKeyBack:
+            set_status(st, ARC_LINE_BROKEN);
+            st->screen = ScreenWorld;
+            break;
+        default: break;
+        }
+        break;
+
+    case ScreenRunes:
+        switch(key) {
+        case GameKeyLeft:  if(st->rune_sel > 0) st->rune_sel--; break;
+        case GameKeyRight: if(st->rune_sel < st->runes.count - 1) st->rune_sel++; break;
+        case GameKeyUp:
+        case GameKeyDown:
+            if(st->runes.kind != PUZZLE_ORDER)
+                st->rune_turn[st->rune_sel] =
+                    (uint8_t)((st->rune_turn[st->rune_sel] + (key == GameKeyUp ? 1 : 3)) % 4);
+            break;
+        case GameKeyOk:   runes_touch(st); break;
+        case GameKeyBack: st->screen = ScreenWorld; break;
+        default: break;
+        }
+        break;
+
+    case ScreenStatBuy: {
+        /* Slice 48.F1 axes BODY/CRAFT/SIGHT/MIND/HEART/WILL — pointer
+         * array order matches stat_buy_cursor + STAT_NAMES in the draw. */
+        uint8_t* const stats[6] = {
+            &st->character.body,  &st->character.craft,
+            &st->character.sight, &st->character.mind,
+            &st->character.heart, &st->character.will,
+        };
+        int idx = st->stat_buy_cursor;
+        int total = (int)st->character.body  + (int)st->character.craft +
+                    (int)st->character.sight + (int)st->character.mind +
+                    (int)st->character.heart + (int)st->character.will;
+        int budget = 66 - total;
+        switch(key) {
+        case GameKeyUp:
+            if(st->stat_buy_cursor > 0) st->stat_buy_cursor--;
+            break;
+        case GameKeyDown:
+            if(st->stat_buy_cursor < 5) st->stat_buy_cursor++;
+            break;
+        case GameKeyLeft:
+            if(*stats[idx] > 8) (*stats[idx])--;
+            break;
+        case GameKeyRight:
+            if(*stats[idx] < 16 && budget > 0) (*stats[idx])++;
+            break;
+        case GameKeyOk:
+            finalize_new_character(st);
+            break;
+        case GameKeyBack:
+            /* Slice 48.F2/F3 — back from profile-review = cancel New
+             * Game. No save artifact (campaign not yet created on disk
+             * — finalize hasn't run). Returns to the title screen. */
+            st->screen = ScreenTitle;
+            break;
+        default: break;
+        }
+        break;
+    }
+    }
+
+    /* Back to the title: keep this chunk's map. ⚠️ Not seen_save(): every
+     * world → title path has already cleared campaign_loaded, and
+     * seen_save() returns on that, so this save never ran (the host
+     * reference, title_return, caught it). The chunk is still in RAM. */
+    if(screen_before == ScreenWorld && st->screen == ScreenTitle && !st->in_hollow)
+        deltas_record_seen(st->character.campaign_id, &st->current_deltas, &st->seen[0][0]);
+    return quit ? GameQuit : GameHandled;
+}
+
+/* The Flipper's buttons as the game's keys. */
+static void shell_map_event(const InputEvent* e, GameKey* key, GamePress* type) {
+    switch(e->key) {
+    case InputKeyUp:    *key = GameKeyUp; break;
+    case InputKeyDown:  *key = GameKeyDown; break;
+    case InputKeyRight: *key = GameKeyRight; break;
+    case InputKeyLeft:  *key = GameKeyLeft; break;
+    case InputKeyOk:    *key = GameKeyOk; break;
+    case InputKeyBack:  *key = GameKeyBack; break;
+    default:            *key = GameKeyNone; break;
+    }
+    *type = e->type == InputTypeShort    ? GamePressShort
+          : e->type == InputTypeLong     ? GamePressLong
+          : e->type == InputTypeRepeat   ? GamePressRepeat
+                                         : GamePressOther;
+}
+
+int32_t sanctum_rpg_app(void* p) {
+    UNUSED(p);
+
+    AppState state;
+    game_open(&state);
 
     FuriMessageQueue* input_queue =
         furi_message_queue_alloc(INPUT_QUEUE_DEPTH, sizeof(InputEvent));
@@ -4256,539 +4829,13 @@ int32_t sanctum_rpg_app(void* p) {
         FuriStatus s =
             furi_message_queue_get(input_queue, &event, FuriWaitForever);
         if(s != FuriStatusOk) continue;
-        if(event.type != InputTypeShort && event.type != InputTypeRepeat &&
-           event.type != InputTypeLong)
-            continue;
-        /* Repeat is for the d-pad only (hold to keep walking / scrolling).
-         * OK and Back mean one deliberate act each. Holding OK past the
-         * long-press (the FPV toggle) streams Repeats, and each one used to
-         * land as an OK press: FPV's "examine ahead" flipped on and off
-         * (spending turns, logging SIGHT deeds), and release often left the
-         * player in an examine mode FPV doesn't draw — so Up/Down moved an
-         * invisible cursor and the view seemed to ignore movement. */
-        if(event.type == InputTypeRepeat &&
-           (event.key == InputKeyOk || event.key == InputKeyBack))
-            continue;
-        Screen screen_before = state.screen;
-
-        /* Each input is a fresh frame — transient status cleared on title/picker,
-         * preserved on world only when the move sets it. */
-        if(state.screen != ScreenWorld && state.screen != ScreenCombat) {
-            state.status_line = NULL;
-        }
-
-        switch(state.screen) {
-        case ScreenTitle:
-            switch(event.key) {
-            case InputKeyUp:
-                state.cursor = (state.cursor + MenuCount - 1) % MenuCount;
-                break;
-            case InputKeyDown:
-                state.cursor = (state.cursor + 1) % MenuCount;
-                break;
-            case InputKeyOk:   on_select_title(&state); break;
-            case InputKeyBack: running = false; break;
-            default: break;
-            }
-            break;
-
-        case ScreenLoadPicker:
-            switch(event.key) {
-            case InputKeyUp:    picker_move(&state.picker, -1); break;
-            case InputKeyDown:  picker_move(&state.picker, +1); break;
-            case InputKeyOk:    on_picker_select(&state); break;
-            case InputKeyBack:  state.screen = ScreenTitle; break;
-            default: break;
-            }
-            break;
-
-        case ScreenCodex:
-            switch(event.key) {
-            case InputKeyUp:
-                if(state.codex_scroll > 0) state.codex_scroll--;
-                break;
-            case InputKeyDown:
-                if(state.codex_scroll < codex_rows(&state) - PICKER_VISIBLE_ROWS)
-                    state.codex_scroll++;
-                break;
-            case InputKeyOk:
-            case InputKeyBack:
-                state.screen = ScreenTitle;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenWorld:
-            if(state.examining) {
-                /* Examine mode: d-pad moves the cursor (free — looking isn't
-                 * acting); OK scans a creature under the cursor (deliberate,
-                 * costs turns, spec §4.7) else exits; Back exits. */
-                switch(event.key) {
-                case InputKeyUp:    examine_move(&state, 0, -1); break;
-                case InputKeyDown:  examine_move(&state, 0, +1); break;
-                case InputKeyLeft:  examine_move(&state, -1, 0); break;
-                case InputKeyRight: examine_move(&state, +1, 0); break;
-                case InputKeyOk: {
-                    if(event.type == InputTypeRepeat) break;   /* a held OK acts once */
-                    /* Examine @ → open the read-only character sheet (slice 1c). */
-                    if(state.examine_x == state.character.player_x &&
-                       state.examine_y == state.character.player_y) {
-                        state.examining = false;
-                        state.screen = ScreenCharSheet;
-                        break;
-                    }
-                    const Creature* c =
-                        creature_at(&state, state.examine_x, state.examine_y);
-                    if(c && state.lit[state.examine_y][state.examine_x]) {
-                        /* Scan while there's more to learn about its kind;
-                         * once there isn't, a known cast fires (spec 46 §5.1). */
-                        CreatureDef cd;
-                        creature_compose(c->family_id, c->trait_id, &cd);
-                        if(cast_fires(state.character.observe, cd.scan_diff,
-                                      creature_bestiary_grade(state.character.bestiary, cd.family_id),
-                                      state.character.casts_known))
-                            cast_fire(&state, (int)(c - state.creatures));
-                        else
-                            scan_creature(&state, (int)(c - state.creatures));
-                    } else {
-                        /* Examine on an empty lit tile = SIGHT growth (the
-                         * "you looked, you saw" deed, slice 48.F5). Capped
-                         * 4/session — keeps the act meaningful, not farmable. */
-                        if(state.lit[state.examine_y][state.examine_x]) {
-                            deeds_record(&state.deeds, "themrburn",
-                                         state.character.campaign_id,
-                                         state.character.turn, DEED_EXAMINE);
-                        }
-                        state.examining = false;
-                        state.status_line = NULL;
-                    }
-                    break;
-                }
-                case InputKeyBack:
-                    state.examining = false;
-                    state.status_line = NULL;
-                    break;
-                default: break;
-                }
-            } else {
-                /* Long-press OK toggles between top-down and FPV view
-                 * modes (slice 2026-06-03e). Both modes stay available
-                 * indefinitely; long-press flips back and forth. The
-                 * long-press latency (~500-700ms) is the firmware's
-                 * threshold — not render lag. We announce the switch on
-                 * the status strip so the player gets confirmation. */
-                if(event.type == InputTypeLong && event.key == InputKeyOk) {
-                    state.view_mode ^= 1u;
-                    set_status(&state,
-                               state.view_mode == 1 ? "view: FPV"
-                                                    : "view: top-down");
-                    break;
-                }
-                if(event.type == InputTypeLong) break;
-
-                if(state.view_mode == 1) {
-                    /* FPV input model: Up/Down walk forward/back,
-                     * L/R turn 90°, OK examine ahead. */
-                    switch(event.key) {
-                    case InputKeyUp: {
-                        /* Walk forward in current facing. */
-                        MoveDir d = (state.character.facing == FPV_FACE_N) ? MoveNorth
-                                  : (state.character.facing == FPV_FACE_E) ? MoveEast
-                                  : (state.character.facing == FPV_FACE_S) ? MoveSouth
-                                  : MoveWest;
-                        on_world_move(&state, d);
-                        break;
-                    }
-                    case InputKeyDown: {
-                        /* Walk backward — opposite of facing, but DON'T
-                         * change facing (you're stepping back, not
-                         * turning around). */
-                        uint8_t saved = state.character.facing;
-                        MoveDir d = (saved == FPV_FACE_N) ? MoveSouth
-                                  : (saved == FPV_FACE_E) ? MoveWest
-                                  : (saved == FPV_FACE_S) ? MoveNorth
-                                  : MoveEast;
-                        on_world_move(&state, d);
-                        state.character.facing = saved;
-                        break;
-                    }
-                    case InputKeyLeft:
-                        state.character.facing = fpv_turn_left(state.character.facing);
-                        save_character(&state);
-                        break;
-                    case InputKeyRight:
-                        state.character.facing = fpv_turn_right(state.character.facing);
-                        save_character(&state);
-                        break;
-                    case InputKeyOk:
-                        /* Examine ahead — target the tile one step in
-                         * facing direction. */
-                        state.examining = true;
-                        state.examine_x = (int8_t)(
-                            state.character.player_x + fpv_facing_dx(state.character.facing));
-                        state.examine_y = (int8_t)(
-                            state.character.player_y + fpv_facing_dy(state.character.facing));
-                        /* Clamp into chunk bounds. */
-                        if(state.examine_x < 0) state.examine_x = 0;
-                        if(state.examine_x >= WORLD_COLS) state.examine_x = WORLD_COLS - 1;
-                        if(state.examine_y < 0) state.examine_y = 0;
-                        if(state.examine_y >= WORLD_ROWS) state.examine_y = WORLD_ROWS - 1;
-                        /* FPV draws no examine cursor, so say the mode out
-                         * loud — otherwise Up/Down silently stop walking. */
-                        set_status(&state, "looking ahead. Back: done");
-                        break;
-                    case InputKeyBack:
-                        state.screen = ScreenTitle;
-                        state.campaign_loaded = false;
-                        state.status_line = NULL;
-                        break;
-                    default: break;
-                    }
-                    break;
-                }
-
-                /* Top-down input model (unchanged). */
-                switch(event.key) {
-                case InputKeyUp:
-                case InputKeyDown:
-                case InputKeyLeft:
-                case InputKeyRight:
-                    on_world_move(&state, key_to_dir(event.key));
-                    break;
-                case InputKeyOk:
-                    /* Enter examine at the player's tile — the teaching look. */
-                    state.examining = true;
-                    state.examine_x = state.character.player_x;
-                    state.examine_y = state.character.player_y;
-                    break;
-                case InputKeyBack:
-                    /* Last move's autosave is on disk — safe to leave. */
-                    state.screen = ScreenTitle;
-                    state.campaign_loaded = false;
-                    state.status_line = NULL;
-                    break;
-                default: break;
-                }
-            }
-            break;
-
-        case ScreenCombat:
-            switch(event.key) {
-            case InputKeyUp:
-            case InputKeyDown: {
-                uint8_t verbs[CV_COUNT];
-                int nverbs = combat_verbs(&state, verbs);
-                state.combat_cursor =
-                    (state.combat_cursor + (event.key == InputKeyUp ? nverbs - 1 : 1)) % nverbs;
-                break;
-            }
-            case InputKeyOk: {
-                uint8_t verbs[CV_COUNT];
-                int nverbs = combat_verbs(&state, verbs);
-                if(state.combat_cursor >= nverbs) { state.combat_cursor = 0; break; }   /* a flask ran out */
-                switch(verbs[state.combat_cursor]) {
-                case CV_STRIKE: combat_strike(&state); break;
-                case CV_FLEE:   combat_flee(&state); break;
-                case CV_SKILL:  combat_skill(&state); break;
-                case CV_THROW:  combat_throw(&state); break;
-                default: break;
-                }
-                break;
-            }
-            case InputKeyBack:
-                combat_flee(&state); /* Back = quick-flee */
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenClassPick:
-            switch(event.key) {
-            case InputKeyLeft:
-                state.pending_class_id =
-                    (uint8_t)((state.pending_class_id + CLASS_COUNT - 1) % CLASS_COUNT);
-                character_apply_class(&state.character, state.pending_class_id);
-                break;
-            case InputKeyRight:
-                state.pending_class_id =
-                    (uint8_t)((state.pending_class_id + 1) % CLASS_COUNT);
-                character_apply_class(&state.character, state.pending_class_id);
-                break;
-            case InputKeyOk:
-                if(state.pending_class_id == CLASS_WANDERER) {
-                    state.stat_buy_cursor = 0;
-                    state.screen = ScreenStatBuy;
-                } else {
-                    finalize_new_character(&state);
-                }
-                break;
-            case InputKeyBack:
-                state.screen = ScreenTitle;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenCharSheet:
-            switch(event.key) {
-            case InputKeyOk:
-                /* Slice 2: OK opens the inventory. */
-                state.inv_cursor = 0;
-                state.screen = ScreenInventory;
-                break;
-            case InputKeyBack:
-                state.screen = ScreenWorld;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenInventory:
-            switch(event.key) {
-            case InputKeyLeft:
-                if(state.inv_cursor > 0) state.inv_cursor--;
-                break;
-            case InputKeyRight:
-                if(state.inv_cursor < KIND_COUNT - 1) state.inv_cursor++;
-                break;
-            case InputKeyUp:
-                /* Slice 4: Up = Forge (craft). */
-                state.craft_cursor = 0;
-                state.screen = ScreenCraft;
-                state.status_line = NULL;
-                break;
-            case InputKeyDown:
-                /* Slice 4: Down = Shop (sell). */
-                state.shop_cursor = 0;
-                state.screen = ScreenShop;
-                state.status_line = NULL;
-                break;
-            case InputKeyOk:
-                inventory_use(&state);
-                break;
-            case InputKeyBack:
-                state.screen = ScreenWorld;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenCraft:
-            switch(event.key) {
-            case InputKeyLeft:
-                craft_step(&state, -1);
-                state.status_line = NULL;
-                break;
-            case InputKeyRight:
-                craft_step(&state, +1);
-                state.status_line = NULL;
-                break;
-            case InputKeyOk:
-                if(state.craft_cursor == CRAFT_EXPERIMENT) craft_experiment(&state);
-                else craft_pull(&state);
-                break;
-            case InputKeyBack:
-                state.screen = ScreenInventory;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenShop:
-            switch(event.key) {
-            case InputKeyUp:
-                if(state.shop_cursor > 0) state.shop_cursor--;
-                break;
-            case InputKeyDown: {
-                uint8_t list[KIND_COUNT];
-                int n;
-                if(state.shop_is_vendor && state.shop_mode == 1) {
-                    n = build_buyable_list(
-                        (uint8_t)state.world.biome, list, KIND_COUNT);
-                } else {
-                    n = build_sellable_list(&state.character, list, KIND_COUNT);
-                }
-                if(state.shop_cursor < n - 1) state.shop_cursor++;
-                break;
-            }
-            case InputKeyLeft:
-            case InputKeyRight:
-                /* Toggle BUY/SELL only at a real vendor — the scrap dealer
-                 * has no BUY surface. */
-                if(state.shop_is_vendor) {
-                    state.shop_mode = (uint8_t)(state.shop_mode ^ 1u);
-                    state.shop_cursor = 0;
-                }
-                break;
-            case InputKeyOk:
-                if(state.shop_is_vendor && state.shop_mode == 1) {
-                    shop_buy(&state);
-                } else {
-                    shop_sell(&state);
-                }
-                break;
-            case InputKeyBack:
-                /* Vendor shop opened FROM world → return to world.
-                 * Scrap shop opened FROM inventory → return to inventory. */
-                state.screen =
-                    state.shop_is_vendor ? ScreenWorld : ScreenInventory;
-                state.shop_is_vendor = false;
-                state.shop_mode = 0;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenFpvDemo:
-            /* Deprecated. FPV is now a view-mode of ScreenWorld; this
-             * case is unreachable but kept for enum compat. Any input
-             * routes back to ScreenWorld. */
-            state.screen = ScreenWorld;
-            state.status_line = NULL;
-            break;
-
-        case ScreenStash:
-            switch(event.key) {
-            case InputKeyUp:
-                if(state.stash_cursor > 0) state.stash_cursor--;
-                break;
-            case InputKeyDown:
-                if(state.stash_cursor < KIND_COUNT - 1) state.stash_cursor++;
-                break;
-            case InputKeyLeft:
-            case InputKeyRight:
-                state.stash_focus = (uint8_t)(state.stash_focus ^ 1u);
-                break;
-            case InputKeyOk:
-                if(state.stash_focus == 0) stash_deposit(&state);
-                else                       stash_withdraw(&state);
-                break;
-            case InputKeyBack:
-                state.screen = ScreenWorld;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenQuest:
-            /* Slice 49.F5 — L/R cycles A/B branch; OK resolves; Back
-             * dismisses without resolving (the quest can re-surface on
-             * next visit since resolved_mask isn't set on dismiss). */
-            switch(event.key) {
-            case InputKeyLeft:  state.quest_choice = 0; break;
-            case InputKeyRight: state.quest_choice = 1; break;
-            case InputKeyOk:    quest_resolve(&state); break;
-            case InputKeyBack:
-                state.pending_quest_entry = -1;
-                state.pending_quest_template = -1;
-                state.screen = ScreenWorld;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenSite: {
-            uint8_t acts[4];
-            int n = site_actions(&state, acts);
-            switch(event.key) {
-            case InputKeyUp:   if(state.site_cursor > 0) state.site_cursor--; break;
-            case InputKeyDown: if(state.site_cursor < n - 1) state.site_cursor++; break;
-            case InputKeyOk:   site_act(&state); break;
-            case InputKeyBack: state.screen = ScreenWorld; break;
-            default: break;
-            }
-            break;
-        }
-
-        case ScreenRite: {
-            uint8_t ways[WAY_COUNT];
-            int n = rite_ways(&state, ways);
-            switch(event.key) {
-            case InputKeyUp:   if(state.rite_cursor > 0) state.rite_cursor--; break;
-            case InputKeyDown: if(state.rite_cursor < n - 1) state.rite_cursor++; break;
-            case InputKeyOk:   rite_begin(&state); break;
-            case InputKeyBack: state.screen = ScreenSite; break;
-            default: break;
-            }
-            break;
-        }
-
-        case ScreenVigil:
-            switch(event.key) {
-            case InputKeyOk:   vigil_wait(&state); break;
-            case InputKeyBack:
-                set_status(&state, ARC_LINE_BROKEN);
-                state.screen = ScreenWorld;
-                break;
-            default: break;
-            }
-            break;
-
-        case ScreenRunes:
-            switch(event.key) {
-            case InputKeyLeft:  if(state.rune_sel > 0) state.rune_sel--; break;
-            case InputKeyRight: if(state.rune_sel < state.runes.count - 1) state.rune_sel++; break;
-            case InputKeyUp:
-            case InputKeyDown:
-                if(state.runes.kind != PUZZLE_ORDER)
-                    state.rune_turn[state.rune_sel] =
-                        (uint8_t)((state.rune_turn[state.rune_sel] + (event.key == InputKeyUp ? 1 : 3)) % 4);
-                break;
-            case InputKeyOk:   runes_touch(&state); break;
-            case InputKeyBack: state.screen = ScreenWorld; break;
-            default: break;
-            }
-            break;
-
-        case ScreenStatBuy: {
-            /* Slice 48.F1 axes BODY/CRAFT/SIGHT/MIND/HEART/WILL — pointer
-             * array order matches stat_buy_cursor + STAT_NAMES in the draw. */
-            uint8_t* const stats[6] = {
-                &state.character.body,  &state.character.craft,
-                &state.character.sight, &state.character.mind,
-                &state.character.heart, &state.character.will,
-            };
-            int idx = state.stat_buy_cursor;
-            int total = (int)state.character.body  + (int)state.character.craft +
-                        (int)state.character.sight + (int)state.character.mind +
-                        (int)state.character.heart + (int)state.character.will;
-            int budget = 66 - total;
-            switch(event.key) {
-            case InputKeyUp:
-                if(state.stat_buy_cursor > 0) state.stat_buy_cursor--;
-                break;
-            case InputKeyDown:
-                if(state.stat_buy_cursor < 5) state.stat_buy_cursor++;
-                break;
-            case InputKeyLeft:
-                if(*stats[idx] > 8) (*stats[idx])--;
-                break;
-            case InputKeyRight:
-                if(*stats[idx] < 16 && budget > 0) (*stats[idx])++;
-                break;
-            case InputKeyOk:
-                finalize_new_character(&state);
-                break;
-            case InputKeyBack:
-                /* Slice 48.F2/F3 — back from profile-review = cancel New
-                 * Game. No save artifact (campaign not yet created on disk
-                 * — finalize hasn't run). Returns to the title screen. */
-                state.screen = ScreenTitle;
-                break;
-            default: break;
-            }
-            break;
-        }
-        }
-
-        /* Back to the title: keep this chunk's map. ⚠️ Not seen_save(): every
-         * world → title path has already cleared campaign_loaded, and
-         * seen_save() returns on that, so this save never ran (the host
-         * reference, title_return, caught it). The chunk is still in RAM. */
-        if(screen_before == ScreenWorld && state.screen == ScreenTitle && !state.in_hollow)
-            deltas_record_seen(state.character.campaign_id, &state.current_deltas, &state.seen[0][0]);
+        GameKey key;
+        GamePress type;
+        shell_map_event(&event, &key, &type);
+        GameStep step = game_input(&state, key, type);
+        if(step == GameIgnored) continue;
         view_port_update(view_port);
+        if(step == GameQuit) running = false;
     }
 
     shell_view_port = NULL;
