@@ -62,6 +62,35 @@
 #include "sky.h"
 #include "weather.h"
 #include "world.h"
+#include "platform.h"
+
+/* ─── the Flipper shell's side of platform.h ─────────────────────── */
+
+static NotificationApp* shell_notif;  /* haptic/LED/sound feedback (v0.3.5d) */
+static ViewPort* shell_view_port;     /* the Forge's mid-press frames */
+
+uint64_t platform_now_unix(void) {
+    DateTime now;
+    furi_hal_rtc_get_datetime(&now);
+    return datetime_datetime_to_timestamp(&now);
+}
+
+uint32_t platform_random(void) {
+    return furi_hal_random_get();
+}
+
+void platform_note(GameNote note) {
+    if(!shell_notif) return;
+    const NotificationSequence* seq = note == GameNoteSuccess ? &sequence_success
+                                    : note == GameNoteVibro   ? &sequence_single_vibro
+                                                              : &sequence_error;
+    notification_message(shell_notif, seq);
+}
+
+void platform_present_frame(uint32_t hold_ms) {
+    if(shell_view_port) view_port_update(shell_view_port);
+    furi_delay_ms(hold_ms);
+}
 
 /* ─── tunables (no hardcoded literals in render code — per AGENTS.md) ─── */
 
@@ -278,14 +307,12 @@ typedef struct {
     int8_t stash_cursor;
     uint8_t stash_focus;
 
-    NotificationApp* notif;  /* haptic/LED/sound feedback (v0.3.5d) */
     bool muted;              /* default ON during dev; toggled in Settings */
 
-    /* Thread B — Forge slot-machine animation. View_port handle so the
-     * animation can force redraw frames during a blocking pull. craft_
+    /* Thread B — Forge slot-machine animation. The pull presents its
+     * frames through platform_present_frame during the press. craft_
      * anim_frame > 0 puts the craft screen in animation mode; the draw
      * function shows cycling reels instead of the static recipe card. */
-    ViewPort* view_port;
     uint8_t craft_anim_frame; /* 0 = idle; 1..ANIM_TOTAL = animating */
     char craft_reel_glyphs[3]; /* current reel symbols during animation */
     PullTier craft_pending_tier; /* computed at pull start, applied on reveal */
@@ -425,8 +452,8 @@ static void character_apply_class(CharacterState* c, uint8_t class_id) {
 }
 
 /* Fire a haptic/LED/sound feedback sequence (no-op if unavailable or muted). */
-static void notify(AppState* st, const NotificationSequence* seq) {
-    if(st->notif && !st->muted) notification_message(st->notif, seq);
+static void notify(AppState* st, GameNote note) {
+    if(!st->muted) platform_note(note);
 }
 
 /* Linear scan for a live creature on a tile (small per-chunk N). */
@@ -445,9 +472,7 @@ static const Creature* creature_at(const AppState* st, int x, int y) {
  * on the same day → byte-equal weather. Day rollover advances the
  * pattern naturally because RTC day changes. */
 static void refresh_weather(AppState* st) {
-    DateTime now;
-    furi_hal_rtc_get_datetime(&now);
-    uint64_t now_unix = datetime_datetime_to_timestamp(&now);
+    uint64_t now_unix = platform_now_unix();
     uint32_t day = (uint32_t)(now_unix / 86400u);
     /* Indoors is attenuated by ENCLOSURE, not realm: a manor's hall hears
      * the rain above like a cavern does (weather.h). */
@@ -497,10 +522,8 @@ static void recompute_visibility(AppState* st) {
     st->world.night_dim = 0;
     st->world.night_sky = 0;
     if(st->world.biome == BIOME_OUTDOOR && !st->in_hollow) {
-        DateTime now;
-        furi_hal_rtc_get_datetime(&now);
         Sky sky;
-        sky_at(datetime_datetime_to_timestamp(&now), &sky);
+        sky_at(platform_now_unix(), &sky);
         int d = sky_light_delta(&sky);
         st->world.night_dim = (uint8_t)(-d);
         st->world.night_sky = !sky.night ? 0
@@ -974,7 +997,7 @@ static void examine_move(AppState* st, int dx, int dy) {
         if(k && ((st->character.identified >> k->id) & 1ull) == 0) {
             st->character.identified |= (1ull << k->id);
             save_character(st);
-            notify(st, &sequence_success); /* scan logged a new Codex entry */
+            notify(st, GameNoteSuccess); /* scan logged a new Codex entry */
         }
     }
 }
@@ -1458,13 +1481,13 @@ static void inventory_use(AppState* st) {
             *slot = (uint8_t)idx;
             set_statusf(st, "equipped %s", k->true_name);
         }
-        notify(st, &sequence_success);
+        notify(st, GameNoteSuccess);
     } else if(idx == AF_KIND_DRAUGHT) {
         /* A sour draught coats your edge: the next hits that land poison. */
         st->character.inv_qty[idx]--;
         st->coating = COATING_HITS;
         set_status(st, AF_LINE_COATED);
-        notify(st, &sequence_success);
+        notify(st, GameNoteSuccess);
     } else if((k->flags & KF_CONSUMABLE) && k->heal > 0) {
         /* Consume → +heal HP (clamped to max_hp). Decrement count. */
         int new_hp = (int)st->character.hp + (int)k->heal;
@@ -1472,7 +1495,7 @@ static void inventory_use(AppState* st) {
         st->character.hp = (uint16_t)new_hp;
         st->character.inv_qty[idx]--;
         set_statusf(st, "used %s +%u HP", k->true_name, (unsigned)k->heal);
-        notify(st, &sequence_success);
+        notify(st, GameNoteSuccess);
     } else {
         set_status(st, "no use here");
     }
@@ -1622,8 +1645,7 @@ static void craft_pull(AppState* st) {
                 break;
             }
         }
-        if(st->view_port) view_port_update(st->view_port);
-        furi_delay_ms(CRAFT_ANIM_FRAME_MS);
+        platform_present_frame(CRAFT_ANIM_FRAME_MS);
     }
     st->craft_anim_frame = 0; /* end animation; back to recipe card */
 
@@ -1636,7 +1658,7 @@ static void craft_pull(AppState* st) {
             st->character.identified |= (1ull << r->output_kind);
         }
         set_statusf(st, "the %s sings  x2", out_name);
-        notify(st, &sequence_success);
+        notify(st, GameNoteSuccess);
         deeds_record(&st->deeds, "themrburn",
                      st->character.campaign_id, st->character.turn,
                      DEED_FORGE_JACKPOT);
@@ -1648,7 +1670,7 @@ static void craft_pull(AppState* st) {
             st->character.identified |= (1ull << r->output_kind);
         }
         set_statusf(st, "the %s takes shape", out_name);
-        notify(st, &sequence_success);
+        notify(st, GameNoteSuccess);
         deeds_record(&st->deeds, "themrburn",
                      st->character.campaign_id, st->character.turn,
                      DEED_FORGE_HIT);
@@ -1664,7 +1686,7 @@ static void craft_pull(AppState* st) {
         }
         set_statusf(st, "the work resists  %s",
                     odd ? odd->true_name : "scrap");
-        notify(st, &sequence_single_vibro);
+        notify(st, GameNoteVibro);
         /* No deed on FLOOR — the oddment IS the consolation; growth waits
          * for HIT. */
         break;
@@ -1694,7 +1716,7 @@ static void stash_deposit(AppState* st) {
     st->character.vault_qty[id]++;
     const KindDef* k = kind_by_id(id);
     set_statusf(st, "stashed %s", k ? k->true_name : "?");
-    notify(st, &sequence_success);
+    notify(st, GameNoteSuccess);
     save_character(st);
 }
 
@@ -1713,7 +1735,7 @@ static void stash_withdraw(AppState* st) {
     st->character.inv_qty[id]++;
     const KindDef* k = kind_by_id(id);
     set_statusf(st, "took %s", k ? k->true_name : "?");
-    notify(st, &sequence_success);
+    notify(st, GameNoteSuccess);
     save_character(st);
 }
 
@@ -1900,7 +1922,7 @@ static void shop_sell(AppState* st) {
     uint16_t paid = trade_shards_earned(price);
     if(paid == 0) {
         set_statusf(st, "%s is not worth a shard alone", k->true_name);
-        notify(st, &sequence_error);
+        notify(st, GameNoteError);
         return;
     }
     /* §17.3 #8 — the 255 cap is ACCEPTED as the encumbrance mechanic, which
@@ -1910,13 +1932,13 @@ static void shop_sell(AppState* st) {
      * item and silently eat the difference. */
     if(!purse_has_room(st, paid)) {
         set_status(st, "you have nowhere to put it");
-        notify(st, &sequence_error);
+        notify(st, GameNoteError);
         return;
     }
     st->character.inv_qty[id]--;
     purse_add(st, paid);
     set_statusf(st, "sold %s", k->true_name);
-    notify(st, &sequence_success);
+    notify(st, GameNoteSuccess);
     save_character(st);
 }
 
@@ -1941,7 +1963,7 @@ static void shop_buy(AppState* st) {
     uint16_t cost = trade_shards_owed(price);
     if(purse(st) < cost) {
         set_statusf(st, "need %u more", (unsigned)(cost - purse(st)));
-        notify(st, &sequence_error);
+        notify(st, GameNoteError);
         return;
     }
     if(id >= SAVE_INV_KINDS_MAX || st->character.inv_qty[id] >= 255) {
@@ -1952,7 +1974,7 @@ static void shop_buy(AppState* st) {
     st->character.inv_qty[id]++;
     st->character.identified |= (1ull << id); /* you bought it — you know it */
     set_statusf(st, "bought %s", k->true_name);
-    notify(st, &sequence_success);
+    notify(st, GameNoteSuccess);
     save_character(st);
 }
 
@@ -2230,9 +2252,7 @@ static void draw_quest_screen(Canvas* canvas, const AppState* st) {
 static void sync_outbox_append(
     const char* real_self, const char* campaign, uint32_t turn,
     const char* subject, uint16_t theme_mask, uint8_t severity) {
-    DateTime now_dt;
-    furi_hal_rtc_get_datetime(&now_dt);
-    uint64_t now_unix = datetime_datetime_to_timestamp(&now_dt);
+    uint64_t now_unix = platform_now_unix();
 
     /* Derive a 64-bit idempotency key — two 32-bit FNV walks over the
      * canonical (ts | campaign | turn | subject) tuple. Same inputs →
@@ -2317,7 +2337,7 @@ static void quest_resolve(AppState* st) {
         lore, sizeof(lore),
         (st->quest_choice == 0) ? t->resolution_a : t->resolution_b, e);
     set_status(st, lore);
-    notify(st, &sequence_success);
+    notify(st, GameNoteSuccess);
     st->resolved_mask |= (1u << st->pending_quest_entry);
     st->pending_quest_entry = -1;
     st->pending_quest_template = -1;
@@ -2724,7 +2744,7 @@ static void on_new_game(AppState* st) {
      * as the slice-1c contract guaranteed. */
     memset(&st->character, 0, sizeof(st->character));
     character_init_defaults(&st->character, ""); /* CLASS_YOU baseline 10×6 */
-    st->pending_seed = furi_hal_random_get();
+    st->pending_seed = platform_random();
     st->pending_class_id = CLASS_YOU;
     st->stat_buy_cursor = 0;
     /* Pre-stamp display_name so the profile-review header shows your name
@@ -2779,7 +2799,7 @@ static void on_select_title(AppState* st) {
          * dev; flip the default in AppState init when we ship. Confirm
          * with a bleep only when turning sound ON. */
         st->muted = !st->muted;
-        if(!st->muted) notify(st, &sequence_success);
+        if(!st->muted) notify(st, GameNoteSuccess);
         set_status(st, st->muted ? "sound: muted" : "sound: on");
         break;
     default: st->status_line = NULL; break;
@@ -2999,9 +3019,9 @@ static void advance_turn(AppState* st) {
     /* Light alarms: torch out, or dimmed a band. */
     uint16_t newf = st->character.torch_fuel;
     if(old_fuel > 0 && newf == 0) {
-        notify(st, &sequence_error); /* torch out — the deepest panic */
+        notify(st, GameNoteError); /* torch out — the deepest panic */
     } else if(fov_radius_for_fuel(newf) < fov_radius_for_fuel(old_fuel)) {
-        notify(st, &sequence_single_vibro); /* dimmed a band */
+        notify(st, GameNoteVibro); /* dimmed a band */
     }
 }
 
@@ -3066,7 +3086,7 @@ static void player_fall(AppState* st) {
     st->screen = ScreenWorld;
     recompute_visibility(st);
     set_status(st, "you fall, wake elsewhere"); /* concise — fits 128px */
-    notify(st, &sequence_error);
+    notify(st, GameNoteError);
     save_character(st);
 }
 
@@ -3163,7 +3183,7 @@ static void combat_kill(AppState* st, Creature* foe, const char* nm) {
     } else {
         set_statusf(st, "you fell the %s", nm);
     }
-    notify(st, &sequence_success);
+    notify(st, GameNoteSuccess);
     save_character(st);
 }
 
@@ -3184,7 +3204,7 @@ static bool combat_foe_turn(AppState* st, Creature* foe, const CreatureDef* d, i
     afflict_foe_hit(foe->trait_id, &st->character, &st->combat_foe_hp, d->hp);
     if(dmg > 0) set_statusf(st, "hit %d  took %d", dmg, fdmg);
     else set_statusf(st, "took %d", fdmg);
-    notify(st, &sequence_single_vibro);
+    notify(st, GameNoteVibro);
 
     if(st->character.equipped_armor != SAVE_EQUIP_NONE &&
        st->character.equipped_armor < SAVE_INV_KINDS_MAX) {
@@ -3337,7 +3357,7 @@ static void combat_flee(AppState* st) {
         st->character.torch_fuel =
             (st->character.torch_fuel > 2) ? (uint16_t)(st->character.torch_fuel - 2) : 0;
         set_statusf(st, "can't escape!  took %d", fdmg);
-        notify(st, &sequence_single_vibro);
+        notify(st, GameNoteVibro);
     }
 }
 
@@ -3413,7 +3433,7 @@ static void scan_creature(AppState* st, int ci) {
         } else {
             set_statusf(st, "%s %s", nm, creature_disposition_name(d.disposition));
         }
-        notify(st, &sequence_success);
+        notify(st, GameNoteSuccess);
     } else {
         set_status(st, "it slipped into the dark");
     }
@@ -3445,7 +3465,7 @@ static void cast_fire(AppState* st, int ci) {
         foe->wounds = (uint8_t)(foe->wounds + dmg);
         foe->aggro = CAST_PROVOKE;
         set_status(st, CAST_LINE_LANDS);
-        notify(st, &sequence_single_vibro);
+        notify(st, GameNoteVibro);
     }
     advance_turn(st);
     recompute_visibility(st);
@@ -3491,10 +3511,10 @@ static void quirk_tick(AppState* st) {
     }
     if(o.placed)
         deltas_record(st->character.campaign_id, &st->current_deltas, o.rx, o.ry, CAVE_IN_RUBBLE);
-    if(o.told) notify(st, &sequence_single_vibro);
+    if(o.told) notify(st, GameNoteVibro);
     if(o.damage) {
         st->character.hp = (st->character.hp > o.damage) ? (uint16_t)(st->character.hp - o.damage) : 0;
-        notify(st, &sequence_error);
+        notify(st, GameNoteError);
     }
     if(o.message) set_status(st, o.message);
     if(o.damage && st->character.hp == 0) player_fall(st);
@@ -3506,9 +3526,7 @@ static void quirk_tick(AppState* st) {
  * must be seen, wins the status line. */
 static void sky_tick(AppState* st) {
     if(st->world.biome != BIOME_OUTDOOR) return;
-    DateTime now;
-    furi_hal_rtc_get_datetime(&now);
-    uint64_t t = datetime_datetime_to_timestamp(&now);
+    uint64_t t = platform_now_unix();
     Sky sky;
     sky_at(t, &sky);
     const char* line = sky_line(&sky);
@@ -3528,7 +3546,7 @@ static void ritual_take_hold(AppState* st) {
     arc_save(st);
     save_character(st);
     arc_mark_edges(st);
-    notify(st, &sequence_success);
+    notify(st, GameNoteSuccess);
     set_status(st, ARC_LINE_RITE);
     st->screen = ScreenWorld;
 }
@@ -3587,7 +3605,7 @@ static void site_act(AppState* st) {
             arc_save(st);
             arc_mark_site(st);
             save_character(st);
-            notify(st, &sequence_success);
+            notify(st, GameNoteSuccess);
         }
         set_status(st, arc_seal_line(r));
         st->screen = ScreenWorld;
@@ -3649,10 +3667,8 @@ static void rite_begin(AppState* st) {
 
 /* The moon now (the clock is an input, read here; spec 53 §3 amended). */
 static uint8_t moon_now(bool* night) {
-    DateTime now;
-    furi_hal_rtc_get_datetime(&now);
     Sky sky;
-    sky_at(datetime_datetime_to_timestamp(&now), &sky);
+    sky_at(platform_now_unix(), &sky);
     *night = sky.night;
     return sky.moon_strength;
 }
@@ -3699,7 +3715,7 @@ static void disturb(AppState* st) {
     save_character(st);
     set_status(st, g == 'n' || g == 'N' ? DEAD_LINE_TOMB : DEAD_LINE_GRAVE);
     st->screen = ScreenWorld;
-    if(up > 0) notify(st, &sequence_single_vibro);
+    if(up > 0) notify(st, GameNoteVibro);
 }
 
 /* A turn ended above ground at night under a full or new moon: the
@@ -3714,7 +3730,7 @@ static void dead_tick(AppState* st) {
         if(dead_restless(st->campaign_seed, rx, ry, &st->region_book, &st->rituals) &&
            rise_at(st, st->rise_x, st->rise_y) > 0) {
             arc_save(st);
-            notify(st, &sequence_single_vibro);
+            notify(st, GameNoteVibro);
         }
         return;
     }
@@ -4022,7 +4038,7 @@ static void on_world_move(AppState* st, MoveDir dir) {
         } else {
             set_status(st, "found item");
         }
-        notify(st, &sequence_success); /* pickup confirm: beep + green blink */
+        notify(st, GameNoteSuccess); /* pickup confirm: beep + green blink */
         if(st->in_hollow) {
             /* never a chunk delta: deltas are keyed by the outer chunk */
             hollow_take(&st->region_book, region_of(st->character.chunk_x),
@@ -4130,9 +4146,9 @@ static void on_world_move(AppState* st, MoveDir dir) {
             st->character.torch_fuel = terrain_step_fuel(before, ts.fuel, TORCH_FUEL_MAX);
             /* Same light alarms as advance_turn: scree can put the torch out. */
             if(before > 0 && st->character.torch_fuel == 0) {
-                notify(st, &sequence_error);
+                notify(st, GameNoteError);
             } else if(fov_radius_for_fuel(st->character.torch_fuel) < fov_radius_for_fuel(before)) {
-                notify(st, &sequence_single_vibro);
+                notify(st, GameNoteVibro);
             }
             if(ts.consumed) {
                 st->world.tiles[py][px] = TILE_FLOOR;
@@ -4245,9 +4261,7 @@ int32_t sanctum_rpg_app(void* p) {
      * Same day or >1 day gap → no deed. Honors session-cap = 3 from
      * spec 48 §5.2 (a single login can't grind multiple streak days). */
     {
-        DateTime now_dt;
-        furi_hal_rtc_get_datetime(&now_dt);
-        uint64_t now_unix = datetime_datetime_to_timestamp(&now_dt);
+        uint64_t now_unix = platform_now_unix();
         uint32_t today_day = (uint32_t)(now_unix / 86400u);
 
         char prev_id[SAVE_IO_CAMPAIGN_ID_MAX + 1];
@@ -4277,8 +4291,8 @@ int32_t sanctum_rpg_app(void* p) {
 
     Gui* gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
-    state.view_port = view_port; /* Thread B — for in-handler animation */
-    state.notif = furi_record_open(RECORD_NOTIFICATION);
+    shell_view_port = view_port; /* Thread B — for in-handler animation */
+    shell_notif = furi_record_open(RECORD_NOTIFICATION);
 
     bool running = true;
     InputEvent event;
@@ -4821,6 +4835,8 @@ int32_t sanctum_rpg_app(void* p) {
         view_port_update(view_port);
     }
 
+    shell_view_port = NULL;
+    shell_notif = NULL;
     gui_remove_view_port(gui, view_port);
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_NOTIFICATION);
