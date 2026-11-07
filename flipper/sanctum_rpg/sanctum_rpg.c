@@ -780,23 +780,7 @@ static int meta_cmp_desc(const CampaignMeta* a, const CampaignMeta* b) {
 }
 
 static int picker_load(LoadPicker* p) {
-    Storage* storage = furi_record_open(RECORD_STORAGE);
-    File* dir = storage_file_alloc(storage);
-    p->count = 0;
-    if(storage_dir_open(dir, "/ext/apps_data/sanctum_rpg/campaigns")) {
-        FileInfo info;
-        char name[64];
-        while(storage_dir_read(dir, &info, name, sizeof(name))
-              && p->count < PICKER_MAX_CAMPAIGNS) {
-            if(!file_info_is_dir(&info)) continue;
-            if(save_io_load_meta(name, &p->items[p->count]) == SaveIoOk) {
-                p->count++;
-            }
-        }
-        storage_dir_close(dir);
-    }
-    storage_file_free(dir);
-    furi_record_close(RECORD_STORAGE);
+    p->count = save_io_list_campaigns(p->items, PICKER_MAX_CAMPAIGNS);
 
     for(int i = 1; i < p->count; i++) {
         CampaignMeta key = p->items[i];
@@ -2276,38 +2260,19 @@ static void sync_outbox_append(
     snprintf(line_id, sizeof(line_id), "%08lx%08lx",
              (unsigned long)k1, (unsigned long)k2);
 
-    /* Outbox file: ensure base dir, open in append, write header on first
-     * write, then write the REMEMBER line. */
-    Storage* storage = furi_record_open(RECORD_STORAGE);
-    storage_common_mkdir(storage, "/ext/apps_data/sanctum_rpg");
-    const char* path = "/ext/apps_data/sanctum_rpg/sync_outbox.txt";
-
-    /* Peek at file size — if zero/missing, we need to emit the header. */
-    FileInfo info;
-    bool need_header =
-        (storage_common_stat(storage, path, &info) != FSE_OK) || info.size == 0;
-
-    File* file = storage_file_alloc(storage);
-    if(storage_file_open(file, path, FSAM_WRITE, FSOM_OPEN_APPEND)) {
-        if(need_header) {
-            const char* hdr = "OUTBOX_SCHEMA 1\n";
-            storage_file_write(file, hdr, strlen(hdr));
-        }
-        char buf[160];
-        int n = snprintf(
-            buf, sizeof(buf),
-            "REMEMBER %s %llu %s %lu %s | 0x%04x | %u\n",
-            line_id,
-            (unsigned long long)now_unix,
-            campaign ? campaign : "-",
-            (unsigned long)turn,
-            subject ? subject : "-",
-            (unsigned)theme_mask, (unsigned)severity);
-        if(n > 0) storage_file_write(file, buf, (size_t)n);
-        storage_file_close(file);
-    }
-    storage_file_free(file);
-    furi_record_close(RECORD_STORAGE);
+    /* Outbox file: append the REMEMBER line, after the header on the
+     * first write (save_io makes the folder). */
+    char buf[160];
+    int n = snprintf(
+        buf, sizeof(buf),
+        "REMEMBER %s %llu %s %lu %s | 0x%04x | %u\n",
+        line_id,
+        (unsigned long long)now_unix,
+        campaign ? campaign : "-",
+        (unsigned long)turn,
+        subject ? subject : "-",
+        (unsigned)theme_mask, (unsigned)severity);
+    save_io_append_app_file("sync_outbox.txt", "OUTBOX_SCHEMA 1\n", buf, n > 0 ? (size_t)n : 0);
     (void)real_self; /* real_self_id is implicit in the file path tier */
 }
 
@@ -4242,17 +4207,8 @@ int32_t sanctum_rpg_app(void* p) {
      * packets, the device responds immediately. The actual diff-view +
      * axis-override happens in a later slice once the packet schema is
      * exercised; this stub just acknowledges arrival. */
-    {
-        Storage* storage = furi_record_open(RECORD_STORAGE);
-        FileInfo info;
-        if(storage_common_stat(
-               storage,
-               "/ext/apps_data/sanctum_rpg/profile_themrburn.json",
-               &info) == FSE_OK && info.size > 0) {
-            set_status(&state, "profile packet available");
-        }
-        furi_record_close(RECORD_STORAGE);
-    }
+    if(save_io_app_file_nonempty("profile_themrburn.json"))
+        set_status(&state, "profile packet available");
 
     /* Day-streak detection (slice 48.F7 — "world remembers your days").
      * Read the most-recent campaign's last_played_at_unix and compare to

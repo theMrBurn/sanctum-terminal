@@ -141,6 +141,16 @@ int save_io_count_campaigns(void);
  * Returns SaveIoOk and fills out_id; SaveIoNotFound if none. */
 SaveIoResult save_io_most_recent_campaign(char* out_id, size_t out_len);
 
+/* Up to `max` campaigns' metas, in the directory's order (the caller
+ * sorts). Returns how many loaded. */
+int save_io_list_campaigns(CampaignMeta* out, int max);
+
+/* Files directly under the app's data folder (/ext/apps_data/sanctum_rpg),
+ * by name: the sync outbox, a dock's profile packet. */
+bool save_io_app_file_nonempty(const char* name);
+/* Append `len` bytes of `line`; a missing or empty file gets `header` first. */
+void save_io_append_app_file(const char* name, const char* header, const char* line, size_t len);
+
 /* Create a new campaign with default character name. Allocates the
  * next sequential id ("001", "002", ...). Writes meta.json atomically.
  * Returns the chosen id in out_id. */

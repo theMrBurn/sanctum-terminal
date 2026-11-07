@@ -189,6 +189,58 @@ int save_io_count_campaigns(void) {
     return count;
 }
 
+int save_io_list_campaigns(CampaignMeta* out, int max) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* dir = storage_file_alloc(storage);
+    int count = 0;
+    if(storage_dir_open(dir, SAVE_CAMPAIGNS)) {
+        FileInfo info;
+        char name[64];
+        while(storage_dir_read(dir, &info, name, sizeof(name))
+              && count < max) {
+            if(!file_info_is_dir(&info)) continue;
+            if(save_io_load_meta(name, &out[count]) == SaveIoOk) {
+                count++;
+            }
+        }
+        storage_dir_close(dir);
+    }
+    storage_file_free(dir);
+    furi_record_close(RECORD_STORAGE);
+    return count;
+}
+
+bool save_io_app_file_nonempty(const char* name) {
+    char path[96];
+    snprintf(path, sizeof(path), SAVE_ROOT "/%s", name);
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    FileInfo info;
+    bool nonempty = storage_common_stat(storage, path, &info) == FSE_OK && info.size > 0;
+    furi_record_close(RECORD_STORAGE);
+    return nonempty;
+}
+
+void save_io_append_app_file(const char* name, const char* header, const char* line, size_t len) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    storage_common_mkdir(storage, SAVE_ROOT);
+    char path[96];
+    snprintf(path, sizeof(path), SAVE_ROOT "/%s", name);
+
+    /* Peek at file size — if zero/missing, we need to emit the header. */
+    FileInfo info;
+    bool need_header =
+        (storage_common_stat(storage, path, &info) != FSE_OK) || info.size == 0;
+
+    File* file = storage_file_alloc(storage);
+    if(storage_file_open(file, path, FSAM_WRITE, FSOM_OPEN_APPEND)) {
+        if(need_header) storage_file_write(file, header, strlen(header));
+        if(len > 0) storage_file_write(file, line, len);
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+}
+
 SaveIoResult save_io_most_recent_campaign(char* out_id, size_t out_len) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* dir = storage_file_alloc(storage);
