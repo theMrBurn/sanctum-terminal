@@ -1,0 +1,8 @@
+# fixture: fight  (the same beetle, to the east: look at it, scan it until the cast fires)
+clock 1762430400
+key ok
+key ok
+key right
+key ok x8
+key back
+fuzz 150 62

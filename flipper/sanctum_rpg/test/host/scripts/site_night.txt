@@ -1,0 +1,7 @@
+# fixture: site  (the same grave at night near a new moon: disturbing it, the rising)
+clock 1763679600
+key ok
+key up
+key down
+key ok
+fuzz 300 42

@@ -1,0 +1,21 @@
+# fixture: forge  (a full bag at home: every recipe, then the experiment)
+clock 1762430400
+key ok
+key ok
+key ok
+key ok
+key up
+key ok x3
+key right
+key ok x3
+key right
+key ok x3
+key right
+key ok x3
+key right
+key ok x3
+key right
+key ok x2
+key left x9
+key ok x2
+fuzz 60 91

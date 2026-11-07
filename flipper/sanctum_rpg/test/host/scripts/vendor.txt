@@ -1,0 +1,5 @@
+# fixture: vendor  (a vendor to the north, shards, caps and vials in the bag)
+clock 1762430400
+key ok
+key up
+fuzz 120 71

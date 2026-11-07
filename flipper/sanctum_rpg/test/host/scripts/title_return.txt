@@ -1,0 +1,10 @@
+# fixture: forge  (at home, a moonless night: walk, back to the title, continue: the chunk's map is kept)
+clock 1763679600
+key ok
+key left x2
+key back
+key ok
+key right x2
+key back
+key ok
+fuzz 60 71

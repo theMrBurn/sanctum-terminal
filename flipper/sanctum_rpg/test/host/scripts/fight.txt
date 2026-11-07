@@ -1,0 +1,28 @@
+# fixture: fight  (a beetle that crowding provokes; casts known, MP, both flasks and their recipes)
+clock 1762430400
+key ok
+key left
+key right
+key left
+key right
+key up
+key left
+key right
+key up
+key left
+key right
+key up
+key left
+key right
+key up
+key left
+# the beetle engages: THROW (STRIKE, FLEE, SKILL, THROW), then SKILL, then strike it out
+key down x3
+key ok
+key ok
+key up
+key ok
+key ok
+key up
+key ok x6
+fuzz 120 61

@@ -1,0 +1,9 @@
+# fixture: site  (a grave site to the north, the words and two grave-seals in the bag)
+clock 1762430400
+key ok
+key up
+key ok
+key up
+key down
+key ok
+fuzz 200 41

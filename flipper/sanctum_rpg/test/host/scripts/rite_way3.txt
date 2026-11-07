@@ -1,0 +1,69 @@
+# fixture: rite  (every site sealed; the rite's way 3 of the menu, tried from fresh)
+clock 1762430400
+key ok
+key up
+key ok
+key down x2
+key ok
+# touch every rune in order, again and again: wrong tries spend the rite's turns until it fails
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key left x5
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key left x5
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key left x5
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key left x5
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key left x5
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key right
+key ok
+key left x5
+fuzz 80 53

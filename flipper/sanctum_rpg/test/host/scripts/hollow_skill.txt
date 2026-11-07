@@ -1,0 +1,7 @@
+# fixture: hollow_skill  (the same mouth, no lantern, SIGHT 22: the effort way)
+clock 1762430400
+key ok
+key right
+fuzz 60 33
+key left x16
+key right x3

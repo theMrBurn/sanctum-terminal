@@ -1,0 +1,7 @@
+# fixture: rite  (every site sealed; the rite's way 1 of the menu, tried from fresh)
+clock 1762430400
+key ok
+key up
+key ok
+key ok
+fuzz 80 51

@@ -18,7 +18,7 @@ PURE_SRC = afflict.c hollow.c cast.c arc.c dead.c corruption.c effort.c ritual.c
 TEST_SRC = test/test_main.c $(PURE_SRC)
 TEST_BIN = test/run_tests
 
-.PHONY: test clean shots
+.PHONY: test clean shots host host-ref host-fixtures
 
 # Host screenshots: the real renderers against test/shim (a RAM canvas).
 # Writes test/shots/*.pbm + test/shots/sheet.png. Not part of `make test`.
@@ -92,6 +92,35 @@ test:
 	$(CC) $(CFLAGS) -Itest/shim test/test_render.c render_fpv.c $(PURE_SRC) -o $(RENDER_TEST_BIN)
 	./$(RENDER_TEST_BIN)
 
+# The host reference run: today's whole app (sanctum_rpg.c, save_io.c,
+# deltas.c, unchanged) built against test/host/shim (a stand-in Flipper SDK:
+# an SD card in a folder, a scripted clock, random source and buttons), driven
+# by test/host/scripts. Each script writes a trace (every key, every screen,
+# a hash of every frame, the player, the world, the files) to build/host/out.
+# `make host` checks the traces against test/host/ref.sha256, so a change
+# that should not alter play can prove it didn't. `make host-ref` re-records
+# the sums after a change that is meant to. Built WITHOUT
+# SANCTUM_RPG_HOST_TEST: the deeds' real file I/O runs too.
+HOST_CFLAGS = -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -O0 -g -I. -Itest/host/shim -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE
+HOST_BIN = build/host/sanctum_host
+host:
+	mkdir -p build/host
+	$(CC) $(HOST_CFLAGS) test/host/host_main.c save_io.c deltas.c render_fpv.c $(PURE_SRC) -o $(HOST_BIN)
+	rm -rf build/host/out
+	sh test/host/run.sh $(HOST_BIN) build/host/out
+	cd build/host/out && shasum -a 256 *.trace > ../sums.txt
+	diff test/host/ref.sha256 build/host/sums.txt && echo "host: every trace matches the reference"
+host-ref:
+	$(MAKE) host || true
+	cp build/host/sums.txt test/host/ref.sha256
+# The scripts' saves: real places in seed 270369, found by the game's own pure
+# code (test/host/find.c). Regenerate after a WORLDGEN change, then host-ref.
+HOST_FIXTURES = hollow hollow_skill site rite fight vendor quest forge
+host-fixtures:
+	mkdir -p build/host
+	$(CC) $(CFLAGS) -Wno-unused-parameter test/host/find.c $(PURE_SRC) -o build/host/find
+	@for f in $(HOST_FIXTURES); do rm -rf test/host/fixtures/$$f; ./build/host/find $$f 270369 test/host/fixtures/$$f || exit 1; done
+
 clean:
 	rm -f $(TEST_BIN) $(SHOT_BIN) $(RENDER_TEST_BIN)
-	rm -rf test/shots
+	rm -rf test/shots build/host

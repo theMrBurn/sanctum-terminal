@@ -1,0 +1,7 @@
+# fixture: quest  (in a chunk a quest surfaces in: it opens on load)
+clock 1762430400
+key ok
+key down
+key up
+key ok
+fuzz 100 81

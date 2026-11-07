@@ -1,0 +1,6 @@
+# A different world (furi_hal_random seeds the campaign) and random play.
+clock 1762530400
+random 2
+key ok
+key ok
+fuzz 3000 15

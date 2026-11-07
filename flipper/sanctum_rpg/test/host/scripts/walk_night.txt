@@ -1,0 +1,7 @@
+# The same walk at night, near a new moon (2025-11-20 23:00): the night
+# radius, the moonless sky, the rising by chance.
+clock 1763679600
+random 1
+key ok
+key ok
+fuzz 1500 11

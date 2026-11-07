@@ -1,0 +1,9 @@
+{
+  "schema_version": 10,
+  "campaign_id": "001",
+  "character_name": "themrburn",
+  "seed": 270369,
+  "started_at_unix": 1762430400,
+  "last_played_at_unix": 1762430400,
+  "permadeath": false
+}

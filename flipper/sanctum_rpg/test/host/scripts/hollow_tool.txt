@@ -1,0 +1,10 @@
+# fixture: hollow  (a dark hollow's mouth to the east, its lantern in the bag, the rite done)
+clock 1762430400
+key ok
+key right
+key left
+key right
+key right x9
+key left x9
+key left
+fuzz 120 32

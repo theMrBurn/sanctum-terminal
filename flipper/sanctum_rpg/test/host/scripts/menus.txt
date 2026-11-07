@@ -1,0 +1,27 @@
+# The title's screens with no campaign, then a new game and its menus:
+# the character sheet, inventory, the forge, the codex, back to the title.
+clock 1762430400
+random 5
+key down
+key ok
+key back
+key down x3
+key ok
+key back
+key up x3
+key ok
+key ok
+key ok
+key ok
+key back
+key back
+key back
+key left
+key ok
+key right x2
+key ok
+key back
+key back
+key down
+key ok
+key back

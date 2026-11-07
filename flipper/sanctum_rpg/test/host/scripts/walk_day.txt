@@ -1,0 +1,7 @@
+# A new game by day: through Profile Review into the world, then a long
+# walk across chunks (the d-pad, a look now and then).
+clock 1762430400
+random 1
+key ok
+key ok
+fuzz 1500 11
