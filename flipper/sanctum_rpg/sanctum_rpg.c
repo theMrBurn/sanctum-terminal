@@ -4812,8 +4812,12 @@ int32_t sanctum_rpg_app(void* p) {
         }
         }
 
-        if(screen_before == ScreenWorld && state.screen == ScreenTitle)
-            seen_save(&state);  /* back to the title: keep this chunk's map */
+        /* Back to the title: keep this chunk's map. ⚠️ Not seen_save(): every
+         * world → title path has already cleared campaign_loaded, and
+         * seen_save() returns on that, so this save never ran (the host
+         * reference, title_return, caught it). The chunk is still in RAM. */
+        if(screen_before == ScreenWorld && state.screen == ScreenTitle && !state.in_hollow)
+            deltas_record_seen(state.character.campaign_id, &state.current_deltas, &state.seen[0][0]);
         view_port_update(view_port);
     }
 
