@@ -105,6 +105,7 @@ HOST_CFLAGS = -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -O0 -g -I. -I
 HOST_BIN = build/host/sanctum_host
 host:
 	mkdir -p build/host
+	rm -f build/host/sums.txt
 	$(CC) $(HOST_CFLAGS) test/host/host_main.c save_io.c deltas.c render_fpv.c $(PURE_SRC) -o $(HOST_BIN)
 	rm -rf build/host/out
 	sh test/host/run.sh $(HOST_BIN) build/host/out
