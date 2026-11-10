@@ -11,6 +11,7 @@
  *   key K [TYPE] [xN]     K = up down left right ok back; TYPE = short (default) long repeat
  *   fuzz N SEED           N random key events from SEED
  *   # comment
+ * HOST_PBM=DIR in the environment also writes every frame as a PBM there.
  * After each event the app has handled (and drawn), one trace step: the
  * screen, the status line, the frame's hash, notifications, the character
  * as the game last saved it, the chunk, the player, the creatures. When the
@@ -251,6 +252,23 @@ void view_port_update(ViewPort* vp) {
     canvas_clear(&c);
     if(app_draw) app_draw(&c, app);
     frame_hash = fnv(c.px, sizeof(c.px), frame_hash ^ 0x9E3779B97F4A7C15ULL);
+    /* HOST_PBM=DIR: every frame as DIR/NNNN.pbm, to look at (pbm2png.py).
+     * Off by default; the trace doesn't see it. */
+    static int frame_no;
+    const char* dir = getenv("HOST_PBM");
+    if(dir) {
+        char p[600];
+        snprintf(p, sizeof(p), "%s/%04d.pbm", dir, frame_no++);
+        FILE* f = fopen(p, "w");
+        if(f) {
+            fprintf(f, "P1\n%d %d\n", SHIM_W, SHIM_H);
+            for(int y = 0; y < SHIM_H; y++) {
+                for(int x = 0; x < SHIM_W; x++) fputc(c.px[y][x] ? '1' : '0', f);
+                fputc('\n', f);
+            }
+            fclose(f);
+        }
+    }
 }
 void gui_add_view_port(Gui* gui, ViewPort* vp, GuiLayer layer) { (void)gui; (void)vp; (void)layer; }
 void gui_remove_view_port(Gui* gui, ViewPort* vp) { (void)gui; (void)vp; }

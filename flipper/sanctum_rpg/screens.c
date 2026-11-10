@@ -163,15 +163,33 @@ static bool hud_fits(Canvas* canvas, const AppState* st, int right, int w) {
 /* The foul patch, top-down: a sparse stipple unlike the haze's. */
 static const uint8_t FOUL_XBM[8] = {0x00, 0x24, 0x00, 0x81, 0x00, 0x24, 0x00, 0x81};
 
+/* The remembered map, faded: on every seen-but-unlit cell, clear a
+ * checkerboard (fixed to the screen, so the weave doesn't crawl as you
+ * walk). Half of any 2x2 survives, so even a floor dot still reads; the
+ * lit pool keeps full strokes and stands out (playtest 2026-11-09: a
+ * revisit didn't read as one). Runs before creatures and the player,
+ * which only stand on lit cells anyway. */
+static void fade_remembered(Canvas* canvas, const AppState* st) {
+    canvas_set_color(canvas, ColorWhite);
+    for(int y = 0; y < WORLD_ROWS; y++)
+        for(int x = 0; x < WORLD_COLS; x++) {
+            if(st->lit[y][x] || !st->seen[y][x]) continue;
+            for(int py = 0; py < TILE_PX; py++)
+                for(int px = (py & 1); px < TILE_PX; px += 2)
+                    canvas_draw_dot(canvas, x * TILE_PX + px, y * TILE_PX + py);
+        }
+    canvas_set_color(canvas, ColorBlack);
+}
+
 static void draw_world_screen(Canvas* canvas, const AppState* st) {
     canvas_set_font(canvas, FontSecondary);
 
     /* Tile grid with FOV: lit = full glyph; seen-but-unlit = remembered
-     * terrain (loot hidden — you don't see current state of dark tiles);
-     * never-seen = dark (drawn nothing). The lit-vs-remembered dimming is
-     * identical on the font renderer; the dither distinction arrives with
-     * the render engine. The visible mechanic now is the pool of light
-     * vs darkness that shrinks as fuel burns down. */
+     * terrain (loot hidden — you don't see current state of dark tiles),
+     * drawn faded (fade_remembered, below) so the pool of light stands
+     * out from the map you've made; never-seen = dark (drawn nothing).
+     * The visible mechanic: the pool of light vs darkness that shrinks as
+     * fuel burns down, over what you've already walked. */
     for(int y = 0; y < WORLD_ROWS; y++) {
         for(int x = 0; x < WORLD_COLS; x++) {
             char tile = st->world.tiles[y][x];
@@ -225,6 +243,7 @@ static void draw_world_screen(Canvas* canvas, const AppState* st) {
             canvas_draw_str(canvas, x * TILE_PX, y * TILE_PX + WORLD_TILE_BASELINE_Y_OFFSET, buf);
         }
     }
+    fade_remembered(canvas, st);
 
     /* Creatures — only where currently lit (you see one only if you can see
      * it now; never in seen-but-dark memory, since they move). Over terrain,
