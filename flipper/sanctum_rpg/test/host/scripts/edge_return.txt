@@ -1,0 +1,9 @@
+# fixture: edge  (by day: through home's east door and straight back, a walk west, then through again: each chunk keeps its map)
+clock 1763650000
+key ok
+key right
+key left
+key left x4
+key right x4
+key right
+key left

@@ -9,7 +9,7 @@
  * (words and an artifact to seal) | rite (every site sealed, the ways'
  * things in the bag) | fight (casts and flasks known, beside a creature's
  * spawn) | vendor | quest (in a chunk a quest surfaces in) | forge
- * (a full bag, rot's leavings among it)
+ * (a full bag, rot's leavings among it) | edge (beside home's east door)
  * Prints where it put the player; scripts take it from there. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -263,6 +263,21 @@ static int forge(void) {
     return 0;
 }
 
+/* Beside the home chunk's east door, which no corruption closes in the
+ * reference seed: a script walks through it and back (each chunk keeps
+ * its map; spec 43 §14.0 doors, the remembered map). */
+static int edge(void) {
+    Char c = base();
+    World w;
+    world_generate_chunk(seed, 0, 0, &w);
+    int row = world_edge_door_perp(seed, 0, 0, MoveEast);
+    if(!world_walkable(&w, WORLD_COLS - 2, row)) return 1;
+    c.cx = 0; c.cy = 0; c.px = WORLD_COLS - 2; c.py = row;
+    write_save(&c);
+    printf("edge: chunk 0 0 at %d %d, the east door beside\n", c.px, c.py);
+    return 0;
+}
+
 static int quest(void) {
     for(int cy = -6; cy <= 6; cy++)
         for(int cx = -6; cx <= 6; cx++) {
@@ -290,7 +305,8 @@ int main(int argc, char** argv) {
     const char* s = argv[1];
     int r = !strcmp(s, "hollow") ? hollow(0) : !strcmp(s, "hollow_skill") ? hollow(1) : !strcmp(s, "site") ? site(0)
           : !strcmp(s, "rite") ? site(1) : !strcmp(s, "fight") ? fight() : !strcmp(s, "vendor") ? vendor()
-          : !strcmp(s, "quest") ? quest() : !strcmp(s, "forge") ? forge() : 2;
+          : !strcmp(s, "quest") ? quest() : !strcmp(s, "forge") ? forge()
+          : !strcmp(s, "edge") ? edge() : 2;
     if(r) fprintf(stderr, "find: no %s found in seed %u\n", s, seed);
     return r;
 }

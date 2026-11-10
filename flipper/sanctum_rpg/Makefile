@@ -124,7 +124,7 @@ host-ref:
 	cp build/host/sums.txt test/host/ref.sha256
 # The scripts' saves: real places in seed 270369, found by the game's own pure
 # code (test/host/find.c). Regenerate after a WORLDGEN change, then host-ref.
-HOST_FIXTURES = hollow hollow_skill site rite fight vendor quest forge
+HOST_FIXTURES = hollow hollow_skill site rite fight vendor quest forge edge
 host-fixtures:
 	mkdir -p build/host
 	$(CC) $(CFLAGS) -Wno-unused-parameter test/host/find.c $(PURE_SRC) -o build/host/find
